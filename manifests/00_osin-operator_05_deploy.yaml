@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: openshift-core-operators
+  name: origin-cluster-osin-operator
+  labels:
+    app: origin-cluster-osin-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: origin-cluster-osin-operator
+  template:
+    metadata:
+      name: origin-cluster-osin-operator
+      labels:
+        app: origin-cluster-osin-operator
+    spec:
+      serviceAccountName: origin-cluster-osin-operator
+      containers:
+      - name: operator
+        image: quay.io/openshift/origin-cluster-osin-operator:latest
+        imagePullPolicy: IfNotPresent
+        command: ["osin-operator", "operator"]
+        args:
+        - "--config=/var/run/configmaps/config/operator-config.yaml"
+        - "-v=4"
+        volumeMounts:
+        - mountPath: /var/run/configmaps/config
+          name: config
+      volumes:
+      - name: config
+        configMap:
+          defaultMode: 440
+          name: origin-cluster-osin-operator-config
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - operator: Exists
