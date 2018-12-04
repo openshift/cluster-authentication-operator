@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/yaml"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
@@ -12,8 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"k8s.io/client-go/dynamic"
-
-	"gopkg.in/yaml.v2"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,8 +62,12 @@ func (c osinOperator) Sync(obj metav1.Object) error {
 	if len(installConfig) == 0 {
 		return fmt.Errorf("no data: %#v", configMap)
 	}
+	installConfigJSON, err := yaml.ToJSON([]byte(installConfig))
+	if err != nil {
+		return err
+	}
 	ic := &InstallConfig{}
-	if err := yaml.Unmarshal([]byte(installConfig), ic); err != nil {
+	if err := json.Unmarshal(installConfigJSON, ic); err != nil {
 		return err
 	}
 

@@ -25,7 +25,7 @@ readonly OS_GOFLAGS_TAGS="include_gcs include_oss containers_image_openpgp"
 readonly OS_IMAGE_COMPILE_BINARIES=( )
 
 readonly OS_CROSS_COMPILE_TARGETS=(
-  cmd/service-serving-cert-signer
+  cmd/osin-operator
 )
 readonly OS_CROSS_COMPILE_BINARIES=("${OS_CROSS_COMPILE_TARGETS[@]##*/}")
 
