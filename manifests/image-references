@@ -2,7 +2,7 @@ kind: ImageStream
 apiVersion: image.openshift.io/v1
 spec:
   tags:
-  - name: service-serving-cert-signer
+  - name: origin-cluster-osin-operator
     from:
       kind: DockerImage
-      name: quay.io/openshift/origin-service-serving-cert-signer:latest
+      name: quay.io/openshift/origin-cluster-osin-operator:latest

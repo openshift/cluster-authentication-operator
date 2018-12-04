@@ -1,11 +1,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: system:openshift:operator:service-cert-signer
+  name: system:openshift:operator:osin
 roleRef:
   kind: ClusterRole
-  name: cluster-admin
+  name: cluster-admin  # TODO fix, this is madness
 subjects:
 - kind: ServiceAccount
   namespace: openshift-core-operators
-  name: openshift-service-cert-signer-operator
+  name: origin-cluster-osin-operator
