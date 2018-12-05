@@ -5,22 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/util/yaml"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
-	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
-
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"k8s.io/client-go/dynamic"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers/core/v1"
 	coreclientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
+	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
 	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/operator"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
 const (
@@ -29,25 +24,20 @@ const (
 	targtKubeAPIServerOperatorConfig = "instance"
 )
 
-var kubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
-	Group:    "kubeapiserver.operator.openshift.io",
-	Version:  "v1alpha1",
-	Resource: "kubeapiserveroperatorconfigs",
-}
-
 type osinOperator struct {
 	configMap                   coreclientv1.ConfigMapsGetter
 	kubeAPIServerOperatorConfig dynamic.ResourceInterface
 }
 
-func NewOsinOperator(cmi v1.ConfigMapInformer, cm coreclientv1.ConfigMapsGetter, dynamicClient dynamic.Interface) operator.Runner {
+func NewOsinOperator(cmi v1.ConfigMapInformer, cm coreclientv1.ConfigMapsGetter, operatorConfigInformer controller.InformerGetter, operatorConfig dynamic.ResourceInterface) operator.Runner {
 	c := &osinOperator{
 		configMap:                   cm,
-		kubeAPIServerOperatorConfig: dynamicClient.Resource(kubeAPIServerOperatorConfigGVR),
+		kubeAPIServerOperatorConfig: operatorConfig,
 	}
 
 	return operator.New("OsinOperator", c,
 		operator.WithInformer(cmi, operator.FilterByNames(targetConfigMap)),
+		operator.WithInformer(operatorConfigInformer, operator.FilterByNames(targtKubeAPIServerOperatorConfig)),
 	)
 }
 
