@@ -9,4 +9,4 @@ FROM centos:7
 COPY --from=0 /go/src/github.com/openshift/cluster-osin-operator/osin-operator /usr/bin/osin-operator
 
 COPY manifests /manifests
-LABEL io.openshift.release.operator=true
+LABEL io.openshift.release.operator true
