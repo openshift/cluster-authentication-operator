@@ -2,7 +2,7 @@ kind: ImageStream
 apiVersion: image.openshift.io/v1
 spec:
   tags:
-  - name: origin-cluster-osin-operator
+  - name: cluster-osin-operator
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-cluster-osin-operator:latest
