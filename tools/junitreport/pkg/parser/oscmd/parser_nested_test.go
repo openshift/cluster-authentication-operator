@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/openshift/service-serving-cert-signer/tools/junitreport/pkg/api"
-	"github.com/openshift/service-serving-cert-signer/tools/junitreport/pkg/builder/nested"
+	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder/nested"
 )
 
 // TestNestedParse tests that parsing the `go test` output in the test directory with a nested builder works as expected

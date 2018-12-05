@@ -58,7 +58,6 @@ verify:
 	hack/verify-gofmt.sh ||r=1;\
 	hack/verify-govet.sh ||r=1;\
 	hack/verify-imports.sh ||r=1;\
-	hack/verify-generated-bindata.sh ||r=1;\
 	exit $$r ;\
 	}
 .PHONY: verify
@@ -89,13 +88,13 @@ test-unit:
 .PHONY: test-unit
 
 # Run e2e tests.
-# 
+#
 # Args:
 #
 # Example:
 #   make test-e2e
 test-e2e:
-	test/e2e.sh
+	echo "needs e2e"
 .PHONY: test-e2e
 
 # Remove all build artifacts.
@@ -125,7 +124,7 @@ build-rpms:
 .PHONY: build-rpms
 
 # Build images from the official RPMs
-# 
+#
 # Args:
 #
 # Example:

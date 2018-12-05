@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/openshift/service-serving-cert-signer/tools/junitreport/pkg/api"
-	"github.com/openshift/service-serving-cert-signer/tools/junitreport/pkg/builder/flat"
+	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder/flat"
 )
 
 // TestFlatParse tests that parsing the `os::cmd` output in the test directory with a flat builder works as expected

@@ -3,7 +3,7 @@ package oscmd
 import (
 	"testing"
 
-	"github.com/openshift/service-serving-cert-signer/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
 )
 
 func TestMarksTestBeginning(t *testing.T) {
