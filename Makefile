@@ -132,3 +132,13 @@ build-rpms:
 build-images:
 	hack/build-images.sh
 .PHONY: build-images
+
+# Update generated code
+#
+# Args:
+#
+# Example:
+#   make update-codegen
+update-codegen:
+	hack/update-codegen.sh
+.PHONY: update-codegen
