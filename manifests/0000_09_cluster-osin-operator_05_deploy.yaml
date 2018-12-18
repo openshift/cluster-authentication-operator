@@ -37,3 +37,46 @@ spec:
         node-role.kubernetes.io/master: ""
       tolerations:
       - operator: Exists
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: openshift-core-operators
+  name: origin-cluster-osin-operator2
+  labels:
+    app: origin-cluster-osin-operator2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: origin-cluster-osin-operator2
+  template:
+    metadata:
+      name: origin-cluster-osin-operator
+      labels:
+        app: origin-cluster-osin-operator2
+    spec:
+      serviceAccountName: origin-cluster-osin-operator
+      containers:
+      - name: operator
+        image: quay.io/openshift/origin-cluster-osin-operator:latest
+        imagePullPolicy: IfNotPresent
+        command: ["osin-operator", "operator2"]
+        args:
+        - "--config=/var/run/configmaps/config/operator-config.yaml"
+        - "-v=4"
+        volumeMounts:
+        - mountPath: /var/run/configmaps/config
+          name: config
+        env:
+        - name: IMAGE
+          value: quay.io/openshift/origin-hypershift:v4.0
+      volumes:
+      - name: config
+        configMap:
+          defaultMode: 440
+          name: origin-cluster-osin-operator-config
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - operator: Exists

@@ -4,3 +4,10 @@ metadata:
   labels:
     openshift.io/run-level: "1"
   name: openshift-core-operators
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    openshift.io/run-level: "9"
+  name: openshift-osin
