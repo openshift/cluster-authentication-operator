@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	componentName      = "cluster-osin-operator"
+	componentName      = "cluster-osin-operator2"
 	componentNamespace = "openshift-core-operators"
 )
 
