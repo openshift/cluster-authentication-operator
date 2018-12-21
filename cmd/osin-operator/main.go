@@ -14,6 +14,7 @@ import (
 	"k8s.io/apiserver/pkg/util/logs"
 
 	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator"
+	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator2"
 )
 
 func main() {
@@ -43,6 +44,7 @@ func NewOsinOperatorCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(operator.NewOperator())
+	cmd.AddCommand(operator2.NewOperator())
 
 	return cmd
 }

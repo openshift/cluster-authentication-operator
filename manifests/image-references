@@ -6,3 +6,7 @@ spec:
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-cluster-osin-operator:latest
+  - name: hypershift
+    from:
+      kind: DockerImage
+      name: quay.io/openshift/origin-hypershift:v4.0
