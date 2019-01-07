@@ -19,7 +19,7 @@ spec:
       serviceAccountName: origin-cluster-osin-operator
       containers:
       - name: operator
-        image: quay.io/openshift/origin-cluster-authentication-operator:latest
+        image: quay.io/openshift/origin-cluster-osin-operator:latest
         imagePullPolicy: IfNotPresent
         command: ["osin-operator", "operator"]
         args:
@@ -59,7 +59,7 @@ spec:
       serviceAccountName: origin-cluster-osin-operator
       containers:
       - name: operator
-        image: quay.io/openshift/origin-cluster-authentication-operator:latest
+        image: quay.io/openshift/origin-cluster-osin-operator:latest
         imagePullPolicy: IfNotPresent
         command: ["osin-operator", "operator2"]
         args:

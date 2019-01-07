@@ -2,10 +2,10 @@ kind: ImageStream
 apiVersion: image.openshift.io/v1
 spec:
   tags:
-  - name: cluster-authentication-operator
+  - name: cluster-osin-operator
     from:
       kind: DockerImage
-      name: quay.io/openshift/origin-cluster-authentication-operator:latest
+      name: quay.io/openshift/origin-cluster-osin-operator:latest
   - name: hypershift
     from:
       kind: DockerImage
