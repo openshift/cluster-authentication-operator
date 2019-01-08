@@ -39,9 +39,9 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 	emptyTemplates := configv1.OAuthTemplates{}
 	if oauthConfig.Spec.Templates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             "", // TODO need to handle these secrets here and in deployments
-			ProviderSelection: "",
-			Error:             "",
+			Login:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Login),
+			ProviderSelection: getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.ProviderSelection),
+			Error:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Error),
 		}
 	}
 
