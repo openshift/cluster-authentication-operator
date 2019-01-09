@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	routev1 "github.com/openshift/api/route/v1"
 )
@@ -41,11 +42,13 @@ func getMetadata(route *routev1.Route) string {
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
 }
 
-func getMetadataConfigMap(route *routev1.Route) *corev1.ConfigMap {
-	meta := defaultMeta()
-	meta.Namespace = configNamespace
+func getMetadataConfigMap(name string, namespace string, route *routev1.Route) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
-		ObjectMeta: meta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    defaultLabels(),
+		},
 		Data: map[string]string{
 			metadataKey: getMetadata(route),
 		},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -13,14 +14,62 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
-	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
+const (
+	defaultAccessTokenMaxAgeSeconds            = 24 * 60 * 60 // 1 day
+	defaultAccessTokenInactivityTimeoutSeconds = 5 * 60       // 5 min
+)
+
+func defaultOAuth(name string) *configv1.OAuth {
+	return &configv1.OAuth{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: defaultLabels(),
+			Annotations: map[string]string{
+				// TODO - better annotations & messaging to user about defaulting behavior
+				"message": "Default OAuth created by cluster-authentication-operator",
+			},
+		},
+		Spec: configv1.OAuthSpec{
+			IdentityProviders: []configv1.IdentityProvider{},
+			TokenConfig: configv1.TokenConfig{
+				AccessTokenMaxAgeSeconds:            defaultAccessTokenMaxAgeSeconds,
+				AccessTokenInactivityTimeoutSeconds: defaultAccessTokenInactivityTimeoutSeconds,
+			},
+		},
+		Status: configv1.OAuthStatus{},
+	}
+
+}
+func (c *authOperator) fetchOAuthConfig() (*configv1.OAuth, error) {
+	// Fetch any existing OAuth instance
+	glog.V(5).Infof("fetching authentication resource '%s'", c.configName)
+	existing, err := c.oauth.Get(c.configName, metav1.GetOptions{})
+	if err == nil || !apierrors.IsNotFound(err) {
+		// Existing instance found, or unknown error from api
+		return existing, err
+	}
+	// No existing instance found; attempt to create default
+	glog.V(5).Infof("creating default oauth resource '%s'", c.configName)
+	created, err := c.oauth.Create(defaultOAuth(c.configName))
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		// Created successfully, or unknown error from api
+		return created, err
+	}
+	// An OAuth instance must have been created between when we
+	// first checked and when we attempted to create the default.
+	// Find the existing instance, returning any errors trying to fetch it
+	glog.V(5).Infof("re-fetching oauth resource '%s'", c.configName)
+	return c.oauth.Get(c.configName, metav1.GetOptions{})
+}
+
+func (c *authOperator) configMapForOAuth(oauthConfig *configv1.OAuth, route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, error) {
+	if oauthConfig == nil {
+		return nil, nil
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -108,8 +157,8 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 			// which needs to direct the user to the real public URL (MasterPublicURL)
 			// that means we still need to get that value from the installer's config
 			// TODO ask installer team to make it easier to get that URL
-			MasterURL:                   "https://127.0.0.1:443",
-			MasterPublicURL:             "https://127.0.0.1:443",
+			MasterURL:                   fmt.Sprintf("https://%s", route.Spec.Host),
+			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
 			AssetPublicURL:              "", // TODO do we need this?
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
@@ -142,7 +191,11 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 	}
 
 	return &corev1.ConfigMap{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.targetName,
+			Namespace: c.targetNamespace,
+			Labels:    defaultLabels(),
+		},
 		Data: map[string]string{
 			configKey: string(completeConfigBytes),
 		},

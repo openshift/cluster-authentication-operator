@@ -24,6 +24,13 @@ import (
 const (
 	resync = 20 * time.Minute
 
+	targetName                     = "integrated-oauthserver"
+	targetNamespace                = "openshift-authentication"
+	configName                     = "cluster"
+	configNamespace                = "openshift-config"
+	managedConfigNamespace         = "openshift-config-managed"
+	authOperatorConfigResourceName = "cluster"
+
 	authConfigResource = `
 apiVersion: authentication.operator.openshift.io/v1alpha1
 kind: AuthenticationOperatorConfig
@@ -85,6 +92,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	operator := NewAuthenticationOperator(
+		targetName,
+		targetNamespace,
+		configName,
+		configNamespace,
+		managedConfigNamespace,
+		authOperatorConfigResourceName,
 		authOperatorConfigInformers.Authentication().V1alpha1().AuthenticationOperatorConfigs(),
 		authConfigClient.AuthenticationV1alpha1(),
 		kubeInformersNamespaced,

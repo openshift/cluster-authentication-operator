@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestRandomString(t *testing.T) {
@@ -40,7 +41,10 @@ func TestIsValidSessionSecret(t *testing.T) {
 
 func secret(sessionSecret []byte) *v1.Secret {
 	return &v1.Secret{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "session-secret-test",
+			Namespace: "auth-operator-test",
+		},
 		Data: map[string][]byte{
 			sessionKey: sessionSecret,
 		},

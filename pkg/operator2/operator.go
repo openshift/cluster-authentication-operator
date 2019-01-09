@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
@@ -24,20 +25,20 @@ import (
 )
 
 const (
-	targetName = "openshift-osin"
-
 	metadataKey = "metadata"
 	configKey   = "config.yaml"
 	sessionKey  = "session"
 	sessionPath = "/var/session"
-
-	configName      = "cluster"
-	configNamespace = "openshift-managed-config"
-
-	authOperatorConfigResourceName = "cluster"
 )
 
 type authOperator struct {
+	targetName             string
+	targetNamespace        string
+	configName             string
+	configNamespace        string
+	managedConfigNamespace string
+	authOperatorConfigName string
+
 	authOperatorConfig authopclient.AuthenticationOperatorConfigInterface
 
 	recorder events.Recorder
@@ -54,6 +55,13 @@ type authOperator struct {
 }
 
 func NewAuthenticationOperator(
+	targetName string,
+	targetNamespace string,
+	configName string,
+	configNamespace string,
+	managedConfigNamespace string,
+	authOpConfigResourceName string,
+
 	authOpConfigInformer authopinformer.AuthenticationOperatorConfigInformer,
 	authOpConfigClient authopclient.AuthenticationOperatorConfigsGetter,
 	kubeInformersNamespaced informers.SharedInformerFactory,
@@ -65,11 +73,18 @@ func NewAuthenticationOperator(
 	recorder events.Recorder,
 ) operator.Runner {
 	c := &authOperator{
+		targetName:             targetName,
+		targetNamespace:        targetNamespace,
+		configName:             configName,
+		configNamespace:        configNamespace,
+		managedConfigNamespace: managedConfigNamespace,
+		authOperatorConfigName: authOpConfigResourceName,
+
 		authOperatorConfig: authOpConfigClient.AuthenticationOperatorConfigs(),
 
 		recorder: recorder,
 
-		route: routeClient.Routes(targetName),
+		route: routeClient.Routes(targetNamespace),
 
 		services:    kubeClient.CoreV1(),
 		secrets:     kubeClient.CoreV1(),
@@ -83,9 +98,9 @@ func NewAuthenticationOperator(
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	authOpConfigNameFilter := operator.FilterByNames(authOperatorConfigResourceName)
-	osinNameFilter := operator.FilterByNames(targetName)
-	configNameFilter := operator.FilterByNames(configName)
+	authOpConfigNameFilter := operator.FilterByNames(c.authOperatorConfigName)
+	osinNameFilter := operator.FilterByNames(c.targetName)
+	configNameFilter := operator.FilterByNames(c.configName)
 
 	return operator.New("AuthenticationOperator2", c,
 		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
@@ -103,7 +118,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfig.Get(authOperatorConfigResourceName, metav1.GetOptions{})
+	return c.authOperatorConfig.Get(c.authOperatorConfigName, metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
@@ -123,76 +138,83 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 }
 
 func (c *authOperator) handleSync(configOverrides []byte) error {
-	route, err := c.handleRoute()
-	if err != nil {
-		return err
-	}
+	glog.V(3).Infof("begin sync")
 
-	metadataConfigMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
-	if err != nil {
-		return err
-	}
+	glog.V(4).Infof("using config overrides  %q", configOverrides)
 
-	auth, err := c.handleAuthConfig()
+	auth, err := c.fetchAuthConfig()
 	if err != nil {
+		glog.V(1).Infof("falure fetching Authentication resource: %v", err)
 		return err
 	}
+	if auth.Spec.Type == configv1.AuthenticationTypeIntegratedOAuth {
+		oauth, err := c.fetchOAuthConfig()
+		if err != nil || oauth == nil {
+			return err
+		}
 
-	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
-	if err != nil {
-		return err
-	}
+		route, err := c.handleRoute()
+		glog.V(5).Infof("handled route: err=%v route=%#v", err, route)
+		if err != nil {
+			return err
+		}
 
-	sessionSecret, err := c.expectedSessionSecret()
-	if err != nil {
-		return err
-	}
-	secret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, sessionSecret)
-	if err != nil {
-		return err
-	}
+		expectedOAuthConfigMap, err := c.configMapForOAuth(oauth, route, configOverrides)
+		glog.V(5).Infof("got configmap for oauth: err=%v  cm=%#v", err, expectedOAuthConfigMap)
+		if err != nil {
+			return err
+		}
+		metadataConfigMap := getMetadataConfigMap(c.targetName, c.managedConfigNamespace, route)
+		_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, metadataConfigMap)
+		glog.V(5).Infof("applied metadata configmap: err=%v  cm=%#v", err, metadataConfigMap)
+		if err != nil {
+			return err
+		}
+		srv := defaultService(c.targetName, c.targetNamespace)
+		_, _, err = resourceapply.ApplyService(c.services, c.recorder, srv)
+		glog.V(5).Infof("applied service: err=%v srv=%#v", err, srv)
+		if err != nil {
+			return err
+		}
 
-	expectedOAuthConfigMap, err := c.handleOAuthConfig(configOverrides)
-	if err != nil {
-		return err
-	}
-	configMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedOAuthConfigMap)
-	if err != nil {
-		return err
-	}
+		sessionSecret, err := c.expectedSessionSecret()
+		glog.V(5).Infof("got expected session secret: err=%v name=%s namespace=%s", err, sessionSecret.GetName(), sessionSecret.GetNamespace())
+		if err != nil {
+			return err
+		}
+		secret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, sessionSecret)
+		glog.V(5).Infof("applied session secret: err=%v name=%s namespace=%s", err, secret.GetName(), secret.GetNamespace())
+		if err != nil {
+			return err
+		}
+		configMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedOAuthConfigMap)
+		glog.V(5).Infof("applied oauth configmap: err=%v name=%s namespace=%s", err, expectedOAuthConfigMap.GetName(), expectedOAuthConfigMap.GetNamespace())
+		if err != nil {
+			return err
+		}
 
-	// deployment, have RV of all resources
-	// TODO use ExpectedDeploymentGeneration func
-	// TODO probably do not need every RV
-	expectedDeployment := defaultDeployment(
-		route.ResourceVersion,
-		metadataConfigMap.ResourceVersion,
-		auth.ResourceVersion,
-		service.ResourceVersion,
-		secret.ResourceVersion,
-		configMap.ResourceVersion,
-	)
-	deployment, _, err := resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
-	if err != nil {
-		return err
+		// deployment, have RV of all resources
+		// TODO use ExpectedDeploymentGeneration func
+		// TODO probably do not need every RV
+		expectedDeployment := defaultDeployment(
+			c.targetName,
+			c.targetNamespace,
+			secret.ResourceVersion,
+			configMap.ResourceVersion,
+		)
+		_, _, err = resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
+		glog.V(5).Infof("applied deployment: err=%v name=%s namespace=%s", err, expectedDeployment.GetName(), expectedDeployment.GetNamespace())
+		if err != nil {
+			return err
+		}
 	}
-
-	glog.V(4).Infof("current deployment: %#v", deployment)
-
-	return nil
+	_, err = c.updateAuthStatus(auth)
+	glog.V(5).Infof("updated auth status: err=%v", err)
+	return err
 }
 
 func defaultLabels() map[string]string {
 	return map[string]string{
-		"app": "origin-cluster-osin-operator2",
-	}
-}
-
-func defaultMeta() metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:            targetName,
-		Namespace:       targetName,
-		Labels:          defaultLabels(),
-		OwnerReferences: nil, // TODO
+		"app": "cluster-authentication-operator",
 	}
 }

@@ -15,10 +15,10 @@ import (
 )
 
 func (c *authOperator) expectedSessionSecret() (*v1.Secret, error) {
-	secret, err := c.secrets.Secrets(targetName).Get(targetName, metav1.GetOptions{})
+	secret, err := c.secrets.Secrets(c.targetNamespace).Get(c.targetName, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
-		glog.V(4).Infof("failed to get secret %s: %v", targetName, err)
-		generatedSessionSecret, err := randomSessionSecret()
+		glog.V(4).Infof("failed to get secret %s/%s: %v", c.targetNamespace, c.targetName, err)
+		generatedSessionSecret, err := randomSessionSecret(c.targetName, c.targetNamespace)
 		if err != nil {
 			return nil, err
 		}
@@ -52,13 +52,17 @@ func isValidSessionSecret(secret *v1.Secret) bool {
 	return true
 }
 
-func randomSessionSecret() (*v1.Secret, error) {
+func randomSessionSecret(name, namespace string) (*v1.Secret, error) {
 	skey, err := newSessionSecretsJSON()
 	if err != nil {
 		return nil, err
 	}
 	return &v1.Secret{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    defaultLabels(),
+		},
 		Data: map[string][]byte{
 			sessionKey: skey,
 		},

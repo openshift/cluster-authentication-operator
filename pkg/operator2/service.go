@@ -2,12 +2,17 @@ package operator2
 
 import (
 	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-func defaultService() *v1.Service {
+func defaultService(targetName, targetNamespace string) *v1.Service {
 	return &v1.Service{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      targetName,
+			Namespace: targetNamespace,
+			Labels:    defaultLabels(),
+		},
 		Spec: v1.ServiceSpec{
 			Ports: []v1.ServicePort{
 				{

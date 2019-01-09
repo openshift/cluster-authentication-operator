@@ -11,9 +11,9 @@ import (
 )
 
 func (c *authOperator) handleRoute() (*routev1.Route, error) {
-	route, err := c.route.Get(targetName, metav1.GetOptions{})
+	route, err := c.route.Get(c.targetName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		return c.route.Create(defaultRoute())
+		return c.route.Create(defaultRoute(c.targetName, c.targetNamespace))
 	}
 	if err != nil {
 		return nil, err
@@ -25,9 +25,13 @@ func (c *authOperator) handleRoute() (*routev1.Route, error) {
 	return route, nil
 }
 
-func defaultRoute() *routev1.Route {
+func defaultRoute(targetName, namespace string) *routev1.Route {
 	return &routev1.Route{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      targetName,
+			Namespace: namespace,
+			Labels:    defaultLabels(),
+		},
 		Spec: routev1.RouteSpec{
 			To: routev1.RouteTargetReference{
 				Kind: "Service",
