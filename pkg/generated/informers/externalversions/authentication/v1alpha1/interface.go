@@ -8,8 +8,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
-	// Osins returns a OsinInformer.
-	Osins() OsinInformer
+	// AuthenticationOperatorConfigs returns a AuthenticationOperatorConfigInformer.
+	AuthenticationOperatorConfigs() AuthenticationOperatorConfigInformer
 }
 
 type version struct {
@@ -23,7 +23,7 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// Osins returns a OsinInformer.
-func (v *version) Osins() OsinInformer {
-	return &osinInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+// AuthenticationOperatorConfigs returns a AuthenticationOperatorConfigInformer.
+func (v *version) AuthenticationOperatorConfigs() AuthenticationOperatorConfigInformer {
+	return &authenticationOperatorConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

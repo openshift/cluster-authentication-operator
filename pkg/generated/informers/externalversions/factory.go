@@ -8,8 +8,8 @@ import (
 	time "time"
 
 	versioned "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
+	authentication "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication"
 	internalinterfaces "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/internalinterfaces"
-	osin "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/osin"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
@@ -156,9 +156,9 @@ type SharedInformerFactory interface {
 	ForResource(resource schema.GroupVersionResource) (GenericInformer, error)
 	WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
 
-	Osin() osin.Interface
+	Authentication() authentication.Interface
 }
 
-func (f *sharedInformerFactory) Osin() osin.Interface {
-	return osin.New(f, f.namespace, f.tweakListOptions)
+func (f *sharedInformerFactory) Authentication() authentication.Interface {
+	return authentication.New(f, f.namespace, f.tweakListOptions)
 }
