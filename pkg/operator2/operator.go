@@ -140,7 +140,11 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	secret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, c.expectedSessionSecret())
+	sessionSecret, err := c.expectedSessionSecret()
+	if err != nil {
+		return err
+	}
+	secret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, sessionSecret)
 	if err != nil {
 		return err
 	}
