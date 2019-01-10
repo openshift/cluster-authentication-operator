@@ -14,9 +14,9 @@ import (
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
-	osinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
-	osinclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	osininformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
+	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
+	authopclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
+	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -24,14 +24,13 @@ import (
 const (
 	resync = 20 * time.Minute
 
-	osinResource = `
-apiVersion: osin.openshift.io/v1alpha1
-kind: Osin
+	authConfigResource = `
+apiVersion: authentication.operator.openshift.io/v1alpha1
+kind: AuthenticationOperatorConfig
 metadata:
-  name: openshift-osin
-  namespace: openshift-osin
+  name: ` + authOperatorConfigResourceName + `
 spec:
-  managementState: Managed
+  managementState: Paused
 `
 )
 
@@ -46,7 +45,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	osinClient, err := osinclient.NewForConfig(ctx.KubeConfig)
+	authConfigClient, err := authopclient.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -66,9 +65,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informers.WithTweakListOptions(singleNameListOptions(targetName)),
 	)
 
-	osinInformersNamespaced := osininformer.NewSharedInformerFactoryWithOptions(osinClient, resync,
-		osininformer.WithNamespace(targetName),
-		osininformer.WithTweakListOptions(singleNameListOptions(targetName)),
+	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
+		authopinformer.WithTweakListOptions(singleNameListOptions(authOperatorConfigResourceName)),
 	)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
@@ -82,13 +80,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	v1helpers.EnsureOperatorConfigExists(
 		dynamicClient,
-		[]byte(osinResource),
-		osinv1alpha1.GroupVersion.WithResource("osins"),
+		[]byte(authConfigResource),
+		authv1alpha1.GroupVersion.WithResource("authenticationoperatorconfigs"),
 	)
 
-	operator := NewOsinOperator(
-		osinInformersNamespaced.Osin().V1alpha1().Osins(),
-		osinClient.OsinV1alpha1(),
+	operator := NewAuthenticationOperator(
+		authOperatorConfigInformers.Authentication().V1alpha1().AuthenticationOperatorConfigs(),
+		authConfigClient.AuthenticationV1alpha1(),
 		kubeInformersNamespaced,
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
@@ -102,7 +100,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
-		osinInformersNamespaced,
+		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
 	} {

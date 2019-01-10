@@ -2,6 +2,6 @@
 // +k8s:defaulter-gen=TypeMeta
 // +k8s:openapi-gen=true
 
-// +groupName=osin.openshift.io
+// +groupName=authentication.operator.openshift.io
 
 package v1alpha1

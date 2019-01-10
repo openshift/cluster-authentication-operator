@@ -6,7 +6,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 )
 
-func (c *osinOperator) handleAuthConfig() (*configv1.Authentication, error) {
+func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
 	auth, err := c.authentication.Get(configName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err

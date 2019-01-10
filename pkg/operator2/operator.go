@@ -15,10 +15,10 @@ import (
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
-	osinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
+	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
 	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/operator"
-	osinclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/osin/v1alpha1"
-	osininformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/osin/v1alpha1"
+	authopclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
+	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 )
@@ -33,10 +33,12 @@ const (
 
 	configName      = "cluster"
 	configNamespace = "openshift-managed-config"
+
+	authOperatorConfigResourceName = "cluster"
 )
 
-type osinOperator struct {
-	osin osinclient.OsinInterface
+type authOperator struct {
+	authOperatorConfig authopclient.AuthenticationOperatorConfigInterface
 
 	recorder events.Recorder
 
@@ -51,9 +53,9 @@ type osinOperator struct {
 	oauth          configv1client.OAuthInterface
 }
 
-func NewOsinOperator(
-	osinInformer osininformer.OsinInformer,
-	osinsClient osinclient.OsinsGetter,
+func NewAuthenticationOperator(
+	authOpConfigInformer authopinformer.AuthenticationOperatorConfigInformer,
+	authOpConfigClient authopclient.AuthenticationOperatorConfigsGetter,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
 	routeInformer routeinformer.RouteInformer,
@@ -62,8 +64,8 @@ func NewOsinOperator(
 	configClient configclient.Interface,
 	recorder events.Recorder,
 ) operator.Runner {
-	c := &osinOperator{
-		osin: osinsClient.Osins(targetName),
+	c := &authOperator{
+		authOperatorConfig: authOpConfigClient.AuthenticationOperatorConfigs(),
 
 		recorder: recorder,
 
@@ -81,11 +83,12 @@ func NewOsinOperator(
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
+	authOpConfigNameFilter := operator.FilterByNames(authOperatorConfigResourceName)
 	osinNameFilter := operator.FilterByNames(targetName)
 	configNameFilter := operator.FilterByNames(configName)
 
-	return operator.New("OsinOperator2", c,
-		operator.WithInformer(osinInformer, osinNameFilter),
+	return operator.New("AuthenticationOperator2", c,
+		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
 		operator.WithInformer(routeInformer, osinNameFilter),
 		operator.WithInformer(coreInformers.Services(), osinNameFilter),
 		operator.WithInformer(coreInformers.Secrets(), osinNameFilter),
@@ -99,18 +102,18 @@ func NewOsinOperator(
 	)
 }
 
-func (c *osinOperator) Key() (metav1.Object, error) {
-	return c.osin.Get(targetName, metav1.GetOptions{})
+func (c *authOperator) Key() (metav1.Object, error) {
+	return c.authOperatorConfig.Get(authOperatorConfigResourceName, metav1.GetOptions{})
 }
 
-func (c *osinOperator) Sync(obj metav1.Object) error {
-	osinConfig := obj.(*osinv1alpha1.Osin)
+func (c *authOperator) Sync(obj metav1.Object) error {
+	authConfig := obj.(*authv1alpha1.AuthenticationOperatorConfig)
 
-	if osinConfig.Spec.ManagementState != operatorv1.Managed {
+	if authConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
 
-	if err := c.handleSync(osinConfig.Spec.UnsupportedConfigOverrides.Raw); err != nil {
+	if err := c.handleSync(authConfig.Spec.UnsupportedConfigOverrides.Raw); err != nil {
 		return err
 	}
 
@@ -119,7 +122,7 @@ func (c *osinOperator) Sync(obj metav1.Object) error {
 	return nil
 }
 
-func (c *osinOperator) handleSync(configOverrides []byte) error {
+func (c *authOperator) handleSync(configOverrides []byte) error {
 	route, err := c.handleRoute()
 	if err != nil {
 		return err
