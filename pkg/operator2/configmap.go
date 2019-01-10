@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 )
 
@@ -43,11 +44,11 @@ func getMetadata(route *routev1.Route) string {
 
 func getMetadataConfigMap(route *routev1.Route) *corev1.ConfigMap {
 	meta := defaultMeta()
-	meta.Namespace = configNamespace
+	meta.Namespace = machineConfigNamespace
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,
 		Data: map[string]string{
-			metadataKey: getMetadata(route),
+			configv1.OAuthMetadataKey: getMetadata(route),
 		},
 	}
 }

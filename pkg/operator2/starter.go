@@ -9,7 +9,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -18,6 +20,7 @@ import (
 	authopclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
 	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -28,7 +31,7 @@ const (
 apiVersion: authentication.operator.openshift.io/v1alpha1
 kind: AuthenticationOperatorConfig
 metadata:
-  name: ` + authOperatorConfigResourceName + `
+  name: ` + globalConfigName + `
 spec:
   managementState: Paused
 `
@@ -66,7 +69,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
-		authopinformer.WithTweakListOptions(singleNameListOptions(authOperatorConfigResourceName)),
+		authopinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
 	)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
@@ -75,13 +78,29 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync,
-		configinformer.WithTweakListOptions(singleNameListOptions(configName)),
+		configinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
 	)
 
 	v1helpers.EnsureOperatorConfigExists(
 		dynamicClient,
 		[]byte(authConfigResource),
 		authv1alpha1.GroupVersion.WithResource("authenticationoperatorconfigs"),
+	)
+
+	resourceSyncerInformers := map[string]informers.SharedInformerFactory{
+		targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+			informers.WithNamespace(targetName), // TODO fix
+		),
+		userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+			informers.WithNamespace(userConfigNamespace),
+		),
+	}
+
+	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
+		operatorClient{}, // TODO fix
+		resourceSyncerInformers,
+		kubeClient,
+		recorder{}, // TODO ctx.EventRecorder,
 	)
 
 	operator := NewAuthenticationOperator(
@@ -94,6 +113,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		configClient,
 		recorder{}, // TODO ctx.EventRecorder,
+		resourceSyncer,
 	)
 
 	for _, informer := range []interface {
@@ -107,7 +127,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informer.Start(ctx.StopCh)
 	}
 
+	for _, informer := range resourceSyncerInformers {
+		informer.Start(ctx.StopCh)
+	}
+
 	go operator.Run(ctx.StopCh)
+	go resourceSyncer.Run(1, ctx.StopCh)
 
 	<-ctx.StopCh
 
@@ -127,3 +152,22 @@ func (recorder) Event(reason, message string)                            {}
 func (recorder) Eventf(reason, messageFmt string, args ...interface{})   {}
 func (recorder) Warning(reason, message string)                          {}
 func (recorder) Warningf(reason, messageFmt string, args ...interface{}) {}
+
+// temp hack since I do not care about this right now
+type operatorClient struct{}
+
+func (operatorClient) Informer() cache.SharedIndexInformer {
+	return fakeInformer{}
+}
+func (operatorClient) Get() (*operatorv1.OperatorSpec, *operatorv1.StaticPodOperatorStatus, string, error) {
+	return &operatorv1.OperatorSpec{}, &operatorv1.StaticPodOperatorStatus{}, "", nil
+}
+func (operatorClient) UpdateStatus(string, *operatorv1.StaticPodOperatorStatus) (*operatorv1.StaticPodOperatorStatus, error) {
+	return nil, nil
+}
+
+type fakeInformer struct {
+	cache.SharedIndexInformer // panics if anything other than AddEventHandler gets called
+}
+
+func (fakeInformer) AddEventHandler(_ cache.ResourceEventHandler) {}

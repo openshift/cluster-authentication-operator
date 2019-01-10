@@ -1,12 +1,13 @@
 package operator2
 
 import (
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"github.com/golang/glog"
 
@@ -18,10 +19,27 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, error) {
-	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
+// TODO this code dies once we get our own CLI config
+var (
+	kubeControlplaneScheme  = runtime.NewScheme()
+	kubeControlplaneCodecs  = serializer.NewCodecFactory(kubeControlplaneScheme)
+	kubeControlplaneEncoder = kubeControlplaneCodecs.LegacyCodec(kubecontrolplanev1.GroupVersion) // TODO I think there is a better way to do this
+)
+
+func init() {
+	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
+}
+
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// TODO maybe move the OAuth stuff up one level
+	syncData, err := c.handleConfigSync(oauthConfig)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -40,15 +58,15 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 	emptyTemplates := configv1.OAuthTemplates{}
 	if oauthConfig.Spec.Templates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Login),
-			ProviderSelection: getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.ProviderSelection),
-			Error:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Error),
+			Login:             "", // TODO fix
+			ProviderSelection: "", // TODO fix
+			Error:             "", // TODO fix
 		}
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
-	for _, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig)
+	for i, idp := range oauthConfig.Spec.IdentityProviders {
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig, syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue
@@ -60,9 +78,8 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 				UseAsLogin:      idp.UseAsLogin,
 				MappingMethod:   string(idp.MappingMethod),
 				Provider: runtime.RawExtension{
-					Raw:    providerConfigBytes,
-					Object: nil, // grant config is incorrectly in the IDP, but should be dropped in general
-				}, // TODO also need a series of config maps and secrets mounts based on this
+					Raw: providerConfigBytes,
+				},
 			},
 		)
 	}
@@ -79,9 +96,10 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 				ServingInfo: configv1.ServingInfo{
 					BindAddress: "0.0.0.0:443",
 					BindNetwork: "tcp4",
+					// we have valid certs provided by alfred so that we can use reencrypt routes
 					CertInfo: configv1.CertInfo{
-						CertFile: "", // needs to be signed by MasterCA from below
-						KeyFile:  "",
+						CertFile: servingCertPathCert,
+						KeyFile:  servingCertPathKey,
 					},
 					ClientCA:          "", // I think this can be left unset
 					NamedCertificates: nil,
@@ -102,8 +120,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 			},
 		},
 		OAuthConfig: &osinv1.OAuthConfig{
-			// TODO at the very least this needs to be set to self signed loopback CA for the token request endpoint
-			MasterCA: nil,
+			MasterCA: getMasterCA(), // assumed to be valid for the route
 			// TODO osin's code needs to be updated to properly use these values
 			// it should use MasterURL in almost all places except the token request endpoint
 			// which needs to direct the user to the real public URL (MasterPublicURL)
@@ -119,7 +136,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 				ServiceAccountMethod: osinv1.GrantHandlerPrompt,
 			},
 			SessionConfig: &osinv1.SessionConfig{
-				SessionSecretsFile:   fmt.Sprintf("%s/%s", sessionPath, sessionKey),
+				SessionSecretsFile:   sessionPath,
 				SessionMaxAgeSeconds: 5 * 60, // 5 minutes
 				SessionName:          "ssn",
 			},
@@ -132,14 +149,11 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 		},
 	}
 
-	cliConfigBytes, err := json.Marshal(cliConfig)
-	if err != nil {
-		return nil, err
-	}
+	cliConfigBytes := encodeOrDieKubeControlplane(cliConfig)
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &corev1.ConfigMap{
@@ -147,5 +161,18 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 		Data: map[string]string{
 			configKey: string(completeConfigBytes),
 		},
-	}, nil
+	}, syncData, nil
+}
+
+func getMasterCA() *string {
+	ca := clusterCAPath // need local var to be able to take address of it
+	return &ca
+}
+
+func encodeOrDieKubeControlplane(obj runtime.Object) []byte {
+	bytes, err := runtime.Encode(kubeControlplaneEncoder, obj)
+	if err != nil {
+		panic(err) // indicates static generated code is broken, unrecoverable
+	}
+	return bytes
 }
