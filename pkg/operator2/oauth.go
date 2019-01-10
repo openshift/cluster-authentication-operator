@@ -111,7 +111,7 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 				SessionName:          "ssn",
 			},
 			TokenConfig: osinv1.TokenConfig{
-				AuthorizeTokenMaxAgeSeconds:         oauthConfig.Spec.TokenConfig.AuthorizeTokenMaxAgeSeconds,
+				AuthorizeTokenMaxAgeSeconds:         5 * 60, // 5 minutes
 				AccessTokenMaxAgeSeconds:            oauthConfig.Spec.TokenConfig.AccessTokenMaxAgeSeconds,
 				AccessTokenInactivityTimeoutSeconds: accessTokenInactivityTimeoutSeconds,
 			},

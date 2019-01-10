@@ -12,15 +12,14 @@ func (c *osinOperator) handleAuthConfig() (*configv1.Authentication, error) {
 		return nil, err
 	}
 
-	expectedReference := configv1.ConfigMapReference{
+	expectedReference := configv1.ConfigMapNameReference{
 		Name: targetName,
-		Key:  metadataKey,
 	}
 
-	if auth.Status.OAuthMetadata == expectedReference {
+	if auth.Status.IntegratedOAuthMetadata == expectedReference {
 		return auth, nil
 	}
 
-	auth.Status.OAuthMetadata = expectedReference
+	auth.Status.IntegratedOAuthMetadata = expectedReference
 	return c.authentication.UpdateStatus(auth)
 }
