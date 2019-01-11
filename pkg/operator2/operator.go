@@ -152,7 +152,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	expectedOAuthConfigMap, err := c.handleOAuthConfig(configOverrides)
+	expectedOAuthConfigMap, err := c.handleOAuthConfig(route, configOverrides)
 	if err != nil {
 		return err
 	}
