@@ -8,6 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/golang/glog"
+
 	configv1 "github.com/openshift/api/config/v1"
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
@@ -37,14 +39,19 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 	emptyTemplates := configv1.OAuthTemplates{}
 	if oauthConfig.Spec.Templates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             "", // TODO need to handle these secrets here and in deployments
-			ProviderSelection: "",
-			Error:             "",
+			Login:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Login),
+			ProviderSelection: getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.ProviderSelection),
+			Error:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Error),
 		}
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for _, idp := range oauthConfig.Spec.IdentityProviders {
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig)
+		if err != nil {
+			glog.Error(err)
+			continue
+		}
 		identityProviders = append(identityProviders,
 			osinv1.IdentityProvider{
 				Name:            idp.Name,
@@ -52,11 +59,16 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 				UseAsLogin:      idp.UseAsLogin,
 				MappingMethod:   string(idp.MappingMethod),
 				Provider: runtime.RawExtension{
-					Raw:    nil, // TODO write out all the tedious conversion logic
+					Raw:    providerConfigBytes,
 					Object: nil, // grant config is incorrectly in the IDP, but should be dropped in general
 				}, // TODO also need a series of config maps and secrets mounts based on this
 			},
 		)
+	}
+	if len(identityProviders) == 0 {
+		identityProviders = []osinv1.IdentityProvider{
+			createDenyAllIdentityProvider(),
+		}
 	}
 
 	// TODO this pretends this is an OsinServerConfig
