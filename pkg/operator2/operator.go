@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	targetName = "openshift-osin" // TODO fix
+	targetName = "openshift-authentication"
 
 	configKey = "config.yaml"
 
@@ -210,7 +210,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 
 func defaultLabels() map[string]string {
 	return map[string]string{
-		"app": "origin-cluster-osin-operator2",
+		"app": "origin-cluster-authentication-operator",
 	}
 }
 

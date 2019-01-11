@@ -16,12 +16,12 @@ spec:
       labels:
         app: origin-cluster-osin-operator
     spec:
-      serviceAccountName: origin-cluster-osin-operator
+      serviceAccountName: origin-cluster-authentication-operator
       containers:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:latest
         imagePullPolicy: IfNotPresent
-        command: ["osin-operator", "operator"]
+        command: ["authentication-operator", "operator"]
         args:
         - "--config=/var/run/configmaps/config/operator-config.yaml"
         - "-v=4"
@@ -32,7 +32,7 @@ spec:
       - name: config
         configMap:
           defaultMode: 440
-          name: origin-cluster-osin-operator-config
+          name: origin-cluster-authentication-operator-config
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
@@ -41,27 +41,27 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: openshift-core-operators
-  name: origin-cluster-osin-operator2
+  namespace: openshift-authentication-operator
+  name: origin-cluster-authentication-operator
   labels:
-    app: origin-cluster-osin-operator2
+    app: origin-cluster-authentication-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: origin-cluster-osin-operator2
+      app: origin-cluster-authentication-operator
   template:
     metadata:
-      name: origin-cluster-osin-operator
+      name: origin-cluster-authentication-operator
       labels:
-        app: origin-cluster-osin-operator2
+        app: origin-cluster-authentication-operator
     spec:
-      serviceAccountName: origin-cluster-osin-operator
+      serviceAccountName: origin-cluster-authentication-operator
       containers:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:latest
         imagePullPolicy: IfNotPresent
-        command: ["osin-operator", "operator2"]
+        command: ["authentication-operator", "operator"]
         args:
         - "--config=/var/run/configmaps/config/operator-config.yaml"
         - "-v=4"
@@ -82,7 +82,7 @@ spec:
       - name: config
         configMap:
           defaultMode: 440
-          name: origin-cluster-osin-operator-config
+          name: origin-cluster-authentication-operator-config
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
