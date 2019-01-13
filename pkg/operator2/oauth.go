@@ -17,7 +17,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
+func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
 	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err

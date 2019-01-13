@@ -92,10 +92,9 @@ func EnsureOperatorConfigExists(client dynamic.Interface, operatorConfigBytes []
 		panic(fmt.Sprintf("unexpected object in %t", operatorConfigObj))
 	}
 
-	resourceClient := client.Resource(gvr).Namespace(requiredOperatorConfig.GetNamespace())
-	_, err = resourceClient.Get(requiredOperatorConfig.GetName(), metav1.GetOptions{})
+	_, err = client.Resource(gvr).Get(requiredOperatorConfig.GetName(), metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		if _, err := resourceClient.Create(requiredOperatorConfig); err != nil {
+		if _, err := client.Resource(gvr).Create(requiredOperatorConfig); err != nil {
 			panic(err)
 		}
 		return

@@ -15,7 +15,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1alpha1helpers"
 )
 
-func (c *osinOperator) getGeneration() int64 {
+func (c *authOperator) getGeneration() int64 {
 	deployment, err := c.deployments.Deployments(targetName).Get(targetName, metav1.GetOptions{})
 	if err != nil {
 		return -1
@@ -50,7 +50,7 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 					Name:   targetName,
 					Labels: defaultLabels(),
 					Annotations: map[string]string{
-						"osin.openshift.io/rvs-hash": rvsHashStr,
+						"authentication.operator.openshift.io/rvs-hash": rvsHashStr,
 					},
 				},
 				Spec: corev1.PodSpec{

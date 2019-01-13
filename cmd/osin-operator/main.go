@@ -26,14 +26,14 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	command := NewOsinOperatorCommand()
+	command := NewAuthenticationOperatorCommand()
 	if err := command.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-func NewOsinOperatorCommand() *cobra.Command {
+func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "osin-operator",
 		Short: "OpenShift osin OAuth server operator",

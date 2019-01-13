@@ -5,7 +5,7 @@ package externalversions
 import (
 	"fmt"
 
-	v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
+	v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -36,9 +36,9 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=osin.openshift.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithResource("osins"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Osin().V1alpha1().Osins().Informer()}, nil
+	// Group=authentication.operator.openshift.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("authenticationoperatorconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Authentication().V1alpha1().AuthenticationOperatorConfigs().Informer()}, nil
 
 	}
 

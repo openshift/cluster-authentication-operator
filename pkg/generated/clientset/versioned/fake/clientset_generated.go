@@ -4,8 +4,8 @@ package fake
 
 import (
 	clientset "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	osinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/osin/v1alpha1"
-	fakeosinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/osin/v1alpha1/fake"
+	authenticationv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
+	fakeauthenticationv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
@@ -55,12 +55,12 @@ func (c *Clientset) Discovery() discovery.DiscoveryInterface {
 
 var _ clientset.Interface = &Clientset{}
 
-// OsinV1alpha1 retrieves the OsinV1alpha1Client
-func (c *Clientset) OsinV1alpha1() osinv1alpha1.OsinV1alpha1Interface {
-	return &fakeosinv1alpha1.FakeOsinV1alpha1{Fake: &c.Fake}
+// AuthenticationV1alpha1 retrieves the AuthenticationV1alpha1Client
+func (c *Clientset) AuthenticationV1alpha1() authenticationv1alpha1.AuthenticationV1alpha1Interface {
+	return &fakeauthenticationv1alpha1.FakeAuthenticationV1alpha1{Fake: &c.Fake}
 }
 
-// Osin retrieves the OsinV1alpha1Client
-func (c *Clientset) Osin() osinv1alpha1.OsinV1alpha1Interface {
-	return &fakeosinv1alpha1.FakeOsinV1alpha1{Fake: &c.Fake}
+// Authentication retrieves the AuthenticationV1alpha1Client
+func (c *Clientset) Authentication() authenticationv1alpha1.AuthenticationV1alpha1Interface {
+	return &fakeauthenticationv1alpha1.FakeAuthenticationV1alpha1{Fake: &c.Fake}
 }

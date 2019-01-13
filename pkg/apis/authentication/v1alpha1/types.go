@@ -7,29 +7,30 @@ import (
 )
 
 // +genclient
+// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-type Osin struct {
+type AuthenticationOperatorConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   OsinSpec   `json:"spec,omitempty"`
-	Status OsinStatus `json:"status,omitempty"`
+	Spec   AuthenticationOperatorConfigSpec   `json:"spec,omitempty"`
+	Status AuthenticationOperatorConfigStatus `json:"status,omitempty"`
 }
 
-type OsinSpec struct {
+type AuthenticationOperatorConfigSpec struct {
 	v1.OperatorSpec
 }
 
-type OsinStatus struct {
+type AuthenticationOperatorConfigStatus struct {
 	v1.OperatorStatus
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-type OsinList struct {
+type AuthenticationOperatorConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 
-	Items []Osin `json:"items"`
+	Items []AuthenticationOperatorConfig `json:"items"`
 }

@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	GroupName     = "osin.openshift.io"
+	GroupName     = "authentication.operator.openshift.io"
 	GroupVersion  = schema.GroupVersion{Group: GroupName, Version: "v1alpha1"}
 	schemeBuilder = runtime.NewSchemeBuilder(addKnownTypes, configv1.Install, operatorsv1alpha1api.Install)
 	// Install is a function which adds this version to a scheme
@@ -32,8 +32,8 @@ func Resource(resource string) schema.GroupResource {
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(GroupVersion,
-		&Osin{},
-		&OsinList{},
+		&AuthenticationOperatorConfig{},
+		&AuthenticationOperatorConfigList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 

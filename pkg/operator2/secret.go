@@ -14,7 +14,7 @@ import (
 	legacyconfigv1 "github.com/openshift/api/legacyconfig/v1"
 )
 
-func (c *osinOperator) expectedSessionSecret() (*v1.Secret, error) {
+func (c *authOperator) expectedSessionSecret() (*v1.Secret, error) {
 	secret, err := c.secrets.Secrets(targetName).Get(targetName, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		glog.V(4).Infof("failed to get secret %s: %v", targetName, err)
