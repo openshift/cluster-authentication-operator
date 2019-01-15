@@ -150,7 +150,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 								{
 									Name:          "https",
 									Protocol:      corev1.ProtocolTCP,
-									ContainerPort: servicePort,
+									ContainerPort: containerPort,
 								},
 							},
 							VolumeMounts:             mounts,
@@ -179,7 +179,7 @@ func defaultProbe() *corev1.Probe {
 		Handler: corev1.Handler{
 			HTTPGet: &corev1.HTTPGetAction{
 				Path:   "/healthz",
-				Port:   intstr.FromInt(443),
+				Port:   intstr.FromInt(containerPort),
 				Scheme: corev1.URISchemeHTTPS,
 			},
 		},

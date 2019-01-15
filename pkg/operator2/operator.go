@@ -48,7 +48,8 @@ const (
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
 
-	servicePort = 6443
+	servicePort   = 443
+	containerPort = 6443
 )
 
 type authOperator struct {
