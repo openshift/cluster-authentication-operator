@@ -12,10 +12,10 @@ func moveSecretFromRefToFileStringSource(syncData []idpSyncData, i int, name con
 
 func getFilenameFromConfigMapNameRef(syncData []idpSyncData, i int, name configv1.ConfigMapNameReference, key string) string {
 	// TODO make sure this makes sense (some things are optional)
-	return syncData[i].configMaps[getName(i, name.Name, key)].path
+	return syncData[i].configMaps[getIDPName(i, name.Name, key)].path
 }
 
 func getFilenameFromSecretNameRef(syncData []idpSyncData, i int, name configv1.SecretNameReference, key string) string {
 	// TODO make sure this makes sense (some things are optional)
-	return syncData[i].secrets[getName(i, name.Name, key)].path
+	return syncData[i].secrets[getIDPName(i, name.Name, key)].path
 }

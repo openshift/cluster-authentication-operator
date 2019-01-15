@@ -1,6 +1,8 @@
 package operator2
 
 import (
+	"strings"
+
 	"github.com/golang/glog"
 
 	corev1 "k8s.io/api/core/v1"
@@ -17,6 +19,7 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
+	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
 	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/operator"
 	authopclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
 	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
@@ -38,6 +41,8 @@ const (
 	clusterCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
 	systemConfigPath = "/var/config/system"
+
+	userConfigPath = "/var/config/user"
 
 	sessionKey   = "session"
 	sessionMount = systemConfigPath + "/" + sessionKey
@@ -103,20 +108,19 @@ func NewAuthenticationOperator(
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	authOpConfigNameFilter := operator.FilterByNames(globalConfigName)
 	osinNameFilter := operator.FilterByNames(targetName)
 	configNameFilter := operator.FilterByNames(globalConfigName)
+	prefixFilter := getPrefixFilter()
 
 	return operator.New("AuthenticationOperator2", c,
-		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
 		operator.WithInformer(routeInformer, osinNameFilter),
 		operator.WithInformer(coreInformers.Services(), osinNameFilter),
-		operator.WithInformer(coreInformers.Secrets(), osinNameFilter),
-		// TODO need to watch config map in configNamespace
-		// TODO also need to watch all secret and configmaps that may get mounted into deployment,
-		// so we may need to all config maps and secrets in the openshift-config namespace
-		operator.WithInformer(coreInformers.ConfigMaps(), osinNameFilter),
 		operator.WithInformer(kubeInformersNamespaced.Apps().V1().Deployments(), osinNameFilter),
+
+		operator.WithInformer(coreInformers.Secrets(), prefixFilter),
+		operator.WithInformer(coreInformers.ConfigMaps(), prefixFilter),
+
+		operator.WithInformer(authOpConfigInformer, configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
 	)
@@ -184,6 +188,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO probably do not need every RV
+	// TODO we do not know the RV of all the config maps and secrets in syncData, so we may fail to redeploy
 	expectedDeployment := defaultDeployment(
 		syncData,
 		route.ResourceVersion,
@@ -216,5 +221,19 @@ func defaultMeta() metav1.ObjectMeta {
 		Labels:          defaultLabels(),
 		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO
+	}
+}
+
+func getPrefixFilter() controller.Filter {
+	names := operator.FilterByNames(targetName, servingCertName)
+	prefix := func(obj metav1.Object) bool { // TODO add helper to combine filters
+		return names.Add(obj) || strings.HasPrefix(obj.GetName(), userConfigPrefix)
+	}
+	return controller.FilterFuncs{
+		AddFunc: prefix,
+		UpdateFunc: func(oldObj, newObj metav1.Object) bool {
+			return prefix(newObj)
+		},
+		DeleteFunc: prefix,
 	}
 }

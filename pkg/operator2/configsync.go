@@ -16,8 +16,8 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, 
 	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
-	configMapClient := c.configMaps.ConfigMaps(userConfigNamespace)
-	secretClient := c.secrets.Secrets(userConfigNamespace)
+	configMapClient := c.configMaps.ConfigMaps(targetName)
+	secretClient := c.secrets.Secrets(targetName)
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
@@ -35,13 +35,13 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, 
 	// TODO this has too much boilerplate
 
 	for _, cm := range configMaps.Items {
-		if strings.HasPrefix(cm.Name, userConfigPrefix) {
+		if strings.HasPrefix(cm.Name, userConfigPrefixIDP) {
 			prefixConfigMapNames.Insert(cm.Name)
 		}
 	}
 
 	for _, secret := range secrets.Items {
-		if strings.HasPrefix(secret.Name, userConfigPrefix) {
+		if strings.HasPrefix(secret.Name, userConfigPrefixIDP) {
 			prefixSecretNames.Insert(secret.Name)
 		}
 	}
@@ -101,7 +101,7 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
 
 			fileData := p.FileData.Name
-			dest := getName(i, fileData, configv1.HTPasswdDataKey)
+			dest := getIDPName(i, fileData, configv1.HTPasswdDataKey)
 			volume, mount, path := secretVolume(i, dest, configv1.HTPasswdDataKey)
 
 			out = append(out,
@@ -120,11 +120,11 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 			p := pc.OpenID
 
 			ca := p.CA.Name
-			caDest := getName(i, ca, corev1.ServiceAccountRootCAKey)
+			caDest := getIDPName(i, ca, corev1.ServiceAccountRootCAKey)
 			caVolume, caMount, caPath := configMapVolume(i, caDest, corev1.ServiceAccountRootCAKey)
 
 			clientSecret := p.ClientSecret.Name
-			clientSecretDest := getName(i, clientSecret, configv1.ClientSecretKey)
+			clientSecretDest := getIDPName(i, clientSecret, configv1.ClientSecretKey)
 			clientSecretVolume, clientSecretMount, clientSecretPath := secretVolume(i, clientSecretDest, configv1.ClientSecretKey)
 
 			out = append(out,
@@ -154,21 +154,38 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 	return out
 }
 
-const userConfigPrefix = "v4-0-config-user-idp-"
+const (
+	// if one day we ever need to come up with something else, we can still find the old stuff
+	versionPrefix = "v4-0-"
 
-func getName(i int, name, key string) string {
+	// anything synced from openshift-config into our namespace has this prefix
+	userConfigPrefix = versionPrefix + "config-user-"
+
+	// idps that are synced have this prefix
+	userConfigPrefixIDP = userConfigPrefix + "idp-"
+
+	// templates that are synced have this prefix
+	// TODO actually handle templates
+	userConfigPrefixTemplate = userConfigPrefix + "template-"
+
+	// root path for IDP data
+	userConfigPathPrefixIDP = userConfigPath + "/idp/"
+
+	// root path for template data
+	userConfigPathPrefixTemplate = userConfigPath + "/template/"
+)
+
+func getIDPName(i int, name, key string) string {
 	// TODO this scheme relies on each IDP struct not using the same key for more than one field
 	// I think we can do better, but here is a start
 	// A generic function that uses reflection may work too
 	// granted the key bit can be easily solved by the caller adding a postfix to the key if it is reused
 	newKey := strings.Replace(strings.ToLower(key), ".", "-", -1)
-	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefix, i, name, newKey)
+	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefixIDP, i, name, newKey)
 }
 
-const userConfigPathPrefix = "/var/config/user/idp/"
-
-func getPath(i int, resource, name string) string {
-	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefix, i, resource, name)
+func getIDPPath(i int, resource, name string) string {
+	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefixIDP, i, resource, name)
 }
 
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
@@ -208,7 +225,7 @@ func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, s
 	mount := corev1.VolumeMount{
 		Name:      name,
 		ReadOnly:  true,
-		MountPath: getPath(i, "secret", name),
+		MountPath: getIDPPath(i, "secret", name),
 	}
 	return volume, mount, mount.MountPath + "/" + key
 }
@@ -233,7 +250,7 @@ func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount
 	mount := corev1.VolumeMount{
 		Name:      name,
 		ReadOnly:  true,
-		MountPath: getPath(i, "configmap", name),
+		MountPath: getIDPPath(i, "configmap", name),
 	}
 	return volume, mount, mount.MountPath + "/" + key
 }
