@@ -2,20 +2,20 @@ package operator2
 
 import configv1 "github.com/openshift/api/config/v1"
 
-func moveSecretFromRefToFileStringSource(ref configv1.SecretNameReference) configv1.StringSource {
+func moveSecretFromRefToFileStringSource(syncData []idpSyncData, i int, name configv1.SecretNameReference, key string) configv1.StringSource {
 	return configv1.StringSource{
 		StringSourceSpec: configv1.StringSourceSpec{
-			File: getFilenameFromSecretNameRef(ref),
+			File: getFilenameFromSecretNameRef(syncData, i, name, key),
 		},
 	}
 }
 
-// TODO: the logic of naming the CMs and Secrets to be mounted to the OSIN container
-// TODO: we need to keep track of everything that needs to be mounted in the containers?
-func getFilenameFromConfigMapNameRef(ref configv1.ConfigMapNameReference) string {
-	return ""
+func getFilenameFromConfigMapNameRef(syncData []idpSyncData, i int, name configv1.ConfigMapNameReference, key string) string {
+	// TODO make sure this makes sense (some things are optional)
+	return syncData[i].configMaps[getName(i, name.Name, key)].path
 }
 
-func getFilenameFromSecretNameRef(ref configv1.SecretNameReference) string {
-	return ""
+func getFilenameFromSecretNameRef(syncData []idpSyncData, i int, name configv1.SecretNameReference, key string) string {
+	// TODO make sure this makes sense (some things are optional)
+	return syncData[i].secrets[getName(i, name.Name, key)].path
 }

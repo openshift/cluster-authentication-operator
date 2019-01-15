@@ -45,7 +45,7 @@ func WithInformer(getter InformerGetter, filter ParentFilter) Option {
 			AddFunc: func(obj interface{}) {
 				object := metaOrDie(obj)
 				if filter.Add(object) {
-					glog.V(4).Infof("%s: handling add %s/%s", c.name, object.GetNamespace(), object.GetName())
+					glog.V(4).Infof("%s: handling add %s/%s: %s", c.name, object.GetNamespace(), object.GetName(), object.GetSelfLink())
 					c.add(filter, object)
 				}
 			},
@@ -53,7 +53,7 @@ func WithInformer(getter InformerGetter, filter ParentFilter) Option {
 				oldObject := metaOrDie(oldObj)
 				newObject := metaOrDie(newObj)
 				if filter.Update(oldObject, newObject) {
-					glog.V(4).Infof("%s: handling update %s/%s", c.name, newObject.GetNamespace(), newObject.GetName())
+					glog.V(4).Infof("%s: handling update %s/%s: %s", c.name, newObject.GetNamespace(), newObject.GetName(), newObject.GetSelfLink())
 					c.add(filter, newObject)
 				}
 			},
@@ -72,7 +72,7 @@ func WithInformer(getter InformerGetter, filter ParentFilter) Option {
 					}
 				}
 				if filter.Delete(accessor) {
-					glog.V(4).Infof("%s: handling delete %s/%s", c.name, accessor.GetNamespace(), accessor.GetName())
+					glog.V(4).Infof("%s: handling delete %s/%s: %s", c.name, accessor.GetNamespace(), accessor.GetName(), accessor.GetSelfLink())
 					c.add(filter, accessor)
 				}
 			},

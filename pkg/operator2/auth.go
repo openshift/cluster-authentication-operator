@@ -7,7 +7,7 @@ import (
 )
 
 func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
-	auth, err := c.authentication.Get(configName, metav1.GetOptions{})
+	auth, err := c.authentication.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

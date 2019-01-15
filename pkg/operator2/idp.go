@@ -1,13 +1,11 @@
 package operator2
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	kubejson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -15,106 +13,98 @@ import (
 )
 
 var (
-	scheme = runtime.NewScheme()
-	codecs = serializer.NewCodecFactory(scheme)
+	scheme  = runtime.NewScheme()
+	codecs  = serializer.NewCodecFactory(scheme)
+	encoder = codecs.LegacyCodec(osinv1.GroupVersion) // TODO I think there is a better way to do this
 )
 
 func init() {
 	utilruntime.Must(osinv1.Install(scheme))
 }
 
-func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderConfig) ([]byte, error) {
+func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderConfig, syncData []idpSyncData, i int) ([]byte, error) {
 	// FIXME: we need validation to make sure each of the IdP fields in each case is not nil!
-	var providerConfigBytes bytes.Buffer
 
-	bytesWriter := bufio.NewWriter(&providerConfigBytes)
-	serializer := kubejson.NewYAMLSerializer(kubejson.DefaultMetaFactory, scheme, scheme)
+	var p runtime.Object
 
 	switch providerConfig.Type {
 	case configv1.IdentityProviderTypeBasicAuth:
 		basicAuthConfig := providerConfig.BasicAuth
-		p := osinv1.BasicAuthPasswordIdentityProvider{
+		p = &osinv1.BasicAuthPasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: basicAuthConfig.URL,
-				CA:  getFilenameFromConfigMapNameRef(basicAuthConfig.CA),
+				CA:  getFilenameFromConfigMapNameRef(syncData, i, basicAuthConfig.CA, corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: getFilenameFromSecretNameRef(basicAuthConfig.TLSClientCert),
-					KeyFile:  getFilenameFromSecretNameRef(basicAuthConfig.TLSClientKey),
+					CertFile: getFilenameFromSecretNameRef(syncData, i, basicAuthConfig.TLSClientCert, corev1.TLSCertKey),
+					KeyFile:  getFilenameFromSecretNameRef(syncData, i, basicAuthConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
 				},
 			},
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeGitHub:
 		githubConfig := providerConfig.GitHub
-		p := osinv1.GitHubIdentityProvider{
+		p = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
-			ClientSecret:  moveSecretFromRefToFileStringSource(githubConfig.ClientSecret),
+			ClientSecret:  moveSecretFromRefToFileStringSource(syncData, i, githubConfig.ClientSecret, configv1.ClientSecretKey),
 			Organizations: githubConfig.Organizations,
 			Hostname:      githubConfig.Hostname,
-			CA:            getFilenameFromConfigMapNameRef(githubConfig.CA),
+			CA:            getFilenameFromConfigMapNameRef(syncData, i, githubConfig.CA, corev1.ServiceAccountRootCAKey),
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeGitLab:
 		gitlabConfig := providerConfig.GitLab
-		p := osinv1.GitLabIdentityProvider{
-			CA:           getFilenameFromConfigMapNameRef(gitlabConfig.CA),
+		p = &osinv1.GitLabIdentityProvider{
+			CA:           getFilenameFromConfigMapNameRef(syncData, i, gitlabConfig.CA, corev1.ServiceAccountRootCAKey),
 			URL:          gitlabConfig.URL,
 			ClientID:     gitlabConfig.ClientID,
-			ClientSecret: moveSecretFromRefToFileStringSource(gitlabConfig.ClientSecret),
+			ClientSecret: moveSecretFromRefToFileStringSource(syncData, i, gitlabConfig.ClientSecret, configv1.ClientSecretKey),
 			Legacy:       new(bool), // we require OIDC for GitLab now
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeGoogle:
 		googleConfig := providerConfig.Google
-		p := osinv1.GoogleIdentityProvider{
+		p = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
-			ClientSecret: moveSecretFromRefToFileStringSource(googleConfig.ClientSecret),
+			ClientSecret: moveSecretFromRefToFileStringSource(syncData, i, googleConfig.ClientSecret, configv1.ClientSecretKey),
 			HostedDomain: googleConfig.HostedDomain,
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeHTPasswd:
-		p := osinv1.HTPasswdPasswordIdentityProvider{
-			File: getFilenameFromSecretNameRef(providerConfig.HTPasswd.FileData),
+		p = &osinv1.HTPasswdPasswordIdentityProvider{
+			File: getFilenameFromSecretNameRef(syncData, i, providerConfig.HTPasswd.FileData, configv1.HTPasswdDataKey),
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeKeystone:
 		keystoneConfig := providerConfig.Keystone
-		p := osinv1.KeystonePasswordIdentityProvider{
+		p = &osinv1.KeystonePasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: keystoneConfig.URL,
-				CA:  getFilenameFromConfigMapNameRef(keystoneConfig.CA),
+				CA:  getFilenameFromConfigMapNameRef(syncData, i, keystoneConfig.CA, corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: getFilenameFromSecretNameRef(keystoneConfig.TLSClientCert),
-					KeyFile:  getFilenameFromSecretNameRef(keystoneConfig.TLSClientKey),
+					CertFile: getFilenameFromSecretNameRef(syncData, i, keystoneConfig.TLSClientCert, corev1.TLSCertKey),
+					KeyFile:  getFilenameFromSecretNameRef(syncData, i, keystoneConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
 				},
 			},
 			DomainName:          keystoneConfig.DomainName,
-			UseKeystoneIdentity: !keystoneConfig.UseUsernameIdentity,
+			UseKeystoneIdentity: !keystoneConfig.UseUsernameIdentity, // TODO if we are not upgrading from 3.11, then we can drop this config all together
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeLDAP:
 		ldapConfig := providerConfig.LDAP
-		p := osinv1.LDAPPasswordIdentityProvider{
+		p = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
-			BindPassword: moveSecretFromRefToFileStringSource(ldapConfig.BindPassword),
+			BindPassword: moveSecretFromRefToFileStringSource(syncData, i, ldapConfig.BindPassword, configv1.BindPasswordKey),
 			Insecure:     ldapConfig.Insecure,
-			CA:           getFilenameFromConfigMapNameRef(ldapConfig.CA),
+			CA:           getFilenameFromConfigMapNameRef(syncData, i, ldapConfig.CA, corev1.ServiceAccountRootCAKey),
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeOpenID:
 		openIDConfig := providerConfig.OpenID
-		p := osinv1.OpenIDIdentityProvider{
-			CA:                       getFilenameFromConfigMapNameRef(openIDConfig.CA),
+		p = &osinv1.OpenIDIdentityProvider{
+			CA:                       getFilenameFromConfigMapNameRef(syncData, i, openIDConfig.CA, corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
-			ClientSecret:             moveSecretFromRefToFileStringSource(openIDConfig.ClientSecret),
+			ClientSecret:             moveSecretFromRefToFileStringSource(syncData, i, openIDConfig.ClientSecret, configv1.ClientSecretKey),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
 			URLs: osinv1.OpenIDURLs{
@@ -130,47 +120,43 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 				Email:             openIDConfig.Claims.Email,
 			},
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	case configv1.IdentityProviderTypeRequestHeader:
 		requestHeaderConfig := providerConfig.RequestHeader
-		p := osinv1.RequestHeaderIdentityProvider{
+		p = &osinv1.RequestHeaderIdentityProvider{
 			LoginURL:                 requestHeaderConfig.LoginURL,
 			ChallengeURL:             requestHeaderConfig.ChallengeURL,
-			ClientCA:                 getFilenameFromConfigMapNameRef(requestHeaderConfig.ClientCA),
+			ClientCA:                 getFilenameFromConfigMapNameRef(syncData, i, requestHeaderConfig.ClientCA, corev1.ServiceAccountRootCAKey),
 			ClientCommonNames:        requestHeaderConfig.ClientCommonNames,
 			Headers:                  requestHeaderConfig.Headers,
 			PreferredUsernameHeaders: requestHeaderConfig.PreferredUsernameHeaders,
 			NameHeaders:              requestHeaderConfig.NameHeaders,
 			EmailHeaders:             requestHeaderConfig.EmailHeaders,
 		}
-		serializer.Encode(&p, bytesWriter)
 
 	default:
 		return nil, fmt.Errorf("the identity provider type '%s' is not supported", providerConfig.Type)
 	} // switch
 
-	bytesWriter.Flush()
-	return providerConfigBytes.Bytes(), nil
+	return encodeOrDie(p), nil
 }
 
 func createDenyAllIdentityProvider() osinv1.IdentityProvider {
-	var providerConfigBytes bytes.Buffer
-
-	bytesWriter := bufio.NewWriter(&providerConfigBytes)
-	serializer := kubejson.NewYAMLSerializer(kubejson.DefaultMetaFactory, scheme, scheme)
-
-	serializer.Encode(&osinv1.DenyAllPasswordIdentityProvider{}, bytesWriter)
-	bytesWriter.Flush()
-
 	return osinv1.IdentityProvider{
 		Name:            "defaultDenyAll",
 		UseAsChallenger: true,
 		UseAsLogin:      true,
 		MappingMethod:   "claim",
 		Provider: runtime.RawExtension{
-			Raw:    providerConfigBytes.Bytes(),
-			Object: nil,
+			Raw: encodeOrDie(&osinv1.DenyAllPasswordIdentityProvider{}),
 		},
 	}
+}
+
+func encodeOrDie(obj runtime.Object) []byte {
+	bytes, err := runtime.Encode(encoder, obj)
+	if err != nil {
+		panic(err) // indicates static generated code is broken, unrecoverable
+	}
+	return bytes
 }

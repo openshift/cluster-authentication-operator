@@ -3,11 +3,12 @@ package operator2
 import (
 	"github.com/golang/glog"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
@@ -21,20 +22,33 @@ import (
 	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
 const (
-	targetName = "openshift-osin"
+	targetName = "openshift-osin" // TODO fix
 
-	metadataKey = "metadata"
-	configKey   = "config.yaml"
-	sessionKey  = "session"
-	sessionPath = "/var/session"
+	configKey = "config.yaml"
 
-	configName      = "cluster"
-	configNamespace = "openshift-managed-config"
+	servingCertName     = "serving-cert"
+	servingCertMount    = "/var/run/secrets/serving-cert"
+	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
+	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
 
-	authOperatorConfigResourceName = "cluster"
+	clusterCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+	systemConfigPath = "/var/config/system"
+
+	sessionKey   = "session"
+	sessionMount = systemConfigPath + "/" + sessionKey
+	sessionPath  = sessionMount + "/" + sessionKey
+
+	globalConfigName = "cluster"
+
+	machineConfigNamespace = "openshift-config-managed"
+	userConfigNamespace    = "openshift-config"
+
+	servicePort = 6443
 )
 
 type authOperator struct {
@@ -44,13 +58,15 @@ type authOperator struct {
 
 	route routeclient.RouteInterface
 
-	services    corev1.ServicesGetter
-	secrets     corev1.SecretsGetter
-	configMaps  corev1.ConfigMapsGetter
-	deployments appsv1.DeploymentsGetter
+	services    corev1client.ServicesGetter
+	secrets     corev1client.SecretsGetter
+	configMaps  corev1client.ConfigMapsGetter
+	deployments appsv1client.DeploymentsGetter
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
+
+	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
 
 func NewAuthenticationOperator(
@@ -63,6 +79,7 @@ func NewAuthenticationOperator(
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
 	recorder events.Recorder,
+	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &authOperator{
 		authOperatorConfig: authOpConfigClient.AuthenticationOperatorConfigs(),
@@ -78,14 +95,16 @@ func NewAuthenticationOperator(
 
 		authentication: configClient.ConfigV1().Authentications(),
 		oauth:          configClient.ConfigV1().OAuths(),
+
+		resourceSyncer: resourceSyncer,
 	}
 
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	authOpConfigNameFilter := operator.FilterByNames(authOperatorConfigResourceName)
+	authOpConfigNameFilter := operator.FilterByNames(globalConfigName)
 	osinNameFilter := operator.FilterByNames(targetName)
-	configNameFilter := operator.FilterByNames(configName)
+	configNameFilter := operator.FilterByNames(globalConfigName)
 
 	return operator.New("AuthenticationOperator2", c,
 		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
@@ -103,7 +122,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfig.Get(authOperatorConfigResourceName, metav1.GetOptions{})
+	return c.authOperatorConfig.Get(globalConfigName, metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
@@ -152,7 +171,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	expectedOAuthConfigMap, err := c.handleOAuthConfig(route, configOverrides)
+	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(route, configOverrides)
 	if err != nil {
 		return err
 	}
@@ -165,6 +184,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO probably do not need every RV
 	expectedDeployment := defaultDeployment(
+		syncData,
 		route.ResourceVersion,
 		metadataConfigMap.ResourceVersion,
 		auth.ResourceVersion,
@@ -193,6 +213,7 @@ func defaultMeta() metav1.ObjectMeta {
 		Name:            targetName,
 		Namespace:       targetName,
 		Labels:          defaultLabels(),
+		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO
 	}
 }

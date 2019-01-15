@@ -60,13 +60,36 @@ func ApplyService(client coreclientv1.ServicesGetter, recorder events.Recorder, 
 	}
 
 	if selectorSame && typeSame && !*modified {
-		return nil, false, nil
+		return existing, false, nil
 	}
 
 	existing.Spec.Selector = required.Spec.Selector
 	existing.Spec.Type = required.Spec.Type // if this is different, the update will fail.  Status will indicate it.
 
 	actual, err := client.Services(required.Namespace).Update(existing)
+	reportUpdateEvent(recorder, required, err)
+	return actual, true, err
+}
+
+// ApplyPod merges objectmeta, does not worry about anything else
+func ApplyPod(client coreclientv1.PodsGetter, recorder events.Recorder, required *corev1.Pod) (*corev1.Pod, bool, error) {
+	existing, err := client.Pods(required.Namespace).Get(required.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		actual, err := client.Pods(required.Namespace).Create(required)
+		reportCreateEvent(recorder, required, err)
+		return actual, true, err
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	modified := resourcemerge.BoolPtr(false)
+	resourcemerge.EnsureObjectMeta(modified, &existing.ObjectMeta, required.ObjectMeta)
+	if !*modified {
+		return existing, false, nil
+	}
+
+	actual, err := client.Pods(required.Namespace).Update(existing)
 	reportUpdateEvent(recorder, required, err)
 	return actual, true, err
 }
