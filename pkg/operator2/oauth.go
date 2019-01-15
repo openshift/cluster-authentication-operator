@@ -94,7 +94,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
 				ServingInfo: configv1.ServingInfo{
-					BindAddress: "0.0.0.0:443",
+					BindAddress: fmt.Sprintf("0.0.0.0:%d", containerPort),
 					BindNetwork: "tcp4",
 					// we have valid certs provided by alfred so that we can use reencrypt routes
 					CertInfo: configv1.CertInfo{

@@ -15,8 +15,8 @@ func defaultService() *v1.Service {
 				{
 					Name:       "https",
 					Protocol:   v1.ProtocolTCP,
-					Port:       443,
-					TargetPort: intstr.FromInt(servicePort),
+					Port:       servicePort,
+					TargetPort: intstr.FromInt(containerPort),
 				},
 			},
 			Selector:        defaultLabels(),
