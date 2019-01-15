@@ -8,7 +8,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -107,32 +106,32 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 				},
 				Spec: corev1.PodSpec{
 					// we want to deploy on master nodes
-					NodeSelector: map[string]string{
-						// empty string is correct
-						"node-role.kubernetes.io/master": "",
-					},
-					Affinity: &corev1.Affinity{
-						// spread out across master nodes rather than congregate on one
-						PodAntiAffinity: &corev1.PodAntiAffinity{
-							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-								Weight: 100,
-								PodAffinityTerm: corev1.PodAffinityTerm{
-									LabelSelector: &metav1.LabelSelector{
-										MatchLabels: defaultLabels(),
-									},
-									TopologyKey: "kubernetes.io/hostname",
-								},
-							}},
-						},
-					},
-					// toleration is a taint override. we can and should be scheduled on a master node.
-					Tolerations: []corev1.Toleration{
-						{
-							Key:      "node-role.kubernetes.io/master",
-							Operator: corev1.TolerationOpExists,
-							Effect:   corev1.TaintEffectNoSchedule,
-						},
-					},
+					//NodeSelector: map[string]string{
+					//	// empty string is correct
+					//	"node-role.kubernetes.io/master": "",
+					//},
+					//Affinity: &corev1.Affinity{
+					//	// spread out across master nodes rather than congregate on one
+					//	PodAntiAffinity: &corev1.PodAntiAffinity{
+					//		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+					//			Weight: 100,
+					//			PodAffinityTerm: corev1.PodAffinityTerm{
+					//				LabelSelector: &metav1.LabelSelector{
+					//					MatchLabels: defaultLabels(),
+					//				},
+					//				TopologyKey: "kubernetes.io/hostname",
+					//			},
+					//		}},
+					//	},
+					//},
+					//// toleration is a taint override. we can and should be scheduled on a master node.
+					//Tolerations: []corev1.Toleration{
+					//	{
+					//		Key:      "node-role.kubernetes.io/master",
+					//		Operator: corev1.TolerationOpExists,
+					//		Effect:   corev1.TaintEffectNoSchedule,
+					//	},
+					//},
 					RestartPolicy:                 corev1.RestartPolicyAlways,
 					SchedulerName:                 corev1.DefaultSchedulerName,
 					TerminationGracePeriodSeconds: &gracePeriod,
@@ -159,12 +158,12 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 							LivenessProbe:            livenessProbe(),
 							TerminationMessagePath:   "/dev/termination-log",
 							TerminationMessagePolicy: corev1.TerminationMessagePolicy("File"),
-							Resources: corev1.ResourceRequirements{
-								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("2G"),
-									corev1.ResourceMemory: resource.MustParse("2G"),
-								},
-							},
+							//Resources: corev1.ResourceRequirements{
+							//	Requests: map[corev1.ResourceName]resource.Quantity{
+							//		corev1.ResourceCPU:    resource.MustParse("2G"),
+							//		corev1.ResourceMemory: resource.MustParse("2G"),
+							//	},
+							//},
 						},
 					},
 					Volumes: volumes,
