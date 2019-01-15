@@ -13,11 +13,12 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, error) {
 	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
@@ -108,8 +109,8 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 			// which needs to direct the user to the real public URL (MasterPublicURL)
 			// that means we still need to get that value from the installer's config
 			// TODO ask installer team to make it easier to get that URL
-			MasterURL:                   "https://127.0.0.1:443",
-			MasterPublicURL:             "https://127.0.0.1:443",
+			MasterURL:                   fmt.Sprintf("https://%s", route.Spec.Host),
+			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
 			AssetPublicURL:              "", // TODO do we need this?
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
