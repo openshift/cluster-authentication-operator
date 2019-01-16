@@ -66,7 +66,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig, syncData, i)
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue

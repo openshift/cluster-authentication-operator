@@ -21,7 +21,7 @@ import:
 - package: github.com/openshift/library-go
   version: master
 
-#for bindata
+# bindata
 - package: github.com/jteeuwen/go-bindata
   version: a0ff2567cfb70903282db057e799fd826784d41d
 
@@ -29,3 +29,7 @@ import:
 - package: k8s.io/gengo/args
   version: 01a732e01d00cb9a81bb0ca050d3e6d2b947927b
 - package: golang.org/x/tools/imports
+
+# don't print ugly
+- package: github.com/golang/glog
+  version: 44145f04b68cf362d9c4df2182967c2275eaefed

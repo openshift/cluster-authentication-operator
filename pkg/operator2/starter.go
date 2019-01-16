@@ -100,7 +100,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		operatorClient{}, // TODO fix
 		resourceSyncerInformers,
 		kubeClient,
-		recorder{}, // TODO ctx.EventRecorder,
+		ctx.EventRecorder,
 	)
 
 	operator := NewAuthenticationOperator(
@@ -112,7 +112,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeClient.RouteV1(),
 		configInformers,
 		configClient,
-		recorder{}, // TODO ctx.EventRecorder,
+		ctx.EventRecorder,
 		resourceSyncer,
 	)
 
@@ -144,14 +144,6 @@ func singleNameListOptions(name string) func(opts *v1.ListOptions) {
 		opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 	}
 }
-
-// temp hack until I fix lib-go
-type recorder struct{}
-
-func (recorder) Event(reason, message string)                            {}
-func (recorder) Eventf(reason, messageFmt string, args ...interface{})   {}
-func (recorder) Warning(reason, message string)                          {}
-func (recorder) Warningf(reason, messageFmt string, args ...interface{}) {}
 
 // temp hack since I do not care about this right now
 type operatorClient struct{}

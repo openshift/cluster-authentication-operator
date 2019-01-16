@@ -71,6 +71,13 @@ spec:
         env:
         - name: IMAGE
           value: quay.io/openshift/origin-hypershift:v4.0
+        - name: OPERATOR_IMAGE
+          value: docker.io/openshift/origin-cluster-authentication-operator:v4.0  # I believe this is supposed to exist
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        terminationMessagePolicy: FallbackToLogsOnError
       volumes:
       - name: config
         configMap:

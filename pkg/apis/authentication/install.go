@@ -4,7 +4,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authenticationoperatorconfig/v1alpha1"
+	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
 )
 
 const (

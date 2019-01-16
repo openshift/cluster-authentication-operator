@@ -145,25 +145,25 @@ func (b *ControllerBuilder) Run(config *unstructured.Unstructured, stopCh <-chan
 		go b.fileObserver.Run(stopCh)
 	}
 
-	_=kubernetes.NewForConfigOrDie(clientConfig)
-	//namespace, err := b.getNamespace()
-	//if err != nil {
-	//	panic("unable to read the namespace")
-	//}
-	//controllerRef, err := events.GetControllerReferenceForCurrentPod(kubeClient.CoreV1().Pods(namespace))
-	//if err != nil {
-	//	panic(fmt.Sprintf("unable to obtain replicaset reference for events: %v", err))
-	//}
-	//eventRecorder := events.NewKubeRecorder(kubeClient.CoreV1().Events(namespace), b.componentName, controllerRef)
-	//
-	//// if there is file observer defined for this command, add event into default reaction function.
-	//if b.fileObserverReactorFn != nil {
-	//	originalFileObserverReactorFn := b.fileObserverReactorFn
-	//	b.fileObserverReactorFn = func(file string, action fileobserver.ActionType) error {
-	//		eventRecorder.Warningf("OperatorRestart", "Restarted because of %s", action.String(file))
-	//		return originalFileObserverReactorFn(file, action)
-	//	}
-	//}
+	kubeClient := kubernetes.NewForConfigOrDie(clientConfig)
+	namespace, err := b.getNamespace()
+	if err != nil {
+		panic("unable to read the namespace")
+	}
+	controllerRef, err := events.GetControllerReferenceForCurrentPod(kubeClient, namespace, nil)
+	if err != nil {
+		panic(fmt.Sprintf("unable to obtain replicaset reference for events: %v", err))
+	}
+	eventRecorder := events.NewKubeRecorder(kubeClient.CoreV1().Events(namespace), b.componentName, controllerRef)
+
+	// if there is file observer defined for this command, add event into default reaction function.
+	if b.fileObserverReactorFn != nil {
+		originalFileObserverReactorFn := b.fileObserverReactorFn
+		b.fileObserverReactorFn = func(file string, action fileobserver.ActionType) error {
+			eventRecorder.Warningf("OperatorRestart", "Restarted because of %s", action.String(file))
+			return originalFileObserverReactorFn(file, action)
+		}
+	}
 
 	switch {
 	case b.servingInfo == nil && len(b.healthChecks) > 0:
@@ -196,7 +196,7 @@ func (b *ControllerBuilder) Run(config *unstructured.Unstructured, stopCh <-chan
 	controllerContext := &ControllerContext{
 		ComponentConfig: config,
 		KubeConfig:      clientConfig,
-		EventRecorder:   nil,
+		EventRecorder:   eventRecorder,
 		StopCh:          stopCh,
 	}
 

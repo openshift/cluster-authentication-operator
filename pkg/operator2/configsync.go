@@ -95,7 +95,7 @@ type sourceData struct {
 func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 	out := make([]idpSyncData, 0, len(idps))
 	for i, idp := range idps {
-		pc := idp.ProviderConfig
+		pc := idp.IdentityProviderConfig
 		switch pc.Type {
 		case configv1.IdentityProviderTypeHTPasswd:
 			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
