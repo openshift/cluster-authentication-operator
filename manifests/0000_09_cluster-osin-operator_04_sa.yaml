@@ -5,3 +5,11 @@ metadata:
   name: origin-cluster-osin-operator
   labels:
     app: origin-cluster-osin-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: openshift-osin
+  name: openshift-osin
+  labels:
+    app: origin-cluster-osin-operator2

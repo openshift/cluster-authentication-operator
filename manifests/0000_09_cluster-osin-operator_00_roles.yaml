@@ -9,3 +9,6 @@ subjects:
 - kind: ServiceAccount
   namespace: openshift-core-operators
   name: origin-cluster-osin-operator
+- kind: ServiceAccount
+  namespace: openshift-osin
+  name: openshift-osin
