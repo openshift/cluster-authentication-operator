@@ -30,7 +30,7 @@ func init() {
 	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
 }
 
-func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, *idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err

@@ -22,7 +22,7 @@ func init() {
 	utilruntime.Must(osinv1.Install(scheme))
 }
 
-func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderConfig, syncData []idpSyncData, i int) ([]byte, error) {
+func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderConfig, syncData *idpSyncData, i int) ([]byte, error) {
 	// FIXME: we need validation to make sure each of the IdP fields in each case is not nil!
 
 	var p runtime.Object

@@ -23,7 +23,7 @@ func (c *authOperator) getGeneration() int64 {
 	return deployment.Generation
 }
 
-func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
+func defaultDeployment(syncData *idpSyncData, resourceVersions ...string) *appsv1.Deployment {
 	replicas := int32(3) // TODO configurable?
 	gracePeriod := int64(30)
 
@@ -78,10 +78,8 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 		},
 	}
 
-	for _, d := range syncData {
-		volumes, mounts = toVolumesAndMounts(d.configMaps, volumes, mounts)
-		volumes, mounts = toVolumesAndMounts(d.secrets, volumes, mounts)
-	}
+	volumes, mounts = toVolumesAndMounts(syncData.configMaps, volumes, mounts)
+	volumes, mounts = toVolumesAndMounts(syncData.secrets, volumes, mounts)
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely
