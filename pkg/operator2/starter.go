@@ -6,11 +6,13 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
@@ -27,7 +29,8 @@ import (
 const (
 	resync = 20 * time.Minute
 
-	authConfigResource = `
+	// TODO unpause when ready
+	defaultOperatorConfig = `
 apiVersion: authentication.operator.openshift.io/v1alpha1
 kind: AuthenticationOperatorConfig
 metadata:
@@ -35,7 +38,32 @@ metadata:
 spec:
   managementState: Paused
 `
+
+	// TODO figure out the permanent home for top level CRDs and default CRs
+	defaultAuthentication = `
+apiVersion: config.openshift.io/v1
+kind: Authentication
+metadata:
+  name: ` + globalConfigName + `
+spec:
+  type: IntegratedOAuth
+`
+	defaultOAuth = `
+apiVersion: config.openshift.io/v1
+kind: OAuth
+metadata:
+  name: ` + globalConfigName + `
+spec:
+  tokenConfig:
+    accessTokenMaxAgeSeconds: 86400
+`
 )
+
+var customResources = map[schema.GroupVersionResource]string{
+	authv1alpha1.GroupVersion.WithResource("authenticationoperatorconfigs"): defaultOperatorConfig,
+	configv1.GroupVersion.WithResource("authentications"):                   defaultAuthentication,
+	configv1.GroupVersion.WithResource("oauths"):                            defaultOAuth,
+}
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
 	kubeClient, err := kubernetes.NewForConfig(ctx.KubeConfig)
@@ -81,11 +109,9 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
 	)
 
-	v1helpers.EnsureOperatorConfigExists(
-		dynamicClient,
-		[]byte(authConfigResource),
-		authv1alpha1.GroupVersion.WithResource("authenticationoperatorconfigs"),
-	)
+	for gvr, resource := range customResources {
+		v1helpers.EnsureOperatorConfigExists(dynamicClient, []byte(resource), gvr)
+	}
 
 	resourceSyncerInformers := map[string]informers.SharedInformerFactory{
 		targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
