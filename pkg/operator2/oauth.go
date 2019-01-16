@@ -15,6 +15,7 @@ import (
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	authv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
@@ -30,16 +31,15 @@ func init() {
 	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
 }
 
-func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route) (*configv1.OAuth, *corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	// TODO maybe move the OAuth stuff up one level
 	syncData, err := c.handleConfigSync(oauthConfig)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -151,17 +151,18 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 
 	cliConfigBytes := encodeOrDieKubeControlplane(cliConfig)
 
-	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
+	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return &corev1.ConfigMap{
-		ObjectMeta: defaultMeta(),
-		Data: map[string]string{
-			configKey: string(completeConfigBytes),
-		},
-	}, syncData, nil
+	return oauthConfig, // TODO update OAuth status
+		&corev1.ConfigMap{
+			ObjectMeta: defaultMeta(),
+			Data: map[string]string{
+				configKey: string(completeConfigBytes),
+			},
+		}, syncData, nil
 }
 
 func getMasterCA() *string {

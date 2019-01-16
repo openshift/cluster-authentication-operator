@@ -131,13 +131,13 @@ func (c *authOperator) Key() (metav1.Object, error) {
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
-	authConfig := obj.(*authv1alpha1.AuthenticationOperatorConfig)
+	operatorConfig := obj.(*authv1alpha1.AuthenticationOperatorConfig)
 
-	if authConfig.Spec.ManagementState != operatorv1.Managed {
+	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
 
-	if err := c.handleSync(authConfig.Spec.UnsupportedConfigOverrides.Raw); err != nil {
+	if err := c.handleSync(operatorConfig); err != nil {
 		return err
 	}
 
@@ -146,18 +146,18 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	return nil
 }
 
-func (c *authOperator) handleSync(configOverrides []byte) error {
+func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOperatorConfig) error {
 	route, err := c.handleRoute()
 	if err != nil {
 		return err
 	}
 
-	metadataConfigMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
+	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return err
 	}
 
-	auth, err := c.handleAuthConfig()
+	authConfig, err := c.handleAuthConfig()
 	if err != nil {
 		return err
 	}
@@ -167,36 +167,38 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	sessionSecret, err := c.expectedSessionSecret()
+	expectedSessionSecret, err := c.expectedSessionSecret()
 	if err != nil {
 		return err
 	}
-	secret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, sessionSecret)
+	sessionSecret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
 	if err != nil {
 		return err
 	}
 
-	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(route, configOverrides)
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route)
 	if err != nil {
 		return err
 	}
-	configMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedOAuthConfigMap)
+	cliConfig, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
 	if err != nil {
 		return err
 	}
 
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
-	// TODO probably do not need every RV
-	// TODO we do not know the RV of all the config maps and secrets in syncData, so we may fail to redeploy
+	// TODO manually get RV of all the config maps and secrets in syncData
 	expectedDeployment := defaultDeployment(
+		operatorConfig,
 		syncData,
+		operatorConfig.ResourceVersion,
 		route.ResourceVersion,
-		metadataConfigMap.ResourceVersion,
-		auth.ResourceVersion,
+		metadata.ResourceVersion,
+		authConfig.ResourceVersion,
 		service.ResourceVersion,
-		secret.ResourceVersion,
-		configMap.ResourceVersion,
+		sessionSecret.ResourceVersion,
+		oauthConfig.ResourceVersion,
+		cliConfig.ResourceVersion,
 	)
 	deployment, _, err := resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
 	if err != nil {
