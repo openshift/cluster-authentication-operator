@@ -123,91 +123,82 @@ func newSourceDataIDPConfigMap(index int, cmName, idpType string) (string, sourc
 	return dest, ret
 }
 
+// AddSecret initializes a sourceData object with proper data for a Secret
+// and adds it among the other secrets stored here
+// Returns the key that it stored the Secret to
+func (sd *idpSyncData) AddSecret(index int, secretName, idpType string) string {
+	dest, data := newSourceDataIDPSecret(index, secretName, idpType)
+	sd.secrets[dest] = data
+
+	return dest
+}
+
+// AddConfigMap initializes a sourceData object with proper data for a ConfigMap
+// and adds it among the other configmaps stored here
+// Returns the key that it stored the ConfigMap to
+func (sd *idpSyncData) AddConfigMap(index int, secretName, idpType string) string {
+	dest, data := newSourceDataIDPConfigMap(index, secretName, idpType)
+	sd.secrets[dest] = data
+
+	return dest
+}
+
 // TODO this should be combined with convertProviderConfigToOsinBytes as it would simplify how the data is shared
 func convertToData(idps []configv1.IdentityProvider) *idpSyncData {
 	configMaps := map[string]sourceData{}
 	secrets := map[string]sourceData{}
+
+	syncData := idpSyncData{
+		configMaps: configMaps,
+		secrets:    secrets,
+	}
 
 	for i, idp := range idps {
 		pc := idp.IdentityProviderConfig
 		switch pc.Type {
 		case configv1.IdentityProviderTypeBasicAuth:
 			p := pc.BasicAuth
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			clientCertDest, clientCertData := newSourceDataIDPSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
-			secrets[clientCertDest] = clientCertData
-
-			clientKeyDest, clientKeyData := newSourceDataIDPSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
-			secrets[clientKeyDest] = clientKeyData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
+			syncData.AddSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
 
 		case configv1.IdentityProviderTypeGitHub:
 			p := pc.GitHub
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-			secrets[clientSecretDest] = clientSecretData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
 
 		case configv1.IdentityProviderTypeGitLab:
 			p := pc.GitLab
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-			secrets[clientSecretDest] = clientSecretData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
 
 		case configv1.IdentityProviderTypeGoogle:
 			p := pc.Google
-
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-			secrets[clientSecretDest] = clientSecretData
+			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
 
 		case configv1.IdentityProviderTypeHTPasswd:
 			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
-
-			dest, data := newSourceDataIDPSecret(i, p.FileData.Name, configv1.HTPasswdDataKey)
-			secrets[dest] = data
+			syncData.AddSecret(i, p.FileData.Name, configv1.HTPasswdDataKey)
 
 		case configv1.IdentityProviderTypeKeystone:
 			p := pc.Keystone
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			clientCertDest, clientCertData := newSourceDataIDPSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
-			secrets[clientCertDest] = clientCertData
-
-			clientKeyDest, clientKeyData := newSourceDataIDPSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
-			secrets[clientKeyDest] = clientKeyData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
+			syncData.AddSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
 
 		case configv1.IdentityProviderTypeLDAP:
 			p := pc.LDAP
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			bindPasswordDest, bindPasswordData := newSourceDataIDPSecret(i, p.BindPassword.Name, configv1.BindPasswordKey)
-			secrets[bindPasswordDest] = bindPasswordData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.BindPassword.Name, configv1.BindPasswordKey)
 
 		case configv1.IdentityProviderTypeOpenID:
 			p := pc.OpenID
-
-			caDest, caData := newSourceDataIDPConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[caDest] = caData
-
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-			secrets[clientSecretDest] = clientSecretData
+			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
+			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
 
 		case configv1.IdentityProviderTypeRequestHeader:
 			p := pc.RequestHeader
-
-			clientCADest, clientCAData := newSourceDataIDPConfigMap(i, p.ClientCA.Name, corev1.ServiceAccountRootCAKey)
-			configMaps[clientCADest] = clientCAData
+			syncData.AddConfigMap(i, p.ClientCA.Name, corev1.ServiceAccountRootCAKey)
 
 		default:
 			return nil // TODO: some erroring
