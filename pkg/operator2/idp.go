@@ -23,13 +23,17 @@ func init() {
 }
 
 func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderConfig, syncData *idpSyncData, i int) ([]byte, error) {
-	// FIXME: we need validation to make sure each of the IdP fields in each case is not nil!
+	const missingProviderFmt string = "type %s was specified, but its configuration is missing"
 
 	var p runtime.Object
 
 	switch providerConfig.Type {
 	case configv1.IdentityProviderTypeBasicAuth:
 		basicAuthConfig := providerConfig.BasicAuth
+		if basicAuthConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.BasicAuthPasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: basicAuthConfig.URL,
@@ -43,6 +47,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeGitHub:
 		githubConfig := providerConfig.GitHub
+		if githubConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
 			ClientSecret:  createFileStringSource(syncData.AddSecret(i, githubConfig.ClientSecret.Name, configv1.ClientSecretKey)),
@@ -53,6 +61,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeGitLab:
 		gitlabConfig := providerConfig.GitLab
+		if gitlabConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.GitLabIdentityProvider{
 			CA:           syncData.AddConfigMap(i, gitlabConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 			URL:          gitlabConfig.URL,
@@ -63,6 +75,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeGoogle:
 		googleConfig := providerConfig.Google
+		if googleConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
 			ClientSecret: createFileStringSource(syncData.AddSecret(i, googleConfig.ClientSecret.Name, configv1.ClientSecretKey)),
@@ -70,12 +86,20 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		}
 
 	case configv1.IdentityProviderTypeHTPasswd:
+		if providerConfig.HTPasswd == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.HTPasswdPasswordIdentityProvider{
 			File: syncData.AddSecret(i, providerConfig.HTPasswd.FileData.Name, configv1.HTPasswdDataKey),
 		}
 
 	case configv1.IdentityProviderTypeKeystone:
 		keystoneConfig := providerConfig.Keystone
+		if keystoneConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.KeystonePasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: keystoneConfig.URL,
@@ -91,6 +115,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeLDAP:
 		ldapConfig := providerConfig.LDAP
+		if ldapConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
@@ -101,6 +129,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeOpenID:
 		openIDConfig := providerConfig.OpenID
+		if openIDConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.OpenIDIdentityProvider{
 			CA:                       syncData.AddConfigMap(i, openIDConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
@@ -123,6 +155,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 	case configv1.IdentityProviderTypeRequestHeader:
 		requestHeaderConfig := providerConfig.RequestHeader
+		if requestHeaderConfig == nil {
+			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
+		}
+
 		p = &osinv1.RequestHeaderIdentityProvider{
 			LoginURL:                 requestHeaderConfig.LoginURL,
 			ChallengeURL:             requestHeaderConfig.ChallengeURL,
