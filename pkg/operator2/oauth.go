@@ -54,11 +54,6 @@ func (c *authOperator) handleOAuthConfig(
 		consoleConfig = &configv1.Console{}
 	}
 
-	syncData, err := c.handleConfigSync(oauthConfig)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	var accessTokenInactivityTimeoutSeconds *int32
 	timeout := oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds
 	switch {
@@ -82,8 +77,9 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
+	syncData := newIDPSyncData()
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, syncData, i)
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue
@@ -104,6 +100,12 @@ func (c *authOperator) handleOAuthConfig(
 		identityProviders = []osinv1.IdentityProvider{
 			createDenyAllIdentityProvider(),
 		}
+	}
+
+	// TODO maybe move the OAuth stuff up one level
+	err = c.handleConfigSync(&syncData)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// TODO this pretends this is an OsinServerConfig
@@ -174,7 +176,7 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	// TODO update OAuth status
-	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), syncData, nil
+	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
