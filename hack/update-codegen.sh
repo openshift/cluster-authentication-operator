@@ -29,7 +29,7 @@ verify="${VERIFY:-}"
 #                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
 #                  instead of the $GOPATH directly. For normal projects this can be dropped.
 ${CODEGEN_PKG}/generate-groups.sh "all" \
-  github.com/openshift/cluster-osin-operator/pkg/generated github.com/openshift/cluster-osin-operator/pkg/apis \
+  github.com/openshift/cluster-authentication-operator/pkg/generated github.com/openshift/cluster-authentication-operator/pkg/apis \
   authentication:v1alpha1 \
   --output-base "$(dirname ${BASH_SOURCE})/../../../.." \
   --go-header-file ${SCRIPT_ROOT}/hack/boilerplate.txt \

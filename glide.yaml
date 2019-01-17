@@ -1,4 +1,4 @@
-package: github.com/openshift/cluster-osin-operator
+package: github.com/openshift/cluster-authentication-operator
 import:
 - package: k8s.io/apimachinery
   version: kubernetes-1.11.1

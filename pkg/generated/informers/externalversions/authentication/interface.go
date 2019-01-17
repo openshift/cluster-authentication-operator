@@ -3,8 +3,8 @@
 package authentication
 
 import (
-	v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
-	internalinterfaces "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
+	internalinterfaces "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to each of this group's versions.

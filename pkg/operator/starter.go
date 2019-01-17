@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
+	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 )
 

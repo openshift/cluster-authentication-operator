@@ -3,8 +3,8 @@ package operator
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift/cluster-osin-operator/pkg/operator"
-	"github.com/openshift/cluster-osin-operator/pkg/version"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator"
+	"github.com/openshift/cluster-authentication-operator/pkg/version"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 )
 

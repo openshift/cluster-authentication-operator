@@ -183,7 +183,7 @@ func main() {
 		// github merge
 
 		// has api changes
-		display := fmt.Sprintf("%s [\\#%s](https://github.com/openshift/cluster-osin-operator/pull/%s)", message, matches[1], matches[1])
+		display := fmt.Sprintf("%s [\\#%s](https://github.com/openshift/cluster-authentication-operator/pull/%s)", message, matches[1], matches[1])
 		if hasFileChanges(c.short, "api/") {
 			apiChanges = append(apiChanges, display)
 		}

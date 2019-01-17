@@ -3,7 +3,7 @@
 package versioned
 
 import (
-	authenticationv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
+	authenticationv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"

@@ -3,7 +3,7 @@ package gotest
 import (
 	"regexp"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 )
 
 // testStartPattern matches the line in verbose `go test` output that marks the declaration of a test.
