@@ -13,8 +13,8 @@ import (
 	utilflag "k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/apiserver/pkg/util/logs"
 
-	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator"
-	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator2"
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator"
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator2"
 )
 
 func main() {

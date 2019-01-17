@@ -62,7 +62,7 @@ func (i *ImportRestriction) ForbiddenImportsFor(pkg Package) []string {
 //   - it does not fall under any of the ignored sub-trees
 func (i *ImportRestriction) isRestrictedPath(packageToCheck string) bool {
 	// if its not under our root, then its a built-in.  Everything else is under
-	// github.com/openshift/service-serving-cert-signer or github.com/openshift/cluster-osin-operator/vendor
+	// github.com/openshift/service-serving-cert-signer or github.com/openshift/cluster-authentication-operator/vendor
 	if !strings.HasPrefix(packageToCheck, rootPackage) {
 		return false
 	}
@@ -103,7 +103,7 @@ func (i *ImportRestriction) forbiddenImportsFor(pkg Package) []string {
 //   - is not of an allowed path or a sub-package of one
 func (i *ImportRestriction) isAllowed(packageToCheck string) bool {
 	// if its not under our root, then its a built-in.  Everything else is under
-	// github.com/openshift/service-serving-cert-signer or github.com/openshift/cluster-osin-operator/vendor
+	// github.com/openshift/service-serving-cert-signer or github.com/openshift/cluster-authentication-operator/vendor
 	if !strings.HasPrefix(packageToCheck, rootPackage) {
 		return true
 	}

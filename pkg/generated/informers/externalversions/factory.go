@@ -7,9 +7,9 @@ import (
 	sync "sync"
 	time "time"
 
-	versioned "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	authentication "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication"
-	internalinterfaces "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/internalinterfaces"
+	versioned "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned"
+	authentication "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/authentication"
+	internalinterfaces "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/internalinterfaces"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

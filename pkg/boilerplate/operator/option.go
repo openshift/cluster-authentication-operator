@@ -3,7 +3,7 @@ package operator
 import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
+	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 )
 
 // key is the singleton key shared by all events
