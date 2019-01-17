@@ -91,64 +91,191 @@ type sourceData struct {
 	mount  corev1.VolumeMount
 }
 
+// TODO: new source data could be generalized
+func newSourceDataIDPSecret(index int, secretName, idpType string) (string, sourceData) {
+	dest := getIDPName(index, secretName, idpType)
+
+	volume, mount, path := secretVolume(index, dest, idpType)
+	ret := sourceData{
+		src:    secretName,
+		path:   path,
+		volume: volume,
+		mount:  mount,
+	}
+
+	return dest, ret
+}
+
+func newSourceDataIDPConfigMap(index int, cmName, idpType string) (string, sourceData) {
+	dest := getIDPName(index, cmName, idpType)
+
+	volume, mount, path := configMapVolume(index, dest, idpType)
+	ret := sourceData{
+		src:    cmName,
+		path:   path,
+		volume: volume,
+		mount:  mount,
+	}
+
+	return dest, ret
+}
+
 // TODO this should be combined with convertProviderConfigToOsinBytes as it would simplify how the data is shared
 func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 	out := make([]idpSyncData, 0, len(idps))
 	for i, idp := range idps {
 		pc := idp.IdentityProviderConfig
 		switch pc.Type {
+		case configv1.IdentityProviderTypeBasicAuth:
+			p := pc.BasicAuth
+
+			ca := p.CA.Name
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
+
+			clientCert := p.TLSClientCert.Name
+			clientCertDest, clientCertData := newSourceDataIDPSecret(i, clientCert, corev1.TLSCertKey)
+
+			clientKey := p.TLSClientKey.Name
+			clientKeyDest, clienKeyData := newSourceDataIDPSecret(i, clientKey, corev1.TLSPrivateKeyKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{caDest: caData},
+					secrets: map[string]sourceData{
+						clientCertDest: clientCertData,
+						clientKeyDest:  clienKeyData,
+					},
+				},
+			)
+
+		case configv1.IdentityProviderTypeGitHub:
+			p := pc.GitHub
+			ca := p.CA.Name
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
+
+			clientSecret := p.ClientSecret.Name
+			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{caDest: caData},
+					secrets: map[string]sourceData{
+						clientSecretDest: clientSecretData,
+					},
+				},
+			)
+
+		case configv1.IdentityProviderTypeGitLab:
+			p := pc.GitLab
+			ca := p.CA.Name
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
+
+			clientSecret := p.ClientSecret.Name
+			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{caDest: caData},
+					secrets: map[string]sourceData{
+						clientSecretDest: clientSecretData,
+					},
+				},
+			)
+
+		case configv1.IdentityProviderTypeGoogle:
+			p := pc.Google
+
+			clientSecret := p.ClientSecret.Name
+			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
+
+			out = append(out,
+				idpSyncData{
+					secrets: map[string]sourceData{
+						clientSecretDest: clientSecretData,
+					},
+				},
+			)
+
 		case configv1.IdentityProviderTypeHTPasswd:
 			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
 
 			fileData := p.FileData.Name
-			dest := getIDPName(i, fileData, configv1.HTPasswdDataKey)
-			volume, mount, path := secretVolume(i, dest, configv1.HTPasswdDataKey)
+			dest, data := newSourceDataIDPSecret(i, fileData, configv1.HTPasswdDataKey)
+
+			out = append(out,
+				idpSyncData{secrets: map[string]sourceData{dest: data}},
+			)
+
+		case configv1.IdentityProviderTypeKeystone:
+			p := pc.Keystone
+
+			ca := p.CA.Name
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
+
+			clientCert := p.TLSClientCert.Name
+			clientCertDest, clientCertData := newSourceDataIDPSecret(i, clientCert, corev1.TLSCertKey)
+
+			clientKey := p.TLSClientKey.Name
+			clientKeyDest, clienKeyData := newSourceDataIDPSecret(i, clientKey, corev1.TLSPrivateKeyKey)
 
 			out = append(out,
 				idpSyncData{
+					configMaps: map[string]sourceData{caDest: caData},
 					secrets: map[string]sourceData{
-						dest: {
-							src:    fileData,
-							path:   path,
-							volume: volume,
-							mount:  mount,
-						},
+						clientCertDest: clientCertData,
+						clientKeyDest:  clienKeyData,
 					},
 				},
 			)
+
+		case configv1.IdentityProviderTypeLDAP:
+			p := pc.LDAP
+
+			ca := p.CA.Name
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
+
+			bindPassword := p.BindPassword.Name
+			bindPasswordDest, bindPasswordData := newSourceDataIDPSecret(i, bindPassword, configv1.BindPasswordKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{caDest: caData},
+					secrets:    map[string]sourceData{bindPasswordDest: bindPasswordData},
+				},
+			)
+
 		case configv1.IdentityProviderTypeOpenID:
 			p := pc.OpenID
 
 			ca := p.CA.Name
-			caDest := getIDPName(i, ca, corev1.ServiceAccountRootCAKey)
-			caVolume, caMount, caPath := configMapVolume(i, caDest, corev1.ServiceAccountRootCAKey)
+			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
 
 			clientSecret := p.ClientSecret.Name
-			clientSecretDest := getIDPName(i, clientSecret, configv1.ClientSecretKey)
-			clientSecretVolume, clientSecretMount, clientSecretPath := secretVolume(i, clientSecretDest, configv1.ClientSecretKey)
+			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
 
 			out = append(out,
 				idpSyncData{
-					configMaps: map[string]sourceData{
-						caDest: {
-							src:    ca,
-							path:   caPath,
-							volume: caVolume,
-							mount:  caMount,
-						},
-					},
+					configMaps: map[string]sourceData{caDest: caData},
 					secrets: map[string]sourceData{
-						clientSecretDest: {
-							src:    clientSecret,
-							path:   clientSecretPath,
-							volume: clientSecretVolume,
-							mount:  clientSecretMount,
-						},
+						clientSecretDest: clientSecretData,
 					},
 				},
 			)
+
+		case configv1.IdentityProviderTypeRequestHeader:
+			p := pc.RequestHeader
+
+			clientCA := p.ClientCA.Name
+			clientCADest, clientCAData := newSourceDataIDPConfigMap(i, clientCA, corev1.ServiceAccountRootCAKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{clientCADest: clientCAData},
+				},
+			)
+
 		default:
-			panic("TODO")
+			return nil // TODO: some erroring
 		}
 	}
 	return out
