@@ -33,10 +33,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.BasicAuthPasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: basicAuthConfig.URL,
-				CA:  getFilenameFromConfigMapNameRef(syncData, i, basicAuthConfig.CA, corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddConfigMap(i, basicAuthConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: getFilenameFromSecretNameRef(syncData, i, basicAuthConfig.TLSClientCert, corev1.TLSCertKey),
-					KeyFile:  getFilenameFromSecretNameRef(syncData, i, basicAuthConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddSecret(i, basicAuthConfig.TLSClientCert.Name, corev1.TLSCertKey),
+					KeyFile:  syncData.AddSecret(i, basicAuthConfig.TLSClientKey.Name, corev1.TLSPrivateKeyKey),
 				},
 			},
 		}
@@ -45,19 +45,19 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		githubConfig := providerConfig.GitHub
 		p = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
-			ClientSecret:  moveSecretFromRefToFileStringSource(syncData, i, githubConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret:  createFileStringSource(syncData.AddSecret(i, githubConfig.ClientSecret.Name, configv1.ClientSecretKey)),
 			Organizations: githubConfig.Organizations,
 			Hostname:      githubConfig.Hostname,
-			CA:            getFilenameFromConfigMapNameRef(syncData, i, githubConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:            syncData.AddConfigMap(i, githubConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 		}
 
 	case configv1.IdentityProviderTypeGitLab:
 		gitlabConfig := providerConfig.GitLab
 		p = &osinv1.GitLabIdentityProvider{
-			CA:           getFilenameFromConfigMapNameRef(syncData, i, gitlabConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddConfigMap(i, gitlabConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 			URL:          gitlabConfig.URL,
 			ClientID:     gitlabConfig.ClientID,
-			ClientSecret: moveSecretFromRefToFileStringSource(syncData, i, gitlabConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret: createFileStringSource(syncData.AddSecret(i, gitlabConfig.ClientSecret.Name, configv1.ClientSecretKey)),
 			Legacy:       new(bool), // we require OIDC for GitLab now
 		}
 
@@ -65,13 +65,13 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		googleConfig := providerConfig.Google
 		p = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
-			ClientSecret: moveSecretFromRefToFileStringSource(syncData, i, googleConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret: createFileStringSource(syncData.AddSecret(i, googleConfig.ClientSecret.Name, configv1.ClientSecretKey)),
 			HostedDomain: googleConfig.HostedDomain,
 		}
 
 	case configv1.IdentityProviderTypeHTPasswd:
 		p = &osinv1.HTPasswdPasswordIdentityProvider{
-			File: getFilenameFromSecretNameRef(syncData, i, providerConfig.HTPasswd.FileData, configv1.HTPasswdDataKey),
+			File: syncData.AddSecret(i, providerConfig.HTPasswd.FileData.Name, configv1.HTPasswdDataKey),
 		}
 
 	case configv1.IdentityProviderTypeKeystone:
@@ -79,10 +79,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.KeystonePasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: keystoneConfig.URL,
-				CA:  getFilenameFromConfigMapNameRef(syncData, i, keystoneConfig.CA, corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddConfigMap(i, keystoneConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: getFilenameFromSecretNameRef(syncData, i, keystoneConfig.TLSClientCert, corev1.TLSCertKey),
-					KeyFile:  getFilenameFromSecretNameRef(syncData, i, keystoneConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddSecret(i, keystoneConfig.TLSClientCert.Name, corev1.TLSCertKey),
+					KeyFile:  syncData.AddSecret(i, keystoneConfig.TLSClientKey.Name, corev1.TLSPrivateKeyKey),
 				},
 			},
 			DomainName:          keystoneConfig.DomainName,
@@ -94,17 +94,17 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
-			BindPassword: moveSecretFromRefToFileStringSource(syncData, i, ldapConfig.BindPassword, configv1.BindPasswordKey),
+			BindPassword: createFileStringSource(syncData.AddSecret(i, ldapConfig.BindPassword.Name, configv1.BindPasswordKey)),
 			Insecure:     ldapConfig.Insecure,
-			CA:           getFilenameFromConfigMapNameRef(syncData, i, ldapConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddConfigMap(i, ldapConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 		}
 
 	case configv1.IdentityProviderTypeOpenID:
 		openIDConfig := providerConfig.OpenID
 		p = &osinv1.OpenIDIdentityProvider{
-			CA:                       getFilenameFromConfigMapNameRef(syncData, i, openIDConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:                       syncData.AddConfigMap(i, openIDConfig.CA.Name, corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
-			ClientSecret:             moveSecretFromRefToFileStringSource(syncData, i, openIDConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret:             createFileStringSource(syncData.AddSecret(i, openIDConfig.ClientSecret.Name, configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
 			URLs: osinv1.OpenIDURLs{
@@ -126,7 +126,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.RequestHeaderIdentityProvider{
 			LoginURL:                 requestHeaderConfig.LoginURL,
 			ChallengeURL:             requestHeaderConfig.ChallengeURL,
-			ClientCA:                 getFilenameFromConfigMapNameRef(syncData, i, requestHeaderConfig.ClientCA, corev1.ServiceAccountRootCAKey),
+			ClientCA:                 syncData.AddConfigMap(i, requestHeaderConfig.ClientCA.Name, corev1.ServiceAccountRootCAKey),
 			ClientCommonNames:        requestHeaderConfig.ClientCommonNames,
 			Headers:                  requestHeaderConfig.Headers,
 			PreferredUsernameHeaders: requestHeaderConfig.PreferredUsernameHeaders,

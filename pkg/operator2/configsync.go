@@ -8,11 +8,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(config *configv1.OAuth) (*idpSyncData, error) {
+func (c *authOperator) handleConfigSync(data *idpSyncData) error {
 	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
@@ -21,12 +20,12 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) (*idpSyncData, e
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	secrets, err := secretClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	prefixConfigMapNames := sets.NewString()
@@ -48,8 +47,6 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) (*idpSyncData, e
 
 	inUseConfigMapNames := sets.NewString()
 	inUseSecretNames := sets.NewString()
-
-	data := convertToData(config.Spec.IdentityProviders)
 
 	for dest, src := range data.configMaps {
 		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
@@ -73,7 +70,7 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) (*idpSyncData, e
 		syncOrDie(c.resourceSyncer.SyncSecret, dest, "")
 	}
 
-	return data, nil
+	return nil
 }
 
 type idpSyncData struct {
@@ -123,6 +120,16 @@ func newSourceDataIDPConfigMap(index int, cmName, idpType string) (string, sourc
 	return dest, ret
 }
 
+func newIDPSyncData() idpSyncData {
+	configMaps := map[string]sourceData{}
+	secrets := map[string]sourceData{}
+
+	return idpSyncData{
+		configMaps: configMaps,
+		secrets:    secrets,
+	}
+}
+
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the key that it stored the Secret to
@@ -141,73 +148,6 @@ func (sd *idpSyncData) AddConfigMap(index int, secretName, idpType string) strin
 	sd.secrets[dest] = data
 
 	return dest
-}
-
-// TODO this should be combined with convertProviderConfigToOsinBytes as it would simplify how the data is shared
-func convertToData(idps []configv1.IdentityProvider) *idpSyncData {
-	configMaps := map[string]sourceData{}
-	secrets := map[string]sourceData{}
-
-	syncData := idpSyncData{
-		configMaps: configMaps,
-		secrets:    secrets,
-	}
-
-	for i, idp := range idps {
-		pc := idp.IdentityProviderConfig
-		switch pc.Type {
-		case configv1.IdentityProviderTypeBasicAuth:
-			p := pc.BasicAuth
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
-			syncData.AddSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
-
-		case configv1.IdentityProviderTypeGitHub:
-			p := pc.GitHub
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-
-		case configv1.IdentityProviderTypeGitLab:
-			p := pc.GitLab
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-
-		case configv1.IdentityProviderTypeGoogle:
-			p := pc.Google
-			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-
-		case configv1.IdentityProviderTypeHTPasswd:
-			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
-			syncData.AddSecret(i, p.FileData.Name, configv1.HTPasswdDataKey)
-
-		case configv1.IdentityProviderTypeKeystone:
-			p := pc.Keystone
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.TLSClientCert.Name, corev1.TLSCertKey)
-			syncData.AddSecret(i, p.TLSClientKey.Name, corev1.TLSPrivateKeyKey)
-
-		case configv1.IdentityProviderTypeLDAP:
-			p := pc.LDAP
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.BindPassword.Name, configv1.BindPasswordKey)
-
-		case configv1.IdentityProviderTypeOpenID:
-			p := pc.OpenID
-			syncData.AddConfigMap(i, p.CA.Name, corev1.ServiceAccountRootCAKey)
-			syncData.AddSecret(i, p.ClientSecret.Name, configv1.ClientSecretKey)
-
-		case configv1.IdentityProviderTypeRequestHeader:
-			p := pc.RequestHeader
-			syncData.AddConfigMap(i, p.ClientCA.Name, corev1.ServiceAccountRootCAKey)
-
-		default:
-			return nil // TODO: some erroring
-		}
-	}
-	return &idpSyncData{
-		configMaps: configMaps,
-		secrets:    secrets,
-	}
 }
 
 const (
