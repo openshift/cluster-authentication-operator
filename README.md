@@ -1,3 +1,3 @@
-# cluster-osin-operator
+# cluster-authentication-operator
 
 TODO
