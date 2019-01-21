@@ -132,6 +132,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 					//		Effect:   corev1.TaintEffectNoSchedule,
 					//	},
 					//},
+					ServiceAccountName:            targetName,
 					RestartPolicy:                 corev1.RestartPolicyAlways,
 					SchedulerName:                 corev1.DefaultSchedulerName,
 					TerminationGracePeriodSeconds: &gracePeriod,
