@@ -10,7 +10,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -22,6 +21,7 @@ import (
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -114,8 +114,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(kubeClient, targetName, userConfigNamespace)
 
+	operatorClient := &OperatorClient{
+		authOperatorConfigInformers,
+		authConfigClient.OperatorV1(),
+	}
+
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
-		operatorClient{}, // TODO fix
+		operatorClient,
 		resourceSyncerInformers,
 		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
@@ -135,6 +140,20 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		resourceSyncer,
 	)
 
+	clusterOperatorStatus := status.NewClusterOperatorStatusController(
+		"openshift-authentication",
+		[]configv1.ObjectReference{
+			{Group: "operator.openshift.io", Resource: "authentication", Name: globalConfigName},
+			{Resource: "namespaces", Name: "openshift-config"},
+			{Resource: "namespaces", Name: "openshift-config-managed"},
+			{Resource: "namespaces", Name: targetName},
+		},
+		configClient.ConfigV1(),
+		operatorClient,
+		status.NewVersionGetter(),
+		ctx.EventRecorder,
+	)
+
 	for _, informer := range []interface {
 		Start(stopCh <-chan struct{})
 	}{
@@ -149,6 +168,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	go operator.Run(ctx.Done())
 	go resourceSyncer.Run(1, ctx.Done())
+	go clusterOperatorStatus.Run(1, ctx.Done())
 
 	<-ctx.Done()
 
@@ -160,28 +180,3 @@ func singleNameListOptions(name string) func(opts *v1.ListOptions) {
 		opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 	}
 }
-
-// temp hack since I do not care about this right now
-type operatorClient struct{}
-
-func (operatorClient) Informer() cache.SharedIndexInformer {
-	return fakeInformer{}
-}
-
-func (operatorClient) GetOperatorState() (spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, resourceVersion string, err error) {
-	return &operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, "", nil
-}
-
-func (operatorClient) UpdateOperatorSpec(string, *operatorv1.OperatorSpec) (spec *operatorv1.OperatorSpec, resourceVersion string, err error) {
-	return nil, "", nil
-}
-
-func (operatorClient) UpdateOperatorStatus(string, *operatorv1.OperatorStatus) (status *operatorv1.OperatorStatus, err error) {
-	return nil, nil
-}
-
-type fakeInformer struct {
-	cache.SharedIndexInformer // panics if anything other than AddEventHandler gets called
-}
-
-func (fakeInformer) AddEventHandler(_ cache.ResourceEventHandler) {}

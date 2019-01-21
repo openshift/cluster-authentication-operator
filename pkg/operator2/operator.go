@@ -158,10 +158,16 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	}
 
 	if err := c.handleSync(operatorConfig); err != nil {
+		if statusErr := c.setFailingStatus(operatorConfig, "OperatorSyncLoopError", err.Error()); statusErr != nil {
+			glog.Errorf("error updating operator status: %s", statusErr)
+		}
+
 		return err
 	}
 
-	// TODO update states and handle ClusterOperator spec/status
+	if statusErr := c.setAvailableStatus(operatorConfig); statusErr != nil {
+		glog.Errorf("error updating operator status: %s", statusErr)
+	}
 
 	return nil
 }
