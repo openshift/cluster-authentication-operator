@@ -21,7 +21,7 @@ spec:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:v4.0
         imagePullPolicy: IfNotPresent
-        command: ["authentication-operator", "operator1"]
+        command: ["osin-operator", "operator1"]
         args:
         - "--config=/var/run/configmaps/config/operator-config.yaml"
         - "-v=4"
@@ -61,7 +61,7 @@ spec:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:v4.0
         imagePullPolicy: Always
-        command: ["authentication-operator", "operator"]
+        command: ["osin-operator", "operator"]
         args:
         - "--config=/var/run/configmaps/config/operator-config.yaml"
         - "-v=4"
