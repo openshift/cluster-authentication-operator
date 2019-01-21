@@ -5,7 +5,7 @@ spec:
   - name: cluster-authentication-operator
     from:
       kind: DockerImage
-      name: quay.io/openshift/origin-cluster-authentication-operator:latest
+      name: quay.io/openshift/origin-cluster-authentication-operator:v4.0
   - name: hypershift
     from:
       kind: DockerImage

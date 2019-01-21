@@ -210,7 +210,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 
 func defaultLabels() map[string]string {
 	return map[string]string{
-		"app": "origin-cluster-authentication-operator",
+		"app": targetName,
 	}
 }
 
