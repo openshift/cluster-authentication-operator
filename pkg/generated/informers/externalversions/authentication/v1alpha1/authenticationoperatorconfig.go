@@ -5,10 +5,10 @@ package v1alpha1
 import (
 	time "time"
 
-	authentication_v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
-	versioned "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	internalinterfaces "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/listers/authentication/v1alpha1"
+	authentication_v1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
+	versioned "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned"
+	internalinterfaces "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/generated/listers/authentication/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"

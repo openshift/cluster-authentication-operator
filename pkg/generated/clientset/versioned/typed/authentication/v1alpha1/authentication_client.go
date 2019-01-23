@@ -3,8 +3,8 @@
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/authentication/v1alpha1"
-	"github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/scheme"
+	v1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
+	"github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned/scheme"
 	serializer "k8s.io/apimachinery/pkg/runtime/serializer"
 	rest "k8s.io/client-go/rest"
 )

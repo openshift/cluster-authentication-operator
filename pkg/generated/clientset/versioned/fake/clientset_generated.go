@@ -3,9 +3,9 @@
 package fake
 
 import (
-	clientset "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	authenticationv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
-	fakeauthenticationv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1/fake"
+	clientset "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned"
+	authenticationv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
+	fakeauthenticationv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"

@@ -3,7 +3,7 @@ package stack
 import (
 	"fmt"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 )
 
 // TestSuiteStack is a data structure that holds api.TestSuite objects in a LIFO

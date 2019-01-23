@@ -1,8 +1,8 @@
 package flat
 
 import (
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/builder"
 )
 
 // NewTestSuitesBuilder returns a new flat test suites builder. All test suites consumed

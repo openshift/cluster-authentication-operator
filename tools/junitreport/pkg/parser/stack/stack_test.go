@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 )
 
 func TestPush(t *testing.T) {
