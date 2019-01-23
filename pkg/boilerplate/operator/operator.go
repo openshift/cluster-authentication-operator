@@ -1,6 +1,6 @@
 package operator
 
-import "github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
+import "github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 
 type Runner interface {
 	Run(stopCh <-chan struct{})

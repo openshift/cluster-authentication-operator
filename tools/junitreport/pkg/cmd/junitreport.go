@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder/flat"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder/nested"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/parser"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/parser/gotest"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/parser/oscmd"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/builder"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/builder/flat"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/builder/nested"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/parser"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/parser/gotest"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/parser/oscmd"
 )
 
 type testSuitesBuilderType string
