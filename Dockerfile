@@ -1,12 +1,12 @@
 FROM registry.svc.ci.openshift.org/openshift/release:golang-1.10 AS builder
 WORKDIR /go/src/github.com/openshift/cluster-osin-operator
 COPY . .
-RUN go build -o osin-operator ./cmd/osin-operator
+RUN go build -o authentication-operator ./cmd/authentication-operator
 
 FROM registry.svc.ci.openshift.org/openshift/origin-v4.0:base
-COPY --from=builder /go/src/github.com/openshift/cluster-osin-operator/osin-operator /usr/bin/
+COPY --from=builder /go/src/github.com/openshift/cluster-osin-operator/authentication-operator /usr/bin/
 COPY manifests /manifests
-ENTRYPOINT ["/usr/bin/osin-operator"]
+ENTRYPOINT ["/usr/bin/authentication-operator"]
 LABEL io.k8s.display-name="OpenShift cluster-authentication-operator" \
       io.k8s.description="This is a component of OpenShift and manages cluster authentication settings" \
       com.redhat.component="cluster-authentication-operator" \

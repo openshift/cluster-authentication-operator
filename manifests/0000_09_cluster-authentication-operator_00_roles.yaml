@@ -7,5 +7,5 @@ roleRef:
   name: cluster-admin  # TODO fix, this is madness
 subjects:
 - kind: ServiceAccount
-  namespace: openshift-core-operators
-  name: origin-cluster-osin-operator
+  namespace: openshift-authentication-operator
+  name: origin-cluster-authentication-operator

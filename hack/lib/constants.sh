@@ -25,7 +25,7 @@ readonly OS_GOFLAGS_TAGS="include_gcs include_oss containers_image_openpgp"
 readonly OS_IMAGE_COMPILE_BINARIES=( )
 
 readonly OS_CROSS_COMPILE_TARGETS=(
-  cmd/osin-operator
+  cmd/authentication-operator
 )
 readonly OS_CROSS_COMPILE_BINARIES=("${OS_CROSS_COMPILE_TARGETS[@]##*/}")
 
@@ -146,5 +146,5 @@ readonly OS_ALL_IMAGES=(
 # os::build::images builds all images in this repo.
 function os::build::images() {
   tag_prefix="${OS_IMAGE_PREFIX:-"openshift/origin"}"
-  os::build::image "${tag_prefix}-cluster-osin-operator" .
+  os::build::image "${tag_prefix}-cluster-authentication-operator" .
 }
