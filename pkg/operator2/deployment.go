@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
+	authv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1alpha1helpers"
 )
 
+const hashAnnotation = authv1alpha1.GroupName + "/rvs-hash"
+
 func (c *authOperator) getGeneration() int64 {
 	deployment, err := c.deployments.Deployments(targetName).Get(targetName, metav1.GetOptions{})
 	if err != nil {
@@ -23,7 +27,7 @@ func (c *authOperator) getGeneration() int64 {
 	return deployment.Generation
 }
 
-func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
+func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
 	replicas := int32(3) // TODO configurable?
 	gracePeriod := int64(30)
 
@@ -89,8 +93,12 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 	rvsHash := sha512.Sum512([]byte(rvs))
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
 
+	// make sure ApplyDeployment knows to update
+	meta := defaultMeta()
+	meta.Annotations[hashAnnotation] = rvsHashStr
+
 	deployment := &appsv1.Deployment{
-		ObjectMeta: defaultMeta(), // TODO add hash annotation here as well
+		ObjectMeta: meta,
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
@@ -101,7 +109,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 					Name:   targetName,
 					Labels: defaultLabels(),
 					Annotations: map[string]string{
-						"authentication.operator.openshift.io/rvs-hash": rvsHashStr,
+						hashAnnotation: rvsHashStr,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -146,6 +154,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 								"hypershift",
 								"openshift-osinserver",
 								fmt.Sprintf("--config=%s/%s", systemConfigPath, configKey),
+								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -205,4 +214,19 @@ func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mou
 		mounts = append(mounts, data[name].mount)
 	}
 	return volumes, mounts
+}
+
+func getLogLevel(logLevel operatorv1.LogLevel) int {
+	switch logLevel {
+	case operatorv1.Normal:
+		return 2
+	case operatorv1.Debug:
+		return 4
+	case operatorv1.Trace:
+		return 6
+	case operatorv1.TraceAll:
+		return 100 // this is supposed to be 8 but I prefer "all" to really mean all
+	default:
+		return 0
+	}
 }
