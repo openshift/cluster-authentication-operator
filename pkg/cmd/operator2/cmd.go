@@ -8,10 +8,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 )
 
-const (
-	componentName      = "cluster-authentication-operator"
-	componentNamespace = "openshift-authentication-operator"
-)
+const componentName = "cluster-authentication-operator"
 
 func NewOperator() *cobra.Command {
 	cmd := controllercmd.NewControllerCommandConfig(componentName, version.Get(), operator2.RunOperator).NewCommand()
