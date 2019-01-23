@@ -3,11 +3,11 @@ kind: Namespace
 metadata:
   labels:
     openshift.io/run-level: "1"
-  name: openshift-core-operators
+  name: openshift-authentication-operator
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   labels:
     openshift.io/run-level: "9"
-  name: openshift-osin
+  name: openshift-authentication

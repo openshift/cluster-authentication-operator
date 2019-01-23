@@ -35,8 +35,8 @@ func main() {
 
 func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "osin-operator",
-		Short: "OpenShift osin OAuth server operator",
+		Use:   "authentication-operator",
+		Short: "OpenShift authentication OAuth server operator",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 			os.Exit(1)

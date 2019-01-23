@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	componentName      = "cluster-osin-operator2"
-	componentNamespace = "openshift-core-operators"
+	componentName      = "cluster-authentication-operator"
+	componentNamespace = "openshift-authentication-operator"
 )
 
 func NewOperator() *cobra.Command {
 	cmd := controllercmd.NewControllerCommandConfig(componentName, version.Get(), operator2.RunOperator).NewCommand()
-	cmd.Use = "operator2"
-	cmd.Short = "Start the Osin Operator2" // temp names and such
+	cmd.Use = "operator"
+	cmd.Short = "Start the Authentication Operator"
 	return cmd
 }
