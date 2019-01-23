@@ -29,29 +29,47 @@ import (
 )
 
 const (
-	targetName = "openshift-authentication"
-
-	configKey = "config.yaml"
-
-	servingCertName     = "serving-cert"
-	servingCertMount    = "/var/run/secrets/serving-cert"
-	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
-	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
-
-	clusterCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-
-	systemConfigPath = "/var/config/system"
-
-	userConfigPath = "/var/config/user"
-
-	sessionKey   = "session"
-	sessionMount = systemConfigPath + "/" + sessionKey
-	sessionPath  = sessionMount + "/" + sessionKey
-
+	targetName       = "openshift-authentication"
 	globalConfigName = "cluster"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
+
+	systemConfigPath           = "/var/config/system"
+	systemConfigPathConfigMaps = systemConfigPath + "/configmaps"
+	systemConfigPathSecrets    = systemConfigPath + "/secrets"
+
+	// if one day we ever need to come up with something else, we can still find the old secrets and config maps
+	versionPrefix = "v4-0-"
+
+	configVersionPrefix = versionPrefix + "config-"
+
+	// secrets and config maps that we manually managed have this prefix
+	systemConfigPrefix = configVersionPrefix + "system-"
+
+	// secrets and config maps synced from openshift-config into our namespace have this prefix
+	userConfigPrefix = configVersionPrefix + "user-"
+
+	sessionNameAndKey = systemConfigPrefix + "session"
+	sessionMount      = systemConfigPathSecrets + "/" + sessionNameAndKey
+	sessionPath       = sessionMount + "/" + sessionNameAndKey
+
+	serviceCABase  = "service-ca"
+	serviceCAName  = systemConfigPrefix + serviceCABase
+	serviceCAKey   = serviceCABase + ".crt"
+	serviceCAMount = systemConfigPathConfigMaps + "/" + serviceCAName
+	serviceCAPath  = serviceCAMount + "/" + serviceCAKey
+
+	servingCertName     = systemConfigPrefix + "serving-cert"
+	servingCertMount    = systemConfigPathSecrets + "/" + servingCertName
+	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
+	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
+
+	cliConfigNameAndKey = systemConfigPrefix + "cliconfig"
+	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
+	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
+
+	userConfigPath = "/var/config/user"
 
 	servicePort   = 443
 	containerPort = 6443
@@ -108,14 +126,14 @@ func NewAuthenticationOperator(
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	osinNameFilter := operator.FilterByNames(targetName)
+	targetNameFilter := operator.FilterByNames(targetName)
 	configNameFilter := operator.FilterByNames(globalConfigName)
 	prefixFilter := getPrefixFilter()
 
 	return operator.New("AuthenticationOperator2", c,
-		operator.WithInformer(routeInformer, osinNameFilter),
-		operator.WithInformer(coreInformers.Services(), osinNameFilter),
-		operator.WithInformer(kubeInformersNamespaced.Apps().V1().Deployments(), osinNameFilter),
+		operator.WithInformer(routeInformer, targetNameFilter),
+		operator.WithInformer(coreInformers.Services(), targetNameFilter),
+		operator.WithInformer(kubeInformersNamespaced.Apps().V1().Deployments(), targetNameFilter),
 
 		operator.WithInformer(coreInformers.Secrets(), prefixFilter),
 		operator.WithInformer(coreInformers.ConfigMaps(), prefixFilter),
@@ -152,6 +170,11 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 		return err
 	}
 
+	serviceCA, err := c.handleServiceCA()
+	if err != nil {
+		return err
+	}
+
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return err
@@ -176,7 +199,7 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 		return err
 	}
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route)
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service)
 	if err != nil {
 		return err
 	}
@@ -188,11 +211,13 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO manually get RV of all the config maps and secrets in syncData
+	// TODO we also need the RV for the serving-cert secret (servingCertName)
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
 		operatorConfig.ResourceVersion,
 		route.ResourceVersion,
+		serviceCA.ResourceVersion,
 		metadata.ResourceVersion,
 		authConfig.ResourceVersion,
 		service.ResourceVersion,
@@ -200,6 +225,8 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 		oauthConfig.ResourceVersion,
 		cliConfig.ResourceVersion,
 	)
+	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
+	// operatorConfig.Spec.OperandSpecs[...].UnsupportedResourcePatches[...].Patch
 	deployment, _, err := resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
 	if err != nil {
 		return err
@@ -227,9 +254,9 @@ func defaultMeta() metav1.ObjectMeta {
 }
 
 func getPrefixFilter() controller.Filter {
-	names := operator.FilterByNames(targetName, servingCertName)
+	names := operator.FilterByNames(targetName)
 	prefix := func(obj metav1.Object) bool { // TODO add helper to combine filters
-		return names.Add(obj) || strings.HasPrefix(obj.GetName(), userConfigPrefix)
+		return names.Add(obj) || strings.HasPrefix(obj.GetName(), configVersionPrefix)
 	}
 	return controller.FilterFuncs{
 		AddFunc: prefix,

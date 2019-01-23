@@ -282,12 +282,6 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 }
 
 const (
-	// if one day we ever need to come up with something else, we can still find the old stuff
-	versionPrefix = "v4-0-"
-
-	// anything synced from openshift-config into our namespace has this prefix
-	userConfigPrefix = versionPrefix + "config-user-"
-
 	// idps that are synced have this prefix
 	userConfigPrefixIDP = userConfigPrefix + "idp-"
 
@@ -322,7 +316,7 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 	}
 	if err := syncFunc(
 		resourcesynccontroller.ResourceLocation{
-			Namespace: targetName, // TODO fix
+			Namespace: targetName,
 			Name:      dest,
 		},
 		resourcesynccontroller.ResourceLocation{

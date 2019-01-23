@@ -31,7 +31,7 @@ func init() {
 	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
 }
 
-func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route) (*configv1.OAuth, *corev1.ConfigMap, []idpSyncData, error) {
+func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route, service *corev1.Service) (*configv1.OAuth, *corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, nil, err
@@ -96,7 +96,7 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 				ServingInfo: configv1.ServingInfo{
 					BindAddress: fmt.Sprintf("0.0.0.0:%d", containerPort),
 					BindNetwork: "tcp4",
-					// we have valid certs provided by alfred so that we can use reencrypt routes
+					// we have valid serving certs provided by service-ca so that we can use reencrypt routes
 					CertInfo: configv1.CertInfo{
 						CertFile: servingCertPathCert,
 						KeyFile:  servingCertPathKey,
@@ -120,13 +120,13 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 			},
 		},
 		OAuthConfig: &osinv1.OAuthConfig{
-			MasterCA: getMasterCA(), // assumed to be valid for the route
+			MasterCA: getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			// TODO osin's code needs to be updated to properly use these values
 			// it should use MasterURL in almost all places except the token request endpoint
 			// which needs to direct the user to the real public URL (MasterPublicURL)
 			// that means we still need to get that value from the installer's config
 			// TODO ask installer team to make it easier to get that URL
-			MasterURL:                   fmt.Sprintf("https://%s", route.Spec.Host),
+			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
 			AssetPublicURL:              "", // TODO do we need this?
 			AlwaysShowProviderSelection: false,
@@ -156,17 +156,23 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 		return nil, nil, nil, err
 	}
 
-	return oauthConfig, // TODO update OAuth status
-		&corev1.ConfigMap{
-			ObjectMeta: defaultMeta(),
-			Data: map[string]string{
-				configKey: string(completeConfigBytes),
-			},
-		}, syncData, nil
+	// TODO update OAuth status
+	return oauthConfig, getCliConfigMap(completeConfigBytes), syncData, nil
+}
+
+func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
+	meta := defaultMeta()
+	meta.Name = cliConfigNameAndKey
+	return &corev1.ConfigMap{
+		ObjectMeta: meta,
+		Data: map[string]string{
+			cliConfigNameAndKey: string(completeConfigBytes),
+		},
+	}
 }
 
 func getMasterCA() *string {
-	ca := clusterCAPath // need local var to be able to take address of it
+	ca := serviceCAPath // need local var to be able to take address of it
 	return &ca
 }
 
