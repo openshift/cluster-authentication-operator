@@ -8,14 +8,11 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 )
 
-const (
-	componentName      = "cluster-osin-operator"
-	componentNamespace = "openshift-core-operators"
-)
+const componentName = "cluster-osin-operator"
 
 func NewOperator() *cobra.Command {
 	cmd := controllercmd.NewControllerCommandConfig(componentName, version.Get(), operator.RunOperator).NewCommand()
-	cmd.Use = "operator"
+	cmd.Use = "operator1"
 	cmd.Short = "Start the Osin Operator"
 	return cmd
 }
