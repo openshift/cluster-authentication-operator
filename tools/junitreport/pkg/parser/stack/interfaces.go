@@ -1,6 +1,6 @@
 package stack
 
-import "github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+import "github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 
 // TestDataParser knows how to take raw test data and extract the useful information from it
 type TestDataParser interface {

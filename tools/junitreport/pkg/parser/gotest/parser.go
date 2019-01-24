@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/builder"
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/parser"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/builder"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/parser"
 )
 
 // NewParser returns a new parser that's capable of parsing Go unit test output

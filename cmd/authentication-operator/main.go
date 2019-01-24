@@ -13,8 +13,8 @@ import (
 	utilflag "k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/apiserver/pkg/util/logs"
 
-	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator"
-	"github.com/openshift/cluster-osin-operator/pkg/cmd/operator2"
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator"
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator2"
 )
 
 func main() {
@@ -35,8 +35,8 @@ func main() {
 
 func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "osin-operator",
-		Short: "OpenShift osin OAuth server operator",
+		Use:   "authentication-operator",
+		Short: "OpenShift authentication OAuth server operator",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 			os.Exit(1)

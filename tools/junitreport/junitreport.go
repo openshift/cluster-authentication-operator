@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/cmd"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/cmd"
 )
 
 var (

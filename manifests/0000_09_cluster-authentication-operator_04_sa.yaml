@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: openshift-authentication-operator
+  name: openshift-authentication-operator
+  labels:
+    app: openshift-authentication-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: openshift-authentication
+  name: openshift-authentication
+  labels:
+    app: openshift-authentication

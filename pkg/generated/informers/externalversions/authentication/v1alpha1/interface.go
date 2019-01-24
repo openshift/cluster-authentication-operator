@@ -3,7 +3,7 @@
 package v1alpha1
 
 import (
-	internalinterfaces "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/internalinterfaces"
+	internalinterfaces "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to all the informers in this group version.

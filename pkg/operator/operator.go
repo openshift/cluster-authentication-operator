@@ -13,8 +13,8 @@ import (
 	"k8s.io/client-go/informers/core/v1"
 	coreclientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
-	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/controller"
-	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/operator"
+	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
+	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/operator"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 

@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:openshift:operator:authentication
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin  # TODO fix, this is madness
+subjects:
+- kind: ServiceAccount
+  namespace: openshift-authentication-operator
+  name: openshift-authentication-operator
+- kind: ServiceAccount
+  namespace: openshift-authentication
+  name: openshift-authentication

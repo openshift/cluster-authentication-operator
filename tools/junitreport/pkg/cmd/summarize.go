@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 )
 
 // Summarize reads the input into a TestSuites structure and summarizes the tests contained within,

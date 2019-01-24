@@ -19,11 +19,11 @@ type AuthenticationOperatorConfig struct {
 }
 
 type AuthenticationOperatorConfigSpec struct {
-	v1.OperatorSpec
+	v1.OperatorSpec `json:",inline"`
 }
 
 type AuthenticationOperatorConfigStatus struct {
-	v1.OperatorStatus
+	v1.OperatorStatus `json:",inline"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

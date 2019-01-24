@@ -3,7 +3,7 @@ package parser
 import (
 	"bufio"
 
-	"github.com/openshift/cluster-osin-operator/tools/junitreport/pkg/api"
+	"github.com/openshift/cluster-authentication-operator/tools/junitreport/pkg/api"
 )
 
 // TestOutputParser knows how to parse test output to create a collection of test suites
