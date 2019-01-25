@@ -15,9 +15,9 @@ import (
 )
 
 func (c *authOperator) expectedSessionSecret() (*v1.Secret, error) {
-	secret, err := c.secrets.Secrets(targetName).Get(targetName, metav1.GetOptions{})
+	secret, err := c.secrets.Secrets(targetName).Get(sessionNameAndKey, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
-		glog.V(4).Infof("failed to get secret %s: %v", targetName, err)
+		glog.V(4).Infof("failed to get secret %s: %v", sessionNameAndKey, err)
 		generatedSessionSecret, err := randomSessionSecret()
 		if err != nil {
 			return nil, err
@@ -57,10 +57,12 @@ func randomSessionSecret() (*v1.Secret, error) {
 	if err != nil {
 		return nil, err
 	}
+	meta := defaultMeta()
+	meta.Name = sessionNameAndKey
 	return &v1.Secret{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: meta,
 		Data: map[string][]byte{
-			sessionKey: skey,
+			sessionNameAndKey: skey,
 		},
 	}, nil
 }

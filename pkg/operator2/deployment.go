@@ -28,58 +28,43 @@ func (c *authOperator) getGeneration() int64 {
 }
 
 func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
-	replicas := int32(3) // TODO configurable?
+	replicas := int32(3)
 	gracePeriod := int64(30)
 
-	// TODO fix these names
-	sessionVolumeName := targetName + "-secret"
-	configVolumeName := targetName + "-configmap"
+	var (
+		volumes []corev1.Volume
+		mounts  []corev1.VolumeMount
+	)
 
-	volumes := []corev1.Volume{
+	for _, data := range []volume{
 		{
-			Name: sessionVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: targetName,
-				},
-			},
+			name:      sessionNameAndKey,
+			configmap: false,
+			path:      sessionMount,
+			keys:      []string{sessionNameAndKey},
 		},
 		{
-			Name: configVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: targetName,
-					},
-				},
-			},
+			name:      cliConfigNameAndKey,
+			configmap: true,
+			path:      cliConfigMount,
+			keys:      []string{cliConfigNameAndKey},
 		},
 		{
-			Name: servingCertName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: servingCertName,
-				},
-			},
-		},
-	}
-
-	mounts := []corev1.VolumeMount{
-		{
-			Name:      sessionVolumeName,
-			ReadOnly:  true,
-			MountPath: sessionMount,
+			name:      servingCertName,
+			configmap: false,
+			path:      servingCertMount,
+			keys:      []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey},
 		},
 		{
-			Name:      configVolumeName,
-			ReadOnly:  true,
-			MountPath: systemConfigPath,
+			name:      serviceCAName,
+			configmap: true,
+			path:      serviceCAMount,
+			keys:      []string{serviceCAKey},
 		},
-		{
-			Name:      servingCertName,
-			ReadOnly:  true,
-			MountPath: servingCertMount,
-		},
+	} {
+		v, m := data.split()
+		volumes = append(volumes, v)
+		mounts = append(mounts, m)
 	}
 
 	for _, d := range syncData {
@@ -105,13 +90,7 @@ func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig
 				MatchLabels: defaultLabels(),
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   targetName,
-					Labels: defaultLabels(),
-					Annotations: map[string]string{
-						hashAnnotation: rvsHashStr,
-					},
-				},
+				ObjectMeta: meta,
 				Spec: corev1.PodSpec{
 					// we want to deploy on master nodes
 					//NodeSelector: map[string]string{
@@ -153,7 +132,7 @@ func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig
 							Command: []string{
 								"hypershift",
 								"openshift-osinserver",
-								fmt.Sprintf("--config=%s/%s", systemConfigPath, configKey),
+								fmt.Sprintf("--config=%s", cliConfigPath),
 								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)),
 							},
 							Ports: []corev1.ContainerPort{
@@ -228,5 +207,46 @@ func getLogLevel(logLevel operatorv1.LogLevel) int {
 		return 100 // this is supposed to be 8 but I prefer "all" to really mean all
 	default:
 		return 0
+	}
+}
+
+type volume struct {
+	name      string
+	configmap bool
+	path      string
+	keys      []string
+}
+
+func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
+	vol := corev1.Volume{
+		Name: v.name,
+	}
+
+	var items []corev1.KeyToPath
+	for _, key := range v.keys {
+		items = append(items, corev1.KeyToPath{
+			Key:  key,
+			Path: key,
+		})
+	}
+
+	if v.configmap {
+		vol.ConfigMap = &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: v.name,
+			},
+			Items: items,
+		}
+	} else {
+		vol.Secret = &corev1.SecretVolumeSource{
+			SecretName: v.name,
+			Items:      items,
+		}
+	}
+
+	return vol, corev1.VolumeMount{
+		Name:      v.name,
+		ReadOnly:  true,
+		MountPath: v.path,
 	}
 }

@@ -93,7 +93,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
 		informers.WithNamespace(targetName),
-		informers.WithTweakListOptions(singleNameListOptions(targetName)),
 	)
 
 	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
@@ -115,7 +114,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	resourceSyncerInformers := map[string]informers.SharedInformerFactory{
 		targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-			informers.WithNamespace(targetName), // TODO fix
+			informers.WithNamespace(targetName),
 		),
 		userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
 			informers.WithNamespace(userConfigNamespace),
