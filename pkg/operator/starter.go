@@ -22,10 +22,15 @@ import (
 
 const resync = 20 * time.Minute
 
-var kubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
+var oldKubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
 	Group:    "kubeapiserver.operator.openshift.io",
 	Version:  "v1alpha1",
 	Resource: "kubeapiserveroperatorconfigs",
+}
+var kubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
+	Group:    "operator.openshift.io",
+	Version:  "v1",
+	Resource: "kubeapiservers",
 }
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
@@ -44,17 +49,22 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informers.WithTweakListOptions(singleNameListOptions(targetConfigMap)),
 	)
 
+	oldKubeAPIServerOperatorConfig := dynamicClient.Resource(oldKubeAPIServerOperatorConfigGVR)
+	oldKubeAPIServerOperatorConfigInformer := dynamicInformer(oldKubeAPIServerOperatorConfig)
 	kubeAPIServerOperatorConfig := dynamicClient.Resource(kubeAPIServerOperatorConfigGVR)
-	kubeAPIServerOperatorConfigInformer := dynamicInformer(kubeAPIServerOperatorConfig, targtKubeAPIServerOperatorConfig)
+	kubeAPIServerOperatorConfigInformer := dynamicInformer(kubeAPIServerOperatorConfig)
 
 	operator := NewOsinOperator(
 		kubeInformersNamespaced.Core().V1().ConfigMaps(),
 		kubeClient.CoreV1(),
+		oldKubeAPIServerOperatorConfigInformer,
+		oldKubeAPIServerOperatorConfig,
 		kubeAPIServerOperatorConfigInformer,
 		kubeAPIServerOperatorConfig,
 	)
 
 	kubeInformersNamespaced.Start(ctx.Context.Done())
+	go oldKubeAPIServerOperatorConfigInformer.Informer().Run(ctx.Context.Done())
 	go kubeAPIServerOperatorConfigInformer.Informer().Run(ctx.Context.Done())
 
 	go operator.Run(ctx.Context.Done())
@@ -70,15 +80,12 @@ func singleNameListOptions(name string) internalinterfaces.TweakListOptionsFunc 
 	}
 }
 
-func dynamicInformer(resource dynamic.ResourceInterface, name string) controller.InformerGetter {
-	tweakListOptions := singleNameListOptions(name)
+func dynamicInformer(resource dynamic.ResourceInterface) controller.InformerGetter {
 	lw := &cache.ListWatch{
 		ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
-			tweakListOptions(&opts)
 			return resource.List(opts)
 		},
 		WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
-			tweakListOptions(&opts)
 			return resource.Watch(opts)
 		},
 	}
