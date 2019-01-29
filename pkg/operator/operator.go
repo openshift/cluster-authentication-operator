@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/golang/glog"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers/core/v1"
@@ -67,28 +70,42 @@ func (c osinOperator) Sync(obj metav1.Object) error {
 		return err
 	}
 
+	var errs []error
+
 	// try all the potential names and resources to update.  Eventually we'll be done with the old
-	updateErr := updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
+	for _, data := range []struct {
+		client dynamic.ResourceInterface
+		name   string
+	}{
+		{
+			client: c.oldKubeAPIServerOperatorClient,
+			name:   oldTargetKubeAPIServerOperatorConfig,
+		},
+		{
+			client: c.kubeAPIServerOperatorClient,
+			name:   oldTargetKubeAPIServerOperatorConfig,
+		},
+		{
+			client: c.oldKubeAPIServerOperatorClient,
+			name:   targetKubeAPIServerOperatorConfig,
+		},
+		{
+			client: c.kubeAPIServerOperatorClient,
+			name:   targetKubeAPIServerOperatorConfig,
+		},
+	} {
+		errs = append(errs, updateKubeAPIServer(data.client, data.name, ic))
 	}
 
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
+	errOut := errors.NewAggregate(errs)
+
+	if len(errOut.Errors()) >= 4 {
+		return errOut
 	}
 
-	updateErr = updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
-	}
+	glog.Infof("saw non-fatal errors: %v", errs)
 
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
-	}
-
-	return updateErr
+	return nil
 }
 
 func updateKubeAPIServer(kubeAPIServerOperatorClient dynamic.ResourceInterface, name string, ic *InstallConfig) error {
