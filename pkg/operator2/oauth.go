@@ -90,11 +90,6 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 			},
 		)
 	}
-	if len(identityProviders) == 0 {
-		identityProviders = []osinv1.IdentityProvider{
-			createDenyAllIdentityProvider(),
-		}
-	}
 
 	// TODO this pretends this is an OsinServerConfig
 	cliConfig := &kubecontrolplanev1.KubeAPIServerConfig{
