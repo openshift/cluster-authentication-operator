@@ -31,15 +31,21 @@ func init() {
 	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
 }
 
-func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route, service *corev1.Service) (*configv1.OAuth, *corev1.ConfigMap, []idpSyncData, error) {
+func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route, service *corev1.Service) (*configv1.OAuth, *configv1.Console, *corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+
+	// technically this should be an observed config loop
+	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	syncData, err := c.handleConfigSync(oauthConfig)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -128,7 +134,7 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 			// TODO ask installer team to make it easier to get that URL
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
-			AssetPublicURL:              "", // TODO do we need this?
+			AssetPublicURL:              consoleConfig.Status.PublicHostname, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
 			GrantConfig: osinv1.GrantConfig{
@@ -153,11 +159,11 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// TODO update OAuth status
-	return oauthConfig, getCliConfigMap(completeConfigBytes), syncData, nil
+	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
