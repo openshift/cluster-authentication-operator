@@ -112,14 +112,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		v1helpers.EnsureOperatorConfigExists(dynamicClient, []byte(resource), gvr)
 	}
 
-	resourceSyncerInformers := map[string]informers.SharedInformerFactory{
-		targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-			informers.WithNamespace(targetName),
-		),
-		userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-			informers.WithNamespace(userConfigNamespace),
-		),
-	}
+	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(kubeClient, targetName, userConfigNamespace)
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
 		operatorClient{}, // TODO fix
@@ -148,18 +141,15 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
+		resourceSyncerInformers,
 	} {
-		informer.Start(ctx.StopCh)
+		informer.Start(ctx.Context.Done())
 	}
 
-	for _, informer := range resourceSyncerInformers {
-		informer.Start(ctx.StopCh)
-	}
+	go operator.Run(ctx.Context.Done())
+	go resourceSyncer.Run(1, ctx.Context.Done())
 
-	go operator.Run(ctx.StopCh)
-	go resourceSyncer.Run(1, ctx.StopCh)
-
-	<-ctx.StopCh
+	<-ctx.Context.Done()
 
 	return fmt.Errorf("stopped")
 }
@@ -176,10 +166,16 @@ type operatorClient struct{}
 func (operatorClient) Informer() cache.SharedIndexInformer {
 	return fakeInformer{}
 }
-func (operatorClient) Get() (*operatorv1.OperatorSpec, *operatorv1.StaticPodOperatorStatus, string, error) {
-	return &operatorv1.OperatorSpec{}, &operatorv1.StaticPodOperatorStatus{}, "", nil
+
+func (operatorClient) GetOperatorState() (spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, resourceVersion string, err error) {
+	return &operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, "", nil
 }
-func (operatorClient) UpdateStatus(string, *operatorv1.StaticPodOperatorStatus) (*operatorv1.StaticPodOperatorStatus, error) {
+
+func (operatorClient) UpdateOperatorSpec(string, *operatorv1.OperatorSpec) (spec *operatorv1.OperatorSpec, resourceVersion string, err error) {
+	return nil, "", nil
+}
+
+func (operatorClient) UpdateOperatorStatus(string, *operatorv1.OperatorStatus) (status *operatorv1.OperatorStatus, err error) {
 	return nil, nil
 }
 

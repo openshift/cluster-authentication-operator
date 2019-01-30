@@ -86,7 +86,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 				},
 			},
 			DomainName:          keystoneConfig.DomainName,
-			UseKeystoneIdentity: !keystoneConfig.UseUsernameIdentity, // TODO if we are not upgrading from 3.11, then we can drop this config all together
+			UseKeystoneIdentity: true, // force use of keystone ID
 		}
 
 	case configv1.IdentityProviderTypeLDAP:
