@@ -134,17 +134,21 @@ func newIDPSyncData() idpSyncData {
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string) string {
+func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string, optional bool) string {
+	if optional && len(secretName.Name) == 0 {
+		return ""
+	}
+
 	dest, data := newSourceDataIDPSecret(index, secretName, key)
 	sd.secrets[dest] = data
 
 	return data.path
 }
 
-func (sd *idpSyncData) AddSecretStringSource(index int, secretName configv1.SecretNameReference, key string) configv1.StringSource {
+func (sd *idpSyncData) AddSecretStringSource(index int, secretName configv1.SecretNameReference, key string, optional bool) configv1.StringSource {
 	return configv1.StringSource{
 		StringSourceSpec: configv1.StringSourceSpec{
-			File: sd.AddSecret(index, secretName, key),
+			File: sd.AddSecret(index, secretName, key, optional),
 		},
 	}
 }
@@ -152,7 +156,11 @@ func (sd *idpSyncData) AddSecretStringSource(index int, secretName configv1.Secr
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
-func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) string {
+func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string, optional bool) string {
+	if optional && len(configMap.Name) == 0 {
+		return ""
+	}
+
 	dest, data := newSourceDataIDPConfigMap(index, configMap, key)
 	sd.configMaps[dest] = data
 

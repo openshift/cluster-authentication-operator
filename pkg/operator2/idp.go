@@ -37,10 +37,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.BasicAuthPasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: basicAuthConfig.URL,
-				CA:  syncData.AddConfigMap(i, basicAuthConfig.CA, corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddConfigMap(i, basicAuthConfig.CA, corev1.ServiceAccountRootCAKey, true),
 				CertInfo: configv1.CertInfo{
-					CertFile: syncData.AddSecret(i, basicAuthConfig.TLSClientCert, corev1.TLSCertKey),
-					KeyFile:  syncData.AddSecret(i, basicAuthConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddSecret(i, basicAuthConfig.TLSClientCert, corev1.TLSCertKey, true),
+					KeyFile:  syncData.AddSecret(i, basicAuthConfig.TLSClientKey, corev1.TLSPrivateKeyKey, true),
 				},
 			},
 		}
@@ -53,10 +53,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 		p = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
-			ClientSecret:  syncData.AddSecretStringSource(i, githubConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret:  syncData.AddSecretStringSource(i, githubConfig.ClientSecret, configv1.ClientSecretKey, false),
 			Organizations: githubConfig.Organizations,
 			Hostname:      githubConfig.Hostname,
-			CA:            syncData.AddConfigMap(i, githubConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:            syncData.AddConfigMap(i, githubConfig.CA, corev1.ServiceAccountRootCAKey, true),
 		}
 
 	case configv1.IdentityProviderTypeGitLab:
@@ -66,10 +66,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		}
 
 		p = &osinv1.GitLabIdentityProvider{
-			CA:           syncData.AddConfigMap(i, gitlabConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddConfigMap(i, gitlabConfig.CA, corev1.ServiceAccountRootCAKey, true),
 			URL:          gitlabConfig.URL,
 			ClientID:     gitlabConfig.ClientID,
-			ClientSecret: syncData.AddSecretStringSource(i, gitlabConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret: syncData.AddSecretStringSource(i, gitlabConfig.ClientSecret, configv1.ClientSecretKey, false),
 			Legacy:       new(bool), // we require OIDC for GitLab now
 		}
 
@@ -81,7 +81,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 		p = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
-			ClientSecret: syncData.AddSecretStringSource(i, googleConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret: syncData.AddSecretStringSource(i, googleConfig.ClientSecret, configv1.ClientSecretKey, false),
 			HostedDomain: googleConfig.HostedDomain,
 		}
 
@@ -91,7 +91,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		}
 
 		p = &osinv1.HTPasswdPasswordIdentityProvider{
-			File: syncData.AddSecret(i, providerConfig.HTPasswd.FileData, configv1.HTPasswdDataKey),
+			File: syncData.AddSecret(i, providerConfig.HTPasswd.FileData, configv1.HTPasswdDataKey, false),
 		}
 
 	case configv1.IdentityProviderTypeKeystone:
@@ -103,10 +103,10 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.KeystonePasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: keystoneConfig.URL,
-				CA:  syncData.AddConfigMap(i, keystoneConfig.CA, corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddConfigMap(i, keystoneConfig.CA, corev1.ServiceAccountRootCAKey, true),
 				CertInfo: configv1.CertInfo{
-					CertFile: syncData.AddSecret(i, keystoneConfig.TLSClientCert, corev1.TLSCertKey),
-					KeyFile:  syncData.AddSecret(i, keystoneConfig.TLSClientKey, corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddSecret(i, keystoneConfig.TLSClientCert, corev1.TLSCertKey, true),
+					KeyFile:  syncData.AddSecret(i, keystoneConfig.TLSClientKey, corev1.TLSPrivateKeyKey, true),
 				},
 			},
 			DomainName:          keystoneConfig.DomainName,
@@ -122,9 +122,9 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
-			BindPassword: syncData.AddSecretStringSource(i, ldapConfig.BindPassword, configv1.BindPasswordKey),
+			BindPassword: syncData.AddSecretStringSource(i, ldapConfig.BindPassword, configv1.BindPasswordKey, true),
 			Insecure:     ldapConfig.Insecure,
-			CA:           syncData.AddConfigMap(i, ldapConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddConfigMap(i, ldapConfig.CA, corev1.ServiceAccountRootCAKey, true),
 		}
 
 	case configv1.IdentityProviderTypeOpenID:
@@ -134,9 +134,9 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		}
 
 		p = &osinv1.OpenIDIdentityProvider{
-			CA:                       syncData.AddConfigMap(i, openIDConfig.CA, corev1.ServiceAccountRootCAKey),
+			CA:                       syncData.AddConfigMap(i, openIDConfig.CA, corev1.ServiceAccountRootCAKey, true),
 			ClientID:                 openIDConfig.ClientID,
-			ClientSecret:             syncData.AddSecretStringSource(i, openIDConfig.ClientSecret, configv1.ClientSecretKey),
+			ClientSecret:             syncData.AddSecretStringSource(i, openIDConfig.ClientSecret, configv1.ClientSecretKey, false),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
 			URLs: osinv1.OpenIDURLs{
@@ -162,7 +162,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.RequestHeaderIdentityProvider{
 			LoginURL:                 requestHeaderConfig.LoginURL,
 			ChallengeURL:             requestHeaderConfig.ChallengeURL,
-			ClientCA:                 syncData.AddConfigMap(i, requestHeaderConfig.ClientCA, corev1.ServiceAccountRootCAKey),
+			ClientCA:                 syncData.AddConfigMap(i, requestHeaderConfig.ClientCA, corev1.ServiceAccountRootCAKey, false),
 			ClientCommonNames:        requestHeaderConfig.ClientCommonNames,
 			Headers:                  requestHeaderConfig.Headers,
 			PreferredUsernameHeaders: requestHeaderConfig.PreferredUsernameHeaders,
