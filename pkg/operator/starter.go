@@ -54,12 +54,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		kubeAPIServerOperatorConfig,
 	)
 
-	kubeInformersNamespaced.Start(ctx.StopCh)
-	go kubeAPIServerOperatorConfigInformer.Informer().Run(ctx.StopCh)
+	kubeInformersNamespaced.Start(ctx.Context.Done())
+	go kubeAPIServerOperatorConfigInformer.Informer().Run(ctx.Context.Done())
 
-	go operator.Run(ctx.StopCh)
+	go operator.Run(ctx.Context.Done())
 
-	<-ctx.StopCh
+	<-ctx.Context.Done()
 
 	return fmt.Errorf("stopped")
 }

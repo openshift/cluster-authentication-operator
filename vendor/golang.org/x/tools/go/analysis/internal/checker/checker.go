@@ -42,7 +42,7 @@ var (
 	CPUProfile, MemProfile, Trace string
 )
 
-// RegisterFlags registers command-line flags used the analysis driver.
+// RegisterFlags registers command-line flags used by the analysis driver.
 func RegisterFlags() {
 	// When adding flags here, remember to update
 	// the list of suppressed flags in analysisflags.
@@ -492,6 +492,7 @@ func (act *action) execOnce() {
 		OtherFiles:        act.pkg.OtherFiles,
 		Pkg:               act.pkg.Types,
 		TypesInfo:         act.pkg.TypesInfo,
+		TypesSizes:        act.pkg.TypesSizes,
 		ResultOf:          inputs,
 		Report:            func(d analysis.Diagnostic) { act.diagnostics = append(act.diagnostics, d) },
 		ImportObjectFact:  act.importObjectFact,

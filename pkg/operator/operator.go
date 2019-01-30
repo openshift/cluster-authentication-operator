@@ -99,6 +99,6 @@ func (c osinOperator) Sync(obj metav1.Object) error {
 	if err := out.UnmarshalJSON(mergedBytes); err != nil {
 		return err
 	}
-	_, updateErr := c.kubeAPIServerOperatorConfig.Update(out)
+	_, updateErr := c.kubeAPIServerOperatorConfig.Update(out, metav1.UpdateOptions{})
 	return updateErr
 }

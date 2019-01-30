@@ -4,6 +4,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -13,8 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/openshift/library-go/pkg/operator/v1alpha1helpers"
 )
 
 const hashAnnotation = authv1alpha1.GroupName + "/rvs-hash"
@@ -126,7 +125,7 @@ func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig
 					SecurityContext:               &corev1.PodSecurityContext{},
 					Containers: []corev1.Container{
 						{
-							Image:           v1alpha1helpers.GetImageEnv(),
+							Image:           os.Getenv("IMAGE"),
 							ImagePullPolicy: corev1.PullPolicy("IfNotPresent"),
 							Name:            targetName,
 							Command: []string{

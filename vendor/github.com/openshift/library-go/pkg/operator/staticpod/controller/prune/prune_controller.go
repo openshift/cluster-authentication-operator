@@ -16,7 +16,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
@@ -24,16 +24,14 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
-	"github.com/openshift/library-go/pkg/operator/staticpod/controller/common"
 	"github.com/openshift/library-go/pkg/operator/staticpod/controller/prune/bindata"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 // PruneController is a controller that watches static installer pod revision statuses and spawns
 // a pruner pod to delete old revision resources from disk
 type PruneController struct {
-	targetNamespace, podResourcePrefix          string
-	failedRevisionLimit, succeededRevisionLimit int
-
+	targetNamespace, podResourcePrefix string
 	// command is the string to use for the pruning pod command
 	command []string
 	// queue only ever has one item, but it has nice error handling backoff/retry semantics
@@ -42,15 +40,18 @@ type PruneController struct {
 	// prunerPodImageFn returns the image name for the pruning pod
 	prunerPodImageFn func() string
 
-	operatorConfigClient common.OperatorClient
+	operatorConfigClient v1helpers.StaticPodOperatorClient
 
-	kubeClient    kubernetes.Interface
-	eventRecorder events.Recorder
+	configMapGetter corev1client.ConfigMapsGetter
+	secretGetter    corev1client.SecretsGetter
+	podGetter       corev1client.PodsGetter
+	eventRecorder   events.Recorder
 }
 
 const (
 	pruneControllerWorkQueueKey = "key"
 	statusConfigMapName         = "revision-status-"
+	defaultRevisionLimit        = int32(5)
 )
 
 // NewPruneController creates a new pruning controller
@@ -58,19 +59,21 @@ func NewPruneController(
 	targetNamespace string,
 	podResourcePrefix string,
 	command []string,
-	kubeClient kubernetes.Interface,
-	operatorConfigClient common.OperatorClient,
+	configMapGetter corev1client.ConfigMapsGetter,
+	secretGetter corev1client.SecretsGetter,
+	podGetter corev1client.PodsGetter,
+	operatorConfigClient v1helpers.StaticPodOperatorClient,
 	eventRecorder events.Recorder,
 ) *PruneController {
 	c := &PruneController{
-		targetNamespace:        targetNamespace,
-		podResourcePrefix:      podResourcePrefix,
-		command:                command,
-		failedRevisionLimit:    5,
-		succeededRevisionLimit: 5,
+		targetNamespace:   targetNamespace,
+		podResourcePrefix: podResourcePrefix,
+		command:           command,
 
 		operatorConfigClient: operatorConfigClient,
-		kubeClient:           kubeClient,
+		configMapGetter:      configMapGetter,
+		secretGetter:         secretGetter,
+		podGetter:            podGetter,
 		eventRecorder:        eventRecorder,
 
 		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "PruneController"),
@@ -82,10 +85,22 @@ func NewPruneController(
 	return c
 }
 
-func (c *PruneController) excludedRevisionHistory(operatorStatus *operatorv1.StaticPodOperatorStatus) ([]int, error) {
+func getRevisionLimits(operatorSpec *operatorv1.StaticPodOperatorSpec) (int32, int32) {
+	failedRevisionLimit := defaultRevisionLimit
+	succeededRevisionLimit := defaultRevisionLimit
+	if operatorSpec.FailedRevisionLimit != 0 {
+		failedRevisionLimit = operatorSpec.FailedRevisionLimit
+	}
+	if operatorSpec.SucceededRevisionLimit != 0 {
+		succeededRevisionLimit = operatorSpec.SucceededRevisionLimit
+	}
+	return failedRevisionLimit, succeededRevisionLimit
+}
+
+func (c *PruneController) excludedRevisionHistory(operatorStatus *operatorv1.StaticPodOperatorStatus, failedRevisionLimit, succeededRevisionLimit int32) ([]int, error) {
 	var succeededRevisionIDs, failedRevisionIDs, inProgressRevisionIDs, unknownStatusRevisionIDs []int
 
-	configMaps, err := c.kubeClient.CoreV1().ConfigMaps(c.targetNamespace).List(metav1.ListOptions{})
+	configMaps, err := c.configMapGetter.ConfigMaps(c.targetNamespace).List(metav1.ListOptions{})
 	if err != nil {
 		return []int{}, err
 	}
@@ -112,21 +127,21 @@ func (c *PruneController) excludedRevisionHistory(operatorStatus *operatorv1.Sta
 			default:
 				// protect things you don't understand
 				unknownStatusRevisionIDs = append(unknownStatusRevisionIDs, revisionID)
-				c.eventRecorder.Event("UnknownRevisionStatus", fmt.Sprintf("unknown status for revision %d: %v", revisionID, configMap.Data["phase"]))
+				c.eventRecorder.Event("UnknownRevisionStatus", fmt.Sprintf("unknown status for revision %d: %v", revisionID, configMap.Data["status"]))
 			}
 		}
 	}
 
 	// Return early if nothing to prune
 	if len(succeededRevisionIDs)+len(failedRevisionIDs) == 0 {
-		return []int{}, nil
+		return []int{}, fmt.Errorf("no revision IDs currently eligible to prune")
 	}
 
 	// Get list of protected IDs
-	protectedSucceededRevisionIDs := protectedIDs(succeededRevisionIDs, c.succeededRevisionLimit)
-	protectedFailedRevisionIDs := protectedIDs(failedRevisionIDs, c.failedRevisionLimit)
+	protectedSucceededRevisionIDs := protectedIDs(succeededRevisionIDs, int(succeededRevisionLimit))
+	protectedFailedRevisionIDs := protectedIDs(failedRevisionIDs, int(failedRevisionLimit))
 
-	excludedIDs := make([]int, 0, len(protectedSucceededRevisionIDs)+len(protectedFailedRevisionIDs))
+	excludedIDs := make([]int, 0, len(protectedSucceededRevisionIDs)+len(protectedFailedRevisionIDs)+len(inProgressRevisionIDs)+len(unknownStatusRevisionIDs))
 	excludedIDs = append(excludedIDs, protectedSucceededRevisionIDs...)
 	excludedIDs = append(excludedIDs, protectedFailedRevisionIDs...)
 	excludedIDs = append(excludedIDs, inProgressRevisionIDs...)
@@ -152,11 +167,15 @@ func (c *PruneController) pruneDiskResources(operatorStatus *operatorv1.StaticPo
 
 func (c *PruneController) pruneAPIResources(excludedIDs []int, maxEligibleRevisionID int) error {
 	protectedIDs := sets.NewInt(excludedIDs...)
-	statusConfigMaps, err := c.kubeClient.CoreV1().ConfigMaps(c.targetNamespace).List(metav1.ListOptions{})
+	statusConfigMaps, err := c.configMapGetter.ConfigMaps(c.targetNamespace).List(metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
 	for _, cm := range statusConfigMaps.Items {
+		if !strings.HasPrefix(cm.Name, statusConfigMapName) {
+			continue
+		}
+
 		revision, err := strconv.Atoi(cm.Data["revision"])
 		if err != nil {
 			return fmt.Errorf("unexpected error converting revision to int: %+v", err)
@@ -168,7 +187,7 @@ func (c *PruneController) pruneAPIResources(excludedIDs []int, maxEligibleRevisi
 		if revision > maxEligibleRevisionID {
 			continue
 		}
-		if err := c.kubeClient.CoreV1().ConfigMaps(c.targetNamespace).Delete(cm.Name, &metav1.DeleteOptions{}); err != nil {
+		if err := c.configMapGetter.ConfigMaps(c.targetNamespace).Delete(cm.Name, &metav1.DeleteOptions{}); err != nil {
 			return err
 		}
 	}
@@ -181,6 +200,7 @@ func protectedIDs(revisionIDs []int, revisionLimit int) []int {
 		return revisionIDs
 	}
 	startKey := 0
+	// We use -1 = unlimited revisions, so protect all. Limit shouldn't ever be literally 0 either
 	if revisionLimit > 0 && len(revisionIDs) > revisionLimit {
 		startKey = len(revisionIDs) - revisionLimit
 	}
@@ -203,7 +223,7 @@ func (c *PruneController) ensurePrunePod(nodeName string, maxEligibleRevision in
 		fmt.Sprintf("--static-pod-name=%s", c.podResourcePrefix),
 	)
 
-	_, _, err := resourceapply.ApplyPod(c.kubeClient.CoreV1(), c.eventRecorder, pod)
+	_, _, err := resourceapply.ApplyPod(c.podGetter, c.eventRecorder, pod)
 	return err
 }
 
@@ -262,12 +282,13 @@ func (c *PruneController) processNextWorkItem() bool {
 }
 
 func (c *PruneController) sync() error {
-	_, operatorStatus, _, err := c.operatorConfigClient.Get()
+	operatorSpec, operatorStatus, _, err := c.operatorConfigClient.GetStaticPodOperatorState()
 	if err != nil {
 		return err
 	}
+	failedLimit, succeededLimit := getRevisionLimits(operatorSpec)
 
-	excludedIDs, err := c.excludedRevisionHistory(operatorStatus)
+	excludedIDs, err := c.excludedRevisionHistory(operatorStatus, failedLimit, succeededLimit)
 	if err != nil {
 		return err
 	}
@@ -279,7 +300,7 @@ func (c *PruneController) sync() error {
 	if apiErr := c.pruneAPIResources(excludedIDs, excludedIDs[len(excludedIDs)-1]); apiErr != nil {
 		errs = append(errs, apiErr)
 	}
-	return common.NewMultiLineAggregate(errs)
+	return v1helpers.NewMultiLineAggregate(errs)
 }
 
 // eventHandler queues the operator to check spec and status

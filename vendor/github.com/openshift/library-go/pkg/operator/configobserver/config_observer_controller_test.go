@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ghodss/yaml"
 	"github.com/imdario/mergo"
@@ -20,6 +22,10 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
+func (c *fakeOperatorClient) Informer() cache.SharedIndexInformer {
+	return nil
+}
+
 func (c *fakeOperatorClient) GetOperatorState() (spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, resourceVersion string, err error) {
 	return c.startingSpec, &operatorv1.OperatorStatus{}, "", nil
 
@@ -31,9 +37,9 @@ func (c *fakeOperatorClient) UpdateOperatorSpec(rv string, in *operatorv1.Operat
 	c.spec = in
 	return in, rv, c.specUpdateFailure
 }
-func (c *fakeOperatorClient) UpdateOperatorStatus(rv string, in *operatorv1.OperatorStatus) (status *operatorv1.OperatorStatus, resourceVersion string, err error) {
+func (c *fakeOperatorClient) UpdateOperatorStatus(rv string, in *operatorv1.OperatorStatus) (status *operatorv1.OperatorStatus, err error) {
 	c.status = in
-	return in, rv, nil
+	return in, nil
 }
 
 type fakeOperatorClient struct {
@@ -45,6 +51,10 @@ type fakeOperatorClient struct {
 }
 
 type fakeLister struct{}
+
+func (l *fakeLister) ResourceSyncer() resourcesynccontroller.ResourceSyncer {
+	return nil
+}
 
 func (l *fakeLister) PreRunHasSynced() []cache.InformerSynced {
 	return []cache.InformerSynced{
@@ -257,7 +267,7 @@ func TestMergoVersion(t *testing.T) {
 	type test struct{ A string }
 	src := test{"src"}
 	dest := test{"dest"}
-	mergo.Merge(&dest, &src)
+	mergo.Merge(&dest, &src, mergo.WithOverride)
 	if dest.A != "src" {
 		t.Errorf("incompatible version of github.com/imdario/mergo found")
 	}

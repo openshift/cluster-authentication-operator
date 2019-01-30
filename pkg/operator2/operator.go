@@ -89,6 +89,7 @@ type authOperator struct {
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
+	console        configv1client.ConsoleInterface
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -119,6 +120,7 @@ func NewAuthenticationOperator(
 
 		authentication: configClient.ConfigV1().Authentications(),
 		oauth:          configClient.ConfigV1().OAuths(),
+		console:        configClient.ConfigV1().Consoles(),
 
 		resourceSyncer: resourceSyncer,
 	}
@@ -141,6 +143,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(authOpConfigInformer, configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
+		operator.WithInformer(configV1Informers.Consoles(), configNameFilter),
 	)
 }
 
@@ -199,7 +202,7 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 		return err
 	}
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service)
+	oauthConfig, consoleConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service)
 	if err != nil {
 		return err
 	}
@@ -223,6 +226,7 @@ func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOpe
 		service.ResourceVersion,
 		sessionSecret.ResourceVersion,
 		oauthConfig.ResourceVersion,
+		consoleConfig.ResourceVersion,
 		cliConfig.ResourceVersion,
 	)
 	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
