@@ -40,7 +40,8 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 	// technically this should be an observed config loop
 	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, nil, nil, err
+		// FIXME: fix when the console team starts using this
+		consoleConfig = &configv1.Console{}
 	}
 
 	syncData, err := c.handleConfigSync(oauthConfig)
