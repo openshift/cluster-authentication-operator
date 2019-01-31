@@ -31,7 +31,17 @@ func init() {
 	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
 }
 
-func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, route *routev1.Route, service *corev1.Service) (*configv1.OAuth, *configv1.Console, *corev1.ConfigMap, []idpSyncData, error) {
+func (c *authOperator) handleOAuthConfig(
+	operatorConfig *authv1alpha1.AuthenticationOperatorConfig,
+	route *routev1.Route,
+	service *corev1.Service,
+) (
+	*configv1.OAuth,
+	*configv1.Console,
+	*corev1.ConfigMap,
+	*idpSyncData,
+	error,
+) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -42,11 +52,6 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 	if err != nil {
 		// FIXME: fix when the console team starts using this
 		consoleConfig = &configv1.Console{}
-	}
-
-	syncData, err := c.handleConfigSync(oauthConfig)
-	if err != nil {
-		return nil, nil, nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -72,8 +77,9 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
+	syncData := newIDPSyncData()
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, syncData, i)
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue
@@ -94,6 +100,12 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 		identityProviders = []osinv1.IdentityProvider{
 			createDenyAllIdentityProvider(),
 		}
+	}
+
+	// TODO maybe move the OAuth stuff up one level
+	err = c.handleConfigSync(&syncData)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// TODO this pretends this is an OsinServerConfig
@@ -164,7 +176,7 @@ func (c *authOperator) handleOAuthConfig(operatorConfig *authv1alpha1.Authentica
 	}
 
 	// TODO update OAuth status
-	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), syncData, nil
+	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {

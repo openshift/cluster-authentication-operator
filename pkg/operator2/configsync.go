@@ -12,7 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, error) {
+func (c *authOperator) handleConfigSync(data *idpSyncData) error {
 	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
@@ -21,12 +21,12 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, 
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	secrets, err := secretClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	prefixConfigMapNames := sets.NewString()
@@ -49,16 +49,13 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, 
 	inUseConfigMapNames := sets.NewString()
 	inUseSecretNames := sets.NewString()
 
-	data := convertToData(config.Spec.IdentityProviders)
-	for _, d := range data {
-		for dest, src := range d.configMaps {
-			syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
-			inUseConfigMapNames.Insert(dest)
-		}
-		for dest, src := range d.secrets {
-			syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
-			inUseSecretNames.Insert(dest)
-		}
+	for dest, src := range data.configMaps {
+		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
+		inUseConfigMapNames.Insert(dest)
+	}
+	for dest, src := range data.secrets {
+		syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
+		inUseSecretNames.Insert(dest)
 	}
 
 	notInUseConfigMapNames := prefixConfigMapNames.Difference(inUseConfigMapNames)
@@ -74,7 +71,7 @@ func (c *authOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, 
 		syncOrDie(c.resourceSyncer.SyncSecret, dest, "")
 	}
 
-	return data, nil
+	return nil
 }
 
 type idpSyncData struct {
@@ -91,194 +88,83 @@ type sourceData struct {
 	mount  corev1.VolumeMount
 }
 
-// TODO: new source data could be generalized
-func newSourceDataIDPSecret(index int, secretName, idpType string) (string, sourceData) {
-	dest := getIDPName(index, secretName, idpType)
+// TODO: newSourceDataIDP* could be a generic function grouping the common pieces of code
+// newSourceDataIDPSecret returns a name which is unique amongst the IdPs, and
+// sourceData which describes the volumes and mount volumes to mount the secret to
+func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, key string) (string, sourceData) {
+	dest := getIDPName(index, secretName.Name, key)
 
-	volume, mount, path := secretVolume(index, dest, idpType)
+	vol, mount, path := secretVolume(index, dest, key)
 	ret := sourceData{
-		src:    secretName,
+		src:    secretName.Name,
 		path:   path,
-		volume: volume,
+		volume: vol,
 		mount:  mount,
 	}
 
 	return dest, ret
 }
 
-func newSourceDataIDPConfigMap(index int, cmName, idpType string) (string, sourceData) {
-	dest := getIDPName(index, cmName, idpType)
+// newSourceDataIDPConfigMap returns a name which is unique amongst the IdPs, and
+// sourceData which describes the volumes and mountvolumes to mount the ConfigMap to
+func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) (string, sourceData) {
+	dest := getIDPName(index, configMap.Name, key)
 
-	volume, mount, path := configMapVolume(index, dest, idpType)
+	vol, mount, path := configMapVolume(index, dest, key)
 	ret := sourceData{
-		src:    cmName,
+		src:    configMap.Name,
 		path:   path,
-		volume: volume,
+		volume: vol,
 		mount:  mount,
 	}
 
 	return dest, ret
 }
 
-// TODO this should be combined with convertProviderConfigToOsinBytes as it would simplify how the data is shared
-func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
-	out := make([]idpSyncData, 0, len(idps))
-	for i, idp := range idps {
-		pc := idp.IdentityProviderConfig
-		switch pc.Type {
-		case configv1.IdentityProviderTypeBasicAuth:
-			p := pc.BasicAuth
+func newIDPSyncData() idpSyncData {
+	configMaps := map[string]sourceData{}
+	secrets := map[string]sourceData{}
 
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			clientCert := p.TLSClientCert.Name
-			clientCertDest, clientCertData := newSourceDataIDPSecret(i, clientCert, corev1.TLSCertKey)
-
-			clientKey := p.TLSClientKey.Name
-			clientKeyDest, clienKeyData := newSourceDataIDPSecret(i, clientKey, corev1.TLSPrivateKeyKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets: map[string]sourceData{
-						clientCertDest: clientCertData,
-						clientKeyDest:  clienKeyData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeGitHub:
-			p := pc.GitHub
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			clientSecret := p.ClientSecret.Name
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets: map[string]sourceData{
-						clientSecretDest: clientSecretData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeGitLab:
-			p := pc.GitLab
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			clientSecret := p.ClientSecret.Name
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets: map[string]sourceData{
-						clientSecretDest: clientSecretData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeGoogle:
-			p := pc.Google
-
-			clientSecret := p.ClientSecret.Name
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
-
-			out = append(out,
-				idpSyncData{
-					secrets: map[string]sourceData{
-						clientSecretDest: clientSecretData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeHTPasswd:
-			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
-
-			fileData := p.FileData.Name
-			dest, data := newSourceDataIDPSecret(i, fileData, configv1.HTPasswdDataKey)
-
-			out = append(out,
-				idpSyncData{secrets: map[string]sourceData{dest: data}},
-			)
-
-		case configv1.IdentityProviderTypeKeystone:
-			p := pc.Keystone
-
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			clientCert := p.TLSClientCert.Name
-			clientCertDest, clientCertData := newSourceDataIDPSecret(i, clientCert, corev1.TLSCertKey)
-
-			clientKey := p.TLSClientKey.Name
-			clientKeyDest, clienKeyData := newSourceDataIDPSecret(i, clientKey, corev1.TLSPrivateKeyKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets: map[string]sourceData{
-						clientCertDest: clientCertData,
-						clientKeyDest:  clienKeyData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeLDAP:
-			p := pc.LDAP
-
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			bindPassword := p.BindPassword.Name
-			bindPasswordDest, bindPasswordData := newSourceDataIDPSecret(i, bindPassword, configv1.BindPasswordKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets:    map[string]sourceData{bindPasswordDest: bindPasswordData},
-				},
-			)
-
-		case configv1.IdentityProviderTypeOpenID:
-			p := pc.OpenID
-
-			ca := p.CA.Name
-			caDest, caData := newSourceDataIDPConfigMap(i, ca, corev1.ServiceAccountRootCAKey)
-
-			clientSecret := p.ClientSecret.Name
-			clientSecretDest, clientSecretData := newSourceDataIDPSecret(i, clientSecret, configv1.ClientSecretKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{caDest: caData},
-					secrets: map[string]sourceData{
-						clientSecretDest: clientSecretData,
-					},
-				},
-			)
-
-		case configv1.IdentityProviderTypeRequestHeader:
-			p := pc.RequestHeader
-
-			clientCA := p.ClientCA.Name
-			clientCADest, clientCAData := newSourceDataIDPConfigMap(i, clientCA, corev1.ServiceAccountRootCAKey)
-
-			out = append(out,
-				idpSyncData{
-					configMaps: map[string]sourceData{clientCADest: clientCAData},
-				},
-			)
-
-		default:
-			return nil // TODO: some erroring
-		}
+	return idpSyncData{
+		configMaps: configMaps,
+		secrets:    secrets,
 	}
-	return out
+}
+
+// AddSecret initializes a sourceData object with proper data for a Secret
+// and adds it among the other secrets stored here
+// Returns the path for the Secret
+func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string, optional bool) string {
+	if optional && len(secretName.Name) == 0 {
+		return ""
+	}
+
+	dest, data := newSourceDataIDPSecret(index, secretName, key)
+	sd.secrets[dest] = data
+
+	return data.path
+}
+
+func (sd *idpSyncData) AddSecretStringSource(index int, secretName configv1.SecretNameReference, key string, optional bool) configv1.StringSource {
+	return configv1.StringSource{
+		StringSourceSpec: configv1.StringSourceSpec{
+			File: sd.AddSecret(index, secretName, key, optional),
+		},
+	}
+}
+
+// AddConfigMap initializes a sourceData object with proper data for a ConfigMap
+// and adds it among the other configmaps stored here
+// Returns the path for the ConfigMap
+func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string, optional bool) string {
+	if optional && len(configMap.Name) == 0 {
+		return ""
+	}
+
+	dest, data := newSourceDataIDPConfigMap(index, configMap, key)
+	sd.configMaps[dest] = data
+
+	return data.path
 }
 
 const (
@@ -329,49 +215,27 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 }
 
 func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
-	volume := corev1.Volume{
-		Name: name,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName: name,
-				Items: []corev1.KeyToPath{
-					{
-						Key:  key,
-						Path: key,
-					},
-				},
-			},
-		},
+	data := volume{
+		name:      name,
+		configmap: false,
+		path:      getIDPPath(i, "secret", name),
+		keys:      []string{key},
 	}
-	mount := corev1.VolumeMount{
-		Name:      name,
-		ReadOnly:  true,
-		MountPath: getIDPPath(i, "secret", name),
-	}
-	return volume, mount, mount.MountPath + "/" + key
+
+	vol, mount := data.split()
+
+	return vol, mount, mount.MountPath + "/" + key
 }
 
 func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
-	volume := corev1.Volume{
-		Name: name,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: name,
-				},
-				Items: []corev1.KeyToPath{
-					{
-						Key:  key,
-						Path: key,
-					},
-				},
-			},
-		},
+	data := volume{
+		name:      name,
+		configmap: true,
+		path:      getIDPPath(i, "configmap", name),
+		keys:      []string{key},
 	}
-	mount := corev1.VolumeMount{
-		Name:      name,
-		ReadOnly:  true,
-		MountPath: getIDPPath(i, "configmap", name),
-	}
-	return volume, mount, mount.MountPath + "/" + key
+
+	vol, mount := data.split()
+
+	return vol, mount, mount.MountPath + "/" + key
 }
