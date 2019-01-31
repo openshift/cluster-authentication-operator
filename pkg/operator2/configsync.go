@@ -134,12 +134,12 @@ func newIDPSyncData() idpSyncData {
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string) string {
-	if len(secretName.Name) == 0 {
+func (sd *idpSyncData) AddSecret(index int, secretRef configv1.SecretNameReference, key string) string {
+	if len(secretRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataIDPSecret(index, secretName, key)
+	dest, data := newSourceDataIDPSecret(index, secretRef, key)
 	sd.secrets[dest] = data
 
 	return data.path
