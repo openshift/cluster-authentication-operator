@@ -134,8 +134,8 @@ func newIDPSyncData() idpSyncData {
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string, optional bool) string {
-	if optional && len(secretName.Name) == 0 {
+func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string) string {
+	if len(secretName.Name) == 0 {
 		return ""
 	}
 
@@ -148,8 +148,8 @@ func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameRefere
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
-func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string, optional bool) string {
-	if optional && len(configMap.Name) == 0 {
+func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) string {
+	if len(configMap.Name) == 0 {
 		return ""
 	}
 
