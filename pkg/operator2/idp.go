@@ -53,7 +53,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 		p = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
-			ClientSecret:  syncData.AddSecretStringSource(i, githubConfig.ClientSecret, configv1.ClientSecretKey, false),
+			ClientSecret:  createFileStringSource(syncData.AddSecret(i, githubConfig.ClientSecret, configv1.ClientSecretKey, false)),
 			Organizations: githubConfig.Organizations,
 			Hostname:      githubConfig.Hostname,
 			CA:            syncData.AddConfigMap(i, githubConfig.CA, corev1.ServiceAccountRootCAKey, true),
@@ -69,7 +69,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 			CA:           syncData.AddConfigMap(i, gitlabConfig.CA, corev1.ServiceAccountRootCAKey, true),
 			URL:          gitlabConfig.URL,
 			ClientID:     gitlabConfig.ClientID,
-			ClientSecret: syncData.AddSecretStringSource(i, gitlabConfig.ClientSecret, configv1.ClientSecretKey, false),
+			ClientSecret: createFileStringSource(syncData.AddSecret(i, gitlabConfig.ClientSecret, configv1.ClientSecretKey, false)),
 			Legacy:       new(bool), // we require OIDC for GitLab now
 		}
 
@@ -81,7 +81,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 
 		p = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
-			ClientSecret: syncData.AddSecretStringSource(i, googleConfig.ClientSecret, configv1.ClientSecretKey, false),
+			ClientSecret: createFileStringSource(syncData.AddSecret(i, googleConfig.ClientSecret, configv1.ClientSecretKey, false)),
 			HostedDomain: googleConfig.HostedDomain,
 		}
 
@@ -122,7 +122,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
-			BindPassword: syncData.AddSecretStringSource(i, ldapConfig.BindPassword, configv1.BindPasswordKey, true),
+			BindPassword: createFileStringSource(syncData.AddSecret(i, ldapConfig.BindPassword, configv1.BindPasswordKey, true)),
 			Insecure:     ldapConfig.Insecure,
 			CA:           syncData.AddConfigMap(i, ldapConfig.CA, corev1.ServiceAccountRootCAKey, true),
 			Attributes: osinv1.LDAPAttributeMapping{
@@ -142,7 +142,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 		p = &osinv1.OpenIDIdentityProvider{
 			CA:                       syncData.AddConfigMap(i, openIDConfig.CA, corev1.ServiceAccountRootCAKey, true),
 			ClientID:                 openIDConfig.ClientID,
-			ClientSecret:             syncData.AddSecretStringSource(i, openIDConfig.ClientSecret, configv1.ClientSecretKey, false),
+			ClientSecret:             createFileStringSource(syncData.AddSecret(i, openIDConfig.ClientSecret, configv1.ClientSecretKey, false)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
 			URLs: osinv1.OpenIDURLs{
@@ -181,6 +181,14 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 	} // switch
 
 	return encodeOrDie(p), nil
+}
+
+func createFileStringSource(filepath string) configv1.StringSource {
+	return configv1.StringSource{
+		StringSourceSpec: configv1.StringSourceSpec{
+			File: filepath,
+		},
+	}
 }
 
 func encodeOrDie(obj runtime.Object) []byte {

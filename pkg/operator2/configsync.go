@@ -158,14 +158,6 @@ func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameRefere
 	return data.path
 }
 
-func (sd *idpSyncData) AddSecretStringSource(index int, secretName configv1.SecretNameReference, key string, optional bool) configv1.StringSource {
-	return configv1.StringSource{
-		StringSourceSpec: configv1.StringSourceSpec{
-			File: sd.AddSecret(index, secretName, key, optional),
-		},
-	}
-}
-
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
