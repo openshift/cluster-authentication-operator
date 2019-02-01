@@ -143,7 +143,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(authOpConfigInformer, configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
-		// operator.WithInformer(configV1Informers.Consoles(), configNameFilter),
+		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
 	)
 }
 
