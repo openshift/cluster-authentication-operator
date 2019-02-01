@@ -42,8 +42,8 @@ func NewOsinOperator(cmi v1.ConfigMapInformer, cm coreclientv1.ConfigMapsGetter,
 
 	return operator.New("OsinOperator", c,
 		operator.WithInformer(cmi, operator.FilterByNames(targetConfigMap)),
-		operator.WithInformer(oldOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig)),
-		operator.WithInformer(kubeAPIServerOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig)),
+		operator.WithInformer(oldOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
+		operator.WithInformer(kubeAPIServerOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
 	)
 }
 
