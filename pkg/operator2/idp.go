@@ -177,18 +177,6 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 	return encodeOrDie(p), nil
 }
 
-func createDenyAllIdentityProvider() osinv1.IdentityProvider {
-	return osinv1.IdentityProvider{
-		Name:            "defaultDenyAll",
-		UseAsChallenger: true,
-		UseAsLogin:      true,
-		MappingMethod:   "claim",
-		Provider: runtime.RawExtension{
-			Raw: encodeOrDie(&osinv1.DenyAllPasswordIdentityProvider{}),
-		},
-	}
-}
-
 func encodeOrDie(obj runtime.Object) []byte {
 	bytes, err := runtime.Encode(encoder, obj)
 	if err != nil {

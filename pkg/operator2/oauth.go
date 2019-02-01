@@ -96,11 +96,6 @@ func (c *authOperator) handleOAuthConfig(
 			},
 		)
 	}
-	if len(identityProviders) == 0 {
-		identityProviders = []osinv1.IdentityProvider{
-			createDenyAllIdentityProvider(),
-		}
-	}
 
 	// TODO maybe move the OAuth stuff up one level
 	err = c.handleConfigSync(&syncData)
