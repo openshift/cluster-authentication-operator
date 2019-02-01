@@ -25,6 +25,12 @@ func WithMaxRetries(maxRetries int) Option {
 	}
 }
 
+func WithInitialEvent(namespace, name string) Option {
+	return toNaiveRunOpt(func(c *controller) {
+		c.addKey(namespace, name)
+	})
+}
+
 func WithRateLimiter(limiter workqueue.RateLimiter) Option {
 	return func(c *controller) {
 		c.queue = workqueue.NewNamedRateLimitingQueue(limiter, c.name)
@@ -38,7 +44,7 @@ func WithInformerSynced(getter InformerGetter) Option {
 	})
 }
 
-func WithInformer(getter InformerGetter, filter ParentFilter) Option {
+func WithInformer(getter InformerGetter, filter ParentFilter, opts ...InformerOption) Option {
 	informer := getter.Informer() // immediately signal that we intend to use this informer in case it is lazily initialized
 	return toRunOpt(func(c *controller) {
 		informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -77,18 +83,30 @@ func WithInformer(getter InformerGetter, filter ParentFilter) Option {
 				}
 			},
 		})
-		WithInformerSynced(getter)(c)
+
+		// default to a safe sync setting
+		if len(opts) == 0 {
+			opts = []InformerOption{withSync()}
+		}
+
+		for _, opt := range opts {
+			informerOptionToOption(opt, getter)(c)
+		}
 	})
 }
 
 func toRunOpt(opt Option) Option {
-	return toOnceOpt(func(c *controller) {
+	return toOnceOpt(toNaiveRunOpt(opt))
+}
+
+func toNaiveRunOpt(opt Option) Option {
+	return func(c *controller) {
 		if c.run {
 			opt(c)
 			return
 		}
 		c.runOpts = append(c.runOpts, opt)
-	})
+	}
 }
 
 func toOnceOpt(opt Option) Option {

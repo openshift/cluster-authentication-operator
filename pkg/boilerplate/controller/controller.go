@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -47,7 +48,7 @@ type controller struct {
 }
 
 func (c *controller) Run(workers int, stopCh <-chan struct{}) {
-	defer utilruntime.HandleCrash()
+	defer utilruntime.HandleCrash(crash)
 	defer c.queue.ShutDown()
 
 	glog.Infof("Starting %s", c.name)
@@ -58,9 +59,8 @@ func (c *controller) Run(workers int, stopCh <-chan struct{}) {
 		opt(c)
 	}
 
-	if !cache.WaitForCacheSync(stopCh, c.cacheSyncs...) {
-		utilruntime.HandleError(fmt.Errorf("%s: timed out waiting for caches to sync", c.name))
-		return
+	if !c.waitForCacheSyncWithTimeout() {
+		panic(die(fmt.Sprintf("%s: timed out waiting for caches to sync", c.name)))
 	}
 
 	for i := 0; i < workers; i++ {
@@ -70,8 +70,20 @@ func (c *controller) Run(workers int, stopCh <-chan struct{}) {
 	<-stopCh
 }
 
+func (c *controller) waitForCacheSyncWithTimeout() bool {
+	// prevent us from blocking forever due to a broken informer
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	return cache.WaitForCacheSync(ctx.Done(), c.cacheSyncs...)
+}
+
 func (c *controller) add(filter ParentFilter, object v1.Object) {
 	namespace, name := filter.Parent(object)
+	c.addKey(namespace, name)
+}
+
+func (c *controller) addKey(namespace, name string) {
 	qKey := queueKey{namespace: namespace, name: name}
 	c.queue.Add(qKey)
 }
