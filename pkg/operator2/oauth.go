@@ -13,9 +13,9 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
+	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	authv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
@@ -32,7 +32,7 @@ func init() {
 }
 
 func (c *authOperator) handleOAuthConfig(
-	operatorConfig *authv1alpha1.AuthenticationOperatorConfig,
+	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
 	service *corev1.Service,
 ) (

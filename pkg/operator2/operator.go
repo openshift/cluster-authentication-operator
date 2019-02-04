@@ -16,13 +16,12 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	authopclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
+	authopinformer "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
-	authv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/operator"
-	authopclient "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned/typed/authentication/v1alpha1"
-	authopinformer "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -76,7 +75,7 @@ const (
 )
 
 type authOperator struct {
-	authOperatorConfig authopclient.AuthenticationOperatorConfigInterface
+	authOperatorConfig authopclient.AuthenticationInterface
 
 	recorder events.Recorder
 
@@ -95,8 +94,8 @@ type authOperator struct {
 }
 
 func NewAuthenticationOperator(
-	authOpConfigInformer authopinformer.AuthenticationOperatorConfigInformer,
-	authOpConfigClient authopclient.AuthenticationOperatorConfigsGetter,
+	authOpConfigInformer authopinformer.AuthenticationInformer,
+	authOpConfigClient authopclient.AuthenticationsGetter,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
 	routeInformer routeinformer.RouteInformer,
@@ -107,7 +106,7 @@ func NewAuthenticationOperator(
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &authOperator{
-		authOperatorConfig: authOpConfigClient.AuthenticationOperatorConfigs(),
+		authOperatorConfig: authOpConfigClient.Authentications(),
 
 		recorder: recorder,
 
@@ -152,7 +151,7 @@ func (c *authOperator) Key() (metav1.Object, error) {
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
-	operatorConfig := obj.(*authv1alpha1.AuthenticationOperatorConfig)
+	operatorConfig := obj.(*operatorv1.Authentication)
 
 	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
@@ -167,7 +166,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	return nil
 }
 
-func (c *authOperator) handleSync(operatorConfig *authv1alpha1.AuthenticationOperatorConfig) error {
+func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {
 	route, err := c.handleRoute()
 	if err != nil {
 		return err

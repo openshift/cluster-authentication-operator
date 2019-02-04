@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	authv1alpha1 "github.com/openshift/cluster-authentication-operator/pkg/apis/authentication/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-const hashAnnotation = authv1alpha1.GroupName + "/rvs-hash"
+var hashAnnotation = operatorv1.GroupName + "/rvs-hash"
 
 func (c *authOperator) getGeneration() int64 {
 	deployment, err := c.deployments.Deployments(targetName).Get(targetName, metav1.GetOptions{})
@@ -27,7 +26,7 @@ func (c *authOperator) getGeneration() int64 {
 }
 
 func defaultDeployment(
-	operatorConfig *authv1alpha1.AuthenticationOperatorConfig,
+	operatorConfig *operatorv1.Authentication,
 	syncData *idpSyncData,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
