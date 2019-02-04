@@ -1,5 +1,5 @@
 hash: 76437cbed780eca1679f417dd7912534ad7b08519dfdc51048b197c623134342
-updated: 2019-01-30T00:17:13.439244576-05:00
+updated: 2019-02-04T09:43:28.702224508-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -196,7 +196,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 31ed61683850951801cddda5b075fcb24a500532
+  version: 4396430e26bac8c697b7f0f57dd8f3dc5ce05256
   subpackages:
   - apps
   - apps/v1
@@ -242,7 +242,7 @@ imports:
   - webconsole
   - webconsole/v1
 - name: github.com/openshift/client-go
-  version: 1540772775fa910515f0ff094d83ef41735d470b
+  version: 179755465e406a7682e48d81516d342df798161f
   subpackages:
   - config/clientset/versioned
   - config/clientset/versioned/scheme
@@ -252,6 +252,14 @@ imports:
   - config/informers/externalversions/config/v1
   - config/informers/externalversions/internalinterfaces
   - config/listers/config/v1
+  - operator/clientset/versioned
+  - operator/clientset/versioned/scheme
+  - operator/clientset/versioned/typed/operator/v1
+  - operator/informers/externalversions
+  - operator/informers/externalversions/internalinterfaces
+  - operator/informers/externalversions/operator
+  - operator/informers/externalversions/operator/v1
+  - operator/listers/operator/v1
   - route/clientset/versioned
   - route/clientset/versioned/scheme
   - route/clientset/versioned/typed/route/v1
@@ -261,7 +269,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: cef3bac303c956844aa15215630d26b1e0a1085a
+  version: 28fcc8fa9009d38d2297d178a2d112f009a08d12
   subpackages:
   - pkg/config/client
   - pkg/config/configdefaults
@@ -312,7 +320,7 @@ imports:
 - name: github.com/spf13/cobra
   version: 7547e83b2d85fd1893c7d76916f67689d761fecb
 - name: github.com/spf13/pflag
-  version: 24fa6976df40757dce6aea913e7b81ade90530e1
+  version: 583c0c0531f06d5278b7d917446061adc344b5cd
 - name: github.com/ugorji/go
   version: ded73eae5db7e7a0ef6f55aace87a2873c5d2b74
   subpackages:
@@ -368,11 +376,11 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: a06a922acc1b97001c51689385e2144227c9e820
+  version: 2382e3994d48b1d22acc2c86bcad0a2aff028e32
   subpackages:
   - imports
 - name: google.golang.org/appengine
-  version: e9657d882bb81064595ca3b56cbe2546bbabf7b1
+  version: 2d2298565d5a399bdfec98dbc259d6393e3cf8ba
   subpackages:
   - internal
   - internal/base
@@ -607,7 +615,6 @@ imports:
   version: 701b913670036511e3d752318272c97f1a2a2edd
   subpackages:
   - discovery
-  - discovery/fake
   - dynamic
   - informers
   - informers/admissionregistration
@@ -720,7 +727,6 @@ imports:
   - plugin/pkg/client/auth/exec
   - rest
   - rest/watch
-  - testing
   - tools/auth
   - tools/cache
   - tools/clientcmd

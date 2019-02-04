@@ -75,6 +75,9 @@ func TestNewNodeStateForInstallInProgress(t *testing.T) {
 		kubeClient,
 		eventRecorder,
 	)
+	c.ownerRefsFn = func(revision int32) ([]metav1.OwnerReference, error) {
+		return []metav1.OwnerReference{}, nil
+	}
 	c.installerPodImageFn = func() string { return "docker.io/foo/bar" }
 
 	t.Log("setting target revision")
@@ -285,6 +288,9 @@ func TestCreateInstallerPod(t *testing.T) {
 		kubeClient,
 		eventRecorder,
 	)
+	c.ownerRefsFn = func(revision int32) ([]metav1.OwnerReference, error) {
+		return []metav1.OwnerReference{}, nil
+	}
 	c.installerPodImageFn = func() string { return "docker.io/foo/bar" }
 	if err := c.sync(); err != nil {
 		t.Fatal(err)
@@ -450,7 +456,9 @@ func TestEnsureInstallerPod(t *testing.T) {
 				kubeClient,
 				eventRecorder,
 			)
-
+			c.ownerRefsFn = func(revision int32) ([]metav1.OwnerReference, error) {
+				return []metav1.OwnerReference{}, nil
+			}
 			err := c.ensureInstallerPod("test-node-1", nil, 1)
 			if err != nil {
 				if tt.expectedErr == "" {
@@ -603,6 +611,54 @@ func TestCreateInstallerPodMultiNode(t *testing.T) {
 			expectedUpgradeOrder: []int{1, 2, 0},
 		},
 		{
+			name: "two nodes on revision 1 and one node on revision 4",
+			latestAvailableRevision: 5,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{
+					NodeName:        "test-node-1",
+					CurrentRevision: 1,
+				},
+				{
+					NodeName:        "test-node-2",
+					CurrentRevision: 1,
+				},
+				{
+					NodeName:        "test-node-3",
+					CurrentRevision: 4,
+				},
+			},
+			staticPods: []*v1.Pod{
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-1"), 5, v1.PodRunning, true),
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-2"), 5, v1.PodRunning, true),
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-3"), 5, v1.PodRunning, true),
+			},
+			expectedUpgradeOrder: []int{0, 1, 2},
+		},
+		{
+			name: "two nodes 2 revisions behind and 1 node on latest available revision",
+			latestAvailableRevision: 3,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{
+					NodeName:        "test-node-1",
+					CurrentRevision: 1,
+				},
+				{
+					NodeName:        "test-node-2",
+					CurrentRevision: 1,
+				},
+				{
+					NodeName:        "test-node-3",
+					CurrentRevision: 3,
+				},
+			},
+			staticPods: []*v1.Pod{
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-1"), 3, v1.PodRunning, true),
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-2"), 3, v1.PodRunning, true),
+				newStaticPod(mirrorPodNameForNode("test-pod", "test-node-3"), 3, v1.PodSucceeded, true),
+			},
+			expectedUpgradeOrder: []int{0, 1},
+		},
+		{
 			name: "first update status fails",
 			latestAvailableRevision: 2,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -709,6 +765,9 @@ func TestCreateInstallerPodMultiNode(t *testing.T) {
 				kubeClient,
 				eventRecorder,
 			)
+			c.ownerRefsFn = func(revision int32) ([]metav1.OwnerReference, error) {
+				return []metav1.OwnerReference{}, nil
+			}
 			c.installerPodImageFn = func() string { return "docker.io/foo/bar" }
 
 			// Each node need at least 2 syncs to first create the pod and then acknowledge its existence.
@@ -727,7 +786,7 @@ func TestCreateInstallerPodMultiNode(t *testing.T) {
 
 			for i := range test.expectedUpgradeOrder {
 				if i >= len(createdInstallerPods) {
-					t.Fatalf("expected more installer pod in the node order %v", test.expectedUpgradeOrder[i:])
+					t.Fatalf("expected more (%d) installer pod in the node order %v", len(createdInstallerPods), test.expectedUpgradeOrder[i:])
 				}
 
 				nodeName, _ := installerNodeAndID(createdInstallerPods[i].Name)
