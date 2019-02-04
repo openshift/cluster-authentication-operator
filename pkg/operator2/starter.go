@@ -13,13 +13,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
+	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
+	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
-	operatorv1 "github.com/openshift/api/operator/v1"
-	authopclient "github.com/openshift/cluster-authentication-operator/pkg/generated/clientset/versioned"
-	authopinformer "github.com/openshift/cluster-authentication-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -60,8 +60,8 @@ spec:
 
 var customResources = map[schema.GroupVersionResource]string{
 	operatorv1.GroupVersion.WithResource("authentications"): defaultOperatorConfig,
-	configv1.GroupVersion.WithResource("authentications"):                   defaultAuthentication,
-	configv1.GroupVersion.WithResource("oauths"):                            defaultOAuth,
+	configv1.GroupVersion.WithResource("authentications"):   defaultAuthentication,
+	configv1.GroupVersion.WithResource("oauths"):            defaultOAuth,
 }
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
@@ -121,8 +121,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	operator := NewAuthenticationOperator(
-		authOperatorConfigInformers.Authentication().V1alpha1().AuthenticationOperatorConfigs(),
-		authConfigClient.AuthenticationV1alpha1(),
+		authOperatorConfigInformers.Operator().V1().Authentications(),
+		authConfigClient.OperatorV1(),
 		kubeInformersNamespaced,
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
