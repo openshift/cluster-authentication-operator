@@ -35,23 +35,16 @@ func (c *authOperator) handleOAuthConfig(
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
 	service *corev1.Service,
+	consoleConfig *configv1.Console,
 ) (
 	*configv1.OAuth,
-	*configv1.Console,
 	*corev1.ConfigMap,
 	*idpSyncData,
 	error,
 ) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	// technically this should be an observed config loop
-	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
-	if err != nil {
-		// FIXME: fix when the console team starts using this
-		consoleConfig = &configv1.Console{}
+		return nil, nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -100,8 +93,10 @@ func (c *authOperator) handleOAuthConfig(
 	// TODO maybe move the OAuth stuff up one level
 	err = c.handleConfigSync(&syncData)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
+
+	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 
 	// TODO this pretends this is an OsinServerConfig
 	cliConfig := &kubecontrolplanev1.KubeAPIServerConfig{
@@ -123,7 +118,7 @@ func (c *authOperator) handleOAuthConfig(
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
 			},
-			CORSAllowedOrigins: nil,                    // TODO probably need this
+			CORSAllowedOrigins: corsAllowedOrigins,     // set console route as valid CORS (so JS can logout)
 			AuditConfig:        configv1.AuditConfig{}, // TODO probably need this
 			KubeClientConfig: configv1.KubeClientConfig{
 				KubeConfig: "", // this should use in cluster config
@@ -142,7 +137,7 @@ func (c *authOperator) handleOAuthConfig(
 			// TODO ask installer team to make it easier to get that URL
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
-			AssetPublicURL:              consoleConfig.Status.PublicHostname, // set console route as valid 302 redirect for logout
+			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
 			GrantConfig: osinv1.GrantConfig{
@@ -167,11 +162,11 @@ func (c *authOperator) handleOAuthConfig(
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// TODO update OAuth status
-	return oauthConfig, consoleConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
+	return oauthConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {

@@ -201,7 +201,9 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return err
 	}
 
-	oauthConfig, consoleConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service)
+	consoleConfig := c.handleConsoleConfig()
+
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig)
 	if err != nil {
 		return err
 	}
