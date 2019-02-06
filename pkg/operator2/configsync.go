@@ -12,7 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(data *idpSyncData) ([]string, error) {
+func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) {
 	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
@@ -52,11 +52,15 @@ func (c *authOperator) handleConfigSync(data *idpSyncData) ([]string, error) {
 	inUseConfigMapNames := sets.NewString()
 	inUseSecretNames := sets.NewString()
 
-	for dest, src := range data.configMaps {
+	for dest, src := range data.idpConfigMaps {
 		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
 		inUseConfigMapNames.Insert(dest)
 	}
-	for dest, src := range data.secrets {
+	for dest, src := range data.idpSecrets {
+		syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
+		inUseSecretNames.Insert(dest)
+	}
+	for dest, src := range data.tplSecrets {
 		syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
 		inUseSecretNames.Insert(dest)
 	}
@@ -87,11 +91,12 @@ func (c *authOperator) handleConfigSync(data *idpSyncData) ([]string, error) {
 	return resourceVersionsInUse, nil
 }
 
-type idpSyncData struct {
+type configSyncData struct {
 	// both maps are dest -> source
 	// dest is metadata.name for resource in our deployment's namespace
-	configMaps map[string]sourceData
-	secrets    map[string]sourceData
+	idpConfigMaps map[string]sourceData
+	idpSecrets    map[string]sourceData
+	tplSecrets    map[string]sourceData
 }
 
 type sourceData struct {
@@ -106,8 +111,9 @@ type sourceData struct {
 // sourceData which describes the volumes and mount volumes to mount the secret to
 func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, key string) (string, sourceData) {
 	dest := getIDPName(index, secretName.Name, key)
+	dirPath := getIDPPath(index, "secret", dest)
 
-	vol, mount, path := secretVolume(index, dest, key)
+	vol, mount, path := secretVolume(dirPath, dest, key)
 	ret := sourceData{
 		src:    secretName.Name,
 		path:   path,
@@ -122,8 +128,9 @@ func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, 
 // sourceData which describes the volumes and mountvolumes to mount the ConfigMap to
 func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) (string, sourceData) {
 	dest := getIDPName(index, configMap.Name, key)
+	dirPath := getIDPPath(index, "configmap", dest)
 
-	vol, mount, path := configMapVolume(index, dest, key)
+	vol, mount, path := configMapVolume(dirPath, dest, key)
 	ret := sourceData{
 		src:    configMap.Name,
 		path:   path,
@@ -134,26 +141,43 @@ func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameRefere
 	return dest, ret
 }
 
-func newIDPSyncData() idpSyncData {
-	configMaps := map[string]sourceData{}
-	secrets := map[string]sourceData{}
+func newSourceDataTemplateSecret(secretRef configv1.SecretNameReference, key string) (string, sourceData) {
+	dest := getTemplateName(secretRef.Name, key)
+	dirPath := getTemplatePath("template", dest)
 
-	return idpSyncData{
-		configMaps: configMaps,
-		secrets:    secrets,
+	vol, mount, path := secretVolume(dirPath, dest, key)
+	ret := sourceData{
+		src:    secretRef.Name,
+		path:   path,
+		volume: vol,
+		mount:  mount,
+	}
+
+	return dest, ret
+}
+
+func newConfigSyncData() configSyncData {
+	idpConfigMaps := map[string]sourceData{}
+	idpSecrets := map[string]sourceData{}
+	tplSecrets := map[string]sourceData{}
+
+	return configSyncData{
+		idpConfigMaps: idpConfigMaps,
+		idpSecrets:    idpSecrets,
+		tplSecrets:    tplSecrets,
 	}
 }
 
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameReference, key string) string {
-	if len(secretName.Name) == 0 {
+func (sd *configSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameReference, key string) string {
+	if len(secretRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataIDPSecret(index, secretName, key)
-	sd.secrets[dest] = data
+	dest, data := newSourceDataIDPSecret(index, secretRef, key)
+	sd.idpSecrets[dest] = data
 
 	return data.path
 }
@@ -161,13 +185,24 @@ func (sd *idpSyncData) AddSecret(index int, secretName configv1.SecretNameRefere
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
-func (sd *idpSyncData) AddConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) string {
-	if len(configMap.Name) == 0 {
+func (sd *configSyncData) AddIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, key string) string {
+	if len(configMapRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataIDPConfigMap(index, configMap, key)
-	sd.configMaps[dest] = data
+	dest, data := newSourceDataIDPConfigMap(index, configMapRef, key)
+	sd.idpConfigMaps[dest] = data
+
+	return data.path
+}
+
+func (sd *configSyncData) AddTemplateSecret(secretRef configv1.SecretNameReference, key string) string {
+	if len(secretRef.Name) == 0 {
+		return ""
+	}
+
+	dest, data := newSourceDataTemplateSecret(secretRef, key)
+	sd.tplSecrets[dest] = data
 
 	return data.path
 }
@@ -200,6 +235,14 @@ func getIDPPath(i int, resource, name string) string {
 	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefixIDP, i, resource, name)
 }
 
+func getTemplateName(name, key string) string {
+	return fmt.Sprintf("%s-%s-%s", userConfigPrefixTemplate, name, key)
+}
+
+func getTemplatePath(name, key string) string {
+	return fmt.Sprintf("%s/%s/%s", userConfigPathPrefixTemplate, name, key)
+}
+
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
 	ns := userConfigNamespace
 	if len(src) == 0 { // handle delete
@@ -219,11 +262,11 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 	}
 }
 
-func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
+func secretVolume(path, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
 	data := volume{
 		name:      name,
 		configmap: false,
-		path:      getIDPPath(i, "secret", name),
+		path:      path,
 		keys:      []string{key},
 	}
 
@@ -232,11 +275,11 @@ func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, s
 	return vol, mount, mount.MountPath + "/" + key
 }
 
-func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
+func configMapVolume(path, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
 	data := volume{
 		name:      name,
 		configmap: true,
-		path:      getIDPPath(i, "configmap", name),
+		path:      path,
 		keys:      []string{key},
 	}
 
