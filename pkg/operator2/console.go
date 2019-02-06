@@ -42,5 +42,7 @@ func consoleToDeploymentData(console *configv1.Console) (string, []string) {
 		}
 	}
 
-	return assetPublicURL, corsAllowedOrigins
+	// the console in 4.0 does not need CORS to interact with the OAuth server
+	// we will leave all of the wiring in place in case we need to revisit this in the future
+	return assetPublicURL, nil // corsAllowedOrigins
 }
