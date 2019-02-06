@@ -22,11 +22,6 @@ import (
 
 const resync = 20 * time.Minute
 
-var oldKubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
-	Group:    "kubeapiserver.operator.openshift.io",
-	Version:  "v1alpha1",
-	Resource: "kubeapiserveroperatorconfigs",
-}
 var kubeAPIServerOperatorConfigGVR = schema.GroupVersionResource{
 	Group:    "operator.openshift.io",
 	Version:  "v1",
@@ -49,22 +44,17 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informers.WithTweakListOptions(singleNameListOptions(targetConfigMap)),
 	)
 
-	oldKubeAPIServerOperatorConfig := dynamicClient.Resource(oldKubeAPIServerOperatorConfigGVR)
-	oldKubeAPIServerOperatorConfigInformer := dynamicInformer(oldKubeAPIServerOperatorConfig)
 	kubeAPIServerOperatorConfig := dynamicClient.Resource(kubeAPIServerOperatorConfigGVR)
 	kubeAPIServerOperatorConfigInformer := dynamicInformer(kubeAPIServerOperatorConfig)
 
 	operator := NewOsinOperator(
 		kubeInformersNamespaced.Core().V1().ConfigMaps(),
 		kubeClient.CoreV1(),
-		oldKubeAPIServerOperatorConfigInformer,
-		oldKubeAPIServerOperatorConfig,
 		kubeAPIServerOperatorConfigInformer,
 		kubeAPIServerOperatorConfig,
 	)
 
 	kubeInformersNamespaced.Start(ctx.Context.Done())
-	go oldKubeAPIServerOperatorConfigInformer.Informer().Run(ctx.Context.Done())
 	go kubeAPIServerOperatorConfigInformer.Informer().Run(ctx.Context.Done())
 
 	go operator.Run(ctx.Context.Done())

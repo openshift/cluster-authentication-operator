@@ -21,29 +21,24 @@ import (
 const (
 	targetNamespaceName                  = "kube-system"
 	targetConfigMap                      = "cluster-config-v1"
-	oldTargetKubeAPIServerOperatorConfig = "instance"
 	targetKubeAPIServerOperatorConfig    = "cluster"
 )
 
 type osinOperator struct {
 	configMap                      coreclientv1.ConfigMapsGetter
-	oldKubeAPIServerOperatorClient dynamic.ResourceInterface
 	kubeAPIServerOperatorClient    dynamic.ResourceInterface
 }
 
 func NewOsinOperator(cmi v1.ConfigMapInformer, cm coreclientv1.ConfigMapsGetter,
-	oldOperatorConfigInformer controller.InformerGetter, oldKubeAPIServerOperatorClient dynamic.ResourceInterface,
 	kubeAPIServerOperatorConfigInformer controller.InformerGetter, kubeAPIServerOperatorClient dynamic.ResourceInterface) operator.Runner {
 	c := &osinOperator{
 		configMap:                      cm,
-		oldKubeAPIServerOperatorClient: oldKubeAPIServerOperatorClient,
 		kubeAPIServerOperatorClient:    kubeAPIServerOperatorClient,
 	}
 
 	return operator.New("OsinOperator", c,
 		operator.WithInformer(cmi, operator.FilterByNames(targetConfigMap)),
-		operator.WithInformer(oldOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
-		operator.WithInformer(kubeAPIServerOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
+		operator.WithInformer(kubeAPIServerOperatorConfigInformer, operator.FilterByNames( targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
 	)
 }
 
@@ -67,23 +62,7 @@ func (c osinOperator) Sync(obj metav1.Object) error {
 		return err
 	}
 
-	// try all the potential names and resources to update.  Eventually we'll be done with the old
-	updateErr := updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
-	}
-
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
-	}
-
-	updateErr = updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
-	if updateErr == nil {
-		return nil
-	}
-
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
+	updateErr := updateKubeAPIServer(c.kubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
 	if updateErr == nil {
 		return nil
 	}
