@@ -167,30 +167,38 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 }
 
 func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {
+	// we get resource versions so that if either changes, we redeploy our payload
+	resourceVersions := []string{operatorConfig.GetResourceVersion()}
+
 	route, err := c.handleRoute()
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, route.GetResourceVersion())
 
 	serviceCA, err := c.handleServiceCA()
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion())
 
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, metadata.GetResourceVersion())
 
 	authConfig, err := c.handleAuthConfig()
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
 
 	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, service.GetResourceVersion())
 
 	expectedSessionSecret, err := c.expectedSessionSecret()
 	if err != nil {
@@ -200,35 +208,36 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, sessionSecret.GetResourceVersion())
 
 	consoleConfig := c.handleConsoleConfig()
+	resourceVersions = append(resourceVersions, consoleConfig.GetResourceVersion())
 
 	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig)
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, oauthConfig.GetResourceVersion())
+
+	configResourceVersions, err := c.handleConfigSync(syncData)
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, configResourceVersions...)
+
 	cliConfig, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
 	if err != nil {
 		return err
 	}
+	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
 
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
-	// TODO manually get RV of all the config maps and secrets in syncData
 	// TODO we also need the RV for the serving-cert secret (servingCertName)
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
-		operatorConfig.ResourceVersion,
-		route.ResourceVersion,
-		serviceCA.ResourceVersion,
-		metadata.ResourceVersion,
-		authConfig.ResourceVersion,
-		service.ResourceVersion,
-		sessionSecret.ResourceVersion,
-		oauthConfig.ResourceVersion,
-		consoleConfig.ResourceVersion,
-		cliConfig.ResourceVersion,
+		resourceVersions...,
 	)
 	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
 	// operatorConfig.Spec.OperandSpecs[...].UnsupportedResourcePatches[...].Patch

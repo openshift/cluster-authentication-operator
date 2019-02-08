@@ -12,7 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(data *idpSyncData) error {
+func (c *authOperator) handleConfigSync(data *idpSyncData) ([]string, error) {
 	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
@@ -21,28 +21,31 @@ func (c *authOperator) handleConfigSync(data *idpSyncData) error {
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	secrets, err := secretClient.List(metav1.ListOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	prefixConfigMapNames := sets.NewString()
 	prefixSecretNames := sets.NewString()
+	resourceVersionsAll := map[string]string{}
 
 	// TODO this has too much boilerplate
 
 	for _, cm := range configMaps.Items {
 		if strings.HasPrefix(cm.Name, userConfigPrefixIDP) {
 			prefixConfigMapNames.Insert(cm.Name)
+			resourceVersionsAll[cm.Name] = cm.GetResourceVersion()
 		}
 	}
 
 	for _, secret := range secrets.Items {
 		if strings.HasPrefix(secret.Name, userConfigPrefixIDP) {
 			prefixSecretNames.Insert(secret.Name)
+			resourceVersionsAll[secret.Name] = secret.GetResourceVersion()
 		}
 	}
 
@@ -71,7 +74,17 @@ func (c *authOperator) handleConfigSync(data *idpSyncData) error {
 		syncOrDie(c.resourceSyncer.SyncSecret, dest, "")
 	}
 
-	return nil
+	// only get the resource versions of the elements in use
+	resourceVersionsInUse := []string{}
+	for name := range inUseConfigMapNames {
+		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
+	}
+
+	for name := range inUseSecretNames {
+		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
+	}
+
+	return resourceVersionsInUse, nil
 }
 
 type idpSyncData struct {
@@ -82,8 +95,8 @@ type idpSyncData struct {
 }
 
 type sourceData struct {
-	src    string
-	path   string
+	src    string // name of the source in openshift-config namespace
+	path   string // the mount path that this source is mapped to
 	volume corev1.Volume
 	mount  corev1.VolumeMount
 }
