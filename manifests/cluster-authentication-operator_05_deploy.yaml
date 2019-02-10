@@ -2,46 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   namespace: openshift-authentication-operator
-  name: origin-cluster-authentication-operator1
-  labels:
-    app: origin-cluster-osin-operator
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: origin-cluster-osin-operator
-  template:
-    metadata:
-      name: origin-cluster-osin-operator
-      labels:
-        app: origin-cluster-osin-operator
-    spec:
-      serviceAccountName: openshift-authentication-operator
-      containers:
-      - name: operator
-        image: quay.io/openshift/origin-cluster-authentication-operator:v4.0
-        imagePullPolicy: IfNotPresent
-        command: ["authentication-operator", "operator1"]
-        args:
-        - "--config=/var/run/configmaps/config/operator-config.yaml"
-        - "-v=4"
-        volumeMounts:
-        - mountPath: /var/run/configmaps/config
-          name: config
-      volumes:
-      - name: config
-        configMap:
-          defaultMode: 440
-          name: openshift-authentication-operator-config
-      nodeSelector:
-        node-role.kubernetes.io/master: ""
-      tolerations:
-      - operator: Exists
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  namespace: openshift-authentication-operator
   name: openshift-authentication-operator
   labels:
     app: origin-cluster-authentication-operator
