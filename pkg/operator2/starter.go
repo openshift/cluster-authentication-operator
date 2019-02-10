@@ -28,14 +28,13 @@ import (
 const (
 	resync = 20 * time.Minute
 
-	// TODO unpause when ready
 	defaultOperatorConfig = `
 apiVersion: operator.openshift.io/v1
 kind: Authentication
 metadata:
   name: ` + globalConfigName + `
 spec:
-  managementState: Paused
+  managementState: Managed
 `
 
 	// TODO figure out the permanent home for top level CRDs and default CRs
