@@ -90,12 +90,6 @@ func (c *authOperator) handleOAuthConfig(
 		)
 	}
 
-	// TODO maybe move the OAuth stuff up one level
-	err = c.handleConfigSync(&syncData)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 
 	// TODO this pretends this is an OsinServerConfig
