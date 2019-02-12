@@ -46,7 +46,7 @@ metadata:
   labels:
     app: origin-cluster-authentication-operator
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: origin-cluster-authentication-operator
