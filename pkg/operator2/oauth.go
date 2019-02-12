@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -44,7 +45,11 @@ func (c *authOperator) handleOAuthConfig(
 ) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, nil, err
+		if !errors.IsNotFound(err) {
+			return nil, nil, nil, err
+		}
+		// did not find the object, use default
+		oauthConfig = defaultOAuthConfig()
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -162,6 +167,19 @@ func (c *authOperator) handleOAuthConfig(
 
 	// TODO update OAuth status
 	return oauthConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
+}
+
+func defaultOAuthConfig() *configv1.OAuth {
+	return &configv1.OAuth{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: globalConfigName,
+		},
+		Spec: configv1.OAuthSpec{
+			TokenConfig: configv1.TokenConfig{
+				AccessTokenMaxAgeSeconds: 86400,
+			},
+		},
+	}
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {

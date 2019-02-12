@@ -153,7 +153,10 @@ func (c *authOperator) Key() (metav1.Object, error) {
 func (c *authOperator) Sync(obj metav1.Object) error {
 	operatorConfig := obj.(*operatorv1.Authentication)
 
-	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
+	switch operatorConfig.Spec.ManagementState {
+	// Handle "" as Managed, too
+	case operatorv1.Managed, "":
+	default:
 		return nil // TODO do something better for all states
 	}
 
