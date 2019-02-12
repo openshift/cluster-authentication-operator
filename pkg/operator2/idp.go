@@ -125,6 +125,12 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 			BindPassword: syncData.AddSecretStringSource(i, ldapConfig.BindPassword, configv1.BindPasswordKey, true),
 			Insecure:     ldapConfig.Insecure,
 			CA:           syncData.AddConfigMap(i, ldapConfig.CA, corev1.ServiceAccountRootCAKey, true),
+			Attributes: osinv1.LDAPAttributeMapping{
+				ID:                ldapConfig.Attributes.ID,
+				PreferredUsername: ldapConfig.Attributes.PreferredUsername,
+				Name:              ldapConfig.Attributes.Name,
+				Email:             ldapConfig.Attributes.Email,
+			},
 		}
 
 	case configv1.IdentityProviderTypeOpenID:
