@@ -39,7 +39,7 @@ func (c *authOperator) handleOAuthConfig(
 ) (
 	*configv1.OAuth,
 	*corev1.ConfigMap,
-	*idpSyncData,
+	*configSyncData,
 	error,
 ) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
@@ -60,17 +60,18 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	var templates *osinv1.OAuthTemplates
+	syncData := newConfigSyncData()
+
 	emptyTemplates := configv1.OAuthTemplates{}
-	if oauthConfig.Spec.Templates != emptyTemplates {
+	if configTemplates := oauthConfig.Spec.Templates; configTemplates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             "", // TODO fix
-			ProviderSelection: "", // TODO fix
-			Error:             "", // TODO fix
+			Login:             syncData.AddTemplateSecret(configTemplates.Login, configv1.LoginTemplateKey),
+			ProviderSelection: syncData.AddTemplateSecret(configTemplates.ProviderSelection, configv1.ProviderSelectionTemplateKey),
+			Error:             syncData.AddTemplateSecret(configTemplates.Error, configv1.ErrorsTemplateKey),
 		}
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
-	syncData := newIDPSyncData()
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
 		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {

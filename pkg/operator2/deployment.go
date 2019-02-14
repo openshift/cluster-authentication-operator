@@ -27,7 +27,7 @@ func (c *authOperator) getGeneration() int64 {
 
 func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
-	syncData *idpSyncData,
+	syncData *configSyncData,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(3) // TODO configurable?
@@ -69,8 +69,9 @@ func defaultDeployment(
 		mounts = append(mounts, m)
 	}
 
-	volumes, mounts = toVolumesAndMounts(syncData.configMaps, volumes, mounts)
-	volumes, mounts = toVolumesAndMounts(syncData.secrets, volumes, mounts)
+	volumes, mounts = toVolumesAndMounts(syncData.idpConfigMaps, volumes, mounts)
+	volumes, mounts = toVolumesAndMounts(syncData.idpSecrets, volumes, mounts)
+	volumes, mounts = toVolumesAndMounts(syncData.tplSecrets, volumes, mounts)
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely
