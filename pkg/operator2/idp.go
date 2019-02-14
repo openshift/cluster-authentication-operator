@@ -55,6 +55,7 @@ func convertProviderConfigToOsinBytes(providerConfig *configv1.IdentityProviderC
 			ClientID:      githubConfig.ClientID,
 			ClientSecret:  syncData.AddSecretStringSource(i, githubConfig.ClientSecret, configv1.ClientSecretKey, false),
 			Organizations: githubConfig.Organizations,
+			Teams:         githubConfig.Teams,
 			Hostname:      githubConfig.Hostname,
 			CA:            syncData.AddConfigMap(i, githubConfig.CA, corev1.ServiceAccountRootCAKey, true),
 		}
