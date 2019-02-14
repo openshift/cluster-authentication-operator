@@ -5,13 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/informers/core/v1"
-	coreclientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/operator"
@@ -19,71 +15,66 @@ import (
 )
 
 const (
-	targetNamespaceName                  = "kube-system"
-	targetConfigMap                      = "cluster-config-v1"
 	oldTargetKubeAPIServerOperatorConfig = "instance"
 	targetKubeAPIServerOperatorConfig    = "cluster"
+	targetInfratructureConfig            = "cluster"
 )
 
 type osinOperator struct {
-	configMap                      coreclientv1.ConfigMapsGetter
 	oldKubeAPIServerOperatorClient dynamic.ResourceInterface
 	kubeAPIServerOperatorClient    dynamic.ResourceInterface
+	infrastructureConfigClient     dynamic.ResourceInterface
 }
 
-func NewOsinOperator(cmi v1.ConfigMapInformer, cm coreclientv1.ConfigMapsGetter,
+func NewOsinOperator(
 	oldOperatorConfigInformer controller.InformerGetter, oldKubeAPIServerOperatorClient dynamic.ResourceInterface,
-	kubeAPIServerOperatorConfigInformer controller.InformerGetter, kubeAPIServerOperatorClient dynamic.ResourceInterface) operator.Runner {
+	kubeAPIServerOperatorConfigInformer controller.InformerGetter, kubeAPIServerOperatorClient dynamic.ResourceInterface,
+	infrastructureConfigInformer controller.InformerGetter, infrastructureConfigClient dynamic.ResourceInterface) operator.Runner {
 	c := &osinOperator{
-		configMap:                      cm,
 		oldKubeAPIServerOperatorClient: oldKubeAPIServerOperatorClient,
 		kubeAPIServerOperatorClient:    kubeAPIServerOperatorClient,
+		infrastructureConfigClient:     infrastructureConfigClient,
 	}
 
 	return operator.New("OsinOperator", c,
-		operator.WithInformer(cmi, operator.FilterByNames(targetConfigMap)),
 		operator.WithInformer(oldOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
 		operator.WithInformer(kubeAPIServerOperatorConfigInformer, operator.FilterByNames(oldTargetKubeAPIServerOperatorConfig, targetKubeAPIServerOperatorConfig), controller.WithNoSync()),
+		operator.WithInformer(infrastructureConfigInformer, operator.FilterByNames(targetInfratructureConfig), controller.WithNoSync()),
 	)
 }
 
 func (c osinOperator) Key() (metav1.Object, error) {
-	return c.configMap.ConfigMaps(targetNamespaceName).Get(targetConfigMap, metav1.GetOptions{})
+	return c.infrastructureConfigClient.Get(targetInfratructureConfig, metav1.GetOptions{})
 }
 
 func (c osinOperator) Sync(obj metav1.Object) error {
-	configMap := obj.(*corev1.ConfigMap)
-
-	installConfig := configMap.Data["install-config"]
-	if len(installConfig) == 0 {
-		return fmt.Errorf("no data: %#v", configMap)
-	}
-	installConfigJSON, err := yaml.ToJSON([]byte(installConfig))
+	infra := obj.(*unstructured.Unstructured)
+	// https://github.com/openshift/api/blob/ea5d05408a95a765d44b5a4b31561b530f0b1f4c/config/v1/types_infrastructure.go#L47
+	apiURL, ok, err := unstructured.NestedString(infra.Object, "status", "apiServerURL")
 	if err != nil {
 		return err
 	}
-	ic := &InstallConfig{}
-	if err := json.Unmarshal(installConfigJSON, ic); err != nil {
-		return err
+	if !ok || apiURL == "" {
+		return fmt.Errorf("apiServerURL field not found")
 	}
 
 	// try all the potential names and resources to update.  Eventually we'll be done with the old
-	updateErr := updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
+	updateErr := updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, apiURL)
 	if updateErr == nil {
 		return nil
 	}
 
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, ic)
+	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, oldTargetKubeAPIServerOperatorConfig, apiURL)
 	if updateErr == nil {
 		return nil
 	}
 
-	updateErr = updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
+	updateErr = updateKubeAPIServer(c.oldKubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, apiURL)
 	if updateErr == nil {
 		return nil
 	}
 
-	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, ic)
+	updateErr = updateKubeAPIServer(c.kubeAPIServerOperatorClient, targetKubeAPIServerOperatorConfig, apiURL)
 	if updateErr == nil {
 		return nil
 	}
@@ -91,7 +82,7 @@ func (c osinOperator) Sync(obj metav1.Object) error {
 	return updateErr
 }
 
-func updateKubeAPIServer(kubeAPIServerOperatorClient dynamic.ResourceInterface, name string, ic *InstallConfig) error {
+func updateKubeAPIServer(kubeAPIServerOperatorClient dynamic.ResourceInterface, name, apiURL string) error {
 	apiServerOperatorConfig, err := kubeAPIServerOperatorClient.Get(name, metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -101,7 +92,6 @@ func updateKubeAPIServer(kubeAPIServerOperatorClient dynamic.ResourceInterface, 
 		return err
 	}
 
-	apiURL := getAPIServerURL(ic)
 	expectedOAuthConfig := map[string]interface{}{
 		"spec": map[string]interface{}{
 			"unsupportedConfigOverrides": map[string]interface{}{
