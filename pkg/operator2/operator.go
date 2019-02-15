@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	targetName       = "openshift-authentication"
-	globalConfigName = "cluster"
+	targetName        = "openshift-authentication"
+	globalConfigName  = "cluster"
+	consoleConfigName = "console"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
@@ -210,7 +211,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, sessionSecret.GetResourceVersion())
 
-	consoleConfig := c.handleConsoleConfig()
+	consoleConfig, err := c.handleConsoleConfig()
+	if err != nil {
+		return err
+	}
 	resourceVersions = append(resourceVersions, consoleConfig.GetResourceVersion())
 
 	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig)

@@ -11,14 +11,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 )
 
-func (c *authOperator) handleConsoleConfig() *configv1.Console {
+func (c *authOperator) handleConsoleConfig() (*configv1.Console, error) {
 	// technically this should be an observed config loop
-	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
-	if err != nil {
-		// FIXME: fix when the console team starts using this
-		return &configv1.Console{}
-	}
-	return consoleConfig
+	return c.console.Get(consoleConfigName, metav1.GetOptions{})
 }
 
 func consoleToDeploymentData(console *configv1.Console) (string, []string) {
