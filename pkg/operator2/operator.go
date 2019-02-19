@@ -180,11 +180,11 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, route.GetResourceVersion())
 
-	serviceCA, err := c.handleServiceCA()
+	serviceCA, servingCert, err := c.handleServiceCA()
 	if err != nil {
 		return err
 	}
-	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion())
+	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
@@ -235,9 +235,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
 
+	operatorDeployment, err := c.deployments.Deployments(targetNameOperator).Get(targetNameOperator, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, operatorDeployment.GetResourceVersion())
+
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
-	// TODO we also need the RV for the serving-cert secret (servingCertName)
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,

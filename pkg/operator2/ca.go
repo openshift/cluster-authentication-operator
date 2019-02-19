@@ -15,18 +15,19 @@ const (
 	injectCABundleAnnotationValue = "true"
 )
 
-func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, error) {
+func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, error) {
 	cm := c.configMaps.ConfigMaps(targetName)
+	secret := c.secrets.Secrets(targetName)
 	serviceCA, err := cm.Get(serviceCAName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		serviceCA, err = cm.Create(defaultServiceCA())
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(serviceCA.Data[serviceCAKey]) == 0 {
-		return nil, fmt.Errorf("config map has no service ca data: %#v", serviceCA)
+		return nil, nil, fmt.Errorf("config map has no service ca data: %#v", serviceCA)
 	}
 
 	if err := isValidServiceCA(serviceCA); err != nil {
@@ -36,10 +37,15 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, error) {
 		if err := cm.Delete(serviceCA.Name, opts); err != nil && !errors.IsNotFound(err) {
 			glog.Infof("failed to delete invalid service CA config map: %v", err)
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
-	return serviceCA, nil
+	servingCert, err := secret.Get(servingCertName, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return serviceCA, servingCert, nil
 }
 
 func isValidServiceCA(ca *corev1.ConfigMap) error {
