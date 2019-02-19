@@ -24,7 +24,7 @@ spec:
         command: ["authentication-operator", "operator"]
         args:
         - "--config=/var/run/configmaps/config/operator-config.yaml"
-        - "-v=4"
+        - "-v=2"
         resources:
           requests:
             memory: 50Mi
