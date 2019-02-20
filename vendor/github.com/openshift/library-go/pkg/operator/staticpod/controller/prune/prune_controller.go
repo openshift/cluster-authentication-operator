@@ -138,7 +138,8 @@ func (c *PruneController) excludedRevisionHistory(operatorStatus *operatorv1.Sta
 
 	// Return early if nothing to prune
 	if len(succeededRevisionIDs)+len(failedRevisionIDs) == 0 {
-		return []int{}, fmt.Errorf("no revision IDs currently eligible to prune")
+		glog.V(2).Info("no revision IDs currently eligible to prune")
+		return []int{}, nil
 	}
 
 	// Get list of protected IDs
@@ -315,6 +316,10 @@ func (c *PruneController) sync() error {
 	excludedIDs, err := c.excludedRevisionHistory(operatorStatus, failedLimit, succeededLimit)
 	if err != nil {
 		return err
+	}
+	// if no IDs are excluded, then there is nothing to prune
+	if len(excludedIDs) == 0 {
+		return nil
 	}
 
 	errs := []error{}
