@@ -11,14 +11,11 @@ import (
 	"github.com/imdario/mergo"
 
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/rand"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/workqueue"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -50,7 +47,6 @@ type ConfigObserver struct {
 	// queue only ever has one item, but it has nice error handling backoff/retry semantics
 	queue workqueue.RateLimitingInterface
 
-	rateLimiter flowcontrol.RateLimiter
 	// observers are called in an undefined order and their results are merged to
 	// determine the observed configuration.
 	observers []ObserveConfigFunc
@@ -71,16 +67,15 @@ func NewConfigObserver(
 
 		queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ConfigObserver"),
 
-		rateLimiter: flowcontrol.NewTokenBucketRateLimiter(0.05 /*3 per minute*/, 4),
-		observers:   observers,
-		listers:     listers,
+		observers: observers,
+		listers:   listers,
 	}
 }
 
 // sync reacts to a change in prereqs by finding information that is required to match another value in the cluster. This
 // must be information that is logically "owned" by another component.
 func (c ConfigObserver) sync() error {
-	originalSpec, _, resourceVersion, err := c.operatorConfigClient.GetOperatorState()
+	originalSpec, _, _, err := c.operatorConfigClient.GetOperatorState()
 	if err != nil {
 		return err
 	}
@@ -120,34 +115,29 @@ func (c ConfigObserver) sync() error {
 	}
 
 	if !equality.Semantic.DeepEqual(existingConfig, mergedObservedConfig) {
-		glog.Infof("writing updated observedConfig: %v", diff.ObjectDiff(existingConfig, mergedObservedConfig))
-		spec.ObservedConfig = runtime.RawExtension{Object: &unstructured.Unstructured{Object: mergedObservedConfig}}
-		_, resourceVersion, err = c.operatorConfigClient.UpdateOperatorSpec(resourceVersion, spec)
-		if err != nil {
+		c.eventRecorder.Eventf("ObservedConfigChanged", "Writing updated observed config: %v", diff.ObjectDiff(existingConfig, mergedObservedConfig))
+		if _, _, err := v1helpers.UpdateSpec(c.operatorConfigClient, v1helpers.UpdateObservedConfigFn(mergedObservedConfig)); err != nil {
 			errs = append(errs, fmt.Errorf("error writing updated observed config: %v", err))
 			c.eventRecorder.Warningf("ObservedConfigWriteError", "Failed to write observed config: %v", err)
-		} else {
-			c.eventRecorder.Eventf("ObservedConfigChanged", "Writing updated observed config")
 		}
 	}
-	err = v1helpers.NewMultiLineAggregate(errs)
+	configError := v1helpers.NewMultiLineAggregate(errs)
 
 	// update failing condition
 	cond := operatorv1.OperatorCondition{
 		Type:   operatorStatusTypeConfigObservationFailing,
 		Status: operatorv1.ConditionFalse,
 	}
-	if err != nil {
+	if configError != nil {
 		cond.Status = operatorv1.ConditionTrue
 		cond.Reason = "Error"
-		cond.Message = err.Error()
+		cond.Message = configError.Error()
 	}
 	if _, _, updateError := v1helpers.UpdateStatus(c.operatorConfigClient, v1helpers.UpdateConditionFn(cond)); updateError != nil {
 		return updateError
 	}
 
-	// explicitly ignore errs, we are requeued by input changes anyway
-	return nil
+	return configError
 }
 
 func (c *ConfigObserver) Run(workers int, stopCh <-chan struct{}) {
@@ -179,9 +169,6 @@ func (c *ConfigObserver) processNextWorkItem() bool {
 		return false
 	}
 	defer c.queue.Done(dsKey)
-
-	// before we call sync, we want to wait for token.  We do this to avoid hot looping.
-	c.rateLimiter.Accept()
 
 	err := c.sync()
 	if err == nil {

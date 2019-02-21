@@ -22,14 +22,13 @@ func (c *authOperator) handleConsoleConfig() *configv1.Console {
 }
 
 func consoleToDeploymentData(console *configv1.Console) (string, []string) {
-	host := console.Status.PublicHostname
+	assetPublicURL := console.Status.ConsoleURL // needs to be a valid URL
 
-	if len(host) == 0 {
+	if len(assetPublicURL) == 0 {
 		return "", nil
 	}
 
-	assetPublicURL := "https://" + host  // needs to be a valid URL
-	corsAllowedOrigins := []string{host} // needs to be valid regexps
+	corsAllowedOrigins := []string{"^" + regexp.QuoteMeta(assetPublicURL) + "$"} // needs to be valid regexps
 
 	if _, err := url.Parse(assetPublicURL); err != nil { // should never happen
 		glog.Errorf("failed to parse assetPublicURL %s: %v", assetPublicURL, err)
