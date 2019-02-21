@@ -115,7 +115,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
 		operatorClient{}, // TODO fix
 		resourceSyncerInformers,
-		kubeClient,
+		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), resourceSyncerInformers),
+		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		ctx.EventRecorder,
 	)
 
@@ -141,13 +142,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		resourceSyncerInformers,
 	} {
-		informer.Start(ctx.Context.Done())
+		informer.Start(ctx.Done())
 	}
 
-	go operator.Run(ctx.Context.Done())
-	go resourceSyncer.Run(1, ctx.Context.Done())
+	go operator.Run(ctx.Done())
+	go resourceSyncer.Run(1, ctx.Done())
 
-	<-ctx.Context.Done()
+	<-ctx.Done()
 
 	return fmt.Errorf("stopped")
 }
