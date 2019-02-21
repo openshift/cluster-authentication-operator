@@ -90,6 +90,7 @@ type authOperator struct {
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
 	console        configv1client.ConsoleInterface
+	infrastructure configv1client.InfrastructureInterface
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -120,6 +121,7 @@ func NewAuthenticationOperator(
 		authentication: configClient.ConfigV1().Authentications(),
 		oauth:          configClient.ConfigV1().OAuths(),
 		console:        configClient.ConfigV1().Consoles(),
+		infrastructure: configClient.ConfigV1().Infrastructures(),
 
 		resourceSyncer: resourceSyncer,
 	}
@@ -143,6 +145,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
 		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
+		operator.WithInformer(configV1Informers.Infrastructures(), configNameFilter, controller.WithNoSync()),
 	)
 }
 
@@ -235,7 +238,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	consoleConfig := c.handleConsoleConfig()
 	resourceVersions = append(resourceVersions, consoleConfig.GetResourceVersion())
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig)
+	infrastructureConfig := c.handleInfrastructureConfig()
+	resourceVersions = append(resourceVersions, infrastructureConfig.GetResourceVersion())
+
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig, infrastructureConfig)
 	if err != nil {
 		return err
 	}
