@@ -64,7 +64,8 @@ var customResources = map[schema.GroupVersionResource]string{
 }
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
-	kubeClient, err := kubernetes.NewForConfig(ctx.KubeConfig)
+	// protobuf can be used with non custom resources
+	kubeClient, err := kubernetes.NewForConfig(ctx.ProtoKubeConfig)
 	if err != nil {
 		return err
 	}
@@ -79,7 +80,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	routeClient, err := routeclient.NewForConfig(ctx.KubeConfig)
+	// protobuf can be used with non custom resources
+	routeClient, err := routeclient.NewForConfig(ctx.ProtoKubeConfig)
 	if err != nil {
 		return err
 	}
