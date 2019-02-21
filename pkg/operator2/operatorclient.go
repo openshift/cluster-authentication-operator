@@ -14,11 +14,11 @@ type OperatorClient struct {
 	Client    operatorconfigclient.AuthenticationsGetter
 }
 
-func (c *OperatorClient) Informer() cache.SharedIndexInformer {
+func (c OperatorClient) Informer() cache.SharedIndexInformer {
 	return c.Informers.Operator().V1().Authentications().Informer()
 }
 
-func (c *OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operatorv1.OperatorStatus, string, error) {
+func (c OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operatorv1.OperatorStatus, string, error) {
 	instance, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
 	if err != nil {
 		return nil, nil, "", err
@@ -27,7 +27,7 @@ func (c *OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operator
 	return &instance.Spec.OperatorSpec, &instance.Status.OperatorStatus, instance.ResourceVersion, nil
 }
 
-func (c *OperatorClient) UpdateOperatorSpec(resourceVersion string, spec *operatorv1.OperatorSpec) (*operatorv1.OperatorSpec, string, error) {
+func (c OperatorClient) UpdateOperatorSpec(resourceVersion string, spec *operatorv1.OperatorSpec) (*operatorv1.OperatorSpec, string, error) {
 	original, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
 	if err != nil {
 		return nil, "", err
@@ -44,7 +44,7 @@ func (c *OperatorClient) UpdateOperatorSpec(resourceVersion string, spec *operat
 	return &ret.Spec.OperatorSpec, ret.ResourceVersion, nil
 }
 
-func (c *OperatorClient) UpdateOperatorStatus(resourceVersion string, status *operatorv1.OperatorStatus) (*operatorv1.OperatorStatus, error) {
+func (c OperatorClient) UpdateOperatorStatus(resourceVersion string, status *operatorv1.OperatorStatus) (*operatorv1.OperatorStatus, error) {
 	original, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
 	if err != nil {
 		return nil, err

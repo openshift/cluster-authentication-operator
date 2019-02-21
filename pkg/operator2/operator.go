@@ -16,8 +16,6 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
-	authopclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
-	authopinformer "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
@@ -28,8 +26,9 @@ import (
 )
 
 const (
-	targetName       = "openshift-authentication"
-	globalConfigName = "cluster"
+	targetName         = "openshift-authentication"
+	targetNameOperator = "openshift-authentication-operator"
+	globalConfigName   = "cluster"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
@@ -75,7 +74,7 @@ const (
 )
 
 type authOperator struct {
-	authOperatorConfig authopclient.AuthenticationInterface
+	authOperatorConfigClient OperatorClient
 
 	recorder events.Recorder
 
@@ -94,8 +93,7 @@ type authOperator struct {
 }
 
 func NewAuthenticationOperator(
-	authOpConfigInformer authopinformer.AuthenticationInformer,
-	authOpConfigClient authopclient.AuthenticationsGetter,
+	authOpConfigClient OperatorClient,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
 	routeInformer routeinformer.RouteInformer,
@@ -106,7 +104,7 @@ func NewAuthenticationOperator(
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &authOperator{
-		authOperatorConfig: authOpConfigClient.Authentications(),
+		authOperatorConfigClient: authOpConfigClient,
 
 		recorder: recorder,
 
@@ -139,7 +137,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(coreInformers.Secrets(), prefixFilter),
 		operator.WithInformer(coreInformers.ConfigMaps(), prefixFilter),
 
-		operator.WithInformer(authOpConfigInformer, configNameFilter),
+		operator.WithInformer(authOpConfigClient.Informers.Operator().V1().Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
 		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
@@ -147,7 +145,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfig.Get(globalConfigName, metav1.GetOptions{})
+	return c.authOperatorConfigClient.Client.Authentications().Get(globalConfigName, metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {

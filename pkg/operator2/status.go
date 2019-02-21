@@ -6,45 +6,53 @@ import (
 )
 
 func (c *authOperator) setFailingStatus(operatorConfig *operatorv1.Authentication, reason, message string) error {
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
-		operatorv1.OperatorCondition{
-			Type:    operatorv1.OperatorStatusTypeFailing,
-			Status:  operatorv1.ConditionTrue,
-			Reason:  reason,
-			Message: message,
-		})
+	failStatusFunc := func(status *operatorv1.OperatorStatus) error {
+		v1helpers.SetOperatorCondition(&status.Conditions,
+			operatorv1.OperatorCondition{
+				Type:    operatorv1.OperatorStatusTypeFailing,
+				Status:  operatorv1.ConditionTrue,
+				Reason:  reason,
+				Message: message,
+			})
 
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeProgressing,
-		Status: operatorv1.ConditionFalse,
-	})
-
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
-		operatorv1.OperatorCondition{
-			Type:   operatorv1.OperatorStatusTypeAvailable,
+		v1helpers.SetOperatorCondition(&status.Conditions, operatorv1.OperatorCondition{
+			Type:   operatorv1.OperatorStatusTypeProgressing,
 			Status: operatorv1.ConditionFalse,
 		})
 
-	_, updateErr := c.authOperatorConfig.UpdateStatus(operatorConfig)
-	return updateErr
+		v1helpers.SetOperatorCondition(&status.Conditions,
+			operatorv1.OperatorCondition{
+				Type:   operatorv1.OperatorStatusTypeAvailable,
+				Status: operatorv1.ConditionFalse,
+			})
+
+		return nil
+	}
+
+	_, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, failStatusFunc)
+	return err
 }
 
 func (c *authOperator) setAvailableStatus(operatorConfig *operatorv1.Authentication) error {
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeAvailable,
-		Status: operatorv1.ConditionTrue,
-	})
+	availStatusFunc := func(status *operatorv1.OperatorStatus) error {
+		v1helpers.SetOperatorCondition(&status.Conditions, operatorv1.OperatorCondition{
+			Type:   operatorv1.OperatorStatusTypeAvailable,
+			Status: operatorv1.ConditionTrue,
+		})
 
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeProgressing,
-		Status: operatorv1.ConditionFalse,
-	})
+		v1helpers.SetOperatorCondition(&status.Conditions, operatorv1.OperatorCondition{
+			Type:   operatorv1.OperatorStatusTypeProgressing,
+			Status: operatorv1.ConditionFalse,
+		})
 
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeFailing,
-		Status: operatorv1.ConditionFalse,
-	})
+		v1helpers.SetOperatorCondition(&status.Conditions, operatorv1.OperatorCondition{
+			Type:   operatorv1.OperatorStatusTypeFailing,
+			Status: operatorv1.ConditionFalse,
+		})
 
-	_, updateErr := c.authOperatorConfig.UpdateStatus(operatorConfig)
-	return updateErr
+		return nil
+	}
+
+	_, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, availStatusFunc)
+	return err
 }

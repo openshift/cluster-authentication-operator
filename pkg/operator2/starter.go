@@ -128,8 +128,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	operator := NewAuthenticationOperator(
-		authOperatorConfigInformers.Operator().V1().Authentications(),
-		authConfigClient.OperatorV1(),
+		*operatorClient,
 		kubeInformersNamespaced,
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
@@ -141,12 +140,15 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
-		"openshift-authentication",
+		targetName,
 		[]configv1.ObjectReference{
-			{Group: "operator.openshift.io", Resource: "authentication", Name: globalConfigName},
-			{Resource: "namespaces", Name: "openshift-config"},
-			{Resource: "namespaces", Name: "openshift-config-managed"},
+			{Group: operatorv1.GroupName, Resource: "authentications", Name: globalConfigName},
+			{Group: configv1.GroupName, Resource: "authentications", Name: globalConfigName},
+			{Group: configv1.GroupName, Resource: "oauths", Name: globalConfigName},
+			{Resource: "namespaces", Name: userConfigNamespace},
+			{Resource: "namespaces", Name: machineConfigNamespace},
 			{Resource: "namespaces", Name: targetName},
+			{Resource: "namespaces", Name: targetNameOperator},
 		},
 		configClient.ConfigV1(),
 		operatorClient,
