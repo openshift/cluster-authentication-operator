@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    # The quota admission plugin doesn't allow us to create config maps/
+    # service accounts without the OpenShift API server. To create those
+    # resources before the OpenShift API is started the namespace should
+    # have this special label.
+    openshift.io/run-level: "1"
+  name: openshift-authentication-operator
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    openshift.io/run-level: "1"
+  name: openshift-authentication
