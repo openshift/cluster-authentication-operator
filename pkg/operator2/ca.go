@@ -15,6 +15,8 @@ const (
 	injectCABundleAnnotationValue = "true"
 )
 
+// no-op comment, see if console wedges
+
 func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, error) {
 	cm := c.configMaps.ConfigMaps(targetName)
 	serviceCA, err := cm.Get(serviceCAName, metav1.GetOptions{})
