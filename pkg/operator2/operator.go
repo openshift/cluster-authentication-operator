@@ -182,12 +182,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, route.GetResourceVersion())
 
-	serviceCA, servingCert, err := c.handleServiceCA()
-	if err != nil {
-		return err
-	}
-	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
-
+	// make sure API server sees our metadata as soon as we've got a route with a host
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return err
@@ -199,6 +194,12 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return err
 	}
 	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
+
+	serviceCA, servingCert, err := c.handleServiceCA()
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
 	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
 	if err != nil {
