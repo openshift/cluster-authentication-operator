@@ -15,6 +15,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
 	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -86,6 +87,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
+	// protobuf can be used with non custom resources
+	oauthClient, err := oauthclient.NewForConfig(ctx.ProtoKubeConfig)
+	if err != nil {
+		return err
+	}
+
 	configClient, err := configclient.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
@@ -152,6 +159,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	operator := NewAuthenticationOperator(
 		*operatorClient,
+		oauthClient.OauthV1(),
 		kubeInformersNamespaced,
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
@@ -159,6 +167,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		configClient,
 		versionGetter,
+		ctx.KubeConfig,
 		ctx.EventRecorder,
 		resourceSyncer,
 	)
@@ -168,6 +177,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		[]configv1.ObjectReference{
 			{Group: operatorv1.GroupName, Resource: "authentications", Name: globalConfigName},
 			{Group: configv1.GroupName, Resource: "authentications", Name: globalConfigName},
+			{Group: configv1.GroupName, Resource: "infrastructures", Name: globalConfigName},
 			{Group: configv1.GroupName, Resource: "oauths", Name: globalConfigName},
 			{Resource: "namespaces", Name: userConfigNamespace},
 			{Resource: "namespaces", Name: machineConfigNamespace},

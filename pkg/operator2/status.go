@@ -26,6 +26,21 @@ func (c *authOperator) setFailingStatus(operatorConfig *operatorv1.Authenticatio
 		})
 }
 
+func (c *authOperator) setProgressingStatus(operatorConfig *operatorv1.Authentication, reason, message string) {
+	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+		Type:    operatorv1.OperatorStatusTypeProgressing,
+		Status:  operatorv1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	})
+
+	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
+		operatorv1.OperatorCondition{
+			Type:   operatorv1.OperatorStatusTypeAvailable,
+			Status: operatorv1.ConditionFalse,
+		})
+}
+
 func (c *authOperator) setAvailableStatus(operatorConfig *operatorv1.Authentication) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeAvailable,
