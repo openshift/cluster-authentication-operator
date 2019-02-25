@@ -67,6 +67,8 @@ const (
 	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
 	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
 
+	oauthMetadataName = systemConfigPrefix + "metadata"
+
 	userConfigPath = "/var/config/user"
 
 	servicePort   = 443
