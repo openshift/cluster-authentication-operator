@@ -176,6 +176,12 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// we get resource versions so that if either changes, we redeploy our payload
 	resourceVersions := []string{operatorConfig.GetResourceVersion()}
 
+	// The BLOCK sections are highly order dependent
+
+	// ==================================
+	// BLOCK 1: Metadata
+	// ==================================
+
 	route, err := c.handleRoute()
 	if err != nil {
 		return err
@@ -195,17 +201,26 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
 
+	// ==================================
+	// BLOCK 2: service and service-ca data
+	// ==================================
+
+	// make sure we create the service before we start asking about service certs
+	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, service.GetResourceVersion())
+
 	serviceCA, servingCert, err := c.handleServiceCA()
 	if err != nil {
 		return err
 	}
 	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
-	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
-	if err != nil {
-		return err
-	}
-	resourceVersions = append(resourceVersions, service.GetResourceVersion())
+	// ==================================
+	// BLOCK 3: build cli config
+	// ==================================
 
 	expectedSessionSecret, err := c.expectedSessionSecret()
 	if err != nil {
@@ -237,6 +252,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return err
 	}
 	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
+
+	// ==================================
+	// BLOCK 4: deployment
+	// ==================================
 
 	operatorDeployment, err := c.deployments.Deployments(targetNameOperator).Get(targetNameOperator, metav1.GetOptions{})
 	if err != nil {
