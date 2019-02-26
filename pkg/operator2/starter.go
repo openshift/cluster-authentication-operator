@@ -112,7 +112,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		v1helpers.EnsureOperatorConfigExists(dynamicClient, []byte(resource), gvr)
 	}
 
-	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(kubeClient, targetName, userConfigNamespace)
+	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
+		kubeClient,
+		targetName,
+		userConfigNamespace,
+		machineConfigNamespace,
+	)
 
 	operatorClient := &OperatorClient{
 		authOperatorConfigInformers,
@@ -126,6 +131,14 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		ctx.EventRecorder,
 	)
+
+	// add syncing for the OAuth metadata ConfigMap
+	if err := resourceSyncer.SyncConfigMap(
+		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: targetName},
+		resourcesynccontroller.ResourceLocation{Namespace: targetName, Name: oauthMetadataName},
+	); err != nil {
+		return err
+	}
 
 	operator := NewAuthenticationOperator(
 		*operatorClient,

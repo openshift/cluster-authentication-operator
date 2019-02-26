@@ -67,6 +67,8 @@ const (
 	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
 	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
 
+	oauthMetadataName = systemConfigPrefix + "metadata"
+
 	userConfigPath = "/var/config/user"
 
 	servicePort   = 443
@@ -180,12 +182,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, route.GetResourceVersion())
 
-	serviceCA, err := c.handleServiceCA()
-	if err != nil {
-		return err
-	}
-	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion())
-
+	// make sure API server sees our metadata as soon as we've got a route with a host
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return err
@@ -197,6 +194,12 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return err
 	}
 	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
+
+	serviceCA, servingCert, err := c.handleServiceCA()
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
 	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
 	if err != nil {
@@ -235,9 +238,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
 
+	operatorDeployment, err := c.deployments.Deployments(targetNameOperator).Get(targetNameOperator, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, operatorDeployment.GetResourceVersion())
+
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
-	// TODO we also need the RV for the serving-cert secret (servingCertName)
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
