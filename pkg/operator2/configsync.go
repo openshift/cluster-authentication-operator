@@ -236,7 +236,8 @@ func getIDPPath(i int, resource, name string) string {
 }
 
 func getTemplateName(name, key string) string {
-	return fmt.Sprintf("%s-%s-%s", userConfigPrefixTemplate, name, key)
+	newKey := strings.Replace(strings.ToLower(key), ".", "-", -1)
+	return fmt.Sprintf("%s-%s-%s", userConfigPrefixTemplate, name, newKey)
 }
 
 func getTemplatePath(name, key string) string {
