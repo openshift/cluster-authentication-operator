@@ -226,8 +226,12 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 }
 
 func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {
-	// we get resource versions so that if either changes, we redeploy our payload
-	resourceVersions := []string{operatorConfig.GetResourceVersion()}
+	// resourceVersions serves to store versions of config resources so that we
+	// can redeploy our payload should either change. We only omit the operator
+	// config version, it would both cause redeploy loops (status updates cause
+	// version change) and the relevant changes (logLevel, unsupportedConfigOverrides)
+	// will cause a redeploy anyway
+	resourceVersions := []string{}
 
 	// The BLOCK sections are highly order dependent
 
