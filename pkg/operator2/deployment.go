@@ -31,7 +31,7 @@ func defaultDeployment(
 	routerSecret *corev1.Secret,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
-	replicas := int32(1) // TODO configurable?
+	replicas := int32(2) // TODO configurable?
 	gracePeriod := int64(30)
 
 	var (
