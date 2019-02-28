@@ -28,12 +28,12 @@ func withSync() InformerOption {
 }
 
 func informerOptionToOption(opt InformerOption, getter InformerGetter) Option {
-	switch opt() {
+	switch o := opt(); o {
 	case syncDefault:
 		return WithInformerSynced(getter) // safe default
 	case noSync:
 		return func(*controller) {} // do nothing
 	default:
-		panic(opt)
+		panic(int(o))
 	}
 }

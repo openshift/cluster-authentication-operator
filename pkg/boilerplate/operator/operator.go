@@ -21,7 +21,7 @@ func New(name string, sync KeySyncer, opts ...Option) Runner {
 
 type operator struct {
 	name string
-	sync controller.KeySyncer
+	sync *wrapper
 
 	opts []controller.Option
 }
