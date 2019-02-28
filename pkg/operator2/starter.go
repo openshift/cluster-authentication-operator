@@ -32,12 +32,10 @@ const (
 apiVersion: operator.openshift.io/v1
 kind: Authentication
 metadata:
-  name: ` + globalConfigName + `
-spec:
-  managementState: Managed
-`
+  name: ` + globalConfigName
 
-	// TODO figure out the permanent home for top level CRDs and default CRs
+	// TODO these should all be rendered empty and defaulted via code
+	// TODO if we rendered these in the installer it would allow auth overrides before cluster start
 	defaultAuthentication = `
 apiVersion: config.openshift.io/v1
 kind: Authentication
