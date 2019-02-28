@@ -46,9 +46,7 @@ func (v *View) FileSet() *token.FileSet {
 }
 
 func (v *View) GetAnalysisCache() *source.AnalysisCache {
-	if v.analysisCache == nil {
-		v.analysisCache = source.NewAnalysisCache()
-	}
+	v.analysisCache = source.NewAnalysisCache()
 	return v.analysisCache
 }
 
@@ -199,6 +197,9 @@ type entry struct {
 }
 
 func (imp *importer) addImports(path string, pkg *packages.Package) error {
+	if _, ok := imp.packages[path]; ok {
+		return nil
+	}
 	imp.packages[path] = pkg
 	for importPath, importPkg := range pkg.Imports {
 		if err := imp.addImports(importPath, importPkg); err != nil {
