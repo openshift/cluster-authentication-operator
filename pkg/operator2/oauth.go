@@ -6,13 +6,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"github.com/golang/glog"
 
 	configv1 "github.com/openshift/api/config/v1"
-	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -20,22 +17,12 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-// TODO this code dies once we get our own CLI config
-var (
-	kubeControlplaneScheme  = runtime.NewScheme()
-	kubeControlplaneCodecs  = serializer.NewCodecFactory(kubeControlplaneScheme)
-	kubeControlplaneEncoder = kubeControlplaneCodecs.LegacyCodec(kubecontrolplanev1.GroupVersion) // TODO I think there is a better way to do this
-)
-
-func init() {
-	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
-}
-
 func (c *authOperator) handleOAuthConfig(
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
+	infrastructureConfig *configv1.Infrastructure,
 ) (
 	*configv1.OAuth,
 	*corev1.ConfigMap,
@@ -93,8 +80,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 
-	// TODO this pretends this is an OsinServerConfig
-	cliConfig := &kubecontrolplanev1.KubeAPIServerConfig{
+	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
 				ServingInfo: configv1.ServingInfo{
@@ -123,15 +109,11 @@ func (c *authOperator) handleOAuthConfig(
 				},
 			},
 		},
-		OAuthConfig: &osinv1.OAuthConfig{
-			MasterCA: getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
-			// TODO osin's code needs to be updated to properly use these values
-			// it should use MasterURL in almost all places except the token request endpoint
-			// which needs to direct the user to the real public URL (MasterPublicURL)
-			// that means we still need to get that value from the installer's config
-			// TODO ask installer team to make it easier to get that URL
+		OAuthConfig: osinv1.OAuthConfig{
+			MasterCA:                    getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
+			LoginURL:                    infrastructureConfig.Status.APIServerURL,
 			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
@@ -153,7 +135,7 @@ func (c *authOperator) handleOAuthConfig(
 		},
 	}
 
-	cliConfigBytes := encodeOrDieKubeControlplane(cliConfig)
+	cliConfigBytes := encodeOrDie(cliConfig)
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
@@ -178,12 +160,4 @@ func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
 func getMasterCA() *string {
 	ca := serviceCAPath // need local var to be able to take address of it
 	return &ca
-}
-
-func encodeOrDieKubeControlplane(obj runtime.Object) []byte {
-	bytes, err := runtime.Encode(kubeControlplaneEncoder, obj)
-	if err != nil {
-		panic(err) // indicates static generated code is broken, unrecoverable
-	}
-	return bytes
 }
