@@ -1,5 +1,5 @@
 hash: 76437cbed780eca1679f417dd7912534ad7b08519dfdc51048b197c623134342
-updated: 2019-02-20T16:11:03.589301742-05:00
+updated: 2019-02-28T09:45:52.560999237-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -196,7 +196,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: cec6269883be26556e63500b6df19a0b6691992e
+  version: c58918e29f89383d2e1467bad7156e2b0c49497f
   subpackages:
   - apps
   - apps/v1
@@ -269,9 +269,10 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: b8947b076480e6eb6939d81e080842348140a66f
+  version: 06acf0d9e585169e897fe98f342788da9284a6ed
   subpackages:
   - pkg/config/client
+  - pkg/config/clusteroperator/v1helpers
   - pkg/config/configdefaults
   - pkg/config/leaderelection
   - pkg/config/serving
@@ -283,6 +284,7 @@ imports:
   - pkg/operator/resource/resourceapply
   - pkg/operator/resource/resourcemerge
   - pkg/operator/resourcesynccontroller
+  - pkg/operator/status
   - pkg/operator/v1helpers
   - pkg/serviceability
 - name: github.com/pborman/uuid
@@ -376,7 +378,7 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: 97f80cd5504df5e234a0ce7ba9a0f412468307fb
+  version: f0a709d59f0fd2d705cf7767149e23a7a99f585b
   subpackages:
   - imports
 - name: google.golang.org/appengine
