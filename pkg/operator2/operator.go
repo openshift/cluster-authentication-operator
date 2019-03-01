@@ -69,6 +69,10 @@ const (
 
 	oauthMetadataName = systemConfigPrefix + "metadata"
 
+	routerCertsSharedName = "router-certs"
+	routerCertsLocalName  = systemConfigPrefix + routerCertsSharedName
+	routerCertsLocalMount = systemConfigPathSecrets + "/" + routerCertsLocalName
+
 	userConfigPath = "/var/config/user"
 
 	servicePort   = 443
@@ -185,11 +189,11 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 1: Metadata
 	// ==================================
 
-	route, err := c.handleRoute()
+	route, routerSecret, err := c.handleRoute()
 	if err != nil {
 		return err
 	}
-	resourceVersions = append(resourceVersions, route.GetResourceVersion())
+	resourceVersions = append(resourceVersions, route.GetResourceVersion(), routerSecret.GetResourceVersion())
 
 	// make sure API server sees our metadata as soon as we've got a route with a host
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
@@ -241,7 +245,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	infrastructureConfig := c.handleInfrastructureConfig()
 	resourceVersions = append(resourceVersions, infrastructureConfig.GetResourceVersion())
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, service, consoleConfig, infrastructureConfig)
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig)
 	if err != nil {
 		return err
 	}
@@ -274,6 +278,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
+		routerSecret,
 		resourceVersions...,
 	)
 	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:

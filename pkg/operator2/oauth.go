@@ -20,6 +20,7 @@ import (
 func (c *authOperator) handleOAuthConfig(
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
+	routerSecret *corev1.Secret,
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
@@ -86,13 +87,14 @@ func (c *authOperator) handleOAuthConfig(
 				ServingInfo: configv1.ServingInfo{
 					BindAddress: fmt.Sprintf("0.0.0.0:%d", containerPort),
 					BindNetwork: "tcp4",
-					// we have valid serving certs provided by service-ca so that we can use reencrypt routes
+					// we have valid serving certs provided by service-ca
+					// this is our main server cert which is used if SNI does not match
 					CertInfo: configv1.CertInfo{
 						CertFile: servingCertPathCert,
 						KeyFile:  servingCertPathKey,
 					},
 					ClientCA:          "", // I think this can be left unset
-					NamedCertificates: nil,
+					NamedCertificates: routerSecretToSNI(routerSecret),
 					MinTLSVersion:     crypto.TLSVersionToNameOrDie(crypto.DefaultTLSVersion()),
 					CipherSuites:      crypto.CipherSuitesToNamesOrDie(crypto.DefaultCiphers()),
 				},

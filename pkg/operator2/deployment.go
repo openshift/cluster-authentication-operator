@@ -28,6 +28,7 @@ func (c *authOperator) getGeneration() int64 {
 func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,
+	routerSecret *corev1.Secret,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(1) // TODO configurable?
@@ -62,6 +63,12 @@ func defaultDeployment(
 			configmap: true,
 			path:      serviceCAMount,
 			keys:      []string{serviceCAKey},
+		},
+		{
+			name:      routerCertsLocalName,
+			configmap: false,
+			path:      routerCertsLocalMount,
+			keys:      sets.StringKeySet(routerSecret.Data).List(),
 		},
 	} {
 		v, m := data.split()

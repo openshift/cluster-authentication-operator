@@ -140,6 +140,14 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
+	// add syncing for router certs for all cluster ingresses
+	if err := resourceSyncer.SyncSecret(
+		resourcesynccontroller.ResourceLocation{Namespace: targetName, Name: routerCertsLocalName},
+		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: routerCertsSharedName},
+	); err != nil {
+		return err
+	}
+
 	operator := NewAuthenticationOperator(
 		*operatorClient,
 		kubeInformersNamespaced,
