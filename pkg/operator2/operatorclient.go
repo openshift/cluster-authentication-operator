@@ -53,7 +53,7 @@ func (c OperatorClient) UpdateOperatorStatus(resourceVersion string, status *ope
 	copy.ResourceVersion = resourceVersion
 	copy.Status.OperatorStatus = *status
 
-	ret, err := c.Client.Authentications().Update(copy)
+	ret, err := c.Client.Authentications().UpdateStatus(copy)
 	if err != nil {
 		return nil, err
 	}
