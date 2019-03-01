@@ -107,7 +107,7 @@ func defaultDeployment(
 								"hypershift",
 								"openshift-osinserver",
 								fmt.Sprintf("--config=%s", cliConfigPath),
-								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)),
+								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)+100),
 							},
 							Ports: []corev1.ContainerPort{
 								{
