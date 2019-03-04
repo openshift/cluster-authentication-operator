@@ -140,6 +140,7 @@ func defaultDeployment(
 					NodeSelector: map[string]string{
 						"node-role.kubernetes.io/master": "",
 					},
+					PriorityClassName: "system-cluster-critical",
 					Tolerations: []corev1.Toleration{{
 						Operator: corev1.TolerationOpExists,
 					}},
