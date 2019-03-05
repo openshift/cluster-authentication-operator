@@ -13,8 +13,6 @@ import (
 )
 
 func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) {
-	// TODO handle OAuthTemplates
-
 	// TODO we probably need listers
 	configMapClient := c.configMaps.ConfigMaps(targetName)
 	secretClient := c.secrets.Secrets(targetName)
@@ -36,14 +34,14 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 	// TODO this has too much boilerplate
 
 	for _, cm := range configMaps.Items {
-		if strings.HasPrefix(cm.Name, userConfigPrefixIDP) {
+		if strings.HasPrefix(cm.Name, userConfigPrefix) {
 			prefixConfigMapNames.Insert(cm.Name)
 			resourceVersionsAll[cm.Name] = cm.GetResourceVersion()
 		}
 	}
 
 	for _, secret := range secrets.Items {
-		if strings.HasPrefix(secret.Name, userConfigPrefixIDP) {
+		if strings.HasPrefix(secret.Name, userConfigPrefix) {
 			prefixSecretNames.Insert(secret.Name)
 			resourceVersionsAll[secret.Name] = secret.GetResourceVersion()
 		}
@@ -79,7 +77,8 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 	}
 
 	// only get the resource versions of the elements in use
-	resourceVersionsInUse := []string{}
+	var resourceVersionsInUse []string
+
 	for name := range inUseConfigMapNames {
 		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
 	}
@@ -109,8 +108,8 @@ type sourceData struct {
 // TODO: newSourceDataIDP* could be a generic function grouping the common pieces of code
 // newSourceDataIDPSecret returns a name which is unique amongst the IdPs, and
 // sourceData which describes the volumes and mount volumes to mount the secret to
-func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, key string) (string, sourceData) {
-	dest := getIDPName(index, secretName.Name, key)
+func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, field, key string) (string, sourceData) {
+	dest := getIDPName(index, field)
 	dirPath := getIDPPath(index, "secret", dest)
 
 	vol, mount, path := secretVolume(dirPath, dest, key)
@@ -126,8 +125,8 @@ func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, 
 
 // newSourceDataIDPConfigMap returns a name which is unique amongst the IdPs, and
 // sourceData which describes the volumes and mountvolumes to mount the ConfigMap to
-func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameReference, key string) (string, sourceData) {
-	dest := getIDPName(index, configMap.Name, key)
+func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameReference, field, key string) (string, sourceData) {
+	dest := getIDPName(index, field)
 	dirPath := getIDPPath(index, "configmap", dest)
 
 	vol, mount, path := configMapVolume(dirPath, dest, key)
@@ -141,9 +140,9 @@ func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameRefere
 	return dest, ret
 }
 
-func newSourceDataTemplateSecret(secretRef configv1.SecretNameReference, key string) (string, sourceData) {
-	dest := getTemplateName(secretRef.Name, key)
-	dirPath := getTemplatePath("template", dest)
+func newSourceDataTemplateSecret(secretRef configv1.SecretNameReference, field, key string) (string, sourceData) {
+	dest := getTemplateName(field)
+	dirPath := getTemplatePath("secret", dest)
 
 	vol, mount, path := secretVolume(dirPath, dest, key)
 	ret := sourceData{
@@ -171,12 +170,12 @@ func newConfigSyncData() configSyncData {
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *configSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameReference, key string) string {
+func (sd *configSyncData) addIDPSecret(index int, secretRef configv1.SecretNameReference, field, key string) string {
 	if len(secretRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataIDPSecret(index, secretRef, key)
+	dest, data := newSourceDataIDPSecret(index, secretRef, field, key)
 	sd.idpSecrets[dest] = data
 
 	return data.path
@@ -185,63 +184,42 @@ func (sd *configSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameR
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
-func (sd *configSyncData) AddIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, key string) string {
+func (sd *configSyncData) addIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, field, key string) string {
 	if len(configMapRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataIDPConfigMap(index, configMapRef, key)
+	dest, data := newSourceDataIDPConfigMap(index, configMapRef, field, key)
 	sd.idpConfigMaps[dest] = data
 
 	return data.path
 }
 
-func (sd *configSyncData) AddTemplateSecret(secretRef configv1.SecretNameReference, key string) string {
+func (sd *configSyncData) addTemplateSecret(secretRef configv1.SecretNameReference, field, key string) string {
 	if len(secretRef.Name) == 0 {
 		return ""
 	}
 
-	dest, data := newSourceDataTemplateSecret(secretRef, key)
+	dest, data := newSourceDataTemplateSecret(secretRef, field, key)
 	sd.tplSecrets[dest] = data
 
 	return data.path
 }
 
-const (
-	// idps that are synced have this prefix
-	userConfigPrefixIDP = userConfigPrefix + "idp-"
-
-	// templates that are synced have this prefix
-	// TODO actually handle templates
-	userConfigPrefixTemplate = userConfigPrefix + "template-"
-
-	// root path for IDP data
-	userConfigPathPrefixIDP = userConfigPath + "/idp/"
-
-	// root path for template data
-	userConfigPathPrefixTemplate = userConfigPath + "/template/"
-)
-
-func getIDPName(i int, name, key string) string {
-	// TODO this scheme relies on each IDP struct not using the same key for more than one field
-	// I think we can do better, but here is a start
-	// A generic function that uses reflection may work too
-	// granted the key bit can be easily solved by the caller adding a postfix to the key if it is reused
-	newKey := strings.Replace(strings.ToLower(key), ".", "-", -1)
-	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefixIDP, i, name, newKey)
+func getIDPName(i int, field string) string {
+	return fmt.Sprintf("%s%d-%s", userConfigPrefixIDP, i, field)
 }
 
-func getIDPPath(i int, resource, name string) string {
-	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefixIDP, i, resource, name)
+func getIDPPath(i int, resource, dest string) string {
+	return fmt.Sprintf("%s/%d/%s/%s", userConfigPathPrefixIDP, i, resource, dest)
 }
 
-func getTemplateName(name, key string) string {
-	newKey := strings.Replace(strings.ToLower(key), ".", "-", -1)
-	return fmt.Sprintf("%s-%s-%s", userConfigPrefixTemplate, name, newKey)
+func getTemplateName(field string) string {
+	return userConfigPrefixTemplate + field
 }
 
-func getTemplatePath(name, key string) string {
-	return fmt.Sprintf("%s/%s/%s", userConfigPathPrefixTemplate, name, key)
+func getTemplatePath(resource, dest string) string {
+	return fmt.Sprintf("%s/%s/%s", userConfigPathPrefixTemplate, resource, dest)
 }
 
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
