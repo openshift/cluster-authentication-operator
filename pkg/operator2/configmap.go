@@ -51,6 +51,8 @@ func getMetadataStruct(route *routev1.Route) map[string]interface{} {
 	return ret
 }
 
+// TODO: the code in this file does not reflect situations where the
+// OAuthMetadata field of the Authentication object is set
 func getMetadata(route *routev1.Route) string {
 	host := route.Spec.Host
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
