@@ -10,6 +10,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -31,7 +32,7 @@ func defaultDeployment(
 	routerSecret *corev1.Secret,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
-	replicas := int32(1) // TODO configurable?
+	replicas := int32(2) // TODO configurable?
 	gracePeriod := int64(30)
 
 	var (
@@ -128,12 +129,12 @@ func defaultDeployment(
 							LivenessProbe:            livenessProbe(),
 							TerminationMessagePath:   "/dev/termination-log",
 							TerminationMessagePolicy: corev1.TerminationMessagePolicy("File"),
-							//Resources: corev1.ResourceRequirements{
-							//	Requests: map[corev1.ResourceName]resource.Quantity{
-							//		corev1.ResourceCPU:    resource.MustParse("2G"),
-							//		corev1.ResourceMemory: resource.MustParse("2G"),
-							//	},
-							//},
+							Resources: corev1.ResourceRequirements{
+								Requests: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU:    resource.MustParse("10m"),
+									corev1.ResourceMemory: resource.MustParse("50Mi"),
+								},
+							},
 						},
 					},
 					// deploy on master nodes
@@ -141,6 +142,20 @@ func defaultDeployment(
 						"node-role.kubernetes.io/master": "",
 					},
 					PriorityClassName: "system-cluster-critical",
+					Affinity: &corev1.Affinity{
+						// spread out across master nodes rather than congregate on one
+						PodAntiAffinity: &corev1.PodAntiAffinity{
+							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+								Weight: 100,
+								PodAffinityTerm: corev1.PodAffinityTerm{
+									LabelSelector: &metav1.LabelSelector{
+										MatchLabels: defaultLabels(),
+									},
+									TopologyKey: "kubernetes.io/hostname",
+								},
+							}},
+						},
+					},
 					Tolerations: []corev1.Toleration{{
 						Operator: corev1.TolerationOpExists,
 					}},
