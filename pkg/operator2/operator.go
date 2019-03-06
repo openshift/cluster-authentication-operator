@@ -47,6 +47,17 @@ const (
 
 	// secrets and config maps synced from openshift-config into our namespace have this prefix
 	userConfigPrefix = configVersionPrefix + "user-"
+	// idps that are synced have this prefix
+	userConfigPrefixIDP = userConfigPrefix + "idp-"
+	// templates that are synced have this prefix
+	userConfigPrefixTemplate = userConfigPrefix + "template-"
+
+	// secrets and config maps synced from openshift-config into our namespace have this path prefix
+	userConfigPath = "/var/config/user"
+	// root path for IDP data
+	userConfigPathPrefixIDP = userConfigPath + "/" + "idp"
+	// root path for template data
+	userConfigPathPrefixTemplate = userConfigPath + "/" + "template"
 
 	sessionNameAndKey = systemConfigPrefix + "session"
 	sessionMount      = systemConfigPathSecrets + "/" + sessionNameAndKey
@@ -72,8 +83,6 @@ const (
 	routerCertsSharedName = "router-certs"
 	routerCertsLocalName  = systemConfigPrefix + routerCertsSharedName
 	routerCertsLocalMount = systemConfigPathSecrets + "/" + routerCertsLocalName
-
-	userConfigPath = "/var/config/user"
 
 	servicePort   = 443
 	containerPort = 6443
