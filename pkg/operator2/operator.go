@@ -1,11 +1,13 @@
 package operator2
 
 import (
+	"os"
 	"strings"
 
 	"github.com/golang/glog"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -23,12 +25,14 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+	"github.com/openshift/library-go/pkg/operator/status"
 )
 
 const (
-	targetName         = "openshift-authentication"
-	targetNameOperator = "openshift-authentication-operator"
-	globalConfigName   = "cluster"
+	clusterOperatorName = "authentication"
+	targetName          = "openshift-authentication"
+	targetNameOperator  = "openshift-authentication-operator"
+	globalConfigName    = "cluster"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
@@ -91,7 +95,8 @@ const (
 type authOperator struct {
 	authOperatorConfigClient OperatorClient
 
-	recorder events.Recorder
+	versionGetter status.VersionGetter
+	recorder      events.Recorder
 
 	route routeclient.RouteInterface
 
@@ -116,13 +121,15 @@ func NewAuthenticationOperator(
 	routeClient routeclient.RouteV1Interface,
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
+	versionGetter status.VersionGetter,
 	recorder events.Recorder,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &authOperator{
 		authOperatorConfigClient: authOpConfigClient,
 
-		recorder: recorder,
+		versionGetter: versionGetter,
+		recorder:      recorder,
 
 		route: routeClient.Routes(targetName),
 
@@ -173,19 +180,29 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 		return nil // TODO do something better for all states
 	}
 
-	if err := c.handleSync(operatorConfig); err != nil {
-		if statusErr := c.setFailingStatus(operatorConfig, "OperatorSyncLoopError", err.Error()); statusErr != nil {
-			glog.Errorf("error updating operator status: %s", statusErr)
+	operatorConfigCopy := operatorConfig.DeepCopy()
+
+	syncErr := c.handleSync(operatorConfigCopy)
+	if syncErr != nil {
+		c.setFailingStatus(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
+	} else {
+		// Set current version and available status
+		version := os.Getenv("RELEASE_VERSION")
+		if c.versionGetter.GetVersions()["operator"] != version {
+			c.versionGetter.SetVersion("operator", version)
 		}
 
-		return err
+		c.setAvailableStatus(operatorConfigCopy)
 	}
 
-	if statusErr := c.setAvailableStatus(operatorConfig); statusErr != nil {
-		glog.Errorf("error updating operator status: %s", statusErr)
+	// Update status if it changed
+	if !equality.Semantic.DeepEqual(operatorConfig, operatorConfigCopy) {
+		if _, err := c.authOperatorConfigClient.Client.Authentications().UpdateStatus(operatorConfigCopy); err != nil {
+			return err
+		}
 	}
 
-	return nil
+	return syncErr
 }
 
 func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {

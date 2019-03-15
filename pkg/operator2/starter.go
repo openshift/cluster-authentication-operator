@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -148,6 +148,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
+	versionGetter := status.NewVersionGetter()
+
 	operator := NewAuthenticationOperator(
 		*operatorClient,
 		kubeInformersNamespaced,
@@ -156,12 +158,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeClient.RouteV1(),
 		configInformers,
 		configClient,
+		versionGetter,
 		ctx.EventRecorder,
 		resourceSyncer,
 	)
 
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
-		targetName,
+		clusterOperatorName,
 		[]configv1.ObjectReference{
 			{Group: operatorv1.GroupName, Resource: "authentications", Name: globalConfigName},
 			{Group: configv1.GroupName, Resource: "authentications", Name: globalConfigName},
@@ -173,7 +176,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		},
 		configClient.ConfigV1(),
 		operatorClient,
-		status.NewVersionGetter(),
+		versionGetter,
 		ctx.EventRecorder,
 	)
 
@@ -198,8 +201,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	return fmt.Errorf("stopped")
 }
 
-func singleNameListOptions(name string) func(opts *v1.ListOptions) {
-	return func(opts *v1.ListOptions) {
+func singleNameListOptions(name string) func(opts *metav1.ListOptions) {
+	return func(opts *metav1.ListOptions) {
 		opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 	}
 }

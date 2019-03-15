@@ -1,0 +1,8 @@
+apiVersion: config.openshift.io/v1
+kind: ClusterOperator
+metadata:
+  name: authentication
+status:
+  versions:
+  - name: operator
+    version: "0.0.1-snapshot"
