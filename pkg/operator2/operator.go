@@ -12,7 +12,6 @@ import (
 	"github.com/golang/glog"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -37,6 +36,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 var deploymentVersionHashKey = operatorv1.GroupName + "/rvs-hash"
@@ -46,6 +46,7 @@ const (
 	targetName          = "openshift-authentication"
 	targetNameOperator  = "openshift-authentication-operator"
 	globalConfigName    = "cluster"
+	osinOperandName     = "integrated-oauth-server"
 
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 
@@ -212,15 +213,13 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	syncErr := c.handleSync(operatorConfigCopy)
 	if syncErr != nil {
-		c.setFailingStatus(operatorConfig, "OperatorSyncLoopError", syncErr.Error())
+		c.setFailingStatus(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
 	}
 
-	// Update status if it changed
-	if !equality.Semantic.DeepEqual(operatorConfig, operatorConfigCopy) {
-		if _, err := c.authOperatorConfigClient.Client.Authentications().UpdateStatus(operatorConfigCopy); err != nil {
-			return err
-		}
-	}
+	v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
+		operatorConfigCopy.Status.OperatorStatus.DeepCopyInto(status)
+		return nil
+	})
 
 	return syncErr
 }
@@ -382,6 +381,12 @@ func (c *authOperator) CheckReady(
 	if !deploymentReady {
 		c.setProgressingStatus(operatorConfig, "OAuthServerDeploymentNotReady", deploymentMsg)
 		return deploymentReady, nil
+	}
+
+	// when the deployment is ready, set its version for the operator
+	osinVersion := status.VersionForOperand(targetNameOperator, os.Getenv("IMAGE"), c.configMaps, c.recorder)
+	if c.versionGetter.GetVersions()[osinOperandName] != osinVersion {
+		c.versionGetter.SetVersion(osinOperandName, osinVersion)
 	}
 
 	routeReady, routeMsg, err := c.checkRouteHealthy(route)

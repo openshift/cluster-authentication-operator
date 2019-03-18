@@ -6,3 +6,5 @@ status:
   versions:
   - name: operator
     version: "0.0.1-snapshot"
+  - name: integrated-oauth-server
+    version: "0.0.1-snapshot_openshift"
