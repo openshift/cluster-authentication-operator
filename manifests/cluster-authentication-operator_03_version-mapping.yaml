@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: openshift-authentication-operator
+  name: version-mapping
+data:
+  "0.0.1-snapshot_openshift": "quay.io/openshift/origin-hypershift:v4.0"
+  "0.0.1-snapshot": "quay.io/openshift/origin-cluster-authentication-operator:v4.0"

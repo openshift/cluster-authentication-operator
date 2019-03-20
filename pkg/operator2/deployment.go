@@ -16,8 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-var hashAnnotation = operatorv1.GroupName + "/rvs-hash"
-
 func (c *authOperator) getGeneration() int64 {
 	deployment, err := c.deployments.Deployments(targetName).Get(targetName, metav1.GetOptions{})
 	if err != nil {
@@ -89,7 +87,7 @@ func defaultDeployment(
 
 	// make sure ApplyDeployment knows to update
 	meta := defaultMeta()
-	meta.Annotations[hashAnnotation] = rvsHashStr
+	meta.Annotations[deploymentVersionHashKey] = rvsHashStr
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: meta,

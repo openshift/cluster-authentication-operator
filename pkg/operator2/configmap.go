@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -37,6 +38,21 @@ const stubMetadata = `
 }
 `
 
+func getMetadataStruct(route *routev1.Route) map[string]interface{} {
+	var ret map[string]interface{}
+
+	metadataJSON := getMetadata(route)
+	err := json.Unmarshal([]byte(metadataJSON), &ret)
+	if err != nil {
+		// should never happen unless the static metadata is broken
+		panic(err)
+	}
+
+	return ret
+}
+
+// TODO: the code in this file does not reflect situations where the
+// OAuthMetadata field of the Authentication object is set
 func getMetadata(route *routev1.Route) string {
 	host := route.Spec.Host
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))

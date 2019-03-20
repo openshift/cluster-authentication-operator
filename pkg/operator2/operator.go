@@ -1,38 +1,54 @@
 package operator2
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/golang/glog"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/operator"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
+
+var deploymentVersionHashKey = operatorv1.GroupName + "/rvs-hash"
 
 const (
 	clusterOperatorName = "authentication"
 	targetName          = "openshift-authentication"
 	targetNameOperator  = "openshift-authentication-operator"
 	globalConfigName    = "cluster"
+	osinOperandName     = "integrated-oauth-server"
+
+	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
@@ -82,7 +98,11 @@ const (
 	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
 	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
 
-	oauthMetadataName = systemConfigPrefix + "metadata"
+	oauthMetadataName        = systemConfigPrefix + "metadata"
+	oauthMetadataAPIEndpoint = "/.well-known/oauth-authorization-server"
+
+	oauthBrowserClientName     = "openshift-browser-client"
+	oauthChallengingClientName = "openshift-challenging-client"
 
 	routerCertsSharedName = "router-certs"
 	routerCertsLocalName  = systemConfigPrefix + routerCertsSharedName
@@ -95,10 +115,13 @@ const (
 type authOperator struct {
 	authOperatorConfigClient OperatorClient
 
-	versionGetter status.VersionGetter
-	recorder      events.Recorder
+	versionGetter    status.VersionGetter
+	recorder         events.Recorder
+	restClientConfig *rest.Config
 
 	route routeclient.RouteInterface
+
+	oauthClientClient oauthclient.OAuthClientInterface
 
 	services    corev1client.ServicesGetter
 	secrets     corev1client.SecretsGetter
@@ -115,6 +138,7 @@ type authOperator struct {
 
 func NewAuthenticationOperator(
 	authOpConfigClient OperatorClient,
+	oauthClientClient oauthclient.OauthV1Interface,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
 	routeInformer routeinformer.RouteInformer,
@@ -122,6 +146,7 @@ func NewAuthenticationOperator(
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
 	versionGetter status.VersionGetter,
+	restClientConfig *rest.Config,
 	recorder events.Recorder,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
@@ -131,7 +156,11 @@ func NewAuthenticationOperator(
 		versionGetter: versionGetter,
 		recorder:      recorder,
 
+		restClientConfig: restClientConfig,
+
 		route: routeClient.Routes(targetName),
+
+		oauthClientClient: oauthClientClient.OAuthClients(),
 
 		services:    kubeClient.CoreV1(),
 		secrets:     kubeClient.CoreV1(),
@@ -185,29 +214,23 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	syncErr := c.handleSync(operatorConfigCopy)
 	if syncErr != nil {
 		c.setFailingStatus(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
-	} else {
-		// Set current version and available status
-		version := os.Getenv("RELEASE_VERSION")
-		if c.versionGetter.GetVersions()["operator"] != version {
-			c.versionGetter.SetVersion("operator", version)
-		}
-
-		c.setAvailableStatus(operatorConfigCopy)
 	}
 
-	// Update status if it changed
-	if !equality.Semantic.DeepEqual(operatorConfig, operatorConfigCopy) {
-		if _, err := c.authOperatorConfigClient.Client.Authentications().UpdateStatus(operatorConfigCopy); err != nil {
-			return err
-		}
-	}
+	v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
+		operatorConfigCopy.Status.OperatorStatus.DeepCopyInto(status)
+		return nil
+	})
 
 	return syncErr
 }
 
 func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {
-	// we get resource versions so that if either changes, we redeploy our payload
-	resourceVersions := []string{operatorConfig.GetResourceVersion()}
+	// resourceVersions serves to store versions of config resources so that we
+	// can redeploy our payload should either change. We only omit the operator
+	// config version, it would both cause redeploy loops (status updates cause
+	// version change) and the relevant changes (logLevel, unsupportedConfigOverrides)
+	// will cause a redeploy anyway
+	resourceVersions := []string{}
 
 	// The BLOCK sections are highly order dependent
 
@@ -300,7 +323,6 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	resourceVersions = append(resourceVersions, operatorDeployment.GetResourceVersion())
 
 	// deployment, have RV of all resources
-	// TODO use ExpectedDeploymentGeneration func
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
@@ -309,14 +331,208 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	)
 	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
 	// operatorConfig.Spec.OperandSpecs[...].UnsupportedResourcePatches[...].Patch
-	deployment, _, err := resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
+	deployment, _, err := resourceapply.ApplyDeployment(
+		c.deployments,
+		c.recorder,
+		expectedDeployment,
+		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
+		false,
+	)
 	if err != nil {
 		return err
 	}
 
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
+	ready, err := c.CheckReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
+	if err != nil {
+		return err
+	}
+
+	resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
+	operatorConfig.Status.ObservedGeneration = operatorConfig.ObjectMeta.Generation
+
+	if ready {
+		// Set current version and available status
+		version := os.Getenv(operatorVersionEnvName)
+		if c.versionGetter.GetVersions()["operator"] != version {
+			c.versionGetter.SetVersion("operator", version)
+		}
+		c.setAvailableStatus(operatorConfig)
+	}
 	return nil
+}
+
+func (c *authOperator) CheckReady(
+	operatorConfig *operatorv1.Authentication,
+	authConfig *configv1.Authentication,
+	route *routev1.Route,
+	deploymentVersionHash string,
+) (bool, error) {
+	// Checks readiness of all of:
+	//    - deployment
+	//    - route
+	//    - well-known oauth endpoint
+	//    - oauth clients
+	deploymentReady, deploymentMsg, err := c.checkDeploymentReady(deploymentVersionHash)
+	if err != nil {
+		return deploymentReady, err
+	}
+	if !deploymentReady {
+		c.setProgressingStatus(operatorConfig, "OAuthServerDeploymentNotReady", deploymentMsg)
+		return deploymentReady, nil
+	}
+
+	// when the deployment is ready, set its version for the operator
+	osinVersion := status.VersionForOperand(targetNameOperator, os.Getenv("IMAGE"), c.configMaps, c.recorder)
+	if c.versionGetter.GetVersions()[osinOperandName] != osinVersion {
+		c.versionGetter.SetVersion(osinOperandName, osinVersion)
+	}
+
+	routeReady, routeMsg, err := c.checkRouteHealthy(route)
+	if err != nil {
+		return routeReady, err
+	}
+	if !routeReady {
+		c.setProgressingStatus(operatorConfig, "RouteNotReady", routeMsg)
+		return routeReady, nil
+	}
+
+	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(authConfig, route)
+	if err != nil {
+		return wellknownReady, err
+	}
+	if !wellknownReady {
+		c.setProgressingStatus(operatorConfig, "WellknownNotReady", wellknownMsg)
+		return wellknownReady, nil
+	}
+
+	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(route)
+	if err != nil {
+		return oauthClientsReady, err
+	}
+	if !oauthClientsReady {
+		c.setProgressingStatus(operatorConfig, "OAuthClientsNotReady", oauthClientsMsg)
+		return oauthClientsReady, nil
+	}
+
+	return true, nil
+}
+
+func (c *authOperator) checkDeploymentReady(deploymentVersionHash string) (bool, string, error) {
+	deployments := c.deployments.Deployments(targetName)
+	osinDeployment, err := deployments.Get(targetName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, "deployment does not exist", nil
+		}
+		return false, "", err
+	}
+
+	if osinDeployment.ObjectMeta.Annotations[deploymentVersionHashKey] != deploymentVersionHash {
+		return false, "deployment does not yet have the expected version", nil
+	}
+
+	if osinDeployment.ObjectMeta.Generation != osinDeployment.Status.ObservedGeneration {
+		return false, "deployment's observed generation did not reach the expected generation", nil
+	}
+
+	if osinDeployment.DeletionTimestamp != nil {
+		return false, "", fmt.Errorf("the deployment is being deleted")
+	}
+
+	if osinDeployment.Status.UpdatedReplicas != osinDeployment.Status.Replicas || osinDeployment.Status.UnavailableReplicas > 0 {
+		return false, "not all deployment replicas are ready", nil
+	}
+
+	return true, "", nil
+}
+
+func (c *authOperator) checkRouteHealthy(route *routev1.Route) (bool, string, error) {
+	rt, err := rest.TransportFor(c.restClientConfig)
+	if err != nil {
+		return false, "", err
+	}
+
+	req, err := http.NewRequest(http.MethodHead, "https://"+route.Spec.Host+"/healthz", nil)
+	if err != nil {
+		return false, "", err
+	}
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		return false, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return false, fmt.Sprintf("route not yet available, /healthz returns '%s'", resp.Status), nil
+	}
+
+	return true, "", nil
+}
+
+func (c *authOperator) checkWellknownEndpointReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
+	// TODO: don't perform this check when OAuthMetadata reference is set up,
+	// the code in configmap.go does not handle such cases yet
+	if len(authConfig.Spec.OAuthMetadata.Name) == 0 {
+		return true, "", nil
+	}
+
+	rt, err := rest.TransportFor(c.restClientConfig)
+	if err != nil {
+		return false, "", err
+	}
+
+	apiserverURL := os.Getenv("KUBERNETES_SERVICE_HOST")
+	req, err := http.NewRequest(http.MethodGet, "https://"+apiserverURL+oauthMetadataAPIEndpoint, nil)
+	if err != nil {
+		return false, "", err
+	}
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		return false, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known endpoint data", resp.Status), nil
+	}
+
+	var receivedValues map[string]interface{}
+	body, err := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(body, &receivedValues)
+	if err != nil {
+		return false, "", err
+	}
+
+	expectedMetadata := getMetadataStruct(route)
+	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
+		return false, "the value returned by the well-known endpoint does not match expectations", nil
+	}
+
+	return true, "", nil
+}
+
+func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, error) {
+	_, err := c.oauthClientClient.Get(oauthBrowserClientName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, "browser oauthclient does not exist", nil
+		}
+		return false, "", err
+	}
+
+	_, err = c.oauthClientClient.Get(oauthChallengingClientName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, "challenging oauthclient does not exist", nil
+		}
+		return false, "", err
+	}
+
+	return true, "", nil
 }
 
 func defaultLabels() map[string]string {
