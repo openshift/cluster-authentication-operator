@@ -38,7 +38,7 @@ const stubMetadata = `
 `
 
 func getMetadata(route *routev1.Route) string {
-	host := route.Spec.Host
+	host := route.Status.Ingress[0].Host
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
 }
 

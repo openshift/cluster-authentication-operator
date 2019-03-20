@@ -23,7 +23,7 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 		return nil, nil, err
 	}
 
-	if len(route.Spec.Host) == 0 {
+	if len(route.Status.Ingress) == 0 || len(route.Status.Ingress[0].Host) == 0 {
 		return nil, nil, fmt.Errorf("route has no host: %#v", route)
 	}
 

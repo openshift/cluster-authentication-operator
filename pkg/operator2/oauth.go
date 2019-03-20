@@ -114,7 +114,7 @@ func (c *authOperator) handleOAuthConfig(
 		OAuthConfig: osinv1.OAuthConfig{
 			MasterCA:                    getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
-			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
+			MasterPublicURL:             fmt.Sprintf("https://%s", route.Status.Ingress[0].Host),
 			LoginURL:                    infrastructureConfig.Status.APIServerURL,
 			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
