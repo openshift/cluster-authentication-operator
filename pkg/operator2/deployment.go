@@ -199,7 +199,7 @@ func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mou
 
 func getLogLevel(logLevel operatorv1.LogLevel) int {
 	switch logLevel {
-	case operatorv1.Normal:
+	case operatorv1.Normal, "": // treat empty string to mean the default
 		return 2
 	case operatorv1.Debug:
 		return 4
