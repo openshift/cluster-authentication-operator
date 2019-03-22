@@ -61,7 +61,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		data, err := convertProviderConfigToIDPData(&idp.IdentityProviderConfig, &syncData, i)
+		data, err := c.convertProviderConfigToIDPData(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			glog.Errorf("failed to honor IDP %#v: %v", idp, err)
 			continue
