@@ -205,6 +205,7 @@ func (c *authOperator) Key() (metav1.Object, error) {
 func (c *authOperator) Sync(obj metav1.Object) error {
 	operatorConfig := obj.(*operatorv1.Authentication)
 
+	// TODO bump and use IsOperatorManaged
 	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
@@ -216,10 +217,15 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 		c.setFailingStatus(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
 	}
 
-	v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
+	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
 		operatorConfigCopy.Status.OperatorStatus.DeepCopyInto(status)
 		return nil
-	})
+	}); err != nil {
+		glog.Errorf("failed to update status: %v", err)
+		if syncErr == nil {
+			syncErr = err
+		}
+	}
 
 	return syncErr
 }
@@ -230,6 +236,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// config version, it would both cause redeploy loops (status updates cause
 	// version change) and the relevant changes (logLevel, unsupportedConfigOverrides)
 	// will cause a redeploy anyway
+	// TODO move this hash from deployment meta to operatorConfig.status.generations.[...].hash
 	resourceVersions := []string{}
 
 	// The BLOCK sections are highly order dependent
@@ -336,7 +343,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		c.recorder,
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
-		false,
+		operatorConfig.ObjectMeta.Generation != operatorConfig.Status.ObservedGeneration, // redeploy on operatorConfig.spec changes
 	)
 	if err != nil {
 		return err
@@ -344,13 +351,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
-	ready, err := c.CheckReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
+	ready, err := c.checkReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
 	if err != nil {
 		return err
 	}
 
 	resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
 	operatorConfig.Status.ObservedGeneration = operatorConfig.ObjectMeta.Generation
+	operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
 
 	if ready {
 		// Set current version and available status
@@ -363,7 +371,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	return nil
 }
 
-func (c *authOperator) CheckReady(
+func (c *authOperator) checkReady(
 	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
