@@ -120,7 +120,7 @@ func (c *authOperator) handleOAuthConfig(
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
 			GrantConfig: osinv1.GrantConfig{
-				Method:               osinv1.GrantHandlerPrompt, // TODO check
+				Method:               osinv1.GrantHandlerDeny, // force denial as this field must be set per OAuth client
 				ServiceAccountMethod: osinv1.GrantHandlerPrompt,
 			},
 			SessionConfig: &osinv1.SessionConfig{
