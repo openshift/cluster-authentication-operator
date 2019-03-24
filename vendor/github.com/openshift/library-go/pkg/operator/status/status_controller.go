@@ -77,10 +77,6 @@ func NewClusterOperatorStatusController(
 func (c StatusSyncer) sync() error {
 	detailedSpec, currentDetailedStatus, _, err := c.operatorClient.GetOperatorState()
 	if apierrors.IsNotFound(err) {
-		c.eventRecorder.Warningf("StatusNotFound", "Unable to determine current operator status for %s", c.clusterOperatorName)
-		if err := c.clusterOperatorClient.ClusterOperators().Delete(c.clusterOperatorName, nil); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
 		return nil
 	}
 	if err != nil {
@@ -112,7 +108,6 @@ func (c StatusSyncer) sync() error {
 		}
 	}
 	clusterOperatorObj := originalClusterOperatorObj.DeepCopy()
-
 	// if we are unmanaged, force everything to Unknown.
 	if detailedSpec.ManagementState == operatorv1.Unmanaged {
 		clusterOperatorObj.Status = configv1.ClusterOperatorStatus{}
