@@ -516,6 +516,10 @@ type OpenIDIdentityProvider struct {
 	// +optional
 	ExtraAuthorizeParameters map[string]string `json:"extraAuthorizeParameters"`
 
+	// issuer is the URL that the OpenID Provider asserts as its Issuer Identifier.
+	// It must use the https scheme with no query or fragment component.
+	Issuer string `json:"issuer"`
+
 	// urls to use to authenticate
 	URLs OpenIDURLs `json:"urls"`
 
