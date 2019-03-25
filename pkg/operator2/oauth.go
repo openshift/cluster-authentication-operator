@@ -141,7 +141,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status

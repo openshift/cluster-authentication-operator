@@ -19,12 +19,12 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing configMaps: %v", err)
 	}
 
 	secrets, err := secretClient.List(metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing secrets: %v", err)
 	}
 
 	prefixConfigMapNames := sets.NewString()

@@ -42,7 +42,7 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 
 	servingCert, err := secret.Get(servingCertName, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to get serving cert: %v", err)
 	}
 
 	return serviceCA, servingCert, nil

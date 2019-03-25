@@ -247,20 +247,20 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	route, routerSecret, err := c.handleRoute()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed handling the route: %v", err)
 	}
 	resourceVersions = append(resourceVersions, route.GetResourceVersion(), routerSecret.GetResourceVersion())
 
 	// make sure API server sees our metadata as soon as we've got a route with a host
 	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
-		return err
+		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
 	}
 	resourceVersions = append(resourceVersions, metadata.GetResourceVersion())
 
 	authConfig, err := c.handleAuthConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed handling authentication config: %v", err)
 	}
 	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
 
@@ -271,13 +271,13 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// make sure we create the service before we start asking about service certs
 	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed applying service object: %v", err)
 	}
 	resourceVersions = append(resourceVersions, service.GetResourceVersion())
 
 	serviceCA, servingCert, err := c.handleServiceCA()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed handling service CA: %v", err)
 	}
 	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
@@ -287,11 +287,11 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	expectedSessionSecret, err := c.expectedSessionSecret()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed obtaining session secret: %v", err)
 	}
 	sessionSecret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 	resourceVersions = append(resourceVersions, sessionSecret.GetResourceVersion())
 
@@ -303,19 +303,19 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
 	resourceVersions = append(resourceVersions, oauthConfig.GetResourceVersion())
 
 	configResourceVersions, err := c.handleConfigSync(syncData)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed syncing configuration objects: %v", err)
 	}
 	resourceVersions = append(resourceVersions, configResourceVersions...)
 
 	cliConfig, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed applying configMap for the CLI configuration: %v", err)
 	}
 	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
 
@@ -346,14 +346,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		operatorConfig.ObjectMeta.Generation != operatorConfig.Status.ObservedGeneration, // redeploy on operatorConfig.spec changes
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)
 	}
 
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
 	ready, err := c.checkReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
 	if err != nil {
-		return err
+		return fmt.Errorf("error checking payload readiness: %v", err)
 	}
 
 	resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
@@ -384,7 +384,7 @@ func (c *authOperator) checkReady(
 	//    - oauth clients
 	deploymentReady, deploymentMsg, err := c.checkDeploymentReady(deploymentVersionHash)
 	if err != nil {
-		return deploymentReady, err
+		return deploymentReady, fmt.Errorf("unable to check payload's deployment readiness: %v", err)
 	}
 	if !deploymentReady {
 		c.setProgressingStatus(operatorConfig, "OAuthServerDeploymentNotReady", deploymentMsg)
@@ -399,7 +399,7 @@ func (c *authOperator) checkReady(
 
 	routeReady, routeMsg, err := c.checkRouteHealthy(route)
 	if err != nil {
-		return routeReady, err
+		return routeReady, fmt.Errorf("unable to check route health: %v", err)
 	}
 	if !routeReady {
 		c.setProgressingStatus(operatorConfig, "RouteNotReady", routeMsg)
@@ -408,7 +408,7 @@ func (c *authOperator) checkReady(
 
 	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(authConfig, route)
 	if err != nil {
-		return wellknownReady, err
+		return wellknownReady, fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
 	if !wellknownReady {
 		c.setProgressingStatus(operatorConfig, "WellknownNotReady", wellknownMsg)
@@ -417,7 +417,7 @@ func (c *authOperator) checkReady(
 
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(route)
 	if err != nil {
-		return oauthClientsReady, err
+		return oauthClientsReady, fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
 	}
 	if !oauthClientsReady {
 		c.setProgressingStatus(operatorConfig, "OAuthClientsNotReady", oauthClientsMsg)
