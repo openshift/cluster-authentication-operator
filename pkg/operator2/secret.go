@@ -5,16 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/golang/glog"
 
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	legacyconfigv1 "github.com/openshift/api/legacyconfig/v1"
 )
 
-func (c *authOperator) expectedSessionSecret() (*v1.Secret, error) {
+func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {
 	secret, err := c.secrets.Secrets(targetName).Get(sessionNameAndKey, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		glog.V(4).Infof("failed to get secret %s: %v", sessionNameAndKey, err)
@@ -27,7 +28,7 @@ func (c *authOperator) expectedSessionSecret() (*v1.Secret, error) {
 	return secret, nil
 }
 
-func isValidSessionSecret(secret *v1.Secret) bool {
+func isValidSessionSecret(secret *corev1.Secret) bool {
 	// TODO add more validation?
 	var sessionSecretsBytes [][]byte
 	for _, v := range secret.Data {
@@ -52,14 +53,14 @@ func isValidSessionSecret(secret *v1.Secret) bool {
 	return true
 }
 
-func randomSessionSecret() (*v1.Secret, error) {
+func randomSessionSecret() (*corev1.Secret, error) {
 	skey, err := newSessionSecretsJSON()
 	if err != nil {
 		return nil, err
 	}
 	meta := defaultMeta()
 	meta.Name = sessionNameAndKey
-	return &v1.Secret{
+	return &corev1.Secret{
 		ObjectMeta: meta,
 		Data: map[string][]byte{
 			sessionNameAndKey: skey,
@@ -87,7 +88,7 @@ func newSessionSecretsJSON() ([]byte, error) {
 	}
 	secretsBytes, err := json.Marshal(secrets)
 	if err != nil {
-		return nil, err // should never happen
+		return nil, fmt.Errorf("error marshalling the session secret: %v", err) // should never happen
 	}
 
 	return secretsBytes, nil
