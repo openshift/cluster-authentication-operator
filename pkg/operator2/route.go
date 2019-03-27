@@ -1,7 +1,9 @@
 package operator2
 
 import (
+	"crypto/x509"
 	"fmt"
+	"strings"
 
 	"github.com/golang/glog"
 
@@ -103,14 +105,46 @@ func defaultRoute() *routev1.Route {
 
 func routerSecretToSNI(routerSecret *corev1.Secret) []configv1.NamedCertificate {
 	var out []configv1.NamedCertificate
-	for key := range routerSecret.Data {
+	for domain := range routerSecret.Data {
 		out = append(out, configv1.NamedCertificate{
-			Names: []string{"*." + key}, // ingress domain is always a wildcard
+			Names: []string{"*." + domain}, // ingress domain is always a wildcard
 			CertInfo: configv1.CertInfo{ // the cert and key are appended together
-				CertFile: routerCertsLocalMount + "/" + key,
-				KeyFile:  routerCertsLocalMount + "/" + key,
+				CertFile: routerCertsLocalMount + "/" + domain,
+				KeyFile:  routerCertsLocalMount + "/" + domain,
 			},
 		})
 	}
 	return out
+}
+
+func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret) []byte {
+	var (
+		caData        []byte
+		longestDomain string
+	)
+
+	// find the longest domain that matches our route
+	// TODO drop this logic once we fix how we determine our route host
+	for domain, certs := range routerSecret.Data {
+		if strings.HasSuffix(route.Spec.Host, "."+domain) && len(domain) > len(longestDomain) {
+			caData = certs
+			longestDomain = domain
+		}
+	}
+
+	// if we have no CA, use system roots (or more correctly, if we have no CERTIFICATE block)
+	// TODO so this branch is effectively never taken, because the value of caData
+	// is the concatenation of tls.crt and tls.key - the .crt data gets parsed
+	// as a valid cert by AppendCertsFromPEM meaning ok is always true.
+	// because Go is weird with how it validates TLS connections, having the actual
+	// peer cert loaded in the transport is totally fine with the connection even
+	// without having the CA loaded.  this is weird but it lets us tolerate scenarios
+	// where we do not have the CA (i.e. admin is using a cert from an internal company CA).
+	// thus the only way we take this branch is if len(caData) == 0
+	if ok := x509.NewCertPool().AppendCertsFromPEM(caData); !ok {
+		glog.Infof("using global CAs for %s, ingress domain=%s, cert data len=%d", route.Spec.Host, longestDomain, len(caData))
+		return nil
+	}
+
+	return caData
 }

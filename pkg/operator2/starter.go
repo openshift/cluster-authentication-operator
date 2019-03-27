@@ -167,7 +167,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		configClient,
 		versionGetter,
-		ctx.KubeConfig,
 		ctx.EventRecorder,
 		resourceSyncer,
 	)

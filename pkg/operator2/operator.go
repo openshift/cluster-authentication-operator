@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/rest"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -52,6 +51,8 @@ const (
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
+
+	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
 	systemConfigPath           = "/var/config/system"
 	systemConfigPathConfigMaps = systemConfigPath + "/configmaps"
@@ -115,9 +116,8 @@ const (
 type authOperator struct {
 	authOperatorConfigClient OperatorClient
 
-	versionGetter    status.VersionGetter
-	recorder         events.Recorder
-	restClientConfig *rest.Config
+	versionGetter status.VersionGetter
+	recorder      events.Recorder
 
 	route routeclient.RouteInterface
 
@@ -146,7 +146,6 @@ func NewAuthenticationOperator(
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
 	versionGetter status.VersionGetter,
-	restClientConfig *rest.Config,
 	recorder events.Recorder,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
@@ -155,8 +154,6 @@ func NewAuthenticationOperator(
 
 		versionGetter: versionGetter,
 		recorder:      recorder,
-
-		restClientConfig: restClientConfig,
 
 		route: routeClient.Routes(targetName),
 
@@ -351,7 +348,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
-	ready, err := c.checkReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
+	ready, err := c.checkReady(operatorConfig, authConfig, route, routerSecret, deployment.Annotations[deploymentVersionHashKey])
 	if err != nil {
 		return fmt.Errorf("error checking payload readiness: %v", err)
 	}
@@ -375,6 +372,7 @@ func (c *authOperator) checkReady(
 	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
+	routerSecret *corev1.Secret,
 	deploymentVersionHash string,
 ) (bool, error) {
 	// Checks readiness of all of:
@@ -397,7 +395,7 @@ func (c *authOperator) checkReady(
 		c.versionGetter.SetVersion(osinOperandName, osinVersion)
 	}
 
-	routeReady, routeMsg, err := c.checkRouteHealthy(route)
+	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret)
 	if err != nil {
 		return routeReady, fmt.Errorf("unable to check route health: %v", err)
 	}
@@ -456,20 +454,22 @@ func (c *authOperator) checkDeploymentReady(deploymentVersionHash string) (bool,
 	return true, "", nil
 }
 
-func (c *authOperator) checkRouteHealthy(route *routev1.Route) (bool, string, error) {
-	rt, err := rest.TransportFor(c.restClientConfig)
+func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret) (bool, string, error) {
+	caData := routerSecretToCA(route, routerSecret)
+
+	rt, err := transportFor(caData, nil, nil)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to build transport for route: %v", err)
 	}
 
 	req, err := http.NewRequest(http.MethodHead, "https://"+route.Spec.Host+"/healthz", nil)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to build request to route: %v", err)
 	}
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to GET route: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -483,41 +483,50 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route) (bool, string, er
 func (c *authOperator) checkWellknownEndpointReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
 	// TODO: don't perform this check when OAuthMetadata reference is set up,
 	// the code in configmap.go does not handle such cases yet
-	if len(authConfig.Spec.OAuthMetadata.Name) == 0 {
+	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
 		return true, "", nil
 	}
 
-	rt, err := rest.TransportFor(c.restClientConfig)
+	caData, err := ioutil.ReadFile(rootCAFile)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
+	}
+
+	rt, err := transportFor(caData, nil, nil)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
 	apiserverURL := os.Getenv("KUBERNETES_SERVICE_HOST")
-	req, err := http.NewRequest(http.MethodGet, "https://"+apiserverURL+oauthMetadataAPIEndpoint, nil)
+	wellKnown := "https://" + apiserverURL + oauthMetadataAPIEndpoint
+
+	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
 	}
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known endpoint data", resp.Status), nil
+		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown), nil
 	}
 
 	var receivedValues map[string]interface{}
 	body, err := ioutil.ReadAll(resp.Body)
-	err = json.Unmarshal(body, &receivedValues)
 	if err != nil {
-		return false, "", err
+		return false, "", fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
+	}
+	if err := json.Unmarshal(body, &receivedValues); err != nil {
+		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
 	}
 
 	expectedMetadata := getMetadataStruct(route)
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return false, "the value returned by the well-known endpoint does not match expectations", nil
+		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
 	}
 
 	return true, "", nil
