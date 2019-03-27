@@ -2,8 +2,12 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: openshift-authentication-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: openshift-authentication
+  labels:
+    openshift.io/cluster-monitoring: "true"
