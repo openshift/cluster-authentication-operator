@@ -4,7 +4,6 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"strings"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -106,7 +105,7 @@ func defaultDeployment(
 					SecurityContext:               &corev1.PodSecurityContext{},
 					Containers: []corev1.Container{
 						{
-							Image:           os.Getenv("IMAGE"),
+							Image:           osinImage,
 							ImagePullPolicy: corev1.PullPolicy("IfNotPresent"),
 							Name:            targetName,
 							Command: []string{
