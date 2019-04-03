@@ -45,9 +45,13 @@ const (
 	targetName          = "openshift-authentication"
 	targetNameOperator  = "openshift-authentication-operator"
 	globalConfigName    = "cluster"
-	osinOperandName     = "integrated-oauth-server"
 
+	operatorSelfName       = "operator"
+	osinOperandName        = "integrated-oauth-server"
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
+	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
+	operandImageEnvName    = "IMAGE"
+	apiHostEnvName         = "KUBERNETES_SERVICE_HOST"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
@@ -111,6 +115,16 @@ const (
 
 	servicePort   = 443
 	containerPort = 6443
+)
+
+// static environment variables from operator deployment
+var (
+	osinImage   = os.Getenv(operandImageEnvName)
+	osinVersion = os.Getenv(operandVersionEnvName)
+
+	operatorVersion = os.Getenv(operatorVersionEnvName)
+
+	apiserverURL = os.Getenv(apiHostEnvName)
 )
 
 type authOperator struct {
@@ -359,9 +373,8 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	if ready {
 		// Set current version and available status
-		version := os.Getenv(operatorVersionEnvName)
-		if c.versionGetter.GetVersions()["operator"] != version {
-			c.versionGetter.SetVersion("operator", version)
+		if c.versionGetter.GetVersions()[operatorSelfName] != operatorVersion {
+			c.versionGetter.SetVersion(operatorSelfName, operatorVersion)
 		}
 		c.setAvailableStatus(operatorConfig)
 	}
@@ -390,7 +403,6 @@ func (c *authOperator) checkReady(
 	}
 
 	// when the deployment is ready, set its version for the operator
-	osinVersion := status.VersionForOperand(targetNameOperator, os.Getenv("IMAGE"), c.configMaps, c.recorder)
 	if c.versionGetter.GetVersions()[osinOperandName] != osinVersion {
 		c.versionGetter.SetVersion(osinOperandName, osinVersion)
 	}
@@ -497,7 +509,6 @@ func (c *authOperator) checkWellknownEndpointReady(authConfig *configv1.Authenti
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
-	apiserverURL := os.Getenv("KUBERNETES_SERVICE_HOST")
 	wellKnown := "https://" + apiserverURL + oauthMetadataAPIEndpoint
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
