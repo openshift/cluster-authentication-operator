@@ -111,9 +111,9 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
 	)
 
-	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync,
-		configinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
-	)
+	// do not use WithTweakListOptions here as top level configs are all called "cluster"
+	// whereas our cluster operator instance is called "authentication" (there is no OR support)
+	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
 	for gvr, resource := range customResources {
 		v1helpers.EnsureOperatorConfigExists(dynamicClient, []byte(resource), gvr)
