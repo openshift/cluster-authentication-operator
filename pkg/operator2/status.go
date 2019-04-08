@@ -5,7 +5,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
-func (c *authOperator) setFailingStatus(operatorConfig *operatorv1.Authentication, reason, message string) {
+func setFailingTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 		operatorv1.OperatorCondition{
 			Type:    operatorv1.OperatorStatusTypeFailing,
@@ -13,47 +13,50 @@ func (c *authOperator) setFailingStatus(operatorConfig *operatorv1.Authenticatio
 			Reason:  reason,
 			Message: message,
 		})
+}
 
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeProgressing,
-		Status: operatorv1.ConditionFalse,
-	})
-
+func setFailingFalse(operatorConfig *operatorv1.Authentication) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 		operatorv1.OperatorCondition{
-			Type:   operatorv1.OperatorStatusTypeAvailable,
+			Type:   operatorv1.OperatorStatusTypeFailing,
 			Status: operatorv1.ConditionFalse,
 		})
 }
 
-func (c *authOperator) setProgressingStatus(operatorConfig *operatorv1.Authentication, reason, message string) {
+func setProgressingTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
 		Type:    operatorv1.OperatorStatusTypeProgressing,
 		Status:  operatorv1.ConditionTrue,
 		Reason:  reason,
 		Message: message,
 	})
-
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
-		operatorv1.OperatorCondition{
-			Type:   operatorv1.OperatorStatusTypeAvailable,
-			Status: operatorv1.ConditionFalse,
-		})
 }
 
-func (c *authOperator) setAvailableStatus(operatorConfig *operatorv1.Authentication) {
+func setAvailableTrue(operatorConfig *operatorv1.Authentication, reason string) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeAvailable,
 		Status: operatorv1.ConditionTrue,
+		Reason: reason,
 	})
+}
 
+func setProgressingFalse(operatorConfig *operatorv1.Authentication) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeProgressing,
 		Status: operatorv1.ConditionFalse,
 	})
+}
+
+func setProgressingTrueAndAvailableFalse(operatorConfig *operatorv1.Authentication, reason, message string) {
+	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+		Type:   operatorv1.OperatorStatusTypeAvailable,
+		Status: operatorv1.ConditionFalse,
+	})
 
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:   operatorv1.OperatorStatusTypeFailing,
-		Status: operatorv1.ConditionFalse,
+		Type:    operatorv1.OperatorStatusTypeProgressing,
+		Status:  operatorv1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
 	})
 }
