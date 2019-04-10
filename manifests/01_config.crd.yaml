@@ -28,7 +28,6 @@ spec:
         metadata:
           type: object
         spec:
-          description: +required
           properties:
             logLevel:
               description: logLevel is an intent based logging for an overall component.  It
@@ -39,12 +38,13 @@ spec:
             managementState:
               description: managementState indicates whether and how the operator
                 should manage the component
-              pattern: ^Managed|Unmanaged|Force|Removed$
+              pattern: ^(Managed|Unmanaged|Force|Removed)$
               type: string
             observedConfig:
               description: observedConfig holds a sparse config that controller has
                 observed from the cluster state.  It exists in spec because it is
-                an input to the level for the operator +nullable
+                an input to the level for the operator
+              nullable: true
               type: object
             operandSpecs:
               description: operandSpecs provide customization for functional units
@@ -92,8 +92,8 @@ spec:
               description: 'unsupportedConfigOverrides holds a sparse config that
                 will override any previously set options.  It only needs to be the
                 fields to override it will end up overlaying in the following order:
-                1. hardcoded defaults 2. observedConfig 3. unsupportedConfigOverrides
-                +nullable'
+                1. hardcoded defaults 2. observedConfig 3. unsupportedConfigOverrides'
+              nullable: true
               type: object
           type: object
         status:
@@ -158,3 +158,5 @@ spec:
               description: version is the level this availability applies to
               type: string
           type: object
+      required:
+      - spec
