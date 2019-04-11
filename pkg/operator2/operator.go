@@ -223,9 +223,13 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
+	// ClearFailingStatus
+	if v1helpers.IsOperatorConditionTrue(operatorConfigCopy.Status.Conditions, operatorv1.OperatorStatusTypeFailing) {
+		setFailingFalse(operatorConfigCopy)
+	}
 	syncErr := c.handleSync(operatorConfigCopy)
 	if syncErr != nil {
-		c.setFailingStatus(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
+		setFailingTrue(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
 	}
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
@@ -376,7 +380,8 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		if c.versionGetter.GetVersions()[operatorSelfName] != operatorVersion {
 			c.versionGetter.SetVersion(operatorSelfName, operatorVersion)
 		}
-		c.setAvailableStatus(operatorConfig)
+		setAvailableTrue(operatorConfig, "AsExpected")
+		setProgressingFalse(operatorConfig)
 	}
 	return nil
 }
@@ -393,12 +398,12 @@ func (c *authOperator) checkReady(
 	//    - route
 	//    - well-known oauth endpoint
 	//    - oauth clients
-	deploymentReady, deploymentMsg, err := c.checkDeploymentReady(deploymentVersionHash)
+	deploymentReady, err := c.checkDeploymentReady(deploymentVersionHash, operatorConfig)
 	if err != nil {
 		return deploymentReady, fmt.Errorf("unable to check payload's deployment readiness: %v", err)
 	}
+
 	if !deploymentReady {
-		c.setProgressingStatus(operatorConfig, "OAuthServerDeploymentNotReady", deploymentMsg)
 		return deploymentReady, nil
 	}
 
@@ -412,7 +417,7 @@ func (c *authOperator) checkReady(
 		return routeReady, fmt.Errorf("unable to check route health: %v", err)
 	}
 	if !routeReady {
-		c.setProgressingStatus(operatorConfig, "RouteNotReady", routeMsg)
+		setProgressingTrueAndAvailableFalse(operatorConfig, "RouteNotReady", routeMsg)
 		return routeReady, nil
 	}
 
@@ -421,7 +426,7 @@ func (c *authOperator) checkReady(
 		return wellknownReady, fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
 	if !wellknownReady {
-		c.setProgressingStatus(operatorConfig, "WellknownNotReady", wellknownMsg)
+		setProgressingTrueAndAvailableFalse(operatorConfig, "WellKnownNotReady", wellknownMsg)
 		return wellknownReady, nil
 	}
 
@@ -430,40 +435,52 @@ func (c *authOperator) checkReady(
 		return oauthClientsReady, fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
 	}
 	if !oauthClientsReady {
-		c.setProgressingStatus(operatorConfig, "OAuthClientsNotReady", oauthClientsMsg)
+		setProgressingTrueAndAvailableFalse(operatorConfig, "OAuthClientNotReady", oauthClientsMsg)
 		return oauthClientsReady, nil
 	}
 
 	return true, nil
 }
 
-func (c *authOperator) checkDeploymentReady(deploymentVersionHash string) (bool, string, error) {
+func (c *authOperator) checkDeploymentReady(deploymentVersionHash string, operatorConfig *operatorv1.Authentication) (bool, error) {
+	reason := "OAuthServerDeploymentNotReady"
 	deployments := c.deployments.Deployments(targetName)
 	osinDeployment, err := deployments.Get(targetName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return false, "deployment does not exist", nil
+			setProgressingTrueAndAvailableFalse(operatorConfig, reason, "deployment does not exist")
+			return false, nil
 		}
-		return false, "", err
+		return false, err
 	}
 
 	if osinDeployment.ObjectMeta.Annotations[deploymentVersionHashKey] != deploymentVersionHash {
-		return false, "deployment does not yet have the expected version", nil
+		setProgressingTrue(operatorConfig, reason, "deployment does not yet have the expected version")
+		return false, nil
 	}
 
 	if osinDeployment.ObjectMeta.Generation != osinDeployment.Status.ObservedGeneration {
-		return false, "deployment's observed generation did not reach the expected generation", nil
+		setProgressingTrue(operatorConfig, reason, "deployment's observed generation did not reach the expected generation")
+		return false, nil
 	}
 
 	if osinDeployment.DeletionTimestamp != nil {
-		return false, "", fmt.Errorf("the deployment is being deleted")
+		setProgressingTrueAndAvailableFalse(operatorConfig, reason, "deployment is being deleted")
+		return false, nil
+	}
+
+	if osinDeployment.Status.AvailableReplicas > 0 && osinDeployment.Status.UpdatedReplicas != osinDeployment.Status.Replicas {
+		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
+		setAvailableTrue(operatorConfig, "OAuthServerDeploymentHasAvailableReplica")
+		return false, nil
 	}
 
 	if osinDeployment.Status.UpdatedReplicas != osinDeployment.Status.Replicas || osinDeployment.Status.UnavailableReplicas > 0 {
-		return false, "not all deployment replicas are ready", nil
+		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
+		return false, nil
 	}
 
-	return true, "", nil
+	return true, nil
 }
 
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret) (bool, string, error) {
