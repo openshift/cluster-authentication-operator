@@ -7,10 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/golang/glog"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog"
 
 	legacyconfigv1 "github.com/openshift/api/legacyconfig/v1"
 )
@@ -18,7 +17,7 @@ import (
 func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {
 	secret, err := c.secrets.Secrets(targetName).Get(sessionNameAndKey, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
-		glog.V(4).Infof("failed to get secret %s: %v", sessionNameAndKey, err)
+		klog.V(4).Infof("failed to get secret %s: %v", sessionNameAndKey, err)
 		generatedSessionSecret, err := randomSessionSecret()
 		if err != nil {
 			return nil, err

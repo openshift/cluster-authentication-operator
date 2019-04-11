@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/golang/glog"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -31,10 +30,10 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 
 	if err := isValidRoute(route); err != nil {
 		// delete the route so that it is replaced with the proper one in next reconcile loop
-		glog.Infof("deleting invalid route: %#v", route)
+		klog.Infof("deleting invalid route: %#v", route)
 		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &route.UID}}
 		if err := c.route.Delete(route.Name, opts); err != nil && !errors.IsNotFound(err) {
-			glog.Infof("failed to delete invalid route: %v", err)
+			klog.Infof("failed to delete invalid route: %v", err)
 		}
 		return nil, nil, err
 	}
@@ -142,7 +141,7 @@ func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret) []byte 
 	// where we do not have the CA (i.e. admin is using a cert from an internal company CA).
 	// thus the only way we take this branch is if len(caData) == 0
 	if ok := x509.NewCertPool().AppendCertsFromPEM(caData); !ok {
-		glog.Infof("using global CAs for %s, ingress domain=%s, cert data len=%d", route.Spec.Host, longestDomain, len(caData))
+		klog.Infof("using global CAs for %s, ingress domain=%s, cert data len=%d", route.Spec.Host, longestDomain, len(caData))
 		return nil
 	}
 

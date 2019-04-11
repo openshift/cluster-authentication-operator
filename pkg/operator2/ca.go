@@ -3,11 +3,10 @@ package operator2
 import (
 	"fmt"
 
-	"github.com/golang/glog"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog"
 )
 
 const (
@@ -32,10 +31,10 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 
 	if err := isValidServiceCA(serviceCA); err != nil {
 		// delete the service CA config map so that it is replaced with the proper one in next reconcile loop
-		glog.Infof("deleting invalid service CA config map: %#v", serviceCA)
+		klog.Infof("deleting invalid service CA config map: %#v", serviceCA)
 		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &serviceCA.UID}}
 		if err := cm.Delete(serviceCA.Name, opts); err != nil && !errors.IsNotFound(err) {
-			glog.Infof("failed to delete invalid service CA config map: %v", err)
+			klog.Infof("failed to delete invalid service CA config map: %v", err)
 		}
 		return nil, nil, err
 	}

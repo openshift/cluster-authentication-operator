@@ -9,8 +9,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/golang/glog"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -236,7 +235,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 		operatorConfigCopy.Status.OperatorStatus.DeepCopyInto(status)
 		return nil
 	}); err != nil {
-		glog.Errorf("failed to update status: %v", err)
+		klog.Errorf("failed to update status: %v", err)
 		if syncErr == nil {
 			syncErr = err
 		}
@@ -364,7 +363,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)
 	}
 
-	glog.V(4).Infof("current deployment: %#v", deployment)
+	klog.V(4).Infof("current deployment: %#v", deployment)
 
 	ready, err := c.checkReady(operatorConfig, authConfig, route, routerSecret, deployment.Annotations[deploymentVersionHashKey])
 	if err != nil {
