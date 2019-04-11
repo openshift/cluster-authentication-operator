@@ -345,6 +345,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		operatorConfig,
 		syncData,
 		routerSecret,
+		operatorDeployment,
 		resourceVersions...,
 	)
 	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
