@@ -48,15 +48,10 @@ func setProgressingFalse(operatorConfig *operatorv1.Authentication) {
 }
 
 func setProgressingTrueAndAvailableFalse(operatorConfig *operatorv1.Authentication, reason, message string) {
+	setProgressingTrue(operatorConfig, reason, message)
+
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeAvailable,
 		Status: operatorv1.ConditionFalse,
-	})
-
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
-		Type:    operatorv1.OperatorStatusTypeProgressing,
-		Status:  operatorv1.ConditionTrue,
-		Reason:  reason,
-		Message: message,
 	})
 }
