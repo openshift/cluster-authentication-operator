@@ -29,6 +29,7 @@ import (
 const (
 	resync = 20 * time.Minute
 
+	// TODO handle defaulting for this one once lib-go tolerated empty managementState
 	defaultOperatorConfig = `
 apiVersion: operator.openshift.io/v1
 kind: Authentication
@@ -37,31 +38,10 @@ metadata:
 spec:
   managementState: Managed
 `
-
-	// TODO figure out the permanent home for top level CRDs and default CRs
-	defaultAuthentication = `
-apiVersion: config.openshift.io/v1
-kind: Authentication
-metadata:
-  name: ` + globalConfigName + `
-spec:
-  type: IntegratedOAuth
-`
-	defaultOAuth = `
-apiVersion: config.openshift.io/v1
-kind: OAuth
-metadata:
-  name: ` + globalConfigName + `
-spec:
-  tokenConfig:
-    accessTokenMaxAgeSeconds: 86400
-`
 )
 
 var customResources = map[schema.GroupVersionResource]string{
 	operatorv1.GroupVersion.WithResource("authentications"): defaultOperatorConfig,
-	configv1.GroupVersion.WithResource("authentications"):   defaultAuthentication,
-	configv1.GroupVersion.WithResource("oauths"):            defaultOAuth,
 }
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
