@@ -4,17 +4,17 @@ metadata:
   namespace: openshift-authentication-operator
   name: openshift-authentication-operator
   labels:
-    app: origin-cluster-authentication-operator
+    app: openshift-authentication-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: origin-cluster-authentication-operator
+      app: openshift-authentication-operator
   template:
     metadata:
-      name: origin-cluster-authentication-operator
+      name: openshift-authentication-operator
       labels:
-        app: origin-cluster-authentication-operator
+        app: openshift-authentication-operator
     spec:
       serviceAccountName: openshift-authentication-operator
       containers:
@@ -32,6 +32,8 @@ spec:
         volumeMounts:
         - mountPath: /var/run/configmaps/config
           name: config
+        - mountPath: /var/run/secrets/serving-cert
+          name: serving-cert
         env:
         - name: IMAGE
           value: quay.io/openshift/origin-hypershift:v4.0
@@ -49,6 +51,10 @@ spec:
         configMap:
           defaultMode: 440
           name: openshift-authentication-operator-config
+      - name: serving-cert
+        secret:
+          secretName: openshift-authentication-operator-serving-cert
+          optional: true
       nodeSelector:
         node-role.kubernetes.io/master: ""
       priorityClassName: "system-cluster-critical"

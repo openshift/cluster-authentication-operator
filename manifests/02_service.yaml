@@ -1,0 +1,20 @@
+# Expose operator metrics
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: openshift-authentication-operator-serving-cert
+  labels:
+    app: openshift-authentication-operator
+  name: metrics
+  namespace: openshift-authentication-operator
+spec:
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app: openshift-authentication-operator
+  sessionAffinity: None
+  type: ClusterIP
