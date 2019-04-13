@@ -27,6 +27,7 @@ func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,
 	routerSecret *corev1.Secret,
+	operatorDeployment *appsv1.Deployment,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(2) // TODO configurable?
@@ -106,7 +107,7 @@ func defaultDeployment(
 					Containers: []corev1.Container{
 						{
 							Image:           osinImage,
-							ImagePullPolicy: corev1.PullPolicy("IfNotPresent"),
+							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
 							Name:            targetName,
 							Command: []string{
 								"hypershift",
@@ -209,6 +210,17 @@ func getLogLevel(logLevel operatorv1.LogLevel) int {
 	default:
 		return 0
 	}
+}
+
+// tie the operand's image pull policy to the operator's image pull policy
+// this makes it easy during development to change both the operator and
+// operand's image once the CVO is configured to no longer manage the operator
+func getImagePullPolicy(operatorDeployment *appsv1.Deployment) corev1.PullPolicy {
+	containers := operatorDeployment.Spec.Template.Spec.Containers
+	if len(containers) == 0 {
+		return corev1.PullIfNotPresent
+	}
+	return containers[0].ImagePullPolicy
 }
 
 type volume struct {
