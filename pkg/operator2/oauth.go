@@ -6,8 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/golang/glog"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -63,7 +62,7 @@ func (c *authOperator) handleOAuthConfig(
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
 		data, err := c.convertProviderConfigToIDPData(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
-			glog.Errorf("failed to honor IDP %#v: %v", idp, err)
+			klog.Errorf("failed to honor IDP %#v: %v", idp, err)
 			continue
 		}
 		identityProviders = append(identityProviders,

@@ -4,9 +4,8 @@ import (
 	"net/url"
 	"regexp"
 
-	"github.com/golang/glog"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 )
@@ -15,7 +14,7 @@ func (c *authOperator) handleConsoleConfig() *configv1.Console {
 	// technically this should be an observed config loop
 	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		glog.Infof("error getting console config: %v", err)
+		klog.Infof("error getting console config: %v", err)
 		return &configv1.Console{}
 	}
 	return consoleConfig
@@ -31,12 +30,12 @@ func consoleToDeploymentData(console *configv1.Console) (string, []string) {
 	corsAllowedOrigins := []string{"^" + regexp.QuoteMeta(assetPublicURL) + "$"} // needs to be valid regexps
 
 	if _, err := url.Parse(assetPublicURL); err != nil { // should never happen
-		glog.Errorf("failed to parse assetPublicURL %s: %v", assetPublicURL, err)
+		klog.Errorf("failed to parse assetPublicURL %s: %v", assetPublicURL, err)
 		return "", nil
 	}
 	for _, corsAllowedOrigin := range corsAllowedOrigins {
 		if _, err := regexp.Compile(corsAllowedOrigin); err != nil { // also should never happen
-			glog.Errorf("failed to parse corsAllowedOrigin %s: %v", corsAllowedOrigin, err)
+			klog.Errorf("failed to parse corsAllowedOrigin %s: %v", corsAllowedOrigin, err)
 			return "", nil
 		}
 	}
