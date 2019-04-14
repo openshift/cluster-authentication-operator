@@ -596,6 +596,16 @@ func defaultMeta() metav1.ObjectMeta {
 	}
 }
 
+func defaultGlobalConfigMeta() metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Name:   globalConfigName,
+		Labels: map[string]string{},
+		Annotations: map[string]string{
+			"release.openshift.io/create-only": "true",
+		},
+	}
+}
+
 func getPrefixFilter() controller.Filter {
 	names := operator.FilterByNames(targetName)
 	prefix := func(obj metav1.Object) bool { // TODO add helper to combine filters

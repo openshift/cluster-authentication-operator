@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog"
@@ -29,10 +30,16 @@ func (c *authOperator) handleOAuthConfig(
 	*configSyncData,
 	error,
 ) {
-	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
+	oauthConfigNoDefaults, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		oauthConfigNoDefaults, err = c.oauth.Create(&configv1.OAuth{
+			ObjectMeta: defaultGlobalConfigMeta(),
+		})
+	}
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	oauthConfig := defaultOAuthConfig(oauthConfigNoDefaults)
 
 	var accessTokenInactivityTimeoutSeconds *int32
 	timeout := oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds
@@ -161,4 +168,14 @@ func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
 func getMasterCA() *string {
 	ca := serviceCAPath // need local var to be able to take address of it
 	return &ca
+}
+
+func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
+	out := oauthConfig.DeepCopy() // do not mutate informer cache
+
+	if out.Spec.TokenConfig.AccessTokenMaxAgeSeconds == 0 {
+		out.Spec.TokenConfig.AccessTokenMaxAgeSeconds = 24 * 60 * 60 // 1 day
+	}
+
+	return out
 }

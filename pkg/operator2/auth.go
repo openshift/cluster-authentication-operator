@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -18,8 +19,15 @@ import (
 // used to fill the data in the /.well-known/oauth-authorization-server
 // endpoint, but since that endpoint belongs to the apiserver, its syncing is
 // handled in cluster-kube-apiserver-operator
-func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
-	auth, err := c.authentication.Get(globalConfigName, metav1.GetOptions{})
+func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error) {
+	// always make sure this function does not rely on defaulting from defaultAuthConfig
+
+	authConfigNoDefaults, err := c.authentication.Get(globalConfigName, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		authConfigNoDefaults, err = c.authentication.Create(&configv1.Authentication{
+			ObjectMeta: defaultGlobalConfigMeta(),
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -28,10 +36,28 @@ func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
 		Name: targetName,
 	}
 
-	if auth.Status.IntegratedOAuthMetadata == expectedReference {
-		return auth, nil
+	if authConfigNoDefaults.Status.IntegratedOAuthMetadata == expectedReference {
+		return authConfigNoDefaults, nil
 	}
 
-	auth.Status.IntegratedOAuthMetadata = expectedReference
-	return c.authentication.UpdateStatus(auth)
+	authConfigNoDefaults.Status.IntegratedOAuthMetadata = expectedReference
+	return c.authentication.UpdateStatus(authConfigNoDefaults)
+}
+
+func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
+	auth, err := c.handleAuthConfigInner()
+	if err != nil {
+		return nil, err
+	}
+	return defaultAuthConfig(auth), nil
+}
+
+func defaultAuthConfig(authConfig *configv1.Authentication) *configv1.Authentication {
+	out := authConfig.DeepCopy() // do not mutate informer cache
+
+	if len(out.Spec.Type) == 0 {
+		out.Spec.Type = configv1.AuthenticationTypeIntegratedOAuth
+	}
+
+	return out
 }
