@@ -15,6 +15,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 func (c *authOperator) handleOAuthConfig(
@@ -65,11 +66,13 @@ func (c *authOperator) handleOAuthConfig(
 		}
 	}
 
+	var errsIDP []error
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
 		data, err := c.convertProviderConfigToIDPData(&idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			klog.Errorf("failed to honor IDP %#v: %v", idp, err)
+			errsIDP = append(errsIDP, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
 			continue
 		}
 		identityProviders = append(identityProviders,
@@ -83,6 +86,9 @@ func (c *authOperator) handleOAuthConfig(
 				},
 			},
 		)
+	}
+	if err := v1helpers.NewMultiLineAggregate(errsIDP); err != nil {
+		setFailingTrue(operatorConfig, "IdentityProviderConfigError", err.Error())
 	}
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)

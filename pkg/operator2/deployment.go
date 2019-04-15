@@ -15,14 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func (c *authOperator) getGeneration() int64 {
-	deployment, err := c.deployments.Deployments(targetName).Get(targetName, metav1.GetOptions{})
-	if err != nil {
-		return -1
-	}
-	return deployment.Generation
-}
-
 func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,

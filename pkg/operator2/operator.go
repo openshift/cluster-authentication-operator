@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -222,10 +223,9 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
-	// ClearFailingStatus
-	if v1helpers.IsOperatorConditionTrue(operatorConfigCopy.Status.Conditions, operatorv1.OperatorStatusTypeFailing) {
-		setFailingFalse(operatorConfigCopy)
-	}
+	// clear failing status
+	setFailingFalse(operatorConfigCopy)
+
 	syncErr := c.handleSync(operatorConfigCopy)
 	if syncErr != nil {
 		setFailingTrue(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
@@ -351,136 +351,112 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		operatorDeployment,
 		resourceVersions...,
 	)
-	// TODO add support for spec.operandSpecs.unsupportedResourcePatches, like:
-	// operatorConfig.Spec.OperandSpecs[...].UnsupportedResourcePatches[...].Patch
 	deployment, _, err := resourceapply.ApplyDeployment(
 		c.deployments,
 		c.recorder,
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
-		operatorConfig.ObjectMeta.Generation != operatorConfig.Status.ObservedGeneration, // redeploy on operatorConfig.spec changes
+		operatorConfig.Generation != operatorConfig.Status.ObservedGeneration, // redeploy on operatorConfig.spec changes
 	)
 	if err != nil {
 		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)
 	}
 
-	klog.V(4).Infof("current deployment: %#v", deployment)
-
-	ready, err := c.checkReady(operatorConfig, authConfig, route, routerSecret, deployment.Annotations[deploymentVersionHashKey])
-	if err != nil {
-		return fmt.Errorf("error checking payload readiness: %v", err)
-	}
-
+	// make sure we record the changes to the deployment
 	resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
-	operatorConfig.Status.ObservedGeneration = operatorConfig.ObjectMeta.Generation
+	operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
 	operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
 
-	if ready {
-		// Set current version and available status
-		if c.versionGetter.GetVersions()[operatorSelfName] != operatorVersion {
-			c.versionGetter.SetVersion(operatorSelfName, operatorVersion)
-		}
-		setAvailableTrue(operatorConfig, "AsExpected")
-		setProgressingFalse(operatorConfig)
+	klog.V(4).Infof("current deployment: %#v", deployment)
+
+	if err := c.handleVersion(operatorConfig, authConfig, route, routerSecret, deployment); err != nil {
+		return fmt.Errorf("error checking current version: %v", err)
 	}
+
 	return nil
 }
 
-func (c *authOperator) checkReady(
+func (c *authOperator) handleVersion(
 	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
 	routerSecret *corev1.Secret,
-	deploymentVersionHash string,
-) (bool, error) {
+	deployment *appsv1.Deployment,
+) error {
 	// Checks readiness of all of:
-	//    - deployment
 	//    - route
 	//    - well-known oauth endpoint
 	//    - oauth clients
-	deploymentReady, err := c.checkDeploymentReady(deploymentVersionHash, operatorConfig)
-	if err != nil {
-		return deploymentReady, fmt.Errorf("unable to check payload's deployment readiness: %v", err)
-	}
-
-	if !deploymentReady {
-		return deploymentReady, nil
-	}
-
-	// when the deployment is ready, set its version for the operator
-	if c.versionGetter.GetVersions()[osinOperandName] != osinVersion {
-		c.versionGetter.SetVersion(osinOperandName, osinVersion)
-	}
+	//    - deployment
+	// The ordering is important here as we want to become available after the
+	// route + well-known + OAuth client checks AND one available OAuth server pod
+	// but we do NOT want to go to the next version until all OAuth server pods are at that version
 
 	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret)
 	if err != nil {
-		return routeReady, fmt.Errorf("unable to check route health: %v", err)
+		return fmt.Errorf("unable to check route health: %v", err)
 	}
 	if !routeReady {
 		setProgressingTrueAndAvailableFalse(operatorConfig, "RouteNotReady", routeMsg)
-		return routeReady, nil
+		return nil
 	}
 
 	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(authConfig, route)
 	if err != nil {
-		return wellknownReady, fmt.Errorf("unable to check the .well-known endpoint: %v", err)
+		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
 	if !wellknownReady {
 		setProgressingTrueAndAvailableFalse(operatorConfig, "WellKnownNotReady", wellknownMsg)
-		return wellknownReady, nil
+		return nil
 	}
 
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(route)
 	if err != nil {
-		return oauthClientsReady, fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
+		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
 	}
 	if !oauthClientsReady {
 		setProgressingTrueAndAvailableFalse(operatorConfig, "OAuthClientNotReady", oauthClientsMsg)
-		return oauthClientsReady, nil
+		return nil
 	}
 
-	return true, nil
+	if deploymentReady := c.checkDeploymentReady(deployment, operatorConfig); !deploymentReady {
+		return nil
+	}
+
+	// we have achieved our desired level
+	setProgressingFalse(operatorConfig)
+	setAvailableTrue(operatorConfig, "AsExpected")
+	c.setVersion(operatorSelfName, operatorVersion)
+	c.setVersion(osinOperandName, osinVersion)
+
+	return nil
 }
 
-func (c *authOperator) checkDeploymentReady(deploymentVersionHash string, operatorConfig *operatorv1.Authentication) (bool, error) {
+func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, operatorConfig *operatorv1.Authentication) bool {
 	reason := "OAuthServerDeploymentNotReady"
-	deployments := c.deployments.Deployments(targetName)
-	osinDeployment, err := deployments.Get(targetName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			setProgressingTrueAndAvailableFalse(operatorConfig, reason, "deployment does not exist")
-			return false, nil
-		}
-		return false, err
-	}
 
-	if osinDeployment.ObjectMeta.Annotations[deploymentVersionHashKey] != deploymentVersionHash {
-		setProgressingTrue(operatorConfig, reason, "deployment does not yet have the expected version")
-		return false, nil
-	}
-
-	if osinDeployment.ObjectMeta.Generation != osinDeployment.Status.ObservedGeneration {
-		setProgressingTrue(operatorConfig, reason, "deployment's observed generation did not reach the expected generation")
-		return false, nil
-	}
-
-	if osinDeployment.DeletionTimestamp != nil {
+	if deployment.DeletionTimestamp != nil {
 		setProgressingTrueAndAvailableFalse(operatorConfig, reason, "deployment is being deleted")
-		return false, nil
+		return false
 	}
 
-	if osinDeployment.Status.AvailableReplicas > 0 && osinDeployment.Status.UpdatedReplicas != osinDeployment.Status.Replicas {
+	if deployment.Status.AvailableReplicas > 0 && deployment.Status.UpdatedReplicas != deployment.Status.Replicas {
 		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
 		setAvailableTrue(operatorConfig, "OAuthServerDeploymentHasAvailableReplica")
-		return false, nil
+		return false
 	}
 
-	if osinDeployment.Status.UpdatedReplicas != osinDeployment.Status.Replicas || osinDeployment.Status.UnavailableReplicas > 0 {
+	if deployment.Generation != deployment.Status.ObservedGeneration {
+		setProgressingTrue(operatorConfig, reason, "deployment's observed generation did not reach the expected generation")
+		return false
+	}
+
+	if deployment.Status.UpdatedReplicas != deployment.Status.Replicas || deployment.Status.UnavailableReplicas > 0 {
 		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
-		return false, nil
+		return false
 	}
 
-	return true, nil
+	return true
 }
 
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret) (bool, string, error) {
@@ -578,6 +554,12 @@ func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, er
 	}
 
 	return true, "", nil
+}
+
+func (c *authOperator) setVersion(operandName, version string) {
+	if c.versionGetter.GetVersions()[operandName] != version {
+		c.versionGetter.SetVersion(operandName, version)
+	}
 }
 
 func defaultLabels() map[string]string {
