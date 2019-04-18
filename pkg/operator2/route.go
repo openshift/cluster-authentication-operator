@@ -38,7 +38,7 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 		return nil, nil, err
 	}
 
-	routerSecret, err := c.secrets.Secrets(targetName).Get(routerCertsLocalName, metav1.GetOptions{})
+	routerSecret, err := c.secrets.Secrets(targetNamespace).Get(routerCertsLocalName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err
 	}

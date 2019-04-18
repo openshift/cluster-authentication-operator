@@ -41,13 +41,15 @@ import (
 var deploymentVersionHashKey = operatorv1.GroupName + "/rvs-hash"
 
 const (
-	clusterOperatorName = "authentication"
-	targetName          = "openshift-authentication"
-	targetNameOperator  = "openshift-authentication-operator"
-	globalConfigName    = "cluster"
+	clusterOperatorName     = "authentication"
+	targetName              = "integrated-oauth-server"
+	targetNamespace         = "openshift-authentication"
+	targetNameOperator      = "authentication-operator"
+	targetNamespaceOperator = "openshift-authentication-operator"
+	globalConfigName        = "cluster"
 
 	operatorSelfName       = "operator"
-	osinOperandName        = "integrated-oauth-server"
+	oauthserverOperandName = "integrated-oauth-server"
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
 	operandImageEnvName    = "IMAGE"
@@ -119,8 +121,8 @@ const (
 
 // static environment variables from operator deployment
 var (
-	osinImage   = os.Getenv(operandImageEnvName)
-	osinVersion = os.Getenv(operandVersionEnvName)
+	oauthserverImage   = os.Getenv(operandImageEnvName)
+	oauthserverVersion = os.Getenv(operandVersionEnvName)
 
 	operatorVersion = os.Getenv(operatorVersionEnvName)
 
@@ -169,7 +171,7 @@ func NewAuthenticationOperator(
 		versionGetter: versionGetter,
 		recorder:      recorder,
 
-		route: routeClient.Routes(targetName),
+		route: routeClient.Routes(targetNamespace),
 
 		oauthClientClient: oauthClientClient.OAuthClients(),
 
@@ -337,7 +339,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 4: deployment
 	// ==================================
 
-	operatorDeployment, err := c.deployments.Deployments(targetNameOperator).Get(targetNameOperator, metav1.GetOptions{})
+	operatorDeployment, err := c.deployments.Deployments(targetNamespaceOperator).Get(targetNameOperator, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -427,7 +429,7 @@ func (c *authOperator) handleVersion(
 	setProgressingFalse(operatorConfig)
 	setAvailableTrue(operatorConfig, "AsExpected")
 	c.setVersion(operatorSelfName, operatorVersion)
-	c.setVersion(osinOperandName, osinVersion)
+	c.setVersion(oauthserverOperandName, oauthserverVersion)
 
 	return nil
 }
@@ -571,7 +573,7 @@ func defaultLabels() map[string]string {
 func defaultMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:            targetName,
-		Namespace:       targetName,
+		Namespace:       targetNamespace,
 		Labels:          defaultLabels(),
 		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO

@@ -15,7 +15,7 @@ import (
 )
 
 func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {
-	secret, err := c.secrets.Secrets(targetName).Get(sessionNameAndKey, metav1.GetOptions{})
+	secret, err := c.secrets.Secrets(targetNamespace).Get(sessionNameAndKey, metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		klog.V(4).Infof("failed to get secret %s: %v", sessionNameAndKey, err)
 		generatedSessionSecret, err := randomSessionSecret()

@@ -2,7 +2,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: openshift-authentication-operator
+  name: authentication-operator
   namespace: openshift-authentication-operator
 spec:
   endpoints:
@@ -22,13 +22,13 @@ spec:
   jobLabel: component
   selector:
     matchLabels:
-      app: openshift-authentication-operator
+      app: authentication-operator
 ---
 # Configure cluster-monitoring for cluster authentication resources
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: openshift-authentication
+  name: integrated-oauth-server
   namespace: openshift-authentication
 spec:
   endpoints:
@@ -44,8 +44,8 @@ spec:
     scheme: https
     tlsConfig:
       caFile: /etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt
-      serverName: openshift-authentication.openshift-authentication.svc
+      serverName: integrated-oauth-server.openshift-authentication.svc
   jobLabel: component
   selector:
     matchLabels:
-      app: openshift-authentication
+      app: integrated-oauth-server

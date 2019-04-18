@@ -14,8 +14,8 @@ import (
 
 func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) {
 	// TODO we probably need listers
-	configMapClient := c.configMaps.ConfigMaps(targetName)
-	secretClient := c.secrets.Secrets(targetName)
+	configMapClient := c.configMaps.ConfigMaps(targetNamespace)
+	secretClient := c.secrets.Secrets(targetNamespace)
 
 	configMaps, err := configMapClient.List(metav1.ListOptions{})
 	if err != nil {
@@ -229,7 +229,7 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 	}
 	if err := syncFunc(
 		resourcesynccontroller.ResourceLocation{
-			Namespace: targetName,
+			Namespace: targetNamespace,
 			Name:      dest,
 		},
 		resourcesynccontroller.ResourceLocation{

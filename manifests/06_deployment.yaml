@@ -2,21 +2,21 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   namespace: openshift-authentication-operator
-  name: openshift-authentication-operator
+  name: authentication-operator
   labels:
-    app: openshift-authentication-operator
+    app: authentication-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: openshift-authentication-operator
+      app: authentication-operator
   template:
     metadata:
-      name: openshift-authentication-operator
+      name: authentication-operator
       labels:
-        app: openshift-authentication-operator
+        app: authentication-operator
     spec:
-      serviceAccountName: openshift-authentication-operator
+      serviceAccountName: authentication-operator
       containers:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:v4.0
@@ -50,10 +50,10 @@ spec:
       - name: config
         configMap:
           defaultMode: 440
-          name: openshift-authentication-operator-config
+          name: authentication-operator-config
       - name: serving-cert
         secret:
-          secretName: openshift-authentication-operator-serving-cert
+          secretName: serving-cert
           optional: true
       nodeSelector:
         node-role.kubernetes.io/master: ""
