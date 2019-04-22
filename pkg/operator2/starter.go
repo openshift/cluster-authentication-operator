@@ -6,8 +6,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 
@@ -28,30 +26,11 @@ import (
 
 const (
 	resync = 20 * time.Minute
-
-	// TODO handle defaulting for this one once lib-go tolerated empty managementState
-	defaultOperatorConfig = `
-apiVersion: operator.openshift.io/v1
-kind: Authentication
-metadata:
-  name: ` + globalConfigName + `
-spec:
-  managementState: Managed
-`
 )
-
-var customResources = map[schema.GroupVersionResource]string{
-	operatorv1.GroupVersion.WithResource("authentications"): defaultOperatorConfig,
-}
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
 	// protobuf can be used with non custom resources
 	kubeClient, err := kubernetes.NewForConfig(ctx.ProtoKubeConfig)
-	if err != nil {
-		return err
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -94,10 +73,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	// do not use WithTweakListOptions here as top level configs are all called "cluster"
 	// whereas our cluster operator instance is called "authentication" (there is no OR support)
 	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
-
-	for gvr, resource := range customResources {
-		v1helpers.EnsureOperatorConfigExists(dynamicClient, []byte(resource), gvr)
-	}
 
 	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
