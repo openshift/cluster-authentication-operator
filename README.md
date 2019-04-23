@@ -28,7 +28,6 @@ metadata:
 spec:
   identityProviders:
   - name: htpassidp
-    mappingMethod: claim
     type: HTPasswd
     htpasswd:
       fileData:

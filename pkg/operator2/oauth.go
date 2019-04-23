@@ -179,6 +179,12 @@ func getMasterCA() *string {
 func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	out := oauthConfig.DeepCopy() // do not mutate informer cache
 
+	for i := range out.Spec.IdentityProviders {
+		if out.Spec.IdentityProviders[i].MappingMethod == "" {
+			out.Spec.IdentityProviders[i].MappingMethod = configv1.MappingMethodClaim
+		}
+	}
+
 	if out.Spec.TokenConfig.AccessTokenMaxAgeSeconds == 0 {
 		out.Spec.TokenConfig.AccessTokenMaxAgeSeconds = 24 * 60 * 60 // 1 day
 	}
