@@ -98,7 +98,7 @@ func defaultDeployment(
 					SecurityContext:               &corev1.PodSecurityContext{},
 					Containers: []corev1.Container{
 						{
-							Image:           osinImage,
+							Image:           oauthserverImage,
 							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
 							Name:            targetName,
 							Command: []string{

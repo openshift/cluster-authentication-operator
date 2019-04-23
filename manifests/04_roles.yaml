@@ -8,7 +8,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   namespace: openshift-authentication-operator
-  name: openshift-authentication-operator
+  name: authentication-operator
 - kind: ServiceAccount
   namespace: openshift-authentication
-  name: openshift-authentication
+  name: integrated-oauth-server

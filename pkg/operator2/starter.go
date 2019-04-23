@@ -79,7 +79,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-		informers.WithNamespace(targetName),
+		informers.WithNamespace(targetNamespace),
 	)
 
 	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
@@ -87,7 +87,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
-		routeinformer.WithNamespace(targetName),
+		routeinformer.WithNamespace(targetNamespace),
 		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
 	)
 
@@ -101,7 +101,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
-		targetName,
+		targetNamespace,
 		userConfigNamespace,
 		machineConfigNamespace,
 	)
@@ -122,14 +122,14 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	// add syncing for the OAuth metadata ConfigMap
 	if err := resourceSyncer.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: targetName},
-		resourcesynccontroller.ResourceLocation{Namespace: targetName, Name: oauthMetadataName},
+		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: oauthMetadataName},
 	); err != nil {
 		return err
 	}
 
 	// add syncing for router certs for all cluster ingresses
 	if err := resourceSyncer.SyncSecret(
-		resourcesynccontroller.ResourceLocation{Namespace: targetName, Name: routerCertsLocalName},
+		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: routerCertsLocalName},
 		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: routerCertsSharedName},
 	); err != nil {
 		return err
@@ -160,7 +160,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 			{Group: configv1.GroupName, Resource: "oauths", Name: globalConfigName},
 			{Resource: "namespaces", Name: userConfigNamespace},
 			{Resource: "namespaces", Name: machineConfigNamespace},
-			{Resource: "namespaces", Name: targetName},
+			{Resource: "namespaces", Name: targetNamespace},
 			{Resource: "namespaces", Name: targetNameOperator},
 		},
 		configClient.ConfigV1(),

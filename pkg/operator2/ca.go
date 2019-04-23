@@ -15,8 +15,8 @@ const (
 )
 
 func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, error) {
-	cm := c.configMaps.ConfigMaps(targetName)
-	secret := c.secrets.Secrets(targetName)
+	cm := c.configMaps.ConfigMaps(targetNamespace)
+	secret := c.secrets.Secrets(targetNamespace)
 	serviceCA, err := cm.Get(serviceCAName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		serviceCA, err = cm.Create(defaultServiceCA())
