@@ -225,12 +225,12 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
-	// clear failing status
-	setFailingFalse(operatorConfigCopy)
+	// clear degraded status
+	setDegradedFalse(operatorConfigCopy)
 
 	syncErr := c.handleSync(operatorConfigCopy)
 	if syncErr != nil {
-		setFailingTrue(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
+		setDegradedTrue(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
 	}
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {

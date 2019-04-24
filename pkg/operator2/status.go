@@ -5,20 +5,20 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
-func setFailingTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
+func setDegradedTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 		operatorv1.OperatorCondition{
-			Type:    operatorv1.OperatorStatusTypeFailing,
+			Type:    operatorv1.OperatorStatusTypeDegraded,
 			Status:  operatorv1.ConditionTrue,
 			Reason:  reason,
 			Message: message,
 		})
 }
 
-func setFailingFalse(operatorConfig *operatorv1.Authentication) {
+func setDegradedFalse(operatorConfig *operatorv1.Authentication) {
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 		operatorv1.OperatorCondition{
-			Type:   operatorv1.OperatorStatusTypeFailing,
+			Type:   operatorv1.OperatorStatusTypeDegraded,
 			Status: operatorv1.ConditionFalse,
 		})
 }
