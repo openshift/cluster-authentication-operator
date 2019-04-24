@@ -185,7 +185,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
-		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA, openIDConfig.URLs)
+		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
 		if err != nil {
 			return nil, err
 		}
@@ -233,16 +233,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 	return data, nil
 }
 
-func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.ConfigMapNameReference, fallbackURLs configv1.OpenIDURLs) (*osinv1.OpenIDURLs, error) {
-	// TODO drop after 4.0beta3
-	if len(issuer) == 0 {
-		return &osinv1.OpenIDURLs{
-			Authorize: fallbackURLs.Authorize,
-			Token:     fallbackURLs.Token,
-			UserInfo:  fallbackURLs.UserInfo,
-		}, nil
-	}
-
+func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
 	wellKnown := issuer + "/.well-known/openid-configuration"

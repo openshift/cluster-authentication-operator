@@ -28,6 +28,9 @@
 //	-cpuprofile file
 //		Write a CPU profile of the compiler to file.
 //
+//	-go path
+//		Path to "go" command (default "go").
+//
 //	-memprofile file
 //		Write a memory profile of the compiler to file.
 //
@@ -37,11 +40,14 @@
 //	-obj
 //		Report object file statistics.
 //
-//  -pkg
+//	-pkg pkg
 //		Benchmark compiling a single package.
 //
 //	-run regexp
 //		Only run benchmarks with names matching regexp.
+//
+//	-short
+//		Skip long-running benchmarks.
 //
 // Although -cpuprofile and -memprofile are intended to write a
 // combined profile for all the executed benchmarks to file,
@@ -67,29 +73,29 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"go/build"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
 var (
-	goroot   = runtime.GOROOT()
+	goroot   string
 	compiler string
 	runRE    *regexp.Regexp
 	is6g     bool
 )
 
 var (
+	flagGoCmd          = flag.String("go", "go", "path to \"go\" command")
 	flagAlloc          = flag.Bool("alloc", false, "report allocations")
 	flagObj            = flag.Bool("obj", false, "report object file stats")
 	flagCompiler       = flag.String("compile", "", "use `exe` as the cmd/compile binary")
@@ -139,14 +145,21 @@ func main() {
 		usage()
 	}
 
+	s, err := exec.Command(*flagGoCmd, "env", "GOROOT").CombinedOutput()
+	if err != nil {
+		log.Fatalf("%s env GOROOT: %v", *flagGoCmd, err)
+	}
+	goroot = strings.TrimSpace(string(s))
+	os.Setenv("GOROOT", goroot) // for any subcommands
+
 	compiler = *flagCompiler
 	if compiler == "" {
-		out, err := exec.Command("go", "tool", "-n", "compile").CombinedOutput()
+		out, err := exec.Command(*flagGoCmd, "tool", "-n", "compile").CombinedOutput()
 		if err != nil {
-			out, err = exec.Command("go", "tool", "-n", "6g").CombinedOutput()
+			out, err = exec.Command(*flagGoCmd, "tool", "-n", "6g").CombinedOutput()
 			is6g = true
 			if err != nil {
-				out, err = exec.Command("go", "tool", "-n", "compile").CombinedOutput()
+				out, err = exec.Command(*flagGoCmd, "tool", "-n", "compile").CombinedOutput()
 				log.Fatalf("go tool -n compiler: %v\n%s", err, out)
 			}
 		}
@@ -193,14 +206,14 @@ func runStdCmd() {
 		args = append(args, "-gcflags", *flagCompilerFlags)
 	}
 	args = append(args, "std", "cmd")
-	cmd := exec.Command("go", args...)
-	cmd.Dir = filepath.Join(runtime.GOROOT(), "src")
+	cmd := exec.Command(*flagGoCmd, args...)
+	cmd.Dir = filepath.Join(goroot, "src")
 	runCmd("BenchmarkStdCmd", cmd)
 }
 
 // path is either a path to a file ("$GOROOT/test/helloworld.go") or a package path ("cmd/go").
 func runSize(name, path string) {
-	cmd := exec.Command("go", "build", "-o", "_compilebenchout_", path)
+	cmd := exec.Command(*flagGoCmd, "build", "-o", "_compilebenchout_", path)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -240,15 +253,32 @@ func runBuild(name, dir string, count int) {
 		runSize("BenchmarkCmdGoSize", "cmd/go")
 		return
 	case "BenchmarkHelloSize":
-		runSize("BenchmarkHelloSize", filepath.Join(runtime.GOROOT(), "test/helloworld.go"))
+		runSize("BenchmarkHelloSize", filepath.Join(goroot, "test/helloworld.go"))
 		return
 	}
 
-	pkg, err := build.Import(dir, ".", 0)
+	// Make sure dependencies needed by go tool compile are installed to GOROOT/pkg.
+	out, err := exec.Command(*flagGoCmd, "build", "-i", dir).CombinedOutput()
 	if err != nil {
-		log.Print(err)
+		log.Printf("go build -i %s: %v\n%s", dir, err, out)
 		return
 	}
+
+	// Find dir and source file list.
+	var pkg struct {
+		Dir     string
+		GoFiles []string
+	}
+	out, err = exec.Command(*flagGoCmd, "list", "-json", dir).Output()
+	if err != nil {
+		log.Printf("go list -json %s: %v\n", dir, err)
+		return
+	}
+	if err := json.Unmarshal(out, &pkg); err != nil {
+		log.Printf("go list -json %s: unmarshal: %v", dir, err)
+		return
+	}
+
 	args := []string{"-o", "_compilebench_.o"}
 	if is6g {
 		*flagMemprofilerate = -1
@@ -305,7 +335,11 @@ func runBuild(name, dir string, count int) {
 		}
 
 		if *flagMemprofile != "" {
-			if err := ioutil.WriteFile(*flagMemprofile, out, 0666); err != nil {
+			outpath := *flagMemprofile
+			if *flagCount != 1 {
+				outpath = fmt.Sprintf("%s_%d", outpath, count)
+			}
+			if err := ioutil.WriteFile(outpath, out, 0666); err != nil {
 				log.Print(err)
 			}
 		}

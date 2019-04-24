@@ -1,5 +1,5 @@
 hash: 120609bb70ed753340eb2dc144d63dac3849a74cf21f98859e46ad9a6021c5bd
-updated: 2019-04-12T17:44:54.879440858-04:00
+updated: 2019-04-24T09:01:46.728627778+02:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -191,7 +191,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 0f522af5ff8bb3aa7a7181e163a7b9294b55cc4d
+  version: f969221e02d73f8ecacf32ce24c12872ff8e0819
   subpackages:
   - apps
   - apps/v1
@@ -267,7 +267,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: 5565b0112c2efd6e428244bbf5b60320ee7d9cf5
+  version: 04e2bf481415af9b2583c71f584f1075d0b9960c
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -375,7 +375,7 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: 2382e3994d48b1d22acc2c86bcad0a2aff028e32
+  version: cb2dda6eabdf9160e66ca7293897f984154a7f8b
   subpackages:
   - imports
 - name: google.golang.org/appengine
