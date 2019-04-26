@@ -60,6 +60,7 @@ const (
 	userConfigNamespace    = "openshift-config"
 
 	kasServiceAndEndpointName = "kubernetes"
+	kasServiceFullName        = kasServiceAndEndpointName + "." + corev1.NamespaceDefault + ".svc"
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
@@ -477,7 +478,7 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret) (bool, string, error) {
 	caData := routerSecretToCA(route, routerSecret)
 
-	rt, err := transportFor(caData, nil, nil)
+	rt, err := transportFor("", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for route: %v", err)
 	}
@@ -512,7 +513,8 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
 
-	rt, err := transportFor(caData, nil, nil)
+	// pass the KAS service name for SNI
+	rt, err := transportFor(kasServiceFullName, caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}

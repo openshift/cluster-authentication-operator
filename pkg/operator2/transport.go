@@ -13,15 +13,15 @@ import (
 // TODO move all this to library-go
 
 // transportFor returns an http.Transport for the given ca and client cert data (which may be empty)
-func transportFor(caData, certData, keyData []byte) (http.RoundTripper, error) {
-	transport, err := transportForInner(caData, certData, keyData)
+func transportFor(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
+	transport, err := transportForInner(serverName, caData, certData, keyData)
 	if err != nil {
 		return nil, err
 	}
 	return ktransport.DebugWrappers(transport), nil
 }
 
-func transportForInner(caData, certData, keyData []byte) (http.RoundTripper, error) {
+func transportForInner(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
 	if len(caData) == 0 && len(certData) == 0 && len(keyData) == 0 {
 		return http.DefaultTransport, nil
 	}
@@ -32,7 +32,9 @@ func transportForInner(caData, certData, keyData []byte) (http.RoundTripper, err
 
 	// copy default transport
 	transport := net.SetTransportDefaults(&http.Transport{
-		TLSClientConfig: &tls.Config{},
+		TLSClientConfig: &tls.Config{
+			ServerName: serverName,
+		},
 	})
 
 	if len(caData) != 0 {
