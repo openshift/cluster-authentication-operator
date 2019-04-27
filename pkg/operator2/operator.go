@@ -55,7 +55,8 @@ const (
 	operandImageEnvName    = "IMAGE"
 	apiHostEnvName         = "KUBERNETES_SERVICE_HOST"
 
-	machineConfigNamespace = "openshift-config-managed"
+	managedConfigNamespace = "openshift-config-managed"
+	managedConsoleConfig   = "console-config"
 	userConfigNamespace    = "openshift-config"
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -317,7 +318,13 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	infrastructureConfig := c.handleInfrastructureConfig()
 	resourceVersions = append(resourceVersions, infrastructureConfig.GetResourceVersion())
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig)
+	managedConsoleConfig := c.handleManagedConfigMap()
+	if err != nil {
+		return fmt.Errorf("failed fetching managed brand configuration: %v", err)
+	}
+	resourceVersions = append(resourceVersions, managedConsoleConfig.GetResourceVersion())
+
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, managedConsoleConfig)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}

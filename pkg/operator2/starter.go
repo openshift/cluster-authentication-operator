@@ -78,7 +78,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		kubeClient,
 		targetNamespace,
 		userConfigNamespace,
-		machineConfigNamespace,
+		managedConfigNamespace,
 	)
 
 	operatorClient := &OperatorClient{
@@ -96,7 +96,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	// add syncing for the OAuth metadata ConfigMap
 	if err := resourceSyncer.SyncConfigMap(
-		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: targetName},
+		resourcesynccontroller.ResourceLocation{Namespace: managedConfigNamespace, Name: targetName},
 		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: oauthMetadataName},
 	); err != nil {
 		return err
@@ -105,7 +105,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	// add syncing for router certs for all cluster ingresses
 	if err := resourceSyncer.SyncSecret(
 		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: routerCertsLocalName},
-		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: routerCertsSharedName},
+		resourcesynccontroller.ResourceLocation{Namespace: managedConfigNamespace, Name: routerCertsSharedName},
 	); err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 			{Group: configv1.GroupName, Resource: "infrastructures", Name: globalConfigName},
 			{Group: configv1.GroupName, Resource: "oauths", Name: globalConfigName},
 			{Resource: "namespaces", Name: userConfigNamespace},
-			{Resource: "namespaces", Name: machineConfigNamespace},
+			{Resource: "namespaces", Name: managedConfigNamespace},
 			{Resource: "namespaces", Name: targetNamespace},
 			{Resource: "namespaces", Name: targetNameOperator},
 		},

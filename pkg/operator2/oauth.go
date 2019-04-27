@@ -25,6 +25,7 @@ func (c *authOperator) handleOAuthConfig(
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
+	managedConsoleConfig *corev1.ConfigMap,
 ) (
 	*configv1.OAuth,
 	*corev1.ConfigMap,
@@ -150,10 +151,11 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	cliConfigBytes := encodeOrDie(cliConfig)
+	newConsoleConfig := managedConsoleConfigBytes(managedConsoleConfig)
 
-	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, newConsoleConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to merge oauthConfig, managedConsoleConfig, and unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
@@ -190,4 +192,12 @@ func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	}
 
 	return out
+}
+
+func managedConsoleConfigBytes(managedConsoleConfig *corev1.ConfigMap) []byte {
+	data := managedConsoleConfig.Data
+	for _, v := range data {
+		return []byte(v)
+	}
+	return []byte{}
 }
