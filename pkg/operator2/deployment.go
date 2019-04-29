@@ -4,6 +4,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
+	"sort"
 	"strings"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -73,6 +74,8 @@ func defaultDeployment(
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely
+	// need to sort first in order to get a stable array
+	sort.Strings(resourceVersions)
 	rvs := strings.Join(resourceVersions, ",")
 	rvsHash := sha512.Sum512([]byte(rvs))
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
