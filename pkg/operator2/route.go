@@ -15,6 +15,12 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 )
 
+const (
+	// ingress instance named "default" is the OOTB ingress controller
+	// this is an implicit stable API
+	defaultIngressController = "default"
+)
+
 func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 	route, err := c.route.Get(targetName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
@@ -23,6 +29,12 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// assume it is unsafe to mutate route in case we go to a shared informer in the future
+	// this way everything else can just assume route.Spec.Host is correct
+	// note that we are not updating route.Spec.Host in the API - that value is nonsense to us
+	route = route.DeepCopy()
+	route.Spec.Host = getCanonicalHost(route)
 
 	if len(route.Spec.Host) == 0 {
 		return nil, nil, fmt.Errorf("route has no host: %#v", route)
@@ -146,4 +158,26 @@ func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret) []byte 
 	}
 
 	return caData
+}
+
+func getCanonicalHost(route *routev1.Route) string {
+	for _, ingress := range route.Status.Ingress {
+		if ingress.RouterName != defaultIngressController {
+			continue
+		}
+		if !isIngressAdmitted(ingress) {
+			continue
+		}
+		return ingress.Host
+	}
+	return ""
+}
+
+func isIngressAdmitted(ingress routev1.RouteIngress) bool {
+	for _, condition := range ingress.Conditions {
+		if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
