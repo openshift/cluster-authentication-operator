@@ -13,6 +13,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	configscheme "github.com/openshift/client-go/config/clientset/versioned/scheme"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -151,7 +152,11 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	cliConfigBytes := encodeOrDie(cliConfig)
-	newConsoleConfig := managedConsoleConfigBytes(managedConsoleConfig)
+
+	newConsoleConfig, err := managedConsoleConfigBytes(managedConsoleConfig)
+	if err != nil {
+		klog.Warningf("managed console config is not in the right format: %v", err)
+	}
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, newConsoleConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
@@ -194,10 +199,19 @@ func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	return out
 }
 
-func managedConsoleConfigBytes(managedConsoleConfig *corev1.ConfigMap) []byte {
+func managedConsoleConfigBytes(managedConsoleConfig *corev1.ConfigMap) ([]byte, error) {
 	data := managedConsoleConfig.Data
+	var objBytes []byte
 	for _, v := range data {
-		return []byte(v)
+		objBytes = []byte(v)
 	}
-	return []byte{}
+	if objBytes != nil {
+		console := &configv1.Console{}
+		err := runtime.DecodeInto(configscheme.Codecs.UniversalDecoder(configv1.SchemeGroupVersion), objBytes, console)
+		if err != nil {
+			return []byte{}, err
+		}
+		return objBytes, nil
+	}
+	return []byte{}, nil
 }
