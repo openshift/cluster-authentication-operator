@@ -110,6 +110,14 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
+	// add syncing for the console-config ConfigMap (indirect watch for changes)
+	if err := resourceSyncer.SyncConfigMap(
+		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: consoleConfigMapLocalName},
+		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: consoleConfigMapSharedName},
+	); err != nil {
+		return err
+	}
+
 	versionGetter := status.NewVersionGetter()
 
 	operator := NewAuthenticationOperator(

@@ -54,16 +54,11 @@ func (c *authOperator) handleOAuthConfig(
 		accessTokenInactivityTimeoutSeconds = &timeout
 	}
 
-	var templates *osinv1.OAuthTemplates
 	syncData := newConfigSyncData()
 
-	emptyTemplates := configv1.OAuthTemplates{}
-	if configTemplates := oauthConfig.Spec.Templates; configTemplates != emptyTemplates {
-		templates = &osinv1.OAuthTemplates{
-			Login:             syncData.addTemplateSecret(configTemplates.Login, loginField, configv1.LoginTemplateKey),
-			ProviderSelection: syncData.addTemplateSecret(configTemplates.ProviderSelection, providerSelectionField, configv1.ProviderSelectionTemplateKey),
-			Error:             syncData.addTemplateSecret(configTemplates.Error, errorField, configv1.ErrorsTemplateKey),
-		}
+	templates, err := c.handleBrandingTemplates(oauthConfig.Spec.Templates, syncData)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	var errsIDP []error
