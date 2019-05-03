@@ -105,6 +105,16 @@ const (
 	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
 	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
 
+	consoleConfigMapSharedName = "console-config"
+	consoleConfigMapLocalName  = systemConfigPrefix + consoleConfigMapSharedName
+	consoleConfigKey           = consoleConfigMapSharedName + ".yaml"
+
+	ocpBrandingSecretName   = "ocp-branding-template"
+	ocpBrandingSecretMount  = systemConfigPathSecrets + "/" + ocpBrandingSecretName
+	ocpBrandingLoginPath    = ocpBrandingSecretMount + "/" + configv1.LoginTemplateKey
+	ocpBrandingProviderPath = ocpBrandingSecretMount + "/" + configv1.ProviderSelectionTemplateKey
+	ocpBrandingErrorPath    = ocpBrandingSecretMount + "/" + configv1.ErrorsTemplateKey
+
 	cliConfigNameAndKey = systemConfigPrefix + "cliconfig"
 	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
 	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
@@ -268,6 +278,12 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// will cause a redeploy anyway
 	// TODO move this hash from deployment meta to operatorConfig.status.generations.[...].hash
 	resourceVersions := []string{}
+
+	brandingSecret, err := c.handleOCPBrandingSecret()
+	if err != nil {
+		return fmt.Errorf("failed getting the OCP branding secret: %v", err)
+	}
+	resourceVersions = append(resourceVersions, brandingSecret.GetResourceVersion())
 
 	// The BLOCK sections are highly order dependent
 
