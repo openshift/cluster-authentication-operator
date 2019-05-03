@@ -109,7 +109,7 @@ const (
 	consoleConfigMapLocalName  = systemConfigPrefix + consoleConfigMapSharedName
 	consoleConfigKey           = consoleConfigMapSharedName + ".yaml"
 
-	ocpBrandingSecretName   = "ocp-branding-template"
+	ocpBrandingSecretName   = systemConfigPrefix + "ocp-branding-template"
 	ocpBrandingSecretMount  = systemConfigPathSecrets + "/" + ocpBrandingSecretName
 	ocpBrandingLoginPath    = ocpBrandingSecretMount + "/" + configv1.LoginTemplateKey
 	ocpBrandingProviderPath = ocpBrandingSecretMount + "/" + configv1.ProviderSelectionTemplateKey
