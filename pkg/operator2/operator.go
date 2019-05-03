@@ -258,7 +258,20 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	}
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
+		// store a copy of our starting conditions, we need to preserve last transition time
+		originalConditions := status.DeepCopy().Conditions
+
+		// copy over everything else
 		operatorConfigCopy.Status.OperatorStatus.DeepCopyInto(status)
+
+		// restore the starting conditions
+		status.Conditions = originalConditions
+
+		// manually update the conditions while preserving last transition time
+		for _, condition := range operatorConfigCopy.Status.Conditions {
+			v1helpers.SetOperatorCondition(&status.Conditions, condition)
+		}
+
 		return nil
 	}); err != nil {
 		klog.Errorf("failed to update status: %v", err)
