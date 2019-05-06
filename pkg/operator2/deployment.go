@@ -129,7 +129,7 @@ func defaultDeployment(
 							ReadinessProbe:           defaultProbe(),
 							LivenessProbe:            livenessProbe(),
 							TerminationMessagePath:   "/dev/termination-log",
-							TerminationMessagePolicy: corev1.TerminationMessagePolicy("File"),
+							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
 									corev1.ResourceCPU:    resource.MustParse("10m"),
