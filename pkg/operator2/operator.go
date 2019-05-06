@@ -43,14 +43,13 @@ var deploymentVersionHashKey = operatorv1.GroupName + "/rvs-hash"
 
 const (
 	clusterOperatorName     = "authentication"
-	targetName              = "integrated-oauth-server"
+	targetName              = "oauth-openshift" // this value must be "namespaced" to avoid using a route host that a customer may want
 	targetNamespace         = "openshift-authentication"
 	targetNameOperator      = "authentication-operator"
 	targetNamespaceOperator = "openshift-authentication-operator"
 	globalConfigName        = "cluster"
 
 	operatorSelfName       = "operator"
-	oauthserverOperandName = "integrated-oauth-server"
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
 	operandImageEnvName    = "IMAGE"
@@ -171,6 +170,7 @@ type authOperator struct {
 	oauth          configv1client.OAuthInterface
 	console        configv1client.ConsoleInterface
 	infrastructure configv1client.InfrastructureInterface
+	ingress        configv1client.IngressInterface
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -208,6 +208,7 @@ func NewAuthenticationOperator(
 		oauth:          configClient.ConfigV1().OAuths(),
 		console:        configClient.ConfigV1().Consoles(),
 		infrastructure: configClient.ConfigV1().Infrastructures(),
+		ingress:        configClient.ConfigV1().Ingresses(),
 
 		resourceSyncer: resourceSyncer,
 	}
@@ -232,6 +233,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
 		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
 		operator.WithInformer(configV1Informers.Infrastructures(), configNameFilter, controller.WithNoSync()),
+		operator.WithInformer(configV1Informers.Ingresses(), configNameFilter, controller.WithNoSync()),
 	)
 }
 
@@ -303,8 +305,13 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// ==================================
 	// BLOCK 1: Metadata
 	// ==================================
+	ingress, err := c.handleIngress()
+	if err != nil {
+		return fmt.Errorf("failed getting the ingress config: %v", err)
+	}
+	resourceVersions = append(resourceVersions, ingress.GetResourceVersion())
 
-	route, routerSecret, err := c.handleRoute()
+	route, routerSecret, err := c.handleRoute(ingress)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
@@ -414,7 +421,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	klog.V(4).Infof("current deployment: %#v", deployment)
 
-	if err := c.handleVersion(operatorConfig, authConfig, route, routerSecret, deployment); err != nil {
+	if err := c.handleVersion(operatorConfig, authConfig, route, routerSecret, deployment, ingress); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
 	}
 
@@ -427,6 +434,7 @@ func (c *authOperator) handleVersion(
 	route *routev1.Route,
 	routerSecret *corev1.Secret,
 	deployment *appsv1.Deployment,
+	ingress *configv1.Ingress,
 ) error {
 	// Checks readiness of all of:
 	//    - route
@@ -437,7 +445,7 @@ func (c *authOperator) handleVersion(
 	// route + well-known + OAuth client checks AND one available OAuth server pod
 	// but we do NOT want to go to the next version until all OAuth server pods are at that version
 
-	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret)
+	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret, ingress)
 	if err != nil {
 		return fmt.Errorf("unable to check route health: %v", err)
 	}
@@ -472,7 +480,7 @@ func (c *authOperator) handleVersion(
 	setProgressingFalse(operatorConfig)
 	setAvailableTrue(operatorConfig, "AsExpected")
 	c.setVersion(operatorSelfName, operatorVersion)
-	c.setVersion(oauthserverOperandName, oauthserverVersion)
+	c.setVersion(targetName, oauthserverVersion)
 
 	return nil
 }
@@ -504,8 +512,8 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 	return true
 }
 
-func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret) (bool, string, error) {
-	caData := routerSecretToCA(route, routerSecret)
+func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (bool, string, error) {
+	caData := routerSecretToCA(route, routerSecret, ingress)
 
 	rt, err := transportFor("", caData, nil, nil)
 	if err != nil {

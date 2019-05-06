@@ -3,7 +3,6 @@ package operator2
 import (
 	"crypto/x509"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -15,16 +14,10 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 )
 
-const (
-	// ingress instance named "default" is the OOTB ingress controller
-	// this is an implicit stable API
-	defaultIngressController = "default"
-)
-
-func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
+func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, error) {
 	route, err := c.route.Get(targetName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		route, err = c.route.Create(defaultRoute())
+		route, err = c.route.Create(defaultRoute(ingress))
 	}
 	if err != nil {
 		return nil, nil, err
@@ -34,13 +27,13 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 	// this way everything else can just assume route.Spec.Host is correct
 	// note that we are not updating route.Spec.Host in the API - that value is nonsense to us
 	route = route.DeepCopy()
-	route.Spec.Host = getCanonicalHost(route)
+	route.Spec.Host = getCanonicalHost(route, ingress)
 
 	if len(route.Spec.Host) == 0 {
 		return nil, nil, fmt.Errorf("route has no host: %#v", route)
 	}
 
-	if err := isValidRoute(route); err != nil {
+	if err := isValidRoute(route, ingress); err != nil {
 		// delete the route so that it is replaced with the proper one in next reconcile loop
 		klog.Infof("deleting invalid route: %#v", route)
 		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &route.UID}}
@@ -61,12 +54,12 @@ func (c *authOperator) handleRoute() (*routev1.Route, *corev1.Secret, error) {
 	return route, routerSecret, nil
 }
 
-func isValidRoute(route *routev1.Route) error {
+func isValidRoute(route *routev1.Route, ingress *configv1.Ingress) error {
 	// TODO: return all errors at once
 	// TODO error when fields that should be empty are set
 
 	// get the expected settings from the default route
-	expectedRoute := defaultRoute()
+	expectedRoute := defaultRoute(ingress)
 	expName := expectedRoute.Spec.To.Name
 	expPort := expectedRoute.Spec.Port.TargetPort.IntValue()
 	expTLSTermination := expectedRoute.Spec.TLS.Termination
@@ -95,10 +88,12 @@ func isValidRoute(route *routev1.Route) error {
 	return nil
 }
 
-func defaultRoute() *routev1.Route {
+func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
 	return &routev1.Route{
 		ObjectMeta: defaultMeta(),
 		Spec: routev1.RouteSpec{
+			Host:      ingressToHost(ingress), // mimic the behavior of subdomain
+			Subdomain: "",                     // TODO once subdomain is functional, remove reliance on ingress config and just set subdomain=targetName
 			To: routev1.RouteTargetReference{
 				Kind: "Service",
 				Name: targetName,
@@ -128,19 +123,12 @@ func routerSecretToSNI(routerSecret *corev1.Secret) []configv1.NamedCertificate 
 	return out
 }
 
-func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret) []byte {
-	var (
-		caData        []byte
-		longestDomain string
-	)
+func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) []byte {
+	var caData []byte
 
-	// find the longest domain that matches our route
-	// TODO drop this logic once we fix how we determine our route host
-	for domain, certs := range routerSecret.Data {
-		if strings.HasSuffix(route.Spec.Host, "."+domain) && len(domain) > len(longestDomain) {
-			caData = certs
-			longestDomain = domain
-		}
+	// find the domain that matches our route
+	if certs, ok := routerSecret.Data[ingress.Spec.Domain]; ok {
+		caData = certs
 	}
 
 	// if we have no CA, use system roots (or more correctly, if we have no CERTIFICATE block)
@@ -153,22 +141,23 @@ func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret) []byte 
 	// where we do not have the CA (i.e. admin is using a cert from an internal company CA).
 	// thus the only way we take this branch is if len(caData) == 0
 	if ok := x509.NewCertPool().AppendCertsFromPEM(caData); !ok {
-		klog.Infof("using global CAs for %s, ingress domain=%s, cert data len=%d", route.Spec.Host, longestDomain, len(caData))
+		klog.Infof("using global CAs for %s, ingress domain=%s, cert data len=%d", route.Spec.Host, ingress.Spec.Domain, len(caData))
 		return nil
 	}
 
 	return caData
 }
 
-func getCanonicalHost(route *routev1.Route) string {
+func getCanonicalHost(route *routev1.Route, ingressConfig *configv1.Ingress) string {
+	host := ingressToHost(ingressConfig)
 	for _, ingress := range route.Status.Ingress {
-		if ingress.RouterName != defaultIngressController {
+		if ingress.Host != host {
 			continue
 		}
 		if !isIngressAdmitted(ingress) {
 			continue
 		}
-		return ingress.Host
+		return host
 	}
 	return ""
 }
@@ -180,4 +169,8 @@ func isIngressAdmitted(ingress routev1.RouteIngress) bool {
 		}
 	}
 	return false
+}
+
+func ingressToHost(ingress *configv1.Ingress) string {
+	return targetName + "." + ingress.Spec.Domain
 }
