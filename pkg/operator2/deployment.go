@@ -26,7 +26,6 @@ func defaultDeployment(
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(2) // TODO configurable?
-	gracePeriod := int64(30)
 
 	var (
 		volumes []corev1.Volume
@@ -102,11 +101,7 @@ func defaultDeployment(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: meta,
 				Spec: corev1.PodSpec{
-					ServiceAccountName:            targetName,
-					RestartPolicy:                 corev1.RestartPolicyAlways,
-					SchedulerName:                 corev1.DefaultSchedulerName,
-					TerminationGracePeriodSeconds: &gracePeriod,
-					SecurityContext:               &corev1.PodSecurityContext{},
+					ServiceAccountName: targetName,
 					Containers: []corev1.Container{
 						{
 							Image:           oauthserverImage,
@@ -128,7 +123,6 @@ func defaultDeployment(
 							VolumeMounts:             mounts,
 							ReadinessProbe:           defaultProbe(),
 							LivenessProbe:            livenessProbe(),
-							TerminationMessagePath:   "/dev/termination-log",
 							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
