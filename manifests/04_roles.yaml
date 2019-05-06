@@ -11,4 +11,4 @@ subjects:
   name: authentication-operator
 - kind: ServiceAccount
   namespace: openshift-authentication
-  name: integrated-oauth-server
+  name: oauth-openshift

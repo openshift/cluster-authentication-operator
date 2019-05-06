@@ -28,7 +28,7 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: integrated-oauth-server
+  name: oauth-openshift
   namespace: openshift-authentication
 spec:
   endpoints:
@@ -44,8 +44,8 @@ spec:
     scheme: https
     tlsConfig:
       caFile: /etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt
-      serverName: integrated-oauth-server.openshift-authentication.svc
+      serverName: oauth-openshift.openshift-authentication.svc
   jobLabel: component
   selector:
     matchLabels:
-      app: integrated-oauth-server
+      app: oauth-openshift
