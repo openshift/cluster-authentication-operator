@@ -26,6 +26,7 @@ func defaultDeployment(
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(2) // TODO configurable?
+	tolerationSeconds := int64(120)
 
 	var (
 		volumes []corev1.Volume
@@ -90,7 +91,6 @@ func defaultDeployment(
 	// make sure ApplyDeployment knows to update
 	meta := defaultMeta()
 	meta.Annotations[deploymentVersionHashKey] = rvsHashStr
-
 	deployment := &appsv1.Deployment{
 		ObjectMeta: meta,
 		Spec: appsv1.DeploymentSpec{
@@ -151,9 +151,25 @@ func defaultDeployment(
 							}},
 						},
 					},
-					Tolerations: []corev1.Toleration{{
-						Operator: corev1.TolerationOpExists,
-					}},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "node-role.kubernetes.io/master",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+						{
+							Key:               "node.kubernetes.io/unreachable",
+							Operator:          corev1.TolerationOpExists,
+							Effect:            corev1.TaintEffectNoExecute,
+							TolerationSeconds: &tolerationSeconds,
+						},
+						{
+							Key:               "node.kubernetes.io/not-ready",
+							Operator:          corev1.TolerationOpExists,
+							Effect:            corev1.TaintEffectNoExecute,
+							TolerationSeconds: &tolerationSeconds,
+						},
+					},
 					Volumes: volumes,
 				},
 			},
