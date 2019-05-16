@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"monis.app/go/openshift/controller"
+	"monis.app/go/openshift/operator"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -29,8 +32,6 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
-	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/operator"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"

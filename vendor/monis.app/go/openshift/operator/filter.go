@@ -1,6 +1,6 @@
 package operator
 
-import "github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
+import "monis.app/go/openshift/controller"
 
 func FilterByNames(names ...string) controller.Filter {
 	return controller.FilterByNames(nil, names...)
