@@ -1,20 +1,20 @@
 package: github.com/openshift/cluster-authentication-operator
 import:
 - package: k8s.io/apimachinery
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: k8s.io/api
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: k8s.io/apiserver
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: k8s.io/client-go
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: k8s.io/kube-aggregator
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: k8s.io/apiextensions-apiserver
   repo: https://github.com/openshift/kubernetes-apiextensions-apiserver
-  version: origin-4.1-kubernetes-1.13.4 # pinned to get nullable patch
+  version: origin-4.2-kubernetes-1.14.0 # pinned to get nullable patch
 - package: k8s.io/code-generator
-  version: kubernetes-1.13.4
+  version: kubernetes-1.14.0
 - package: github.com/openshift/api
   version: master
 - package: github.com/openshift/client-go

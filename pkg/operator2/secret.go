@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog"
 
-	legacyconfigv1 "github.com/openshift/api/legacyconfig/v1"
+	osinv1 "github.com/openshift/api/osin/v1"
 )
 
 func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {
@@ -34,7 +34,7 @@ func isValidSessionSecret(secret *corev1.Secret) bool {
 		sessionSecretsBytes = append(sessionSecretsBytes, v)
 	}
 	for _, ss := range sessionSecretsBytes {
-		var sessionSecrets *legacyconfigv1.SessionSecrets
+		var sessionSecrets *osinv1.SessionSecrets
 		err := json.Unmarshal(ss, &sessionSecrets)
 		if err != nil {
 			return false
@@ -73,12 +73,12 @@ func newSessionSecretsJSON() ([]byte, error) {
 		aes256KeyLenBytes = 32               // max key size with AES (AES-256)
 	)
 
-	secrets := &legacyconfigv1.SessionSecrets{
+	secrets := &osinv1.SessionSecrets{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "SessionSecrets",
 			APIVersion: "v1",
 		},
-		Secrets: []legacyconfigv1.SessionSecret{
+		Secrets: []osinv1.SessionSecret{
 			{
 				Authentication: randomString(sha256KeyLenBytes), // 64 chars
 				Encryption:     randomString(aes256KeyLenBytes), // 32 chars
