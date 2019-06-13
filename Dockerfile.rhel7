@@ -10,7 +10,7 @@ ENTRYPOINT ["/usr/bin/authentication-operator"]
 LABEL io.k8s.display-name="OpenShift cluster-authentication-operator" \
       io.k8s.description="This is a component of OpenShift and manages cluster authentication settings" \
       com.redhat.component="cluster-authentication-operator" \
-      maintainer="OpenShift Auth Team <aos-auth-team@redhat.com>" \
+      maintainer="OpenShift API/Auth/Scheduling Team <aos-master@redhat.com>" \
       name="openshift/ose-cluster-authentication-operator" \
       version="v4.0.0" \
       io.openshift.tags="openshift" \
