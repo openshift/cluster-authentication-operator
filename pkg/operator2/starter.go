@@ -144,7 +144,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 			{Resource: "namespaces", Name: userConfigNamespace},
 			{Resource: "namespaces", Name: machineConfigNamespace},
 			{Resource: "namespaces", Name: targetNamespace},
-			{Resource: "namespaces", Name: targetNameOperator},
+			{Resource: "namespaces", Name: targetNamespaceOperator},
 		},
 		configClient.ConfigV1(),
 		configInformers.Config().V1().ClusterOperators(),
