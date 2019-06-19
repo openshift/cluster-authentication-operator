@@ -196,7 +196,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			ClientSecret:             createFileStringSource(syncData.addIDPSecret(i, openIDConfig.ClientSecret, clientSecretField, configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
-			URLs: *urls,
+			URLs:                     *urls,
 			Claims: osinv1.OpenIDClaims{
 				// There is no longer a user-facing setting for ID as it is considered unsafe
 				ID:                []string{configv1.UserIDClaim},
