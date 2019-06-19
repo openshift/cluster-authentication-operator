@@ -14,7 +14,8 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
+	oauthinformer "github.com/openshift/client-go/oauth/informers/externalversions"
+	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
@@ -27,7 +28,9 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routecontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
+	authopclient "github.com/openshift/cluster-authentication-operator/pkg/operatorclient"
 )
 
 const (
@@ -41,7 +44,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	authConfigClient, err := authopclient.NewForConfig(ctx.KubeConfig)
+	authConfigClient, err := operatorclient.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -76,6 +79,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
 	)
 
+	oauthClientInformers := oauthinformer.NewSharedInformerFactoryWithOptions(oauthClient, resync)
+
 	// do not use WithTweakListOptions here as top level configs are all called "cluster"
 	// whereas our cluster operator instance is called "authentication" (there is no OR support)
 	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
@@ -87,7 +92,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		"openshift-config-managed",
 	)
 
-	operatorClient := &OperatorClient{
+	operatorClient := &authopclient.OperatorClient{
 		authOperatorConfigInformers,
 		authConfigClient.OperatorV1(),
 	}
@@ -140,6 +145,35 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		resourceSyncer,
 	)
 
+	// oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
+	// 	*operatorClient,
+	// 	configClient.ConfigV1(),
+	// 	configInformers.Config().V1().Authentications(),
+	// 	oauthClient.OauthV1(),
+	// 	oauthClientInformers.Oauth().V1().OAuthClients(),
+	// 	routeClient.RouteV1().Routes("openshift-authentication"),
+	// 	routeInformersNamespaced.Route().V1().Routes(),
+	// )
+	routeController := routecontroller.NewRouteController(
+		operatorClient,
+		oauthClient.OauthV1().OAuthClients(),
+		routeClient.RouteV1(),
+		configInformers.Config().V1().Ingresses(),
+		routeInformersNamespaced.Route().V1().Routes(),
+		map[string][]routecontroller.OAuthClientExpectedRoute{
+			"oauth-openshift": []routecontroller.OAuthClientExpectedRoute{
+				{
+					OAuthClientName: "openshift-browser-client",
+					URLFormat:       "https://%s/oauth/token/display",
+				},
+				{
+					OAuthClientName: "openshift-challenging-client",
+					URLFormat:       "https://%s/oauth/token/implicit",
+				},
+			},
+		},
+		ctx.EventRecorder,
+	)
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
 		"authentication",
 		[]configv1.ObjectReference{
@@ -193,6 +227,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		kubeInformersNamespaced,
 		authOperatorConfigInformers,
 		routeInformersNamespaced,
+		oauthClientInformers,
 		configInformers,
 		resourceSyncerInformers,
 	} {
@@ -207,6 +242,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configOverridesController,
 		logLevelController,
 		routerCertsController,
+		routeController,
 		managementStateController,
 	} {
 		go controller.Run(1, ctx.Done())

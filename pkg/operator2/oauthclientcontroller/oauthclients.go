@@ -1,5 +1,6 @@
-package operator2
+package oauthclientcontroller
 
+/* ---- this is just old code, needs rework
 import (
 	"crypto/rand"
 	"encoding/base64"
@@ -8,14 +9,98 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/klog"
 
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
+
+
+const browserClientSecretByteLen = 32
+
+func defaultBrowserOAuthClient(route *routev1.Route) *oauthv1.OAuthClient {
+	return &oauthv1.OAuthClient{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: authoputil.OAuthBrowserClientName,
+		},
+		GrantMethod: oauthv1.GrantHandlerAuto,
+		Secret:      authoputil.RandomString(browserClientSecretByteLen),
+	}
+}
+
+func defaultChallengingOAuthClient(route *routev1.Route) *oauthv1.OAuthClient {
+	return &oauthv1.OAuthClient{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: authoputil.OAuthChallengingClientName,
+		},
+		GrantMethod:           oauthv1.GrantHandlerAuto,
+		RespondWithChallenges: true,
+	}
+}
+
+func (c *oauthClientsController) ensureBrowserOAuthClient(current *oauthv1.OAuthClient, route *routev1.Route) error {
+	defaultBrowserClient := defaultBrowserOAuthClient(route)
+
+	// secret is set properly, don't try to change it
+	if current != nil && len(current.Secret) == browserClientSecretByteLen {
+		defaultBrowserClient.Secret = current.Secret
+	}
+
+	_, _, err := ApplyOAuthClient(c.oauthClientGetter, nil, defaultBrowserClient)
+	return err
+}
+
+func (c *oauthClientsController) ensureChallengingOAuthClient(route *routev1.Route) error {
+	_, _, err := ApplyOAuthClient(c.oauthClientGetter, nil, defaultChallengingOAuthClient(route))
+	return err
+}
+
+// ApplyOAuthClient merges objectmeta. It returns the final Object, whether any change as made, and an error
+func ApplyOAuthClient(
+	client oauthclient.OAuthClientsGetter,
+	recorder events.Recorder,
+	required *oauthv1.OAuthClient,
+) (*oauthv1.OAuthClient, bool, error) {
+	existing, err := client.OAuthClients().Get(required.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		actual, err := client.OAuthClients().Create(required)
+		// resourceapply.reportCreateEvent(recorder, actual, err)
+		return actual, true, err
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	modified := resourcemerge.BoolPtr(false)
+	existingCopy := existing.DeepCopy()
+
+	resourcemerge.EnsureObjectMeta(modified, &existingCopy.ObjectMeta, required.ObjectMeta)
+	contentSame := equality.Semantic.DeepEqual(existingCopy, required)
+	if contentSame && !*modified {
+		return existingCopy, false, nil
+	}
+
+	objectMeta := existingCopy.ObjectMeta.DeepCopy()
+	existingCopy = required.DeepCopy()
+	existingCopy.ObjectMeta = *objectMeta
+
+	if klog.V(4) {
+		klog.Infof("OAuthClient %q changes: %v", required.Name, resourceapply.JSONPatch(existing, existingCopy))
+	}
+
+	actual, err := client.OAuthClients().Update(existingCopy)
+	// reportUpdateEvent(recorder, required, err)
+
+	return actual, true, err
+}
+
 // ensureBootstrappedOAuthClients creates or updates the bootstrap oauth clients that openshift relies upon.
-func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) error {
+func (c *oauthClientsController) ensureBootstrappedOAuthClients(masterPublicURL string) error {
 	browserClient := oauthv1.OAuthClient{
 		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
 		Secret:                random256BitsString(),
@@ -101,3 +186,4 @@ func random256BitsString() string {
 	// 32 bytes (256 bits) = 43 base64-encoded characters
 	return randomBitsString(256)
 }
+*/

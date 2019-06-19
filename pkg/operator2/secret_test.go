@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"testing"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+
+	authoputil "github.com/openshift/cluster-authentication-operator/pkg/util"
 )
 
 func TestRandomString(t *testing.T) {
@@ -12,8 +14,8 @@ func TestRandomString(t *testing.T) {
 		size := size // capture range variable
 		t.Run(strconv.FormatInt(int64(size), 10), func(t *testing.T) {
 			t.Parallel()
-			if got := randomString(size); len(got) != size {
-				t.Errorf("randomString() -> len=%v, want len=%v, diff=%v", len(got), size, len(got)-size)
+			if got := authoputil.RandomString(size); len(got) != size {
+				t.Errorf("RandomString() -> len=%v, want len=%v, diff=%v", len(got), size, len(got)-size)
 			}
 		})
 	}

@@ -39,6 +39,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	authopclient "github.com/openshift/cluster-authentication-operator/pkg/operatorclient"
 )
 
 const (
@@ -64,7 +66,7 @@ func init() {
 }
 
 type authOperator struct {
-	authOperatorConfigClient OperatorClient
+	authOperatorConfigClient authopclient.OperatorClient
 
 	versionGetter status.VersionGetter
 	recorder      events.Recorder
@@ -93,7 +95,7 @@ type authOperator struct {
 }
 
 func NewAuthenticationOperator(
-	authOpConfigClient OperatorClient,
+	authOpConfigClient authopclient.OperatorClient,
 	oauthClientClient oauthclient.OauthV1Interface,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
@@ -231,8 +233,8 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed getting the ingress config: %v", err)
 	}
 
-	route, routerSecret, reason, err := c.handleRoute(ingress)
-	handleDegradedWithReason(operatorConfig, "RouteStatus", reason, err)
+	route, routerSecret, _, err := c.handleRoute(ingress)
+	// handleDegradedWithReason(operatorConfig, "RouteStatus", reason, err) // FIXME: sometimes we may still want to report degraded
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
@@ -301,9 +303,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 4: deployment
 	// ==================================
 
-	if err := c.ensureBootstrappedOAuthClients("https://" + route.Spec.Host); err != nil {
-		return err
-	}
+	// FIXME:
+	// if err := c.ensureBootstrappedOAuthClients("https://" + route.Spec.Host); err != nil {
+	// 	return err
+	// }
 
 	proxyConfig := c.handleProxyConfig()
 	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
