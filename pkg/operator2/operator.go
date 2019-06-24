@@ -390,6 +390,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 4: deployment
 	// ==================================
 
+	if err := c.ensureBootstrappedOAuthClients("https://" + route.Spec.Host); err != nil {
+		return err
+	}
+
 	operatorDeployment, err := c.deployments.Deployments(targetNamespaceOperator).Get(targetNameOperator, metav1.GetOptions{})
 	if err != nil {
 		return err

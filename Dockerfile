@@ -1,9 +1,9 @@
-FROM registry.svc.ci.openshift.org/openshift/release:golang-1.10 AS builder
+FROM registry.svc.ci.openshift.org/openshift/release:golang-1.12 AS builder
 WORKDIR /go/src/github.com/openshift/cluster-authentication-operator
 COPY . .
 RUN go build -tags="ocp" -o authentication-operator ./cmd/authentication-operator
 
-FROM registry.svc.ci.openshift.org/openshift/origin-v4.0:base
+FROM registry.svc.ci.openshift.org/openshift/origin-v4.2:base
 COPY --from=builder /go/src/github.com/openshift/cluster-authentication-operator/authentication-operator /usr/bin/
 COPY manifests /manifests
 ENTRYPOINT ["/usr/bin/authentication-operator"]
