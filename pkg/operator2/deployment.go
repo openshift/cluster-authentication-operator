@@ -108,8 +108,8 @@ func defaultDeployment(
 							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
 							Name:            targetName,
 							Command: []string{
-								"hypershift",
-								"openshift-osinserver",
+								"oauth-server",
+								"osinserver",
 								fmt.Sprintf("--config=%s", cliConfigPath),
 								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)),
 							},
