@@ -19,8 +19,11 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/loglevel"
+	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
+	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -153,6 +156,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		ctx.EventRecorder,
 	)
 
+	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, ctx.EventRecorder)
+	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, ctx.EventRecorder)
+	// TODO remove this controller once we support Unmanaged and Removed
+	managementStateController := management.NewOperatorManagementStateController(clusterOperatorName, operatorClient, ctx.EventRecorder)
+	// TODO move to config observers
+	// configobserver.NewConfigObserver(...)
+
 	for _, informer := range []interface {
 		Start(stopCh <-chan struct{})
 	}{
@@ -165,9 +175,19 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informer.Start(ctx.Done())
 	}
 
+	for _, controller := range []interface {
+		Run(workers int, stopCh <-chan struct{})
+	}{
+		resourceSyncer,
+		clusterOperatorStatus,
+		configOverridesController,
+		logLevelController,
+		managementStateController,
+	} {
+		go controller.Run(1, ctx.Done())
+	}
+
 	go operator.Run(ctx.Done())
-	go resourceSyncer.Run(1, ctx.Done())
-	go clusterOperatorStatus.Run(1, ctx.Done())
 
 	<-ctx.Done()
 

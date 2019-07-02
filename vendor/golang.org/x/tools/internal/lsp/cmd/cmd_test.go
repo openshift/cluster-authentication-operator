@@ -49,6 +49,15 @@ func (r *runner) Completion(t *testing.T, data tests.Completions, snippets tests
 func (r *runner) Highlight(t *testing.T, data tests.Highlights) {
 	//TODO: add command line highlight tests when it works
 }
+
+func (r *runner) Reference(t *testing.T, data tests.References) {
+	//TODO: add command line references tests when it works
+}
+
+func (r *runner) Rename(t *testing.T, data tests.Renames) {
+	//TODO: add command line rename tests when it works
+}
+
 func (r *runner) Symbol(t *testing.T, data tests.Symbols) {
 	//TODO: add command line symbol tests when it works
 }
@@ -59,6 +68,10 @@ func (r *runner) SignatureHelp(t *testing.T, data tests.Signatures) {
 
 func (r *runner) Link(t *testing.T, data tests.Links) {
 	//TODO: add command line link tests when it works
+}
+
+func (r *runner) Import(t *testing.T, data tests.Imports) {
+	//TODO: add command line imports tests when it works
 }
 
 func captureStdOut(t testing.TB, f func()) string {

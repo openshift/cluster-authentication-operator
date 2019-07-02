@@ -12,6 +12,7 @@ import (
 	"path"
 
 	"golang.org/x/tools/internal/jsonrpc2"
+	"golang.org/x/tools/internal/lsp/debug"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
 	"golang.org/x/tools/internal/span"
@@ -25,12 +26,17 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 	}
 	s.isInitialized = true // mark server as initialized now
 
-	// TODO(iancottrell): Change this default to protocol.Incremental and remove the option
-	s.textDocumentSyncKind = protocol.Full
+	// TODO: Remove the option once we are certain there are no issues here.
+	s.textDocumentSyncKind = protocol.Incremental
 	if opts, ok := params.InitializationOptions.(map[string]interface{}); ok {
-		if opt, ok := opts["incrementalSync"].(bool); ok && opt {
-			s.textDocumentSyncKind = protocol.Incremental
+		if opt, ok := opts["noIncrementalSync"].(bool); ok && opt {
+			s.textDocumentSyncKind = protocol.Full
 		}
+	}
+
+	s.supportedCodeActions = map[protocol.CodeActionKind]bool{
+		protocol.SourceOrganizeImports: true,
+		protocol.QuickFix:              true,
 	}
 
 	s.setClientCapabilities(params.Capabilities)
@@ -68,12 +74,17 @@ func (s *Server) initialize(ctx context.Context, params *protocol.InitializePara
 			HoverProvider:              true,
 			DocumentHighlightProvider:  true,
 			DocumentLinkProvider:       &protocol.DocumentLinkOptions{},
+			ReferencesProvider:         true,
+			RenameProvider:             true,
 			SignatureHelpProvider: &protocol.SignatureHelpOptions{
 				TriggerCharacters: []string{"(", ","},
 			},
 			TextDocumentSync: &protocol.TextDocumentSyncOptions{
 				Change:    s.textDocumentSyncKind,
 				OpenClose: true,
+				Save: &protocol.SaveOptions{
+					IncludeText: false,
+				},
 			},
 			TypeDefinitionProvider: true,
 			Workspace: &struct {
@@ -140,7 +151,7 @@ func (s *Server) initialized(ctx context.Context, params *protocol.InitializedPa
 		}
 	}
 	buf := &bytes.Buffer{}
-	PrintVersionInfo(buf, true, false)
+	debug.PrintVersionInfo(buf, true, debug.PlainText)
 	s.session.Logger().Infof(ctx, "%s", buf)
 	return nil
 }
@@ -166,13 +177,42 @@ func (s *Server) processConfig(view source.View, config interface{}) error {
 		}
 		view.SetEnv(env)
 	}
+	// Get the build flags for the go/packages config.
+	if buildFlags := c["buildFlags"]; buildFlags != nil {
+		iflags, ok := buildFlags.([]interface{})
+		if !ok {
+			return fmt.Errorf("invalid config gopls.buildFlags type %T", buildFlags)
+		}
+		flags := make([]string, 0, len(iflags))
+		for _, flag := range iflags {
+			flags = append(flags, fmt.Sprintf("%s", flag))
+		}
+		view.SetBuildFlags(flags)
+	}
 	// Check if placeholders are enabled.
 	if usePlaceholders, ok := c["usePlaceholders"].(bool); ok {
 		s.usePlaceholders = usePlaceholders
 	}
-	// Check if user has disabled documentation on hover.
+	// Check if the user has disabled documentation on hover.
 	if noDocsOnHover, ok := c["noDocsOnHover"].(bool); ok {
 		s.noDocsOnHover = noDocsOnHover
+	}
+	// Check if the user wants to see suggested fixes from go/analysis.
+	if wantSuggestedFixes, ok := c["wantSuggestedFixes"].(bool); ok {
+		s.wantSuggestedFixes = wantSuggestedFixes
+	}
+	// Check if the user has explicitly disabled any analyses.
+	if disabledAnalyses, ok := c["experimentalDisabledAnalyses"].([]interface{}); ok {
+		s.disabledAnalyses = make(map[string]struct{})
+		for _, a := range disabledAnalyses {
+			if a, ok := a.(string); ok {
+				s.disabledAnalyses[a] = struct{}{}
+			}
+		}
+	}
+	// Check if deep completions are enabled.
+	if useDeepCompletions, ok := c["useDeepCompletions"].(bool); ok {
+		s.useDeepCompletions = useDeepCompletions
 	}
 	return nil
 }
