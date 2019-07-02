@@ -6,7 +6,7 @@ spec:
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-cluster-authentication-operator:v4.0
-  - name: hypershift
+  - name: oauth-server
     from:
       kind: DockerImage
-      name: quay.io/openshift/origin-hypershift:v4.0
+      name: quay.io/openshift/origin-oauth-server:v4.2
