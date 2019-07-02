@@ -23,17 +23,20 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 		return nil, nil, err
 	}
 
+	host := getCanonicalHost(route, ingress)
+	if len(host) == 0 {
+		// be careful not to print route.spec as it many contain secrets
+		return nil, nil, fmt.Errorf("route is not available at canonical host %s: %+v", ingressToHost(ingress), route.Status.Ingress)
+	}
+
 	// assume it is unsafe to mutate route in case we go to a shared informer in the future
 	// this way everything else can just assume route.Spec.Host is correct
 	// note that we are not updating route.Spec.Host in the API - that value is nonsense to us
 	route = route.DeepCopy()
-	route.Spec.Host = getCanonicalHost(route, ingress)
-
-	if len(route.Spec.Host) == 0 {
-		return nil, nil, fmt.Errorf("route has no host: %#v", route)
-	}
+	route.Spec.Host = host
 
 	if err := isValidRoute(route, ingress); err != nil {
+		// TODO remove this delete so that we do not lose the early creation timestamp of our route
 		// delete the route so that it is replaced with the proper one in next reconcile loop
 		klog.Infof("deleting invalid route: %#v", route)
 		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &route.UID}}
@@ -48,7 +51,8 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 		return nil, nil, err
 	}
 	if len(routerSecret.Data) == 0 {
-		return nil, nil, fmt.Errorf("router secret is empty: %#v", routerSecret)
+		// be careful not to print the routerSecret even when it is empty
+		return nil, nil, fmt.Errorf("router secret %s/%s is empty", routerSecret.Namespace, routerSecret.Name)
 	}
 
 	return route, routerSecret, nil
