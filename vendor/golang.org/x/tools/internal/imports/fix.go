@@ -13,7 +13,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path"
@@ -246,6 +245,12 @@ type pass struct {
 
 // loadPackageNames saves the package names for everything referenced by imports.
 func (p *pass) loadPackageNames(imports []*importInfo) error {
+	if p.env.Debug {
+		p.env.Logf("loading package names for %v packages", len(imports))
+		defer func() {
+			p.env.Logf("done loading package names for %v packages", len(imports))
+		}()
+	}
 	var unknown []string
 	for _, imp := range imports {
 		if _, ok := p.knownPackages[imp.importPath]; ok {
@@ -313,7 +318,7 @@ func (p *pass) load() bool {
 		err := p.loadPackageNames(append(imports, p.candidates...))
 		if err != nil {
 			if p.env.Debug {
-				log.Printf("loading package names: %v", err)
+				p.env.Logf("loading package names: %v", err)
 			}
 			return false
 		}
@@ -443,7 +448,7 @@ func fixImportsDefault(fset *token.FileSet, f *ast.File, filename string, env *P
 	}
 	srcDir := filepath.Dir(abs)
 	if env.Debug {
-		log.Printf("fixImports(filename=%q), abs=%q, srcDir=%q ...", filename, abs, srcDir)
+		env.Logf("fixImports(filename=%q), abs=%q, srcDir=%q ...", filename, abs, srcDir)
 	}
 
 	// First pass: looking only at f, and using the naive algorithm to
@@ -512,6 +517,9 @@ type ProcessEnv struct {
 	// If true, use go/packages regardless of the environment.
 	ForceGoPackages bool
 
+	// Logf is the default logger for the ProcessEnv.
+	Logf func(format string, args ...interface{})
+
 	resolver resolver
 }
 
@@ -539,14 +547,17 @@ func (e *ProcessEnv) getResolver() resolver {
 		return e.resolver
 	}
 	if e.ForceGoPackages {
-		return &goPackagesResolver{env: e}
+		e.resolver = &goPackagesResolver{env: e}
+		return e.resolver
 	}
 
 	out, err := e.invokeGo("env", "GOMOD")
 	if err != nil || len(bytes.TrimSpace(out.Bytes())) == 0 {
-		return &gopathResolver{env: e}
+		e.resolver = &gopathResolver{env: e}
+		return e.resolver
 	}
-	return &moduleResolver{env: e}
+	e.resolver = &moduleResolver{env: e}
+	return e.resolver
 }
 
 func (e *ProcessEnv) newPackagesConfig(mode packages.LoadMode) *packages.Config {
@@ -574,7 +585,7 @@ func (e *ProcessEnv) invokeGo(args ...string) (*bytes.Buffer, error) {
 	cmd.Dir = e.WorkingDir
 
 	if e.Debug {
-		defer func(start time.Time) { log.Printf("%s for %v", time.Since(start), cmdDebugStr(cmd)) }(time.Now())
+		defer func(start time.Time) { e.Logf("%s for %v", time.Since(start), cmdDebugStr(cmd)) }(time.Now())
 	}
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("running go: %v (stderr:\n%s)", err, stderr)
@@ -699,7 +710,7 @@ func addExternalCandidates(pass *pass, refs references, filename string) error {
 		go func(pkgName string, symbols map[string]bool) {
 			defer wg.Done()
 
-			found, err := findImport(ctx, pass.env, dirScan, pkgName, symbols, filename)
+			found, err := findImport(ctx, pass, dirScan, pkgName, symbols, filename)
 
 			if err != nil {
 				firstErrOnce.Do(func() {
@@ -940,7 +951,7 @@ func VendorlessPath(ipath string) string {
 // It returns nil on error or if the package name in dir does not match expectPackage.
 func loadExports(ctx context.Context, env *ProcessEnv, expectPackage string, pkg *pkg) (map[string]bool, error) {
 	if env.Debug {
-		log.Printf("loading exports in dir %s (seeking package %s)", pkg.dir, expectPackage)
+		env.Logf("loading exports in dir %s (seeking package %s)", pkg.dir, expectPackage)
 	}
 	if pkg.goPackage != nil {
 		exports := map[string]bool{}
@@ -1018,14 +1029,14 @@ func loadExports(ctx context.Context, env *ProcessEnv, expectPackage string, pkg
 			exportList = append(exportList, k)
 		}
 		sort.Strings(exportList)
-		log.Printf("loaded exports in dir %v (package %v): %v", pkg.dir, expectPackage, strings.Join(exportList, ", "))
+		env.Logf("loaded exports in dir %v (package %v): %v", pkg.dir, expectPackage, strings.Join(exportList, ", "))
 	}
 	return exports, nil
 }
 
 // findImport searches for a package with the given symbols.
 // If no package is found, findImport returns ("", false, nil)
-func findImport(ctx context.Context, env *ProcessEnv, dirScan []*pkg, pkgName string, symbols map[string]bool, filename string) (*pkg, error) {
+func findImport(ctx context.Context, pass *pass, dirScan []*pkg, pkgName string, symbols map[string]bool, filename string) (*pkg, error) {
 	pkgDir, err := filepath.Abs(filename)
 	if err != nil {
 		return nil, err
@@ -1035,7 +1046,12 @@ func findImport(ctx context.Context, env *ProcessEnv, dirScan []*pkg, pkgName st
 	// Find candidate packages, looking only at their directory names first.
 	var candidates []pkgDistance
 	for _, pkg := range dirScan {
-		if pkg.dir != pkgDir && pkgIsCandidate(filename, pkgName, pkg) {
+		if pkg.dir == pkgDir && pass.f.Name.Name == pkgName {
+			// The candidate is in the same directory and has the
+			// same package name. Don't try to import ourselves.
+			continue
+		}
+		if pkgIsCandidate(filename, pkgName, pkg) {
 			candidates = append(candidates, pkgDistance{
 				pkg:      pkg,
 				distance: distance(pkgDir, pkg.dir),
@@ -1048,9 +1064,9 @@ func findImport(ctx context.Context, env *ProcessEnv, dirScan []*pkg, pkgName st
 	// ones.  Note that this sorts by the de-vendored name, so
 	// there's no "penalty" for vendoring.
 	sort.Sort(byDistanceOrImportPathShortLength(candidates))
-	if env.Debug {
+	if pass.env.Debug {
 		for i, c := range candidates {
-			log.Printf("%s candidate %d/%d: %v in %v", pkgName, i+1, len(candidates), c.pkg.importPathShort, c.pkg.dir)
+			pass.env.Logf("%s candidate %d/%d: %v in %v", pkgName, i+1, len(candidates), c.pkg.importPathShort, c.pkg.dir)
 		}
 	}
 
@@ -1087,10 +1103,10 @@ func findImport(ctx context.Context, env *ProcessEnv, dirScan []*pkg, pkgName st
 					wg.Done()
 				}()
 
-				exports, err := loadExports(ctx, env, pkgName, c.pkg)
+				exports, err := loadExports(ctx, pass.env, pkgName, c.pkg)
 				if err != nil {
-					if env.Debug {
-						log.Printf("loading exports in dir %s (seeking package %s): %v", c.pkg.dir, pkgName, err)
+					if pass.env.Debug {
+						pass.env.Logf("loading exports in dir %s (seeking package %s): %v", c.pkg.dir, pkgName, err)
 					}
 					resc <- nil
 					return
