@@ -82,9 +82,7 @@ func (c *authOperator) handleOAuthConfig(
 			},
 		)
 	}
-	if err := v1helpers.NewMultiLineAggregate(errsIDP); err != nil {
-		setDegradedTrue(operatorConfig, "IdentityProviderConfigError", err.Error())
-	}
+	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 
