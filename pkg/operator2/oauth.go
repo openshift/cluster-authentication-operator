@@ -25,6 +25,7 @@ func (c *authOperator) handleOAuthConfig(
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
+	apiServerConfig *configv1.APIServer,
 ) (
 	*configv1.OAuth,
 	*corev1.ConfigMap,
@@ -85,6 +86,7 @@ func (c *authOperator) handleOAuthConfig(
 	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
+	corsAllowedOrigins = append(corsAllowedOrigins, apiServerConfig.Spec.AdditionalCORSAllowedOrigins...)
 
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
