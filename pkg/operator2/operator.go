@@ -244,7 +244,6 @@ func (c *authOperator) Key() (metav1.Object, error) {
 func (c *authOperator) Sync(obj metav1.Object) error {
 	operatorConfig := obj.(*operatorv1.Authentication)
 
-	// TODO bump and use IsOperatorManaged
 	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
