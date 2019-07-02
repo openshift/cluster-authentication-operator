@@ -1,5 +1,5 @@
 hash: 169d53ac0fd2d2b4af5b2bdbfe5eff4ac28861c4e25ab3e7a3461ea4991f1d68
-updated: 2019-07-01T23:12:28.778407479-04:00
+updated: 2019-07-02T17:29:14.448407999-04:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -170,7 +170,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 44f2eba96faa042c0f0adccba439acceae12e549
+  version: 49f610c1a3a8461a9d0623ad35fa08d943b12c68
   subpackages:
   - apps
   - apps/v1
@@ -249,7 +249,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: 16a370625b52c7958783b8f74de58317236da6b4
+  version: f50acf57535978566801b0ef935b6142594ba6e2
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -353,7 +353,7 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: 38ae2c8f64122bd595b7f93f968a6686cd27bb5a
+  version: 44aeb8b7c377f1eed68ac06f687821c6658c65a2
   subpackages:
   - imports
 - name: google.golang.org/appengine
