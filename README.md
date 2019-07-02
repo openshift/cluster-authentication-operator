@@ -38,3 +38,5 @@ spec:
 ```
 oc login -u testuser -p testpasswd
 ```
+## License 
+Apache License Version 2.0
