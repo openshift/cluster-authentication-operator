@@ -172,6 +172,7 @@ type authOperator struct {
 	console        configv1client.ConsoleInterface
 	infrastructure configv1client.InfrastructureInterface
 	ingress        configv1client.IngressInterface
+	apiserver      configv1client.APIServerInterface
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -210,6 +211,7 @@ func NewAuthenticationOperator(
 		console:        configClient.ConfigV1().Consoles(),
 		infrastructure: configClient.ConfigV1().Infrastructures(),
 		ingress:        configClient.ConfigV1().Ingresses(),
+		apiserver:      configClient.ConfigV1().APIServers(),
 
 		resourceSyncer: resourceSyncer,
 	}
@@ -235,6 +237,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
 		operator.WithInformer(configV1Informers.Infrastructures(), configNameFilter, controller.WithNoSync()),
 		operator.WithInformer(configV1Informers.Ingresses(), configNameFilter, controller.WithNoSync()),
+		operator.WithInformer(configV1Informers.APIServers(), configNameFilter, controller.WithNoSync()),
 	)
 }
 
@@ -369,7 +372,10 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	infrastructureConfig := c.handleInfrastructureConfig()
 	resourceVersions = append(resourceVersions, infrastructureConfig.GetResourceVersion())
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig)
+	apiServerConfig := c.handleAPIServerConfig()
+	resourceVersions = append(resourceVersions, apiServerConfig.GetResourceVersion())
+
+	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
