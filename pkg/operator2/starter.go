@@ -158,8 +158,9 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, ctx.EventRecorder)
 	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, ctx.EventRecorder)
-	// TODO remove this controller once we support Unmanaged and Removed
+	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController(clusterOperatorName, operatorClient, ctx.EventRecorder)
+	management.SetOperatorNotRemovable()
 	// TODO move to config observers
 	// configobserver.NewConfigObserver(...)
 
