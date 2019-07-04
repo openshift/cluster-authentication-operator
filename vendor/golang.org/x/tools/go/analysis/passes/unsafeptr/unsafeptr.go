@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package unsafeptr defines an Analyzer that checks for invalid
-// conversions of uintptr to unsafe.Pointer.
 package unsafeptr
 
 import (
@@ -16,17 +14,9 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-const Doc = `check for invalid conversions of uintptr to unsafe.Pointer
-
-The unsafeptr analyzer reports likely incorrect uses of unsafe.Pointer
-to convert integers to pointers. A conversion from uintptr to
-unsafe.Pointer is invalid if it implies that there is a uintptr-typed
-word in memory that holds a pointer value, because that word will be
-invisible to stack copying and to the garbage collector.`
-
 var Analyzer = &analysis.Analyzer{
 	Name:     "unsafeptr",
-	Doc:      Doc,
+	Doc:      "check for invalid conversions of uintptr to unsafe.Pointer",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
@@ -62,28 +52,28 @@ func isSafeUintptr(info *types.Info, x ast.Expr) bool {
 		return isSafeUintptr(info, x.X)
 
 	case *ast.SelectorExpr:
-		if x.Sel.Name != "Data" {
-			break
-		}
-		// reflect.SliceHeader and reflect.StringHeader are okay,
-		// but only if they are pointing at a real slice or string.
-		// It's not okay to do:
-		//	var x SliceHeader
-		//	x.Data = uintptr(unsafe.Pointer(...))
-		//	... use x ...
-		//	p := unsafe.Pointer(x.Data)
-		// because in the middle the garbage collector doesn't
-		// see x.Data as a pointer and so x.Data may be dangling
-		// by the time we get to the conversion at the end.
-		// For now approximate by saying that *Header is okay
-		// but Header is not.
-		pt, ok := info.Types[x.X].Type.(*types.Pointer)
-		if ok {
-			t, ok := pt.Elem().(*types.Named)
-			if ok && t.Obj().Pkg().Path() == "reflect" {
-				switch t.Obj().Name() {
-				case "StringHeader", "SliceHeader":
-					return true
+		switch x.Sel.Name {
+		case "Data":
+			// reflect.SliceHeader and reflect.StringHeader are okay,
+			// but only if they are pointing at a real slice or string.
+			// It's not okay to do:
+			//	var x SliceHeader
+			//	x.Data = uintptr(unsafe.Pointer(...))
+			//	... use x ...
+			//	p := unsafe.Pointer(x.Data)
+			// because in the middle the garbage collector doesn't
+			// see x.Data as a pointer and so x.Data may be dangling
+			// by the time we get to the conversion at the end.
+			// For now approximate by saying that *Header is okay
+			// but Header is not.
+			pt, ok := info.Types[x.X].Type.(*types.Pointer)
+			if ok {
+				t, ok := pt.Elem().(*types.Named)
+				if ok && t.Obj().Pkg().Path() == "reflect" {
+					switch t.Obj().Name() {
+					case "StringHeader", "SliceHeader":
+						return true
+					}
 				}
 			}
 		}

@@ -20,20 +20,14 @@ func Validate(analyzers []*Analyzer) error {
 	factTypes := make(map[reflect.Type]*Analyzer)
 
 	// Traverse the Requires graph, depth first.
-	const (
-		white = iota
-		grey
-		black
-		finished
-	)
-	color := make(map[*Analyzer]uint8)
+	color := make(map[*Analyzer]uint8) // 0=white 1=grey 2=black
 	var visit func(a *Analyzer) error
 	visit = func(a *Analyzer) error {
 		if a == nil {
 			return fmt.Errorf("nil *Analyzer")
 		}
-		if color[a] == white {
-			color[a] = grey
+		if color[a] == 0 { // white
+			color[a] = 1 // grey
 
 			// names
 			if !validIdent(a.Name) {
@@ -70,7 +64,7 @@ func Validate(analyzers []*Analyzer) error {
 					return fmt.Errorf("%s.Requires[%d]: %v", a.Name, i, err)
 				}
 			}
-			color[a] = black
+			color[a] = 2 // black
 		}
 
 		return nil
@@ -79,16 +73,6 @@ func Validate(analyzers []*Analyzer) error {
 		if err := visit(a); err != nil {
 			return err
 		}
-	}
-
-	// Reject duplicates among analyzers.
-	// Precondition:  color[a] == black.
-	// Postcondition: color[a] == finished.
-	for _, a := range analyzers {
-		if color[a] == finished {
-			return fmt.Errorf("duplicate analyzer: %s", a.Name)
-		}
-		color[a] = finished
 	}
 
 	return nil

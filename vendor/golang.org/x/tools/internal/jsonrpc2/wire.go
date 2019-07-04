@@ -28,14 +28,10 @@ const (
 	CodeInvalidParams = -32602
 	// CodeInternalError is not currently returned but defined for completeness.
 	CodeInternalError = -32603
-
-	//CodeServerOverloaded is returned when a message was refused due to a
-	//server being temporarily unable to accept any new messages.
-	CodeServerOverloaded = -32000
 )
 
-// wireRequest is sent to a server to represent a Call or Notify operaton.
-type wireRequest struct {
+// Request is sent to a server to represent a Call or Notify operaton.
+type Request struct {
 	// VersionTag is always encoded as the string "2.0"
 	VersionTag VersionTag `json:"jsonrpc"`
 	// Method is a string containing the method name to invoke.
@@ -48,11 +44,11 @@ type wireRequest struct {
 	ID *ID `json:"id,omitempty"`
 }
 
-// wireResponse is a reply to a Request.
+// Response is a reply to a Request.
 // It will always have the ID field set to tie it back to a request, and will
 // have either the Result or Error fields set depending on whether it is a
 // success or failure response.
-type wireResponse struct {
+type Response struct {
 	// VersionTag is always encoded as the string "2.0"
 	VersionTag VersionTag `json:"jsonrpc"`
 	// Result is the response value, and is required on success.
@@ -87,6 +83,11 @@ type ID struct {
 	Number int64
 }
 
+// IsNotify returns true if this request is a notification.
+func (r *Request) IsNotify() bool {
+	return r.ID == nil
+}
+
 func (err *Error) Error() string {
 	if err == nil {
 		return ""
@@ -113,9 +114,6 @@ func (VersionTag) UnmarshalJSON(data []byte) error {
 // The representation is non ambiguous, string forms are quoted, number forms
 // are preceded by a #
 func (id *ID) String() string {
-	if id == nil {
-		return ""
-	}
 	if id.Name != "" {
 		return strconv.Quote(id.Name)
 	}

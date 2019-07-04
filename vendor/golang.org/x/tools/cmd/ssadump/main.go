@@ -131,7 +131,7 @@ func doMain() error {
 	}
 
 	// Create SSA-form program representation.
-	prog, pkgs := ssautil.AllPackages(initial, mode)
+	prog, pkgs := ssautil.Packages(initial, mode)
 
 	for i, p := range pkgs {
 		if p == nil {

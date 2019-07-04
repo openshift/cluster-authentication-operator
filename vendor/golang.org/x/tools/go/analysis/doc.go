@@ -3,6 +3,10 @@
 The analysis package defines the interface between a modular static
 analysis and an analysis driver program.
 
+
+THIS INTERFACE IS EXPERIMENTAL AND SUBJECT TO CHANGE.
+We aim to finalize it by November 2018.
+
 Background
 
 A static analysis is a function that inspects a package of Go code and
@@ -68,17 +72,15 @@ To add a new Analyzer to an existing driver, add another item to the list:
 
 A driver may use the name, flags, and documentation to provide on-line
 help that describes the analyses its performs.
-The doc comment contains a brief one-line summary,
-optionally followed by paragraphs of explanation.
-The vet command, shown below, is an example of a driver that runs
+The "analyze" command, shown below, is an example of a driver that runs
 multiple analyzers. It is based on the multichecker package
 (see the "Standalone commands" section for details).
 
-	$ go build golang.org/x/tools/go/analysis/cmd/vet
-	$ ./vet help
-	vet is a tool for static analysis of Go programs.
+	$ go build golang.org/x/tools/cmd/analyze
+	$ ./analyze help
+	Analyze is a tool for static analysis of Go programs.
 
-	Usage: vet [-flag] [package]
+	Usage: analyze [-flag] [package]
 
 	Registered analyzers:
 
@@ -88,7 +90,7 @@ multiple analyzers. It is based on the multichecker package
 	    ...
 	    unusedresult check for unused results of calls to some functions
 
-	$ ./vet help unusedresult
+	$ ./analyze help unusedresult
 	unusedresult: check for unused results of calls to some functions
 
 	Analyzer flags:
@@ -203,18 +205,6 @@ Diagnostic is defined as:
 The optional Category field is a short identifier that classifies the
 kind of message when an analysis produces several kinds of diagnostic.
 
-Most Analyzers inspect typed Go syntax trees, but a few, such as asmdecl
-and buildtag, inspect the raw text of Go source files or even non-Go
-files such as assembly. To report a diagnostic against a line of a
-raw text file, use the following sequence:
-
-	content, err := ioutil.ReadFile(filename)
-	if err != nil { ... }
-	tf := fset.AddFile(filename, -1, len(content))
-	tf.SetLinesForContent(content)
-	...
-	pass.Reportf(tf.LineStart(line), "oops")
-
 
 Modular analysis with Facts
 
@@ -246,7 +236,7 @@ An Analyzer that uses facts must declare their types:
 
 	var Analyzer = &analysis.Analyzer{
 		Name:       "printf",
-		FactTypes: []analysis.Fact{new(isWrapper)},
+		FactTypes: []reflect.Type{reflect.TypeOf(new(isWrapper))},
 		...
 	}
 
@@ -283,16 +273,6 @@ pointed to by fact. This scheme assumes that the concrete type of fact
 is a pointer; this assumption is checked by the Validate function.
 See the "printf" analyzer for an example of object facts in action.
 
-Some driver implementations (such as those based on Bazel and Blaze) do
-not currently apply analyzers to packages of the standard library.
-Therefore, for best results, analyzer authors should not rely on
-analysis facts being available for standard packages.
-For example, although the printf checker is capable of deducing during
-analysis of the log package that log.Printf is a printf-wrapper,
-this fact is built in to the analyzer so that it correctly checks
-calls to log.Printf even when run in a driver that does not apply
-it to standard packages. We plan to remove this limitation in future.
-
 
 Testing an Analyzer
 
@@ -306,14 +286,14 @@ diagnostics and facts (and no more). Expectations are expressed using
 Standalone commands
 
 Analyzers are provided in the form of packages that a driver program is
-expected to import. The vet command imports a set of several analyzers,
+expected to import. The vet command imports a set of several analyses,
 but users may wish to define their own analysis commands that perform
 additional checks. To simplify the task of creating an analysis command,
 either for a single analyzer or for a whole suite, we provide the
 singlechecker and multichecker subpackages.
 
 The singlechecker package provides the main function for a command that
-runs one analyzer. By convention, each analyzer such as
+runs one analysis. By convention, each analyzer such as
 go/passes/findcall should be accompanied by a singlechecker-based
 command such as go/analysis/passes/findcall/cmd/findcall, defined in its
 entirety as:

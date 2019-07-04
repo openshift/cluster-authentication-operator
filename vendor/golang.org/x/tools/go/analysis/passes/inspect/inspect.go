@@ -2,17 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package inspect defines an Analyzer that provides an AST inspector
+// Package inspect is an analysis that provides an AST inspector
 // (golang.org/x/tools/go/ast/inspect.Inspect) for the syntax trees of a
 // package. It is only a building block for other analyzers.
 //
 // Example of use in another analysis:
 //
-//	import (
-//		"golang.org/x/tools/go/analysis"
-//		"golang.org/x/tools/go/analysis/passes/inspect"
-//		"golang.org/x/tools/go/ast/inspector"
-//	)
+//	import "golang.org/x/tools/go/analysis/passes/inspect"
 //
 //	var Analyzer = &analysis.Analyzer{
 //		...
