@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package stdmethods defines an Analyzer that checks for misspellings
-// in the signatures of methods similar to well-known interfaces.
 package stdmethods
 
 import (
+	"bytes"
+	"fmt"
 	"go/ast"
+	"go/printer"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -16,7 +18,9 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-const Doc = `check signature of methods of well-known interfaces
+var Analyzer = &analysis.Analyzer{
+	Name: "stdmethods",
+	Doc: `check signature of methods of well-known interfaces
 
 Sometimes a type may be intended to satisfy an interface but may fail to
 do so because of a mistake in its method signature.
@@ -35,11 +39,7 @@ Checked method names include:
 	Peek ReadByte ReadFrom ReadRune Scan Seek
 	UnmarshalJSON UnreadByte UnreadRune WriteByte
 	WriteTo
-`
-
-var Analyzer = &analysis.Analyzer{
-	Name:     "stdmethods",
-	Doc:      Doc,
+`,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
@@ -91,12 +91,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch n := n.(type) {
 		case *ast.FuncDecl:
 			if n.Recv != nil {
-				canonicalMethod(pass, n.Name)
+				canonicalMethod(pass, n.Name, n.Type)
 			}
 		case *ast.InterfaceType:
 			for _, field := range n.Methods.List {
 				for _, id := range field.Names {
-					canonicalMethod(pass, id)
+					canonicalMethod(pass, id, field.Type.(*ast.FuncType))
 				}
 			}
 		}
@@ -104,7 +104,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-func canonicalMethod(pass *analysis.Pass, id *ast.Ident) {
+func canonicalMethod(pass *analysis.Pass, id *ast.Ident, t *ast.FuncType) {
 	// Expected input/output.
 	expect, ok := canonicalMethods[id.Name]
 	if !ok {
@@ -112,15 +112,10 @@ func canonicalMethod(pass *analysis.Pass, id *ast.Ident) {
 	}
 
 	// Actual input/output
-	sign := pass.TypesInfo.Defs[id].Type().(*types.Signature)
-	args := sign.Params()
-	results := sign.Results()
-
-	// Special case: WriteTo with more than one argument,
-	// not trying at all to implement io.WriterTo,
-	// comes up often enough to skip.
-	if id.Name == "WriteTo" && args.Len() > 1 {
-		return
+	args := typeFlatten(t.Params.List)
+	var results []ast.Expr
+	if t.Results != nil {
+		results = typeFlatten(t.Results.List)
 	}
 
 	// Do the =s (if any) all match?
@@ -137,16 +132,16 @@ func canonicalMethod(pass *analysis.Pass, id *ast.Ident) {
 			expectFmt += " (" + argjoin(expect.results) + ")"
 		}
 
-		actual := typeString(sign)
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, pass.Fset, t); err != nil {
+			fmt.Fprintf(&buf, "<%s>", err)
+		}
+		actual := buf.String()
 		actual = strings.TrimPrefix(actual, "func")
 		actual = id.Name + actual
 
 		pass.Reportf(id.Pos(), "method %s should have signature %s", actual, expectFmt)
 	}
-}
-
-func typeString(typ types.Type) string {
-	return types.TypeString(typ, (*types.Package).Name)
 }
 
 func argjoin(x []string) string {
@@ -160,28 +155,53 @@ func argjoin(x []string) string {
 	return strings.Join(y, ", ")
 }
 
+// Turn parameter list into slice of types
+// (in the ast, types are Exprs).
+// Have to handle f(int, bool) and f(x, y, z int)
+// so not a simple 1-to-1 conversion.
+func typeFlatten(l []*ast.Field) []ast.Expr {
+	var t []ast.Expr
+	for _, f := range l {
+		if len(f.Names) == 0 {
+			t = append(t, f.Type)
+			continue
+		}
+		for range f.Names {
+			t = append(t, f.Type)
+		}
+	}
+	return t
+}
+
 // Does each type in expect with the given prefix match the corresponding type in actual?
-func matchParams(pass *analysis.Pass, expect []string, actual *types.Tuple, prefix string) bool {
+func matchParams(pass *analysis.Pass, expect []string, actual []ast.Expr, prefix string) bool {
 	for i, x := range expect {
 		if !strings.HasPrefix(x, prefix) {
 			continue
 		}
-		if i >= actual.Len() {
+		if i >= len(actual) {
 			return false
 		}
-		if !matchParamType(x, actual.At(i).Type()) {
+		if !matchParamType(pass.Fset, pass.Pkg, x, actual[i]) {
 			return false
 		}
 	}
-	if prefix == "" && actual.Len() > len(expect) {
+	if prefix == "" && len(actual) > len(expect) {
 		return false
 	}
 	return true
 }
 
 // Does this one type match?
-func matchParamType(expect string, actual types.Type) bool {
+func matchParamType(fset *token.FileSet, pkg *types.Package, expect string, actual ast.Expr) bool {
 	expect = strings.TrimPrefix(expect, "=")
+	// Strip package name if we're in that package.
+	if n := len(pkg.Name()); len(expect) > n && expect[:n] == pkg.Name() && expect[n] == '.' {
+		expect = expect[n+1:]
+	}
+
 	// Overkill but easy.
-	return typeString(actual) == expect
+	var buf bytes.Buffer
+	printer.Fprint(&buf, fset, actual)
+	return buf.String() == expect
 }

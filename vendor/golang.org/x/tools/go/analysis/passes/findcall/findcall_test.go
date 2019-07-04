@@ -1,7 +1,3 @@
-// Copyright 2018 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package findcall_test
 
 import (
@@ -11,16 +7,11 @@ import (
 	"golang.org/x/tools/go/analysis/passes/findcall"
 )
 
-func init() {
-	findcall.Analyzer.Flags.Set("name", "println")
-}
-
 // TestFromStringLiterals demonstrates how to test an analysis using
 // a table of string literals for each test case.
 //
 // Such tests are typically quite compact.
 func TestFromStringLiterals(t *testing.T) {
-
 	for _, test := range [...]struct {
 		desc    string
 		pkgpath string

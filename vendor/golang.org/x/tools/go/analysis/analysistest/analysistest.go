@@ -184,6 +184,7 @@ func check(t Testing, gopath string, pass *analysis.Pass, diagnostics []analysis
 
 	// Extract 'want' comments from Go files.
 	for _, f := range pass.Files {
+		filename := sanitize(gopath, pass.Fset.File(f.Pos()).Name())
 		for _, cgroup := range f.Comments {
 			for _, c := range cgroup.List {
 
@@ -200,19 +201,13 @@ func check(t Testing, gopath string, pass *analysis.Pass, diagnostics []analysis
 					text = text[i+len("// "):]
 				}
 
-				// It's tempting to compute the filename
-				// once outside the loop, but it's
-				// incorrect because it can change due
-				// to //line directives.
-				posn := pass.Fset.Position(c.Pos())
-				filename := sanitize(gopath, posn.Filename)
-				processComment(filename, posn.Line, text)
+				linenum := pass.Fset.Position(c.Pos()).Line
+				processComment(filename, linenum, text)
 			}
 		}
 	}
 
 	// Extract 'want' comments from non-Go files.
-	// TODO(adonovan): we may need to handle //line directives.
 	for _, filename := range pass.OtherFiles {
 		data, err := ioutil.ReadFile(filename)
 		if err != nil {
@@ -257,16 +252,12 @@ func check(t Testing, gopath string, pass *analysis.Pass, diagnostics []analysis
 
 	// Check the diagnostics match expectations.
 	for _, f := range diagnostics {
-		// TODO(matloob): Support ranges in analysistest.
 		posn := pass.Fset.Position(f.Pos)
 		checkMessage(posn, "diagnostic", "", f.Message)
 	}
 
 	// Check the facts match expectations.
 	// Report errors in lexical order for determinism.
-	// (It's only deterministic within each file, not across files,
-	// because go/packages does not guarantee file.Pos is ascending
-	// across the files of a single compilation unit.)
 	var objects []types.Object
 	for obj := range facts {
 		objects = append(objects, obj)
@@ -294,12 +285,6 @@ func check(t Testing, gopath string, pass *analysis.Pass, diagnostics []analysis
 	}
 
 	// Reject surplus expectations.
-	//
-	// Sometimes an Analyzer reports two similar diagnostics on a
-	// line with only one expectation. The reader may be confused by
-	// the error message.
-	// TODO(adonovan): print a better error:
-	// "got 2 diagnostics here; each one needs its own expectation".
 	var surplus []string
 	for key, expects := range want {
 		for _, exp := range expects {

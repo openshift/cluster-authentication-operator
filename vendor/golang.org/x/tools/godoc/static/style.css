@@ -6,11 +6,6 @@ body {
 	text-align: center;
 	color: #222;
 }
-textarea {
-	/* Inherit text color from body avoiding illegible text in the case where the
- 	* user has inverted the browsers custom text and background colors. */
-	color: inherit;
-}
 pre,
 code {
 	font-family: Menlo, monospace;
@@ -50,18 +45,6 @@ pre .ln {
    * for more information. */
 	display: inline-block;
 	width: 8ch;
-}
-
-.search-nav{
-	margin-left: 1.25rem;
-	font-size: 0.875rem;
-	column-gap: 1.25rem;
-	column-fill: auto;
-	column-width: 14rem;
-}
-
-.search-nav .indent {
-	margin-left: 1.25rem;
 }
 
 a,
@@ -778,11 +761,6 @@ a.error {
 @media (max-width: 43.75em) {
 	body {
 		font-size: 0.9375rem;
-	}
-
-	div#playground {
-		left: 0;
-		right: 0;
 	}
 
 	pre,

@@ -14,6 +14,16 @@
 //				(idea is if you say import "compress/zlib", you go to
 //				http://godoc/pkg/compress/zlib)
 //
+// Command-line interface:
+//
+//	godoc packagepath [name ...]
+//
+//	godoc compress/zlib
+//		- prints doc for package compress/zlib
+//	godoc crypto/block Cipher NewCMAC
+//		- prints doc for Cipher and NewCMAC in package crypto/block
+
+// +build !golangorg
 
 package main
 
@@ -70,7 +80,7 @@ var (
 	// layout control
 	showTimestamps = flag.Bool("timestamps", false, "show timestamps with directory listings")
 	templateDir    = flag.String("templates", "", "load templates/JS/CSS from disk in this directory")
-	showPlayground = flag.Bool("play", false, "enable playground")
+	showPlayground = flag.Bool("play", false, "enable playground in web interface")
 	declLinks      = flag.Bool("links", true, "link identifiers to their declarations")
 
 	// search index
@@ -92,7 +102,7 @@ type httpResponseRecorder struct {
 }
 
 func (w *httpResponseRecorder) Header() http.Header         { return w.header }
-func (w *httpResponseRecorder) Write(b []byte) (int, error) { return w.body.Write(b) }
+func (w *httpResponseRecorder) Write(b []byte) (int, error) { return len(b), nil }
 func (w *httpResponseRecorder) WriteHeader(code int)        { w.code = code }
 
 func usage() {
@@ -161,13 +171,15 @@ func main() {
 
 	playEnabled = *showPlayground
 
-	// Check usage.
-	if flag.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, `Unexpected arguments. Use "go doc" for command-line help output instead. For example, "go doc fmt.Printf".`)
+	// Check usage: server and no args.
+	if (*httpAddr != "" || *urlFlag != "") && (flag.NArg() > 0) {
+		fmt.Fprintln(os.Stderr, "Unexpected arguments.")
 		usage()
 	}
-	if *httpAddr == "" && *urlFlag == "" && !*writeIndex {
-		fmt.Fprintln(os.Stderr, "At least one of -http, -url, or -write_index must be set to a non-zero value.")
+
+	// Check usage: command line args or index creation mode.
+	if (*httpAddr != "" || *urlFlag != "") != (flag.NArg() == 0) && !*writeIndex {
+		fmt.Fprintln(os.Stderr, "missing args.")
 		usage()
 	}
 
@@ -226,13 +238,11 @@ func main() {
 	corpus.IndexDirectory = indexDirectoryDefault
 	corpus.IndexThrottle = *indexThrottle
 	corpus.IndexInterval = *indexInterval
-	if *writeIndex || *urlFlag != "" {
+	if *writeIndex {
 		corpus.IndexThrottle = 1.0
 		corpus.IndexEnabled = true
-		initCorpus(corpus)
-	} else {
-		go initCorpus(corpus)
 	}
+	go initCorpus(corpus)
 
 	// Initialize the version info before readTemplates, which saves
 	// the map value in a method value.
