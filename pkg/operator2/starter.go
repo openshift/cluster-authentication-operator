@@ -18,6 +18,7 @@ import (
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/legacyconditions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
@@ -137,6 +138,11 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		resourceSyncer,
 	)
 
+	legacyConditions := legacyconditions.NewLegacyConditions(
+		operatorClient,
+		operatorv1.OperatorStatusTypeDegraded,
+	)
+
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
 		clusterOperatorName,
 		[]configv1.ObjectReference{
@@ -189,6 +195,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	go operator.Run(ctx.Done())
+	go legacyConditions.Run(ctx.Done())
 
 	<-ctx.Done()
 
