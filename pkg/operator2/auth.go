@@ -1,6 +1,8 @@
 package operator2
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -8,12 +10,8 @@ import (
 )
 
 // FIXME: we need to handle Authentication config object properly, namely:
-// - honor Type field being set to none and don't create the OSIN
-//   deployment in that case
 // - the OAuthMetadata settings should be better respected in the code,
 //   currently there is no special handling around it (see configmap.go).
-// - the WebhookTokenAuthenticators field is currently not being handled
-//   anywhere
 //
 // Note that the configMap from the reference in the OAuthMetadata field is
 // used to fill the data in the /.well-known/oauth-authorization-server
@@ -32,8 +30,19 @@ func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error)
 		return nil, err
 	}
 
-	expectedReference := configv1.ConfigMapNameReference{
-		Name: targetName,
+	var expectedReference configv1.ConfigMapNameReference
+	switch authConfigNoDefaults.Spec.Type {
+	case configv1.AuthenticationTypeNone:
+		expectedReference = configv1.ConfigMapNameReference{
+			Name: "",
+		}
+		if len(authConfigNoDefaults.Spec.WebhookTokenAuthenticators) == 0 {
+			return nil, fmt.Errorf("authentication type set to None but no WebhookAuthenticators specified")
+		}
+	default:
+		expectedReference = configv1.ConfigMapNameReference{
+			Name: targetName,
+		}
 	}
 
 	if authConfigNoDefaults.Status.IntegratedOAuthMetadata == expectedReference {
