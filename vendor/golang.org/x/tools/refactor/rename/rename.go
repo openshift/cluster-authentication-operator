@@ -363,6 +363,7 @@ func loadProgram(ctxt *build.Context, pkgs map[string]bool) (*loader.Program, er
 		// TODO(adonovan): enable this.  Requires making a lot of code more robust!
 		AllowErrors: false,
 	}
+
 	// Optimization: don't type-check the bodies of functions in our
 	// dependencies, since we only need exported package members.
 	conf.TypeCheckFuncBodies = func(p string) bool {
@@ -394,7 +395,6 @@ func loadProgram(ctxt *build.Context, pkgs map[string]bool) (*loader.Program, er
 	if err != nil {
 		return nil, err
 	}
-
 	var errpkgs []string
 	// Report hard errors in indirectly imported packages.
 	for _, info := range prog.AllPackages {
@@ -455,9 +455,9 @@ func (r *renamer) update() error {
 	// We use token.File, not filename, since a file may appear to
 	// belong to multiple packages and be parsed more than once.
 	// token.File captures this distinction; filename does not.
-
 	var nidents int
 	var filesToUpdate = make(map[*token.File]bool)
+
 	docRegexp := regexp.MustCompile(`\b` + r.from + `\b`)
 	for _, info := range r.packages {
 		// Mutate the ASTs and note the filenames.
@@ -484,21 +484,7 @@ func (r *renamer) update() error {
 		}
 	}
 
-	// Renaming not supported if cgo files are affected.
-	var generatedFileNames []string
-	for _, info := range r.packages {
-		for _, f := range info.Files {
-			tokenFile := r.iprog.Fset.File(f.Pos())
-			if filesToUpdate[tokenFile] && generated(f, tokenFile) {
-				generatedFileNames = append(generatedFileNames, tokenFile.Name())
-			}
-		}
-	}
-	if !Force && len(generatedFileNames) > 0 {
-		return fmt.Errorf("refusing to modify generated file%s containing DO NOT EDIT marker: %v", plural(len(generatedFileNames)), generatedFileNames)
-	}
-
-	// Write affected files.
+	// TODO(adonovan): don't rewrite cgo + generated files.
 	var nerrs, npkgs int
 	for _, info := range r.packages {
 		first := true

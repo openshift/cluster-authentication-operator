@@ -5,6 +5,7 @@
 /* A little code to ease navigation of these documents.
  *
  * On window load we:
+ *  + Bind search box hint placeholder show/hide events (bindSearchEvents)
  *  + Generate a table of contents (generateTOC)
  *  + Bind foldable sections (bindToggles)
  *  + Bind links to foldable sections (bindToggleLinks)
@@ -25,6 +26,34 @@ $(function() {
     return false;
   });
 });
+
+function bindSearchEvents() {
+
+  var search = $('#search');
+  if (search.length === 0) {
+    return; // no search box
+  }
+
+  function clearInactive() {
+    if (search.is('.inactive')) {
+      search.val('');
+      search.removeClass('inactive');
+    }
+  }
+
+  function restoreInactive() {
+    if (search.val() !== '') {
+      return;
+    }
+    search.val(search.attr('placeholder'));
+    search.addClass('inactive');
+  }
+
+  search.on('focus', clearInactive);
+  search.on('blur', restoreInactive);
+
+  restoreInactive();
+}
 
 /* Generates a table of contents: looks for h2 and h3 elements and generates
  * links. "Decorates" the element with id=="nav" with this table of contents.
@@ -149,6 +178,7 @@ function setupDropdownPlayground() {
     button.removeClass('active');
     div.hide();
   });
+  button.show();
   $('#menu').css('min-width', '+=60');
 }
 
@@ -179,7 +209,7 @@ function setupInlinePlayground() {
 			code.on('keyup', resize);
 			code.keyup(); // resize now.
 		};
-
+		
 		// If example already visible, set up playground now.
 		if ($(el).is(':visible')) {
 			setup();
@@ -252,13 +282,13 @@ function personalizeInstallInstructions() {
 
   var filename = s.substr(prefix.length);
   var filenameRE = /^go1\.\d+(\.\d+)?([a-z0-9]+)?\.([a-z0-9]+)(-[a-z0-9]+)?(-osx10\.[68])?\.([a-z.]+)$/;
+  $('.downloadFilename').text(filename);
+  $('.hideFromDownload').hide();
   var m = filenameRE.exec(filename);
   if (!m) {
     // Can't interpret file name; bail.
     return;
   }
-  $('.downloadFilename').text(filename);
-  $('.hideFromDownload').hide();
 
   var os = m[3];
   var ext = m[6];
@@ -283,7 +313,7 @@ function personalizeInstallInstructions() {
     $('.testWindows').show();
   }
 
-  var download = "https://dl.google.com/go/" + filename;
+  var download = "https://storage.googleapis.com/golang/" + filename;
 
   var message = $('<p class="downloading">'+
     'Your download should begin shortly. '+
@@ -328,29 +358,8 @@ function addPermalinks() {
   });
 }
 
-$(".js-expandAll").click(function() {
-  if ($(this).hasClass("collapsed")) {
-    toggleExamples('toggle');
-    $(this).text("(Collapse All)");
-  } else {
-    toggleExamples('toggleVisible');
-    $(this).text("(Expand All)");
-  }
-  $(this).toggleClass("collapsed")
-});
-
-function toggleExamples(className) {
-  // We need to explicitly iterate through divs starting with "example_"
-  // to avoid toggling Overview and Index collapsibles.
-  $("[id^='example_']").each(function() {
-    // Check for state and click it only if required.
-    if ($(this).hasClass(className)) {
-      $(this).find('.toggleButton').first().click();
-    }
-  });
-}
-
 $(document).ready(function() {
+  bindSearchEvents();
   generateTOC();
   addPermalinks();
   bindToggles(".toggle");

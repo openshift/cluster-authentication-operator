@@ -8,6 +8,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,6 +24,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/acme/autocert"
 )
 
 const (
@@ -34,16 +37,7 @@ const (
 var startTime = time.Now()
 
 var (
-	autoCertDomain      = flag.String("autocert", "", "if non-empty, listen on port 443 and serve a LetsEncrypt cert for this hostname")
-	autoCertCacheBucket = flag.String("autocert-bucket", "", "if non-empty, the Google Cloud Storage bucket in which to store the LetsEncrypt cache")
-)
-
-// Hooks that are set non-nil in cert.go if the "autocert" build tag
-// is used.
-var (
-	certInit    func()
-	runHTTPS    func(http.Handler) error
-	wrapHTTPMux func(http.Handler) http.Handler
+	autoCertDomain = flag.String("autocert", "", "if non-empty, listen on port 443 and serve a LetsEncrypt cert for this hostname")
 )
 
 func main() {
@@ -60,34 +54,31 @@ func main() {
 		log.Fatalf("Unknown %v value: %q", k, os.Getenv(k))
 	}
 
-	if certInit != nil {
-		certInit()
-	}
-
 	p := &Proxy{builder: b}
 	go p.run()
 	mux := newServeMux(p)
 
 	log.Printf("Starting up tip server for builder %q", os.Getenv(k))
 
-	errc := make(chan error, 1)
+	errc := make(chan error)
 
 	go func() {
-		var httpMux http.Handler = mux
-		if wrapHTTPMux != nil {
-			httpMux = wrapHTTPMux(httpMux)
-		}
-		errc <- http.ListenAndServe(":8080", httpMux)
+		errc <- http.ListenAndServe(":8080", mux)
 	}()
 	if *autoCertDomain != "" {
-		if runHTTPS == nil {
-			errc <- errors.New("can't use --autocert without building binary with the autocert build tag")
-		} else {
-			go func() {
-				errc <- runHTTPS(mux)
-			}()
-		}
 		log.Printf("Listening on port 443 with LetsEncrypt support on domain %q", *autoCertDomain)
+		m := autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(*autoCertDomain),
+		}
+		s := &http.Server{
+			Addr:      ":https",
+			Handler:   mux,
+			TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},
+		}
+		go func() {
+			errc <- s.ListenAndServeTLS("", "")
+		}()
 	}
 	if err := <-errc; err != nil {
 		p.stop()
@@ -324,7 +315,6 @@ var timeoutClient = &http.Client{Timeout: 10 * time.Second}
 func gerritMetaMap() map[string]string {
 	res, err := timeoutClient.Get(metaURL)
 	if err != nil {
-		log.Printf("Error getting Gerrit meta map: %v", err)
 		return nil
 	}
 	defer res.Body.Close()
@@ -408,7 +398,7 @@ func (h httpsOnlyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Appengine-Https") == "on" || r.Header.Get("X-Forwarded-Proto") == "https" ||
 		(!isProxiedReq(r) && r.TLS != nil) {
 		// Only set this header when we're actually in production.
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; preload")
 	}
 	h.h.ServeHTTP(w, r)
 }

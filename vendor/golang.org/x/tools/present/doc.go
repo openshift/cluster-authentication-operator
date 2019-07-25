@@ -62,7 +62,7 @@ After that come slides/sections, each after a blank line:
 	.iframe http://foo
 	.link http://foo label
 	.html file.html
-	.caption _Gopher_ by [[https://www.instagram.com/reneefrench/][Renée French]]
+	.caption _Gopher_ by [[http://www.reneefrench.com][Renée French]]
 
 	Again, more text
 
@@ -84,6 +84,10 @@ else be at the end of a line. Unmatched markers appear as plain text.
 There must be no spaces between markers. Within marked text,
 a single marker character becomes a space and a doubled single
 marker quotes the marker character.
+
+at the beginning of a line or
+else be preceded by a space or punctuation; similarly a closing
+marker must be at the end of the lineo
 
 	_italic_
 	*bold*
@@ -117,7 +121,7 @@ a file name followed by an optional address that specifies what
 section of the file to display. The address syntax is similar in
 its simplest form to that of ed, but comes from sam and is more
 general. See
-	https://plan9.io/sys/doc/sam/sam.html Table II
+	http://plan9.bell-labs.com/sys/doc/sam/sam.html Table II
 for full details. The displayed block is always rounded out to a
 full line at both ends.
 
@@ -224,7 +228,7 @@ html:
 The function html includes the contents of the specified file as
 unescaped HTML. This is useful for including custom HTML elements
 that cannot be created using only the slide format.
-It is your responsibility to make sure the included HTML is valid and safe.
+It is your responsibilty to make sure the included HTML is valid and safe.
 
 	.html file.html
 

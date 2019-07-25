@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// This is a verbatim copy of $GOROOT/src/go/internal/gccgoimporter/parser.go
-// with a small modification in parseInterface to support older Go versions.
-
 package gccgoimporter
+
+// This is a verbatim copy of $GOROOT/src/go/internal/gccgoimporter/parser.go.
 
 import (
 	"bytes"
@@ -29,7 +28,7 @@ type parser struct {
 	pkgname  string                    // name of imported package
 	pkg      *types.Package            // reference to imported package
 	imports  map[string]*types.Package // package path -> package object
-	typeList []types.Type              // type number -> type
+	typeMap  map[int]types.Type        // type number -> type
 	initdata InitData                  // package init priority data
 }
 
@@ -41,7 +40,7 @@ func (p *parser) init(filename string, src io.Reader, imports map[string]*types.
 	p.scanner.Filename = filename // for good error messages
 	p.next()
 	p.imports = imports
-	p.typeList = make([]types.Type, 1 /* type numbers start at 1 */, 16)
+	p.typeMap = make(map[int]types.Type)
 }
 
 type importError struct {
@@ -229,14 +228,6 @@ func (p *parser) parseField(pkg *types.Package) (field *types.Var, tag string) {
 // Param = Name ["..."] Type .
 func (p *parser) parseParam(pkg *types.Package) (param *types.Var, isVariadic bool) {
 	name := p.parseName()
-	if p.tok == '<' && p.scanner.Peek() == 'e' {
-		// EscInfo = "<esc:" int ">" . (optional and ignored)
-		p.next()
-		p.expectKeyword("esc")
-		p.expect(':')
-		p.expect(scanner.Int)
-		p.expect('>')
-	}
 	if p.tok == '.' {
 		p.next()
 		p.expect('.')
@@ -381,80 +372,52 @@ func (p *parser) parseConst(pkg *types.Package) *types.Const {
 	return types.NewConst(token.NoPos, pkg, name, typ, val)
 }
 
-// reserved is a singleton type used to fill type map slots that have
-// been reserved (i.e., for which a type number has been parsed) but
-// which don't have their actual type yet. When the type map is updated,
-// the actual type must replace a reserved entry (or we have an internal
-// error). Used for self-verification only - not required for correctness.
-var reserved = new(struct{ types.Type })
-
-// reserve reserves the type map entry n for future use.
-func (p *parser) reserve(n int) {
-	if n != len(p.typeList) {
-		p.errorf("invalid type number %d (out of sync)", n)
-	}
-	p.typeList = append(p.typeList, reserved)
-}
-
-// update sets the type map entries for the given type numbers nlist to t.
-func (p *parser) update(t types.Type, nlist []int) {
-	for _, n := range nlist {
-		if p.typeList[n] != reserved {
-			p.errorf("typeMap[%d] not reserved", n)
-		}
-		p.typeList[n] = t
-	}
-}
-
 // NamedType = TypeName [ "=" ] Type { Method } .
 // TypeName  = ExportedName .
 // Method    = "func" "(" Param ")" Name ParamList ResultList ";" .
-func (p *parser) parseNamedType(nlist []int) types.Type {
+func (p *parser) parseNamedType(n int) types.Type {
 	pkg, name := p.parseExportedName()
 	scope := pkg.Scope()
-	obj := scope.Lookup(name)
-	if obj != nil && obj.Type() == nil {
-		p.errorf("%v has nil type", obj)
-	}
 
-	// type alias
 	if p.tok == '=' {
+		// type alias
 		p.next()
-		if obj != nil {
-			// use the previously imported (canonical) type
-			t := obj.Type()
-			p.update(t, nlist)
-			p.parseType(pkg) // discard
-			return t
+		typ := p.parseType(pkg)
+		if obj := scope.Lookup(name); obj != nil {
+			typ = obj.Type() // use previously imported type
+			if typ == nil {
+				p.errorf("%v (type alias) used in cycle", obj)
+			}
+		} else {
+			obj = types.NewTypeName(token.NoPos, pkg, name, typ)
+			scope.Insert(obj)
 		}
-		t := p.parseType(pkg, nlist...)
-		obj = types.NewTypeName(token.NoPos, pkg, name, t)
-		scope.Insert(obj)
-		return t
+		p.typeMap[n] = typ
+		return typ
 	}
 
-	// defined type
+	// named type
+	obj := scope.Lookup(name)
 	if obj == nil {
-		// A named type may be referred to before the underlying type
-		// is known - set it up.
+		// a named type may be referred to before the underlying type
+		// is known - set it up
 		tname := types.NewTypeName(token.NoPos, pkg, name, nil)
 		types.NewNamed(tname, nil, nil)
 		scope.Insert(tname)
 		obj = tname
 	}
 
-	// use the previously imported (canonical), or newly created type
-	t := obj.Type()
-	p.update(t, nlist)
+	typ := obj.Type()
+	p.typeMap[n] = typ
 
-	nt, ok := t.(*types.Named)
+	nt, ok := typ.(*types.Named)
 	if !ok {
 		// This can happen for unsafe.Pointer, which is a TypeName holding a Basic type.
 		pt := p.parseType(pkg)
-		if pt != t {
+		if pt != typ {
 			p.error("unexpected underlying type for non-named TypeName")
 		}
-		return t
+		return typ
 	}
 
 	underlying := p.parseType(pkg)
@@ -480,70 +443,41 @@ func (p *parser) parseNamedType(nlist []int) types.Type {
 	return nt
 }
 
-func (p *parser) parseInt64() int64 {
+func (p *parser) parseInt() int64 {
 	lit := p.expect(scanner.Int)
-	n, err := strconv.ParseInt(lit, 10, 64)
+	n, err := strconv.ParseInt(lit, 10, 0)
 	if err != nil {
 		p.error(err)
 	}
 	return n
 }
 
-func (p *parser) parseInt() int {
-	lit := p.expect(scanner.Int)
-	n, err := strconv.ParseInt(lit, 10, 0 /* int */)
-	if err != nil {
-		p.error(err)
-	}
-	return int(n)
-}
-
 // ArrayOrSliceType = "[" [ int ] "]" Type .
-func (p *parser) parseArrayOrSliceType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parseArrayOrSliceType(pkg *types.Package) types.Type {
 	p.expect('[')
 	if p.tok == ']' {
 		p.next()
-
-		t := new(types.Slice)
-		p.update(t, nlist)
-
-		*t = *types.NewSlice(p.parseType(pkg))
-		return t
+		return types.NewSlice(p.parseType(pkg))
 	}
 
-	t := new(types.Array)
-	p.update(t, nlist)
-
-	len := p.parseInt64()
+	n := p.parseInt()
 	p.expect(']')
-
-	*t = *types.NewArray(p.parseType(pkg), len)
-	return t
+	return types.NewArray(p.parseType(pkg), n)
 }
 
 // MapType = "map" "[" Type "]" Type .
-func (p *parser) parseMapType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parseMapType(pkg *types.Package) types.Type {
 	p.expectKeyword("map")
-
-	t := new(types.Map)
-	p.update(t, nlist)
-
 	p.expect('[')
 	key := p.parseType(pkg)
 	p.expect(']')
 	elem := p.parseType(pkg)
-
-	*t = *types.NewMap(key, elem)
-	return t
+	return types.NewMap(key, elem)
 }
 
 // ChanType = "chan" ["<-" | "-<"] Type .
-func (p *parser) parseChanType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parseChanType(pkg *types.Package) types.Type {
 	p.expectKeyword("chan")
-
-	t := new(types.Chan)
-	p.update(t, nlist)
-
 	dir := types.SendRecv
 	switch p.tok {
 	case '-':
@@ -560,16 +494,12 @@ func (p *parser) parseChanType(pkg *types.Package, nlist []int) types.Type {
 		}
 	}
 
-	*t = *types.NewChan(dir, p.parseType(pkg))
-	return t
+	return types.NewChan(dir, p.parseType(pkg))
 }
 
 // StructType = "struct" "{" { Field } "}" .
-func (p *parser) parseStructType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parseStructType(pkg *types.Package) types.Type {
 	p.expectKeyword("struct")
-
-	t := new(types.Struct)
-	p.update(t, nlist)
 
 	var fields []*types.Var
 	var tags []string
@@ -583,8 +513,7 @@ func (p *parser) parseStructType(pkg *types.Package, nlist []int) types.Type {
 	}
 	p.expect('}')
 
-	*t = *types.NewStruct(fields, tags)
-	return t
+	return types.NewStruct(fields, tags)
 }
 
 // ParamList = "(" [ { Parameter "," } Parameter ] ")" .
@@ -627,15 +556,10 @@ func (p *parser) parseResultList(pkg *types.Package) *types.Tuple {
 }
 
 // FunctionType = ParamList ResultList .
-func (p *parser) parseFunctionType(pkg *types.Package, nlist []int) *types.Signature {
-	t := new(types.Signature)
-	p.update(t, nlist)
-
+func (p *parser) parseFunctionType(pkg *types.Package) *types.Signature {
 	params, isVariadic := p.parseParamList(pkg)
 	results := p.parseResultList(pkg)
-
-	*t = *types.NewSignature(nil, params, results, isVariadic)
-	return t
+	return types.NewSignature(nil, params, results, isVariadic)
 }
 
 // Func = Name FunctionType .
@@ -647,24 +571,21 @@ func (p *parser) parseFunc(pkg *types.Package) *types.Func {
 		p.discardDirectiveWhileParsingTypes(pkg)
 		return nil
 	}
-	return types.NewFunc(token.NoPos, pkg, name, p.parseFunctionType(pkg, nil))
+	return types.NewFunc(token.NoPos, pkg, name, p.parseFunctionType(pkg))
 }
 
 // InterfaceType = "interface" "{" { ("?" Type | Func) ";" } "}" .
-func (p *parser) parseInterfaceType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parseInterfaceType(pkg *types.Package) types.Type {
 	p.expectKeyword("interface")
 
-	t := new(types.Interface)
-	p.update(t, nlist)
-
 	var methods []*types.Func
-	var embeddeds []types.Type
+	var typs []*types.Named
 
 	p.expect('{')
 	for p.tok != '}' && p.tok != scanner.EOF {
 		if p.tok == '?' {
 			p.next()
-			embeddeds = append(embeddeds, p.parseType(pkg))
+			typs = append(typs, p.parseType(pkg).(*types.Named))
 		} else {
 			method := p.parseFunc(pkg)
 			methods = append(methods, method)
@@ -673,61 +594,53 @@ func (p *parser) parseInterfaceType(pkg *types.Package, nlist []int) types.Type 
 	}
 	p.expect('}')
 
-	*t = *newInterface(methods, embeddeds)
-	return t
+	return types.NewInterface(methods, typs)
 }
 
 // PointerType = "*" ("any" | Type) .
-func (p *parser) parsePointerType(pkg *types.Package, nlist []int) types.Type {
+func (p *parser) parsePointerType(pkg *types.Package) types.Type {
 	p.expect('*')
 	if p.tok == scanner.Ident {
 		p.expectKeyword("any")
-		t := types.Typ[types.UnsafePointer]
-		p.update(t, nlist)
-		return t
+		return types.Typ[types.UnsafePointer]
 	}
-
-	t := new(types.Pointer)
-	p.update(t, nlist)
-
-	*t = *types.NewPointer(p.parseType(pkg))
-
-	return t
+	return types.NewPointer(p.parseType(pkg))
 }
 
-// TypeSpec = NamedType | MapType | ChanType | StructType | InterfaceType | PointerType | ArrayOrSliceType | FunctionType .
-func (p *parser) parseTypeSpec(pkg *types.Package, nlist []int) types.Type {
+// TypeDefinition = NamedType | MapType | ChanType | StructType | InterfaceType | PointerType | ArrayOrSliceType | FunctionType .
+func (p *parser) parseTypeDefinition(pkg *types.Package, n int) types.Type {
+	var t types.Type
 	switch p.tok {
 	case scanner.String:
-		return p.parseNamedType(nlist)
+		t = p.parseNamedType(n)
 
 	case scanner.Ident:
 		switch p.lit {
 		case "map":
-			return p.parseMapType(pkg, nlist)
+			t = p.parseMapType(pkg)
 
 		case "chan":
-			return p.parseChanType(pkg, nlist)
+			t = p.parseChanType(pkg)
 
 		case "struct":
-			return p.parseStructType(pkg, nlist)
+			t = p.parseStructType(pkg)
 
 		case "interface":
-			return p.parseInterfaceType(pkg, nlist)
+			t = p.parseInterfaceType(pkg)
 		}
 
 	case '*':
-		return p.parsePointerType(pkg, nlist)
+		t = p.parsePointerType(pkg)
 
 	case '[':
-		return p.parseArrayOrSliceType(pkg, nlist)
+		t = p.parseArrayOrSliceType(pkg)
 
 	case '(':
-		return p.parseFunctionType(pkg, nlist)
+		t = p.parseFunctionType(pkg)
 	}
 
-	p.errorf("expected type name or literal, got %s", scanner.TokenString(p.tok))
-	return nil
+	p.typeMap[n] = t
+	return t
 }
 
 const (
@@ -781,36 +694,29 @@ func lookupBuiltinType(typ int) types.Type {
 	}[typ]
 }
 
-// Type = "<" "type" ( "-" int | int [ TypeSpec ] ) ">" .
-//
-// parseType updates the type map to t for all type numbers n.
-//
-func (p *parser) parseType(pkg *types.Package, n ...int) (t types.Type) {
+// Type = "<" "type" ( "-" int | int [ TypeDefinition ] ) ">" .
+func (p *parser) parseType(pkg *types.Package) (t types.Type) {
 	p.expect('<')
 	p.expectKeyword("type")
 
 	switch p.tok {
 	case scanner.Int:
-		n1 := p.parseInt()
+		n := p.parseInt()
+
 		if p.tok == '>' {
-			t = p.typeList[n1]
-			if t == reserved {
-				p.errorf("invalid type cycle, type %d not yet defined", n1)
-			}
-			p.update(t, n)
+			t = p.typeMap[int(n)]
 		} else {
-			p.reserve(n1)
-			t = p.parseTypeSpec(pkg, append(n, n1))
+			t = p.parseTypeDefinition(pkg, int(n))
 		}
 
 	case '-':
 		p.next()
-		n1 := p.parseInt()
-		t = lookupBuiltinType(n1)
-		p.update(t, n)
+		n := p.parseInt()
+		t = lookupBuiltinType(int(n))
 
 	default:
 		p.errorf("expected type number, got %s (%q)", scanner.TokenString(p.tok), p.lit)
+		return nil
 	}
 
 	p.expect('>')
@@ -823,7 +729,7 @@ func (p *parser) parsePackageInit() PackageInit {
 	initfunc := p.parseUnquotedString()
 	priority := -1
 	if p.version == "v1" {
-		priority = p.parseInt()
+		priority = int(p.parseInt())
 	}
 	return PackageInit{Name: name, InitFunc: initfunc, Priority: priority}
 }
@@ -835,7 +741,7 @@ func (p *parser) discardDirectiveWhileParsingTypes(pkg *types.Package) {
 		case ';':
 			return
 		case '<':
-			p.parseType(pkg)
+			p.parseType(p.pkg)
 		case scanner.EOF:
 			p.error("unexpected EOF")
 		default:
@@ -869,7 +775,7 @@ func (p *parser) parseInitDataDirective() {
 
 	case "priority":
 		p.next()
-		p.initdata.Priority = p.parseInt()
+		p.initdata.Priority = int(p.parseInt())
 		p.expect(';')
 
 	case "init":
@@ -883,8 +789,8 @@ func (p *parser) parseInitDataDirective() {
 		p.next()
 		// The graph data is thrown away for now.
 		for p.tok != ';' && p.tok != scanner.EOF {
-			p.parseInt64()
-			p.parseInt64()
+			p.parseInt()
+			p.parseInt()
 		}
 		p.expect(';')
 
@@ -986,7 +892,7 @@ func (p *parser) parsePackage() *types.Package {
 	for p.tok != scanner.EOF {
 		p.parseDirective()
 	}
-	for _, typ := range p.typeList {
+	for _, typ := range p.typeMap {
 		if it, ok := typ.(*types.Interface); ok {
 			it.Complete()
 		}

@@ -15,12 +15,17 @@ import:
   version: origin-4.2-kubernetes-1.14.0 # pinned to get nullable patch
 - package: k8s.io/code-generator
   version: kubernetes-1.14.0
+- package: k8s.io/kube-openapi
+  version: b3a7cee44a305be0a69e1b9ac03018307287e1b0
+- package: sigs.k8s.io/structured-merge-diff
+  version: e85c7b244fd2cc57bb829d73a061f93a441e63ce
 - package: github.com/openshift/api
   version: master
 - package: github.com/openshift/client-go
   version: master
 - package: github.com/openshift/library-go
-  version: master
+  repo:    https://github.com/deads2k/library-go.git
+  version: create-operator-client
 - package: monis.app/go
   version: master
 
