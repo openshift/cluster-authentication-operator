@@ -319,6 +319,11 @@ func loadImportRestrictions(configFile string) ([]ImportRestriction, error) {
 func resolvePackage(targetPackage string) ([]Package, error) {
 	cmd := "go"
 	args := []string{"list", "-json", targetPackage}
+	// #nosec G204
+	// Ignoring gosec warning G204 because we are running a very specific
+	// command ("go list"), and not actually taking any random user input. On
+	// the other hand, this file is used for checking imports, and not used in
+	// the actual operator.
 	stdout, err := exec.Command(cmd, args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to run `%s %s`: %v\n", cmd, strings.Join(args, " "), err)

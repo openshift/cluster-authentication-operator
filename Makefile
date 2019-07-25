@@ -87,6 +87,10 @@ test-unit:
 	GOTEST_FLAGS="$(TESTFLAGS)" hack/test-go.sh $(WHAT) $(TESTS)
 .PHONY: test-unit
 
+test-sec:
+	hack/test-sec.sh
+.PHONY: test-sec
+
 # Run e2e tests.
 #
 # Args:
