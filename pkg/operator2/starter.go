@@ -14,11 +14,10 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
-	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -34,11 +33,6 @@ const (
 func RunOperator(ctx *controllercmd.ControllerContext) error {
 	// protobuf can be used with non custom resources
 	kubeClient, err := kubernetes.NewForConfig(ctx.ProtoKubeConfig)
-	if err != nil {
-		return err
-	}
-
-	authConfigClient, err := authopclient.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -64,10 +58,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informers.WithNamespace(targetNamespace),
 	)
 
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
-		authopinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
-	)
-
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
 		routeinformer.WithNamespace(targetNamespace),
 		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
@@ -84,9 +74,9 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		machineConfigNamespace,
 	)
 
-	operatorClient := &OperatorClient{
-		authOperatorConfigInformers,
-		authConfigClient.OperatorV1(),
+	operatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(ctx.KubeConfig, operatorv1.GroupVersion.WithResource("authentications"))
+	if err != nil {
+		return err
 	}
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
@@ -124,7 +114,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	versionGetter := status.NewVersionGetter()
 
 	operator := NewAuthenticationOperator(
-		*operatorClient,
+		operatorClient,
 		oauthClient.OauthV1(),
 		kubeInformersNamespaced,
 		kubeClient,
@@ -168,10 +158,10 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
-		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
 		resourceSyncerInformers,
+		dynamicInformers,
 	} {
 		informer.Start(ctx.Done())
 	}

@@ -152,7 +152,7 @@ func init() {
 }
 
 type authOperator struct {
-	authOperatorConfigClient OperatorClient
+	authOperatorConfigClient v1helpers.OperatorClient
 
 	versionGetter status.VersionGetter
 	recorder      events.Recorder
@@ -178,7 +178,7 @@ type authOperator struct {
 }
 
 func NewAuthenticationOperator(
-	authOpConfigClient OperatorClient,
+	authOpConfigClient v1helpers.OperatorClient,
 	oauthClientClient oauthclient.OauthV1Interface,
 	kubeInformersNamespaced informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
@@ -231,7 +231,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(coreInformers.Secrets(), prefixFilter),
 		operator.WithInformer(coreInformers.ConfigMaps(), prefixFilter),
 
-		operator.WithInformer(authOpConfigClient.Informers.Operator().V1().Authentications(), configNameFilter),
+		operator.WithRealInformer(authOpConfigClient.Informer(), configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),
 		operator.WithInformer(configV1Informers.Consoles(), configNameFilter, controller.WithNoSync()),
@@ -242,7 +242,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfigClient.Client.Authentications().Get(globalConfigName, metav1.GetOptions{})
+	return &metav1.ObjectMeta{Name: globalConfigName}, nil
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
