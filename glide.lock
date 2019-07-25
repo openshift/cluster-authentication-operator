@@ -1,8 +1,8 @@
-hash: 169d53ac0fd2d2b4af5b2bdbfe5eff4ac28861c4e25ab3e7a3461ea4991f1d68
-updated: 2019-07-04T12:39:09.411543263+02:00
+hash: b8811a74afe65d8fe05b8da57dc76c3eb163c80b4c81e56370c808ea3d53b209
+updated: 2019-07-25T14:51:03.390388649-04:00
 imports:
 - name: github.com/beorn7/perks
-  version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
+  version: 3a771d992973f24aa725d07868b467d1ddfceafb
   subpackages:
   - quantile
 - name: github.com/certifi/gocertifi
@@ -89,7 +89,7 @@ imports:
   - daemon
   - journal
 - name: github.com/davecgh/go-spew
-  version: 782f4967f2dc4564575ca782fe2d04090b5faca8
+  version: 8991bc29aa16c548c550c7ff78260e27b9ab7c73
   subpackages:
   - spew
 - name: github.com/emicklei/go-restful
@@ -103,15 +103,15 @@ imports:
 - name: github.com/ghodss/yaml
   version: 73d445a93680fa1a78ae23a5839bad48f32ba1ee
 - name: github.com/go-openapi/jsonpointer
-  version: ef5f0afec364d3b9396b7b77b43dbe26bf1f8004
+  version: 46af16f9f7b149af66e5d1bd010e3574dc06de98
 - name: github.com/go-openapi/jsonreference
-  version: 8483a886a90412cd6858df4ea3483dce9c8e35a3
+  version: 13c6e3589ad90f49bd3e3bbe2c2cb3d7a4142272
 - name: github.com/go-openapi/spec
-  version: 5bae59e25b21498baea7f9d46e9c147ec106a42e
+  version: 6aced65f8501fe1217321abf0749d354824ba2ff
 - name: github.com/go-openapi/swag
-  version: 5899d5c5e619fda5fa86e14795a835f473ca284c
+  version: 1d0bd113de87027671077d3c71eb3ac5d7dbba72
 - name: github.com/gogo/protobuf
-  version: 342cbe0a04158f6dcb03ca0079991a51a4248c02
+  version: 1adfc126b41513cc696b209667c8656ea7aac67c
   subpackages:
   - gogoproto
   - proto
@@ -122,7 +122,7 @@ imports:
   subpackages:
   - lru
 - name: github.com/golang/protobuf
-  version: b4deda0973fb4c70b50d226b1af49f3da59f5265
+  version: aa810b61a9c79d51363740d207bb46cf8e620ed5
   subpackages:
   - proto
   - ptypes
@@ -130,7 +130,7 @@ imports:
   - ptypes/duration
   - ptypes/timestamp
 - name: github.com/google/gofuzz
-  version: 24818f796faf91cd76ec7bddd72458fbced7a6c1
+  version: f140a6486e521aad38f5917de355cbf147cc0496
 - name: github.com/googleapis/gnostic
   version: 0c5108395e2debce0d731cf0287ddf7242066aba
   subpackages:
@@ -148,11 +148,11 @@ imports:
 - name: github.com/inconshreveable/mousetrap
   version: 76626ae9c91c4f2a10f34cad8ce83ea42c93bb75
 - name: github.com/json-iterator/go
-  version: ab8a2e0c74be9d3be70b3184d9acc634935ded82
+  version: 0ff49de124c6f76f8494e194af75bde0f1a49a29
 - name: github.com/jteeuwen/go-bindata
   version: a0ff2567cfb70903282db057e799fd826784d41d
 - name: github.com/mailru/easyjson
-  version: 2f5df55504ebc322e4d52d34df6a1f5b503bf26d
+  version: d5b7844b561a7bc640052f1b935f7b800330d7e0
   subpackages:
   - buffer
   - jlexer
@@ -170,7 +170,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 06fefbf8a8cfda80b930ea27e8772eb95280310b
+  version: acaf712b5c5cbe88bdffd569a3481cf9ebbfab7c
   subpackages:
   - apps
   - apps/v1
@@ -216,7 +216,7 @@ imports:
   - webconsole
   - webconsole/v1
 - name: github.com/openshift/client-go
-  version: c44a8b61b9f46cd9e802384dfeda0bc9942db68a
+  version: a85ea6a6b3a5d2dbe41582ee35695dd4683e1f02
   subpackages:
   - config/clientset/versioned
   - config/clientset/versioned/scheme
@@ -249,7 +249,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: f8abdcd57c468b7f49a91caa77212c12bd05fa9f
+  version: 523621232378681359817c52fe07670ce93b83b9
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -268,6 +268,7 @@ imports:
   - pkg/operator/resource/resourceapply
   - pkg/operator/resource/resourcemerge
   - pkg/operator/resourcesynccontroller
+  - pkg/operator/staleconditions
   - pkg/operator/status
   - pkg/operator/unsupportedconfigoverridescontroller
   - pkg/operator/v1helpers
@@ -282,18 +283,20 @@ imports:
   - prometheus
   - prometheus/internal
 - name: github.com/prometheus/client_model
-  version: fa8ad6fec33561be4280a8f0514318c79d7f6cb6
+  version: 5c3871d89910bfb32f5fcab2aa4b9ec68e65a99f
   subpackages:
   - go
 - name: github.com/prometheus/common
-  version: cfeb6f9992ffa54aaa4f2170ade4067ee478b250
+  version: 4724e9255275ce38f7179b2478abeae4e28c904f
   subpackages:
   - expfmt
   - internal/bitbucket.org/ww/goautoneg
   - model
 - name: github.com/prometheus/procfs
-  version: 65c1f6f8f0fc1e2185eb9863a3bc751496404259
+  version: 1dc9a6cbc91aacc3e8b2d63db4d2e957a5394ac4
   subpackages:
+  - internal/util
+  - nfs
   - xfs
 - name: github.com/PuerkitoBio/purell
   version: 8a290539e2e8629dbc4e6bad948158f790ec31f4
@@ -302,9 +305,9 @@ imports:
 - name: github.com/sirupsen/logrus
   version: 89742aefa4b206dcf400792f3bd35b542998eb3b
 - name: github.com/spf13/cobra
-  version: c439c4fa093711d42e1b01acb1235b52004753c1
+  version: 1c9c46d5c1cc2aaebdd1898c0680e85e8a44b36d
 - name: github.com/spf13/pflag
-  version: 583c0c0531f06d5278b7d917446061adc344b5cd
+  version: 24fa6976df40757dce6aea913e7b81ade90530e1
 - name: golang.org/x/crypto
   version: de0752318171da717af4ce24d0a2e8626afaeb11
   subpackages:
@@ -328,15 +331,17 @@ imports:
   - jws
   - jwt
 - name: golang.org/x/sys
-  version: 95c6576299259db960f6c5b9b69ea52422860fce
+  version: 3b5209105503162ded1863c307ac66fec31120dd
   subpackages:
   - unix
   - windows
 - name: golang.org/x/text
-  version: b19bf474d317b857955b12035d2c5acb57ce8b01
+  version: e6919f6577db79269a6443b9dc46d18f2238fb5d
   subpackages:
   - cases
   - internal
+  - internal/language
+  - internal/language/compact
   - internal/tag
   - language
   - runes
@@ -351,11 +356,11 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: 1f849cf54d09e106002f24257b1cf8b31780c97a
+  version: 2e34cfcb95cb3d24b197d58fe6d25046b8f25c86
   subpackages:
   - imports
 - name: google.golang.org/appengine
-  version: 12d5545dc1cfa6047a286d5e853841b6471f4c19
+  version: b2f4a3cf3c67576a2ee09e1fe62656a5086ce880
   subpackages:
   - internal
   - internal/base
@@ -402,7 +407,7 @@ imports:
 - name: gopkg.in/natefinch/lumberjack.v2
   version: 20b71e5b60d756d3d2f80def009790325acc2b23
 - name: gopkg.in/yaml.v2
-  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
 - name: k8s.io/api
   version: 40a48860b5abbba9aa891b02b32da429b08d96a0
   subpackages:
@@ -758,7 +763,7 @@ imports:
 - name: k8s.io/code-generator
   version: 50b561225d70b3eb79a1faafd3dfe7b1a62cbe73
 - name: k8s.io/component-base
-  version: 4a91899592f42b2f5859587cc5a676a5b94d2ee3
+  version: b4f50308a6168b3e1e8687b3fb46e9bf1a112ee5
   subpackages:
   - cli/flag
   - logs
@@ -767,7 +772,7 @@ imports:
   subpackages:
   - args
 - name: k8s.io/klog
-  version: 8e90cee79f823779174776412c13478955131846
+  version: 6a023d6d0e0954feabd46dc2d3a6a2c3c991fe1a
 - name: k8s.io/kube-aggregator
   version: da8327669ac57b6e6a06676eeb7de19c9780f76d
   subpackages:
@@ -786,11 +791,10 @@ imports:
   - pkg/util
   - pkg/util/proto
 - name: k8s.io/utils
-  version: c2654d5206da6b7b6ace12841e8f359bb89b443c
+  version: c55fbcfc754a5b2ec2fbae8fb9dcac36bdba6a12
   subpackages:
   - buffer
   - integer
-  - pointer
   - trace
 - name: monis.app/go
   version: c655260686641764462eb1a5317b566d88377b77
