@@ -94,6 +94,48 @@ func WithInformer(getter InformerGetter, filter ParentFilter, opts ...InformerOp
 	})
 }
 
+
+func WithRealInformer(informer cache.SharedIndexInformer, filter ParentFilter) Option {
+	return toRunOpt(func(c *controller) {
+		informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				object := metaOrDie(obj)
+				if filter.Add(object) {
+					klog.V(4).Infof("%s: handling add %s/%s: %s", c.name, object.GetNamespace(), object.GetName(), object.GetSelfLink())
+					c.add(filter, object)
+				}
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				oldObject := metaOrDie(oldObj)
+				newObject := metaOrDie(newObj)
+				if filter.Update(oldObject, newObject) {
+					klog.V(4).Infof("%s: handling update %s/%s: %s", c.name, newObject.GetNamespace(), newObject.GetName(), newObject.GetSelfLink())
+					c.add(filter, newObject)
+				}
+			},
+			DeleteFunc: func(obj interface{}) {
+				accessor, err := meta.Accessor(obj)
+				if err != nil {
+					tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+					if !ok {
+						utilruntime.HandleError(fmt.Errorf("could not get object from tombstone: %+v", obj))
+						return
+					}
+					accessor, err = meta.Accessor(tombstone.Obj)
+					if err != nil {
+						utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not an accessor: %+v", obj))
+						return
+					}
+				}
+				if filter.Delete(accessor) {
+					klog.V(4).Infof("%s: handling delete %s/%s: %s", c.name, accessor.GetNamespace(), accessor.GetName(), accessor.GetSelfLink())
+					c.add(filter, accessor)
+				}
+			},
+		})
+	})
+}
+
 func toRunOpt(opt Option) Option {
 	return toOnceOpt(toNaiveRunOpt(opt))
 }
