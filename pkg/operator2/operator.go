@@ -297,12 +297,6 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// TODO move this hash from deployment meta to operatorConfig.status.generations.[...].hash
 	resourceVersions := []string{}
 
-	brandingSecret, err := c.handleOCPBrandingSecret()
-	if err != nil {
-		return fmt.Errorf("failed getting the OCP branding secret: %v", err)
-	}
-	resourceVersions = append(resourceVersions, brandingSecret.GetResourceVersion())
-
 	// The BLOCK sections are highly order dependent
 
 	// ==================================
@@ -312,27 +306,23 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	if err != nil {
 		return fmt.Errorf("failed getting the ingress config: %v", err)
 	}
-	resourceVersions = append(resourceVersions, ingress.GetResourceVersion())
 
 	route, routerSecret, err := c.handleRoute(ingress)
 	handleDegraded(operatorConfig, "RouteStatus", err)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
-	resourceVersions = append(resourceVersions, route.GetResourceVersion(), routerSecret.GetResourceVersion())
 
 	// make sure API server sees our metadata as soon as we've got a route with a host
-	metadata, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
+	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
 	if err != nil {
 		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
 	}
-	resourceVersions = append(resourceVersions, metadata.GetResourceVersion())
 
 	authConfig, err := c.handleAuthConfig()
 	if err != nil {
 		return fmt.Errorf("failed handling authentication config: %v", err)
 	}
-	resourceVersions = append(resourceVersions, authConfig.GetResourceVersion())
 
 	// ==================================
 	// BLOCK 2: service and service-ca data
@@ -343,13 +333,11 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	if err != nil {
 		return fmt.Errorf("failed applying service object: %v", err)
 	}
-	resourceVersions = append(resourceVersions, service.GetResourceVersion())
 
-	serviceCA, servingCert, err := c.handleServiceCA()
+	_, _, err = c.handleServiceCA()
 	if err != nil {
 		return fmt.Errorf("failed handling service CA: %v", err)
 	}
-	resourceVersions = append(resourceVersions, serviceCA.GetResourceVersion(), servingCert.GetResourceVersion())
 
 	// ==================================
 	// BLOCK 3: build cli config
@@ -359,38 +347,31 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	if err != nil {
 		return fmt.Errorf("failed obtaining session secret: %v", err)
 	}
-	sessionSecret, _, err := resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
+	_, _, err = resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
 	if err != nil {
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
-	resourceVersions = append(resourceVersions, sessionSecret.GetResourceVersion())
 
 	consoleConfig := c.handleConsoleConfig()
-	resourceVersions = append(resourceVersions, consoleConfig.GetResourceVersion())
 
 	infrastructureConfig := c.handleInfrastructureConfig()
-	resourceVersions = append(resourceVersions, infrastructureConfig.GetResourceVersion())
 
 	apiServerConfig := c.handleAPIServerConfig()
-	resourceVersions = append(resourceVersions, apiServerConfig.GetResourceVersion())
 
-	oauthConfig, expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
+	expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
-	resourceVersions = append(resourceVersions, oauthConfig.GetResourceVersion())
 
-	configResourceVersions, err := c.handleConfigSync(syncData)
+	err = c.handleConfigSync(syncData)
 	if err != nil {
 		return fmt.Errorf("failed syncing configuration objects: %v", err)
 	}
-	resourceVersions = append(resourceVersions, configResourceVersions...)
 
-	cliConfig, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
+	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
 	if err != nil {
 		return fmt.Errorf("failed applying configMap for the CLI configuration: %v", err)
 	}
-	resourceVersions = append(resourceVersions, cliConfig.GetResourceVersion())
 
 	// ==================================
 	// BLOCK 4: deployment
@@ -404,7 +385,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	if err != nil {
 		return err
 	}
-	resourceVersions = append(resourceVersions, operatorDeployment.GetResourceVersion())
+	// prefix the RV to make it clear where it came from since each resource can be from different etcd
+	resourceVersions = append(resourceVersions, "deployments:"+operatorDeployment.ResourceVersion)
+
+	configResourceVersions, err := c.handleConfigResourceVersions()
+	if err != nil {
+		return err
+	}
+	resourceVersions = append(resourceVersions, configResourceVersions...)
 
 	// deployment, have RV of all resources
 	expectedDeployment := defaultDeployment(

@@ -84,7 +84,7 @@ verify-commits:
 #   make test-unit
 #   make test-unit WHAT=pkg/build TESTFLAGS=-v
 test-unit:
-	GOTEST_FLAGS="$(TESTFLAGS)" hack/test-go.sh $(WHAT) $(TESTS)
+	GOTEST_FLAGS="$(TESTFLAGS)" GODEBUG=tls13 KUBERNETES_SERVICE_PORT_HTTPS=443 hack/test-go.sh $(WHAT) $(TESTS)
 .PHONY: test-unit
 
 test-sec:
