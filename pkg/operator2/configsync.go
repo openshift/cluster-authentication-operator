@@ -12,55 +12,57 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) {
-	// TODO we probably need listers
-	configMapClient := c.configMaps.ConfigMaps(targetNamespace)
-	secretClient := c.secrets.Secrets(targetNamespace)
-
-	configMaps, err := configMapClient.List(metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error listing configMaps: %v", err)
-	}
-
-	secrets, err := secretClient.List(metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error listing secrets: %v", err)
-	}
-
-	prefixConfigMapNames := sets.NewString()
-	prefixSecretNames := sets.NewString()
-	resourceVersionsAll := map[string]string{}
-
+func (c *authOperator) handleConfigSync(data *configSyncData) error {
 	// TODO this has too much boilerplate
-
-	for _, cm := range configMaps.Items {
-		if strings.HasPrefix(cm.Name, userConfigPrefix) {
-			prefixConfigMapNames.Insert(cm.Name)
-			resourceVersionsAll[cm.Name] = cm.GetResourceVersion()
-		}
-	}
-
-	for _, secret := range secrets.Items {
-		if strings.HasPrefix(secret.Name, userConfigPrefix) {
-			prefixSecretNames.Insert(secret.Name)
-			resourceVersionsAll[secret.Name] = secret.GetResourceVersion()
-		}
-	}
 
 	inUseConfigMapNames := sets.NewString()
 	inUseSecretNames := sets.NewString()
 
-	for dest, src := range data.idpConfigMaps {
-		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
+	for _, dest := range sets.StringKeySet(data.idpConfigMaps).List() {
+		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, data.idpConfigMaps[dest].src)
 		inUseConfigMapNames.Insert(dest)
 	}
-	for dest, src := range data.idpSecrets {
-		syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
+	for _, dest := range sets.StringKeySet(data.idpSecrets).List() {
+		syncOrDie(c.resourceSyncer.SyncSecret, dest, data.idpSecrets[dest].src)
 		inUseSecretNames.Insert(dest)
 	}
-	for dest, src := range data.tplSecrets {
-		syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
+	for _, dest := range sets.StringKeySet(data.tplSecrets).List() {
+		syncOrDie(c.resourceSyncer.SyncSecret, dest, data.tplSecrets[dest].src)
 		inUseSecretNames.Insert(dest)
+	}
+
+	// TODO we probably need listers
+
+	configMaps, err := c.configMaps.ConfigMaps(targetNamespace).List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	configMapNames := sets.NewString()
+	prefixConfigMapNames := sets.NewString()
+	for _, cm := range configMaps.Items {
+		configMapNames.Insert(cm.Name)
+		if strings.HasPrefix(cm.Name, userConfigPrefix) {
+			prefixConfigMapNames.Insert(cm.Name)
+		}
+	}
+	if !configMapNames.IsSuperset(inUseConfigMapNames) {
+		return fmt.Errorf("config maps %s in %s not synced", inUseConfigMapNames.Difference(configMapNames).List(), targetNamespace)
+	}
+
+	secrets, err := c.secrets.Secrets(targetNamespace).List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	secretNames := sets.NewString()
+	prefixSecretNames := sets.NewString()
+	for _, secret := range secrets.Items {
+		secretNames.Insert(secret.Name)
+		if strings.HasPrefix(secret.Name, userConfigPrefix) {
+			prefixSecretNames.Insert(secret.Name)
+		}
+	}
+	if !secretNames.IsSuperset(inUseSecretNames) {
+		return fmt.Errorf("secrets %s in %s not synced", inUseSecretNames.Difference(secretNames).List(), targetNamespace)
 	}
 
 	notInUseConfigMapNames := prefixConfigMapNames.Difference(inUseConfigMapNames)
@@ -76,18 +78,7 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 		syncOrDie(c.resourceSyncer.SyncSecret, dest, "")
 	}
 
-	// only get the resource versions of the elements in use
-	var resourceVersionsInUse []string
-
-	for name := range inUseConfigMapNames {
-		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
-	}
-
-	for name := range inUseSecretNames {
-		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
-	}
-
-	return resourceVersionsInUse, nil
+	return nil
 }
 
 type configSyncData struct {

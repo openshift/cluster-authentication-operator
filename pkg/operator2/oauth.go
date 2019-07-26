@@ -26,7 +26,6 @@ func (c *authOperator) handleOAuthConfig(
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
 ) (
-	*configv1.OAuth,
 	*corev1.ConfigMap,
 	*configSyncData,
 	error,
@@ -38,7 +37,7 @@ func (c *authOperator) handleOAuthConfig(
 		})
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	oauthConfig := defaultOAuthConfig(oauthConfigNoDefaults)
 
@@ -58,7 +57,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	templates, err := c.handleBrandingTemplates(oauthConfig.Spec.Templates, syncData)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	var errsIDP []error
@@ -148,11 +147,11 @@ func (c *authOperator) handleOAuthConfig(
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
+		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
-	return oauthConfig, getCliConfigMap(completeConfigBytes), &syncData, nil
+	return getCliConfigMap(completeConfigBytes), &syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
