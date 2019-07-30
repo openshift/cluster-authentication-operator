@@ -24,14 +24,14 @@ func ToUTF16Column(p Point, content []byte) (int, error) {
 	if !p.HasOffset() {
 		return -1, fmt.Errorf("ToUTF16Column: point is missing offset")
 	}
-	offset := p.Offset()
-	col := p.Column()
-	if col == 1 {
-		// column 1, so it must be chr 1
+	offset := p.Offset()      // 0-based
+	colZero := p.Column() - 1 // 0-based
+	if colZero == 0 {
+		// 0-based column 0, so it must be chr 1
 		return 1, nil
 	}
 	// work out the offset at the start of the line using the column
-	lineOffset := offset - (col - 1)
+	lineOffset := offset - colZero
 	if lineOffset < 0 || offset > len(content) {
 		return -1, fmt.Errorf("ToUTF16Column: offsets %v-%v outside file contents (%v)", lineOffset, offset, len(content))
 	}
@@ -40,13 +40,10 @@ func ToUTF16Column(p Point, content []byte) (int, error) {
 	start := content[lineOffset:]
 
 	// Now, truncate down to the supplied column.
-	if col > len(start) { // col is 1-indexed
-		return -1, fmt.Errorf("ToUTF16Column: length of line (%v) is less than column (%v)", len(start), col)
-	}
-	start = start[:col]
+	start = start[:colZero]
 	// and count the number of utf16 characters
 	// in theory we could do this by hand more efficiently...
-	return len(utf16.Encode([]rune(string(start)))), nil
+	return len(utf16.Encode([]rune(string(start)))) + 1, nil
 }
 
 // FromUTF16Column advances the point by the utf16 character offset given the
@@ -62,7 +59,7 @@ func FromUTF16Column(p Point, chr int, content []byte) (Point, error) {
 		return p, nil
 	}
 	if p.Offset() >= len(content) {
-		return p, fmt.Errorf("offset (%v) greater than length of content (%v)", p.Offset(), len(content))
+		return p, fmt.Errorf("FromUTF16Column: offset (%v) greater than length of content (%v)", p.Offset(), len(content))
 	}
 	remains := content[p.Offset():]
 	// scan forward the specified number of characters
@@ -72,7 +69,11 @@ func FromUTF16Column(p Point, chr int, content []byte) (Point, error) {
 		}
 		r, w := utf8.DecodeRune(remains)
 		if r == '\n' {
-			return Point{}, fmt.Errorf("FromUTF16Column: chr goes beyond the line")
+			// Per the LSP spec:
+			//
+			// > If the character value is greater than the line length it
+			// > defaults back to the line length.
+			break
 		}
 		remains = remains[w:]
 		if r >= 0x10000 {
