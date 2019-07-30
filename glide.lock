@@ -1,8 +1,9 @@
-hash: 120609bb70ed753340eb2dc144d63dac3849a74cf21f98859e46ad9a6021c5bd
-updated: 2019-04-24T09:01:46.728627778+02:00
+hash: 5e4812eb8b9d7a6879d82f1f4caee03632ee66157ff7594a8dcd8882fcda4b47
+updated: 2019-07-29T22:56:15.895975596-04:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
+  vcs: hg
 - name: github.com/Azure/go-ansiterm
   version: d6e3b3328b783f23731bc4d058875b0371ff8109
   subpackages:
@@ -191,7 +192,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: f969221e02d73f8ecacf32ce24c12872ff8e0819
+  version: 9ea19f9dd57858bb3fd8ec7051a99ca5e1ae88d6
   subpackages:
   - apps
   - apps/v1
@@ -267,7 +268,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: 04e2bf481415af9b2583c71f584f1075d0b9960c
+  version: 5f000a7152e9e0b438c0cb8ab4dab263f07b580e
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -279,11 +280,14 @@ imports:
   - pkg/controller/metrics
   - pkg/crypto
   - pkg/operator/events
+  - pkg/operator/loglevel
   - pkg/operator/management
   - pkg/operator/resource/resourceapply
   - pkg/operator/resource/resourcemerge
   - pkg/operator/resourcesynccontroller
+  - pkg/operator/staleconditions
   - pkg/operator/status
+  - pkg/operator/unsupportedconfigoverridescontroller
   - pkg/operator/v1helpers
   - pkg/serviceability
 - name: github.com/pborman/uuid
@@ -319,9 +323,9 @@ imports:
 - name: github.com/sirupsen/logrus
   version: 89742aefa4b206dcf400792f3bd35b542998eb3b
 - name: github.com/spf13/cobra
-  version: c439c4fa093711d42e1b01acb1235b52004753c1
+  version: 1c9c46d5c1cc2aaebdd1898c0680e85e8a44b36d
 - name: github.com/spf13/pflag
-  version: 583c0c0531f06d5278b7d917446061adc344b5cd
+  version: 24fa6976df40757dce6aea913e7b81ade90530e1
 - name: golang.org/x/crypto
   version: de0752318171da717af4ce24d0a2e8626afaeb11
   subpackages:
@@ -375,11 +379,11 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: cb2dda6eabdf9160e66ca7293897f984154a7f8b
+  version: ff9f1409240a6589b749f29c118cc0ac9bd5bcde
   subpackages:
   - imports
 - name: google.golang.org/appengine
-  version: 54a98f90d1c46b7731eb8fb305d2a321c30ef610
+  version: b2f4a3cf3c67576a2ee09e1fe62656a5086ce880
   subpackages:
   - internal
   - internal/base
@@ -426,7 +430,7 @@ imports:
 - name: gopkg.in/natefinch/lumberjack.v2
   version: 20b71e5b60d756d3d2f80def009790325acc2b23
 - name: gopkg.in/yaml.v2
-  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
 - name: k8s.io/api
   version: 5cb15d34447165a97c76ed5a60e4e99c8a01ecfe
   subpackages:
@@ -465,7 +469,7 @@ imports:
   - storage/v1alpha1
   - storage/v1beta1
 - name: k8s.io/apiextensions-apiserver
-  version: 3c74db8dd172051b029f91536c681a1b43694809
+  version: 00ff0d33d7129c5e11ce594bd8e08c025c53344d
   repo: https://github.com/openshift/kubernetes-apiextensions-apiserver
   subpackages:
   - pkg/apis/apiextensions

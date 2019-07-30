@@ -244,20 +244,19 @@ func (c *authOperator) Key() (metav1.Object, error) {
 func (c *authOperator) Sync(obj metav1.Object) error {
 	operatorConfig := obj.(*operatorv1.Authentication)
 
-	// TODO bump and use IsOperatorManaged
 	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
-	// clear degraded status
-	setDegradedFalse(operatorConfigCopy)
-
 	syncErr := c.handleSync(operatorConfigCopy)
-	if syncErr != nil {
-		setDegradedTrue(operatorConfigCopy, "OperatorSyncLoopError", syncErr.Error())
+	// this is a catch all degraded state that we only set when we are otherwise not degraded
+	globalDegradedErr := syncErr
+	if isDegraded(operatorConfigCopy) {
+		globalDegradedErr = nil // unset because we are already degraded for some other reason
 	}
+	handleDegraded(operatorConfigCopy, "OperatorSync", globalDegradedErr)
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
 		// store a copy of our starting conditions, we need to preserve last transition time
@@ -312,6 +311,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	resourceVersions = append(resourceVersions, ingress.GetResourceVersion())
 
 	route, routerSecret, err := c.handleRoute(ingress)
+	handleDegraded(operatorConfig, "RouteStatus", err)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
@@ -446,6 +446,7 @@ func (c *authOperator) handleVersion(
 	// but we do NOT want to go to the next version until all OAuth server pods are at that version
 
 	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret, ingress)
+	handleDegraded(operatorConfig, "RouteHealth", err)
 	if err != nil {
 		return fmt.Errorf("unable to check route health: %v", err)
 	}
@@ -455,6 +456,7 @@ func (c *authOperator) handleVersion(
 	}
 
 	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(authConfig, route)
+	handleDegraded(operatorConfig, "WellKnownEndpoint", err)
 	if err != nil {
 		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
@@ -464,6 +466,7 @@ func (c *authOperator) handleVersion(
 	}
 
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(route)
+	handleDegraded(operatorConfig, "OAuthClients", err)
 	if err != nil {
 		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
 	}

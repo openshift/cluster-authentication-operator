@@ -16,11 +16,11 @@ import:
 - package: k8s.io/code-generator
   version: kubernetes-1.13.4
 - package: github.com/openshift/api
-  version: master
+  version: release-4.1
 - package: github.com/openshift/client-go
-  version: master
+  version: release-4.1
 - package: github.com/openshift/library-go
-  version: master
+  version: release-4.1
 
 # bindata
 - package: github.com/jteeuwen/go-bindata
