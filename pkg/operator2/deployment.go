@@ -22,6 +22,7 @@ func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,
 	routerSecret *corev1.Secret,
+	proxyConfig *configv1.Proxy,
 	operatorDeployment *appsv1.Deployment,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
@@ -121,6 +122,7 @@ func defaultDeployment(
 								},
 							},
 							VolumeMounts:             mounts,
+							Env:                      proxyConfigToEnvVars(proxyConfig),
 							ReadinessProbe:           defaultProbe(),
 							LivenessProbe:            livenessProbe(),
 							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
@@ -234,6 +236,24 @@ func getImagePullPolicy(operatorDeployment *appsv1.Deployment) corev1.PullPolicy
 		return corev1.PullIfNotPresent
 	}
 	return containers[0].ImagePullPolicy
+}
+
+func proxyConfigToEnvVars(proxy *configv1.Proxy) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{}
+
+	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Spec.NoProxy)
+	envVars = appendEnvVar(envVars, "HTTP_PROXY", proxy.Spec.HTTPProxy)
+	envVars = appendEnvVar(envVars, "HTTPS_PROXY", proxy.Spec.HTTPSProxy)
+
+	return envVars
+}
+
+func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvVar {
+	if len(envVal) > 0 {
+		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
+	}
+
+	return envVars
 }
 
 type volume struct {

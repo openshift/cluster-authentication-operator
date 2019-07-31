@@ -173,6 +173,7 @@ type authOperator struct {
 	infrastructure configv1client.InfrastructureInterface
 	ingress        configv1client.IngressInterface
 	apiserver      configv1client.APIServerInterface
+	proxy          configv1client.ProxyInterface
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -212,6 +213,7 @@ func NewAuthenticationOperator(
 		infrastructure: configClient.ConfigV1().Infrastructures(),
 		ingress:        configClient.ConfigV1().Ingresses(),
 		apiserver:      configClient.ConfigV1().APIServers(),
+		proxy:          configClient.ConfigV1().Proxies(),
 
 		resourceSyncer: resourceSyncer,
 	}
@@ -238,6 +240,7 @@ func NewAuthenticationOperator(
 		operator.WithInformer(configV1Informers.Infrastructures(), configNameFilter, controller.WithNoSync()),
 		operator.WithInformer(configV1Informers.Ingresses(), configNameFilter, controller.WithNoSync()),
 		operator.WithInformer(configV1Informers.APIServers(), configNameFilter, controller.WithNoSync()),
+		operator.WithInformer(configV1Informers.Proxies(), configNameFilter, controller.WithNoSync()),
 	)
 }
 
@@ -381,6 +384,9 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return err
 	}
 
+	proxyConfig := c.handleProxyConfig()
+	resourceVersions = append(resourceVersions, proxyConfig.ResourceVersion)
+
 	operatorDeployment, err := c.deployments.Deployments(targetNamespaceOperator).Get(targetNameOperator, metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -399,6 +405,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		operatorConfig,
 		syncData,
 		routerSecret,
+		proxyConfig,
 		operatorDeployment,
 		resourceVersions...,
 	)
