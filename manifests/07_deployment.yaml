@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   namespace: openshift-authentication-operator
   name: authentication-operator
+  annotations:
+    config.openshift.io/inject-proxy: "operator"
   labels:
     app: authentication-operator
 spec:
