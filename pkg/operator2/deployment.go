@@ -241,9 +241,9 @@ func getImagePullPolicy(operatorDeployment *appsv1.Deployment) corev1.PullPolicy
 func proxyConfigToEnvVars(proxy *configv1.Proxy) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{}
 
-	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Spec.NoProxy)
-	envVars = appendEnvVar(envVars, "HTTP_PROXY", proxy.Spec.HTTPProxy)
-	envVars = appendEnvVar(envVars, "HTTPS_PROXY", proxy.Spec.HTTPSProxy)
+	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Status.NoProxy)
+	envVars = appendEnvVar(envVars, "HTTP_PROXY", proxy.Status.HTTPProxy)
+	envVars = appendEnvVar(envVars, "HTTPS_PROXY", proxy.Status.HTTPSProxy)
 
 	return envVars
 }
