@@ -253,10 +253,11 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	syncErr := c.handleSync(operatorConfigCopy)
 	// this is a catch all degraded state that we only set when we are otherwise not degraded
 	globalDegradedErr := syncErr
-	if isDegraded(operatorConfigCopy) {
+	const globalDegradedPrefix = "OperatorSync"
+	if isDegradedIgnoreGlobal(operatorConfigCopy, globalDegradedPrefix) {
 		globalDegradedErr = nil // unset because we are already degraded for some other reason
 	}
-	handleDegraded(operatorConfigCopy, "OperatorSync", globalDegradedErr)
+	handleDegraded(operatorConfigCopy, globalDegradedPrefix, globalDegradedErr)
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
 		// store a copy of our starting conditions, we need to preserve last transition time
