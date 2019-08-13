@@ -5,7 +5,6 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -66,10 +65,6 @@ func (c *authOperator) handleBrandingTemplates(configTemplates configv1.OAuthTem
 	}
 
 	return &templates, nil
-}
-
-func (c *authOperator) handleOCPBrandingSecret() (*corev1.Secret, error) {
-	return c.secrets.Secrets(targetNamespace).Get(ocpBrandingSecretName, metav1.GetOptions{})
 }
 
 func (c *authOperator) getConsoleBranding() (string, error) {
