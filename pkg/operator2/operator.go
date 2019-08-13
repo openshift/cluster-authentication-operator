@@ -64,6 +64,8 @@ const (
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
+	systemTrustStoreDirPath = "/etc/pki/ca-trust/extracted/pem"
+
 	systemConfigPath           = "/var/config/system"
 	systemConfigPathConfigMaps = systemConfigPath + "/configmaps"
 	systemConfigPathSecrets    = systemConfigPath + "/secrets"
@@ -108,6 +110,12 @@ const (
 	consoleConfigMapSharedName = "console-config"
 	consoleConfigMapLocalName  = systemConfigPrefix + consoleConfigMapSharedName
 	consoleConfigKey           = consoleConfigMapSharedName + ".yaml"
+
+	// trustedCABundleName part of manifests, if changing this, need to change that, too
+	trustedCABundleName      = systemConfigPrefix + "trusted-ca-bundle"
+	trustedCABundleKey       = "ca-bundle.crt"
+	trustedCABundleMountDir  = systemTrustStoreDirPath
+	trustedCABundleMountFile = "tls-ca-bundle.pem"
 
 	ocpBrandingSecretName   = systemConfigPrefix + "ocp-branding-template"
 	ocpBrandingSecretMount  = systemConfigPathSecrets + "/" + ocpBrandingSecretName
