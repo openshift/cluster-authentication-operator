@@ -30,10 +30,14 @@ clean:
 
 GO_TEST_PACKAGES :=./pkg/... ./cmd/...
 
-.PHONY: test-e2e
+# Run e2e tests.
+#
+# Example:
+#   make test-e2e
 test-e2e: GO_TEST_PACKAGES :=./test/e2e/...
 test-e2e: GO_TEST_FLAGS += -v
 test-e2e: test-unit
+.PHONY: test-e2e
 
 CRD_SCHEMA_GEN_VERSION := v1.0.0
 crd-schema-gen:
