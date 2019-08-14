@@ -18,10 +18,10 @@ func Baz() {
 
 func _() {
 	bob := f.StructFoo{Value: 5}
-	if x := bob.           //@complete(" //", Value)
+	if x := bob.           //@complete(re"$", Value)
 	switch true == false {
 		case true:
-			if x := bob.   //@complete(" //", Value)
+			if x := bob.   //@complete(re"$", Value)
 		case false:
 	}
 	if x := bob.Va         //@complete("a", Value)
