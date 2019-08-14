@@ -36,6 +36,9 @@ spec:
           name: config
         - mountPath: /var/run/secrets/serving-cert
           name: serving-cert
+        - mountPath: /var/run/configmaps/trusted-ca-bundle
+          name: trusted-ca-bundle
+          readOnly: true
         env:
         - name: IMAGE
           value: quay.io/openshift/origin-oauth-server:v4.2
@@ -53,6 +56,10 @@ spec:
         configMap:
           defaultMode: 440
           name: authentication-operator-config
+      - name: trusted-ca-bundle
+        configMap:
+          name: trusted-ca-bundle
+          optional: true
       - name: serving-cert
         secret:
           secretName: serving-cert
