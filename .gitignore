@@ -1,4 +1,3 @@
-/_output
 /third-party
 /.project
 /.vagrant
@@ -18,3 +17,4 @@ origin.iml
 *.go~
 tags
 .envrc
+authentication-operator
