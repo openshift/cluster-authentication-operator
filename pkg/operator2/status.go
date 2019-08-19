@@ -8,12 +8,16 @@ import (
 )
 
 func handleDegraded(operatorConfig *operatorv1.Authentication, prefix string, err error) {
+	handleDegradedWithReason(operatorConfig, prefix, "Error", err)
+}
+
+func handleDegradedWithReason(operatorConfig *operatorv1.Authentication, prefix, reason string, err error) {
 	if err != nil {
 		v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 			operatorv1.OperatorCondition{
 				Type:    prefix + operatorv1.OperatorStatusTypeDegraded,
 				Status:  operatorv1.ConditionTrue,
-				Reason:  "Error",
+				Reason:  reason,
 				Message: err.Error(),
 			})
 		return
