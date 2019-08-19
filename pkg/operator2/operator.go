@@ -311,8 +311,8 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed getting the ingress config: %v", err)
 	}
 
-	route, routerSecret, err := c.handleRoute(ingress)
-	handleDegraded(operatorConfig, "RouteStatus", err)
+	route, routerSecret, reason, err := c.handleRoute(ingress)
+	handleDegraded(operatorConfig, reason, err)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
