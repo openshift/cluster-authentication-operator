@@ -311,8 +311,8 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed getting the ingress config: %v", err)
 	}
 
-	route, routerSecret, err := c.handleRoute(ingress)
-	handleDegraded(operatorConfig, "RouteStatus", err)
+	route, routerSecret, reason, err := c.handleRoute(ingress)
+	handleDegradedWithReason(operatorConfig, "RouteStatus", reason, err)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
@@ -452,8 +452,8 @@ func (c *authOperator) handleVersion(
 	// route + well-known + OAuth client checks AND one available OAuth server pod
 	// but we do NOT want to go to the next version until all OAuth server pods are at that version
 
-	routeReady, routeMsg, err := c.checkRouteHealthy(route, routerSecret, ingress)
-	handleDegraded(operatorConfig, "RouteHealth", err)
+	routeReady, routeMsg, reason, err := c.checkRouteHealthy(route, routerSecret, ingress)
+	handleDegradedWithReason(operatorConfig, "RouteHealth", reason, err)
 	if err != nil {
 		return fmt.Errorf("unable to check route health: %v", err)
 	}
@@ -522,30 +522,30 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 	return true
 }
 
-func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (bool, string, error) {
+func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (ready bool, msg, reason string, err error) {
 	caData := routerSecretToCA(route, routerSecret, ingress)
 
 	rt, err := transportFor("", caData, nil, nil)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to build transport for route: %v", err)
+		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
 
 	req, err := http.NewRequest(http.MethodHead, "https://"+route.Spec.Host+"/healthz", nil)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to build request to route: %v", err)
+		return false, "", "FailedRequest", fmt.Errorf("failed to build request to route: %v", err)
 	}
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to GET route: %v", err)
+		return false, "", "FailedGet", fmt.Errorf("failed to GET route: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return false, fmt.Sprintf("route not yet available, /healthz returns '%s'", resp.Status), nil
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Sprintf("route not yet available, /healthz returns '%s'", resp.Status), "", nil
 	}
 
-	return true, "", nil
+	return true, "", "", nil
 }
 
 func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
