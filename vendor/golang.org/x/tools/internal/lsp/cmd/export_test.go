@@ -4,8 +4,4 @@
 
 package cmd
 
-const (
-	ExampleLine   = exampleLine
-	ExampleColumn = exampleColumn
-	ExampleOffset = exampleOffset
-)
+const ExampleOffset = exampleOffset

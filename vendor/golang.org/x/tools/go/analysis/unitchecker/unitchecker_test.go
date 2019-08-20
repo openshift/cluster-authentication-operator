@@ -14,15 +14,14 @@ import (
 	"flag"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 
+	"golang.org/x/tools/go/analysis/analysistest"
 	"golang.org/x/tools/go/analysis/passes/findcall"
 	"golang.org/x/tools/go/analysis/passes/printf"
 	"golang.org/x/tools/go/analysis/unitchecker"
-	"golang.org/x/tools/go/packages/packagestest"
 )
 
 func TestMain(m *testing.M) {
@@ -32,6 +31,7 @@ func TestMain(m *testing.M) {
 		panic("unreachable")
 	}
 
+	// test
 	flag.Parse()
 	os.Exit(m.Run())
 }
@@ -46,55 +46,31 @@ func main() {
 // This is a very basic integration test of modular
 // analysis with facts using unitchecker under "go vet".
 // It fork/execs the main function above.
-func TestIntegration(t *testing.T) { packagestest.TestAll(t, testIntegration) }
-func testIntegration(t *testing.T, exporter packagestest.Exporter) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+func TestIntegration(t *testing.T) {
+	if runtime.GOOS != "linux" {
 		t.Skipf("skipping fork/exec test on this platform")
 	}
 
-	exported := packagestest.Export(t, exporter, []packagestest.Module{{
-		Name: "golang.org/fake",
-		Files: map[string]interface{}{
-			"a/a.go": `package a
+	testdata := analysistest.TestData()
 
-func _() {
-	MyFunc123()
-}
-
-func MyFunc123() {}
-`,
-			"b/b.go": `package b
-
-import "golang.org/fake/a"
-
-func _() {
-	a.MyFunc123()
-	MyFunc123()
-}
-
-func MyFunc123() {}
-`,
-		}}})
-	defer exported.Cleanup()
-
-	const wantA = `# golang.org/fake/a
-([/._\-a-zA-Z0-9]+[\\/]fake[\\/])?a/a.go:4:11: call of MyFunc123\(...\)
+	const wantA = `# a
+testdata/src/a/a.go:4:11: call of MyFunc123(...)
 `
-	const wantB = `# golang.org/fake/b
-([/._\-a-zA-Z0-9]+[\\/]fake[\\/])?b/b.go:6:13: call of MyFunc123\(...\)
-([/._\-a-zA-Z0-9]+[\\/]fake[\\/])?b/b.go:7:11: call of MyFunc123\(...\)
+	const wantB = `# b
+testdata/src/b/b.go:6:13: call of MyFunc123(...)
+testdata/src/b/b.go:7:11: call of MyFunc123(...)
 `
-	const wantAJSON = `# golang.org/fake/a
-\{
-	"golang.org/fake/a": \{
-		"findcall": \[
-			\{
-				"posn": "([/._\-a-zA-Z0-9]+[\\/]fake[\\/])?a/a.go:4:11",
-				"message": "call of MyFunc123\(...\)"
-			\}
-		\]
-	\}
-\}
+	const wantAJSON = `# a
+{
+	"a": {
+		"findcall": [
+			{
+				"posn": "$GOPATH/src/a/a.go:4:11",
+				"message": "call of MyFunc123(...)"
+			}
+		]
+	}
+}
 `
 
 	for _, test := range []struct {
@@ -102,16 +78,18 @@ func MyFunc123() {}
 		wantOut  string
 		wantExit int
 	}{
-		{args: "golang.org/fake/a", wantOut: wantA, wantExit: 2},
-		{args: "golang.org/fake/b", wantOut: wantB, wantExit: 2},
-		{args: "golang.org/fake/a golang.org/fake/b", wantOut: wantA + wantB, wantExit: 2},
-		{args: "-json golang.org/fake/a", wantOut: wantAJSON, wantExit: 0},
-		{args: "-c=0 golang.org/fake/a", wantOut: wantA + "4		MyFunc123\\(\\)\n", wantExit: 2},
+		{args: "a", wantOut: wantA, wantExit: 2},
+		{args: "b", wantOut: wantB, wantExit: 2},
+		{args: "a b", wantOut: wantA + wantB, wantExit: 2},
+		{args: "-json a", wantOut: wantAJSON, wantExit: 0},
+		{args: "-c=0 a", wantOut: wantA + "4		MyFunc123()\n", wantExit: 2},
 	} {
 		cmd := exec.Command("go", "vet", "-vettool="+os.Args[0], "-findcall.name=MyFunc123")
 		cmd.Args = append(cmd.Args, strings.Fields(test.args)...)
-		cmd.Env = append(exported.Config.Env, "UNITCHECKER_CHILD=1")
-		cmd.Dir = exported.Config.Dir
+		cmd.Env = append(os.Environ(),
+			"UNITCHECKER_CHILD=1",
+			"GOPATH="+testdata,
+		)
 
 		out, err := cmd.CombinedOutput()
 		exitcode := 0
@@ -121,13 +99,10 @@ func MyFunc123() {}
 		if exitcode != test.wantExit {
 			t.Errorf("%s: got exit code %d, want %d", test.args, exitcode, test.wantExit)
 		}
+		got := strings.Replace(string(out), testdata, "$GOPATH", -1)
 
-		matched, err := regexp.Match(test.wantOut, out)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !matched {
-			t.Errorf("%s: got <<%s>>, want match of regexp <<%s>>", test.args, out, test.wantOut)
+		if got != test.wantOut {
+			t.Errorf("%s: got <<%s>>, want <<%s>>", test.args, got, test.wantOut)
 		}
 	}
 }

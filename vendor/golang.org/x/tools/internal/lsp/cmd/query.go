@@ -24,13 +24,13 @@ const (
 // query implements the query command.
 type query struct {
 	JSON    bool   `flag:"json" help:"emit output in JSON format"`
-	Emulate string `flag:"emulate" help:"compatibility mode, causes gopls to emulate another tool.\nvalues depend on the operation being performed"`
+	Emulate string `flag:"emulate" help:"compatability mode, causes gopls to emulate another tool.\nvalues depend on the operation being performed"`
 
 	app *Application
 }
 
 func (q *query) Name() string  { return "query" }
-func (q *query) Usage() string { return "<mode> <mode args>" }
+func (q *query) Usage() string { return "query [flags] <mode> <mode args>" }
 func (q *query) ShortHelp() string {
 	return "answer queries about go source code"
 }
