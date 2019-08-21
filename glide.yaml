@@ -21,6 +21,10 @@ import:
 - package: k8s.io/code-generator
   version: kubernetes-1.14.0
 
+  # pinned to a level that kubernetes uses.
+- package: github.com/evanphx/json-patch
+  version: 5858425f75500d40c52783dce87d085a483ce135
+
 - package: github.com/openshift/api
   version: master
 - package: github.com/openshift/client-go
