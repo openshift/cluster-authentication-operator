@@ -530,7 +530,11 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 		return false, "", fmt.Errorf("failed to build transport for route: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodHead, "https://"+route.Spec.Host+"/healthz", nil)
+	host := getCanonicalHost(route, ingress)
+	if len(host) == 0 {
+		return false, "", fmt.Errorf("failed to get canonical host from route")
+	}
+	req, err := http.NewRequest(http.MethodHead, "https://"+host+"/healthz", nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build request to route: %v", err)
 	}
