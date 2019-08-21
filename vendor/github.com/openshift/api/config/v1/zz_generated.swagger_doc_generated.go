@@ -326,7 +326,7 @@ func (WebhookTokenAuthenticator) SwaggerDoc() map[string]string {
 }
 
 var map_Build = map[string]string{
-	"":     "Build holds cluster-wide information on how to handle builds. The canonical name is `cluster`",
+	"":     "Build configures the behavior of OpenShift builds for the entire cluster. This includes default settings that can be overridden in BuildConfig objects, and overrides which are applied to all builds.\n\nThe canonical name is \"cluster\"",
 	"spec": "Spec holds user-settable values for the build controller configuration",
 }
 
@@ -365,7 +365,7 @@ func (BuildOverrides) SwaggerDoc() map[string]string {
 }
 
 var map_BuildSpec = map[string]string{
-	"additionalTrustedCA": "AdditionalTrustedCA is a reference to a ConfigMap containing additional CAs that should be trusted for image pushes and pulls during builds. The namespace for this config map is openshift-config.",
+	"additionalTrustedCA": "AdditionalTrustedCA is a reference to a ConfigMap containing additional CAs that should be trusted for image pushes and pulls during builds. The namespace for this config map is openshift-config.\n\nDEPRECATED: Additional CAs for image pull and push should be set on image.config.openshift.io/cluster instead.",
 	"buildDefaults":       "BuildDefaults controls the default information for Builds",
 	"buildOverrides":      "BuildOverrides controls override settings for builds",
 }
@@ -828,7 +828,7 @@ func (PlatformStatus) SwaggerDoc() map[string]string {
 }
 
 var map_Ingress = map[string]string{
-	"":         "Ingress holds cluster-wide information about Ingress.  The canonical name is `cluster`",
+	"":         "Ingress holds cluster-wide information about ingress, including the default ingress domain used for routes. The canonical name is `cluster`.",
 	"metadata": "Standard object's metadata.",
 	"spec":     "spec holds user settable values for configuration",
 	"status":   "status holds observed values from the cluster. They may not be overridden.",
@@ -847,7 +847,7 @@ func (IngressList) SwaggerDoc() map[string]string {
 }
 
 var map_IngressSpec = map[string]string{
-	"domain": "domain is used to generate a default host name for a route when the route's host name is empty.  The generated host name will follow this pattern: \"<route-name>.<route-namespace>.<domain>\".",
+	"domain": "domain is used to generate a default host name for a route when the route's host name is empty. The generated host name will follow this pattern: \"<route-name>.<route-namespace>.<domain>\".\n\nIt is also used as the default wildcard domain suffix for ingress. The default ingresscontroller domain will follow this pattern: \"*.<domain>\".\n\nOnce set, changing domain is not currently supported.",
 }
 
 func (IngressSpec) SwaggerDoc() map[string]string {
