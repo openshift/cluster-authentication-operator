@@ -62,7 +62,8 @@ const (
 	kasServiceAndEndpointName = "kubernetes"
 	kasServiceFullName        = kasServiceAndEndpointName + "." + corev1.NamespaceDefault + ".svc"
 
-	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	rootCAFile            = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	operatorTrustedCAFile = "/var/run/configmaps/trusted-ca-bundle/ca-bundle.crt"
 
 	systemConfigPath           = "/var/config/system"
 	systemConfigPathConfigMaps = systemConfigPath + "/configmaps"
@@ -108,6 +109,12 @@ const (
 	consoleConfigMapSharedName = "console-config"
 	consoleConfigMapLocalName  = systemConfigPrefix + consoleConfigMapSharedName
 	consoleConfigKey           = consoleConfigMapSharedName + ".yaml"
+
+	// trustedCABundleName part of manifests, if changing this, need to change that, too
+	trustedCABundleName      = systemConfigPrefix + "trusted-ca-bundle"
+	trustedCABundleKey       = "ca-bundle.crt"
+	trustedCABundleMountDir  = "/etc/pki/ca-trust/extracted/pem"
+	trustedCABundleMountFile = "tls-ca-bundle.pem"
 
 	ocpBrandingSecretName   = systemConfigPrefix + "ocp-branding-template"
 	ocpBrandingSecretMount  = systemConfigPathSecrets + "/" + ocpBrandingSecretName
@@ -525,7 +532,8 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (ready bool, msg, reason string, err error) {
 	caData := routerSecretToCA(route, routerSecret, ingress)
 
-	rt, err := transportFor("", caData, nil, nil)
+	// merge trustedCA data with router cert in case TLS intercept proxy is in place
+	rt, err := transportFor("", append(caData, trustedCABytes()...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}

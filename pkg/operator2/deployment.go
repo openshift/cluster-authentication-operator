@@ -71,6 +71,14 @@ func defaultDeployment(
 			path:      ocpBrandingSecretMount,
 			keys:      []string{configv1.LoginTemplateKey, configv1.ProviderSelectionTemplateKey, configv1.ErrorsTemplateKey},
 		},
+		{
+			name:      trustedCABundleName,
+			configmap: true,
+			path:      trustedCABundleMountDir,
+			mappedKeys: map[string]string{
+				trustedCABundleKey: trustedCABundleMountFile,
+			},
+		},
 	} {
 		v, m := data.split()
 		volumes = append(volumes, v)
@@ -257,10 +265,11 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 }
 
 type volume struct {
-	name      string
-	configmap bool
-	path      string
-	keys      []string
+	name       string
+	configmap  bool
+	path       string
+	keys       []string
+	mappedKeys map[string]string
 }
 
 func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
@@ -269,6 +278,14 @@ func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
 	}
 
 	var items []corev1.KeyToPath
+	// maps' keys are random,  we need to sort the output to prevent redeployment hotloops
+	for _, key := range sets.StringKeySet(v.mappedKeys).List() {
+		items = append(items, corev1.KeyToPath{
+			Key:  key,
+			Path: v.mappedKeys[key],
+		})
+	}
+
 	for _, key := range v.keys {
 		items = append(items, corev1.KeyToPath{
 			Key:  key,
