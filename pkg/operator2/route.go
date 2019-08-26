@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -14,38 +15,39 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/library-go/pkg/crypto"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
 func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, string, error) {
+	expectedRoute := defaultRoute(ingress)
+
 	route, err := c.route.Get(targetName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		route, err = c.route.Create(defaultRoute(ingress))
+		route, err = c.route.Create(expectedRoute)
 	}
 	if err != nil {
 		return nil, nil, "FailedCreate", err
 	}
 
-	host := getCanonicalHost(route, ingress)
-	if len(host) == 0 {
+	// assume it is unsafe to mutate route in case we go to a shared informer in the future
+	existingCopy := route.DeepCopy()
+	modified := resourcemerge.BoolPtr(false)
+	resourcemerge.EnsureObjectMeta(modified, &existingCopy.ObjectMeta, expectedRoute.ObjectMeta)
+
+	// this guarantees that route.Spec.Host is set to the current canonical host
+	if *modified || !equality.Semantic.DeepEqual(existingCopy.Spec, expectedRoute.Spec) {
 		// be careful not to print route.spec as it many contain secrets
-		return nil, nil, "FailedHost", fmt.Errorf("route is not available at canonical host %s: %+v", ingressToHost(ingress), route.Status.Ingress)
+		klog.Info("updating route")
+		existingCopy.Spec = expectedRoute.Spec
+		route, err = c.route.Update(existingCopy)
+		if err != nil {
+			return nil, nil, "FailedUpdate", err
+		}
 	}
 
-	// assume it is unsafe to mutate route in case we go to a shared informer in the future
-	// this way everything else can just assume route.Spec.Host is correct
-	// note that we are not updating route.Spec.Host in the API - that value is nonsense to us
-	route = route.DeepCopy()
-	route.Spec.Host = host
-
-	if err := isValidRoute(route, ingress); err != nil {
-		// TODO remove this delete so that we do not lose the early creation timestamp of our route
-		// delete the route so that it is replaced with the proper one in next reconcile loop
-		klog.Infof("deleting invalid route: %#v", route)
-		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &route.UID}}
-		if err := c.route.Delete(route.Name, opts); err != nil && !errors.IsNotFound(err) {
-			klog.Infof("failed to delete invalid route: %v", err)
-		}
-		return nil, nil, "InvalidRoute", err
+	if ok := hasCanonicalHost(route, expectedRoute.Spec.Host); !ok {
+		// be careful not to print route.spec as it many contain secrets
+		return nil, nil, "FailedHost", fmt.Errorf("route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, route.Status.Ingress)
 	}
 
 	routerSecret, err := c.secrets.Secrets(targetNamespace).Get(routerCertsLocalName, metav1.GetOptions{})
@@ -57,40 +59,6 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 	}
 
 	return route, routerSecret, "", nil
-}
-
-func isValidRoute(route *routev1.Route, ingress *configv1.Ingress) error {
-	// TODO: return all errors at once
-	// TODO error when fields that should be empty are set
-
-	// get the expected settings from the default route
-	expectedRoute := defaultRoute(ingress)
-	expName := expectedRoute.Spec.To.Name
-	expPort := expectedRoute.Spec.Port.TargetPort.IntValue()
-	expTLSTermination := expectedRoute.Spec.TLS.Termination
-	expInsecureEdgeTerminationPolicy := expectedRoute.Spec.TLS.InsecureEdgeTerminationPolicy
-
-	if route.Spec.To.Name != expName {
-		return fmt.Errorf("route targets a wrong service - needs %s: %#v", expName, route)
-	}
-
-	if route.Spec.Port.TargetPort.IntValue() != expPort {
-		return fmt.Errorf("expected port '%d' for route: %#v", expPort, route)
-	}
-
-	if route.Spec.TLS == nil {
-		return fmt.Errorf("TLS needs to be configured for route: %#v", route)
-	}
-
-	if route.Spec.TLS.Termination != expTLSTermination {
-		return fmt.Errorf("route contains wrong TLS termination - '%s' is required: %#v", expTLSTermination, route)
-	}
-
-	if route.Spec.TLS.InsecureEdgeTerminationPolicy != expInsecureEdgeTerminationPolicy {
-		return fmt.Errorf("route contains wrong insecure termination policy - '%s' is required: %#v", expInsecureEdgeTerminationPolicy, route)
-	}
-
-	return nil
 }
 
 func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
@@ -153,18 +121,17 @@ func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret, ingress
 	return caData
 }
 
-func getCanonicalHost(route *routev1.Route, ingressConfig *configv1.Ingress) string {
-	host := ingressToHost(ingressConfig)
+func hasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
 	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != host {
+		if ingress.Host != canonicalHost {
 			continue
 		}
 		if !isIngressAdmitted(ingress) {
 			continue
 		}
-		return host
+		return true
 	}
-	return ""
+	return false
 }
 
 func isIngressAdmitted(ingress routev1.RouteIngress) bool {
