@@ -23,10 +23,14 @@ spec:
       - name: operator
         image: quay.io/openshift/origin-cluster-authentication-operator:v4.0
         imagePullPolicy: IfNotPresent
-        command: ["authentication-operator", "operator"]
+        command: ["/bin/bash", "-ec"]
         args:
-        - "--config=/var/run/configmaps/config/operator-config.yaml"
-        - "-v=2"
+        - |
+          if [ -s /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem ]; then
+              echo "Copying system trust bundle"
+              cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+          fi
+          exec authentication-operator operator --config=/var/run/configmaps/config/operator-config.yaml --v=2 --terminate-on-files=/var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem
         resources:
           requests:
             memory: 50Mi
