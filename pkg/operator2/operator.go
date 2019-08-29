@@ -394,14 +394,14 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 
 	proxyConfig := c.handleProxyConfig()
-	resourceVersions = append(resourceVersions, proxyConfig.ResourceVersion)
+	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
 
 	operatorDeployment, err := c.deployments.Deployments(targetNamespaceOperator).Get(targetNameOperator, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 	// prefix the RV to make it clear where it came from since each resource can be from different etcd
-	resourceVersions = append(resourceVersions, "deployments:"+operatorDeployment.ResourceVersion)
+	resourceVersions = append(resourceVersions, "deployments:"+operatorDeployment.Name+":"+operatorDeployment.ResourceVersion)
 
 	configResourceVersions, err := c.handleConfigResourceVersions()
 	if err != nil {
