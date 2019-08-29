@@ -35,7 +35,10 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				testRVSecret(userConfigPrefix+"a", "1"),
 				testRVConfigMap(userConfigPrefix+"b", "2"),
 			},
-			want: []string{"configmaps:2", "secrets:1"},
+			want: []string{
+				testRVString("configmaps", userConfigPrefix+"b", "2"),
+				testRVString("secrets", userConfigPrefix+"a", "1"),
+			},
 		},
 		{
 			name: "system config only",
@@ -43,7 +46,10 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				testRVSecret(systemConfigPrefix+"c", "3"),
 				testRVConfigMap(systemConfigPrefix+"d", "4"),
 			},
-			want: []string{"configmaps:4", "secrets:3"},
+			want: []string{
+				testRVString("configmaps", systemConfigPrefix+"d", "4"),
+				testRVString("secrets", systemConfigPrefix+"c", "3"),
+			},
 		},
 		{
 			name: "both config",
@@ -53,7 +59,12 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				testRVSecret(systemConfigPrefix+"c", "3"),
 				testRVConfigMap(systemConfigPrefix+"d", "4"),
 			},
-			want: []string{"configmaps:2", "configmaps:4", "secrets:1", "secrets:3"},
+			want: []string{
+				testRVString("configmaps", userConfigPrefix+"b", "2"),
+				testRVString("configmaps", systemConfigPrefix+"d", "4"),
+				testRVString("secrets", userConfigPrefix+"a", "1"),
+				testRVString("secrets", systemConfigPrefix+"c", "3"),
+			},
 		},
 		{
 			name: "both config overlapping resource versions",
@@ -63,7 +74,12 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				testRVSecret(systemConfigPrefix+"c", "2"),
 				testRVConfigMap(systemConfigPrefix+"d", "1"),
 			},
-			want: []string{"configmaps:2", "configmaps:1", "secrets:1", "secrets:2"},
+			want: []string{
+				testRVString("configmaps", userConfigPrefix+"b", "2"),
+				testRVString("configmaps", systemConfigPrefix+"d", "1"),
+				testRVString("secrets", userConfigPrefix+"a", "1"),
+				testRVString("secrets", systemConfigPrefix+"c", "2"),
+			},
 		},
 		{
 			name: "both config overlapping resource versions and ignored data",
@@ -75,7 +91,12 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				testRVSecret(systemConfigPrefix+"c", "2"),
 				testRVConfigMap(systemConfigPrefix+"d", "3"),
 			},
-			want: []string{"configmaps:2", "configmaps:3", "secrets:3", "secrets:2"},
+			want: []string{
+				testRVString("configmaps", userConfigPrefix+"b", "2"),
+				testRVString("configmaps", systemConfigPrefix+"d", "3"),
+				testRVString("secrets", userConfigPrefix+"a", "3"),
+				testRVString("secrets", systemConfigPrefix+"c", "2"),
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -115,4 +136,8 @@ func testRVConfigMap(name, rv string) *corev1.ConfigMap {
 			ResourceVersion: rv,
 		},
 	}
+}
+
+func testRVString(prefix, name, rv string) string {
+	return prefix + ":" + name + ":" + rv
 }

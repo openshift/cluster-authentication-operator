@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -94,6 +95,7 @@ func defaultDeployment(
 	// need to sort first in order to get a stable array
 	sort.Strings(resourceVersions)
 	rvs := strings.Join(resourceVersions, ",")
+	klog.V(4).Infof("tracked resource versions: %s", rvs)
 	rvsHash := sha512.Sum512([]byte(rvs))
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
 

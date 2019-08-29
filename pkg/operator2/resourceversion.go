@@ -16,7 +16,7 @@ func (c *authOperator) handleConfigResourceVersions() ([]string, error) {
 	for _, cm := range configMaps.Items {
 		if strings.HasPrefix(cm.Name, configVersionPrefix) {
 			// prefix the RV to make it clear where it came from since each resource can be from different etcd
-			configRVs = append(configRVs, "configmaps:"+cm.ResourceVersion)
+			configRVs = append(configRVs, "configmaps:"+cm.Name+":"+cm.ResourceVersion)
 		}
 	}
 
@@ -27,7 +27,7 @@ func (c *authOperator) handleConfigResourceVersions() ([]string, error) {
 	for _, secret := range secrets.Items {
 		if strings.HasPrefix(secret.Name, configVersionPrefix) {
 			// prefix the RV to make it clear where it came from since each resource can be from different etcd
-			configRVs = append(configRVs, "secrets:"+secret.ResourceVersion)
+			configRVs = append(configRVs, "secrets:"+secret.Name+":"+secret.ResourceVersion)
 		}
 	}
 
