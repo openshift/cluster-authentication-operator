@@ -3,12 +3,9 @@ package operator2
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"k8s.io/klog"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -296,7 +293,7 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 
 func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
 	if len(ca.Name) == 0 {
-		return transportFor("", trustedCABytes(), nil, nil)
+		return transportFor("", nil, nil, nil)
 	}
 	cm, err := c.configMaps.ConfigMaps(userConfigNamespace).Get(ca.Name, metav1.GetOptions{})
 	if err != nil {
@@ -345,13 +342,4 @@ func encodeOrDie(obj runtime.Object) []byte {
 		panic(err) // indicates static generated code is broken, unrecoverable
 	}
 	return bytes
-}
-
-func trustedCABytes() []byte {
-	caData, err := ioutil.ReadFile(operatorTrustedCAFile)
-	if err != nil {
-		klog.Infof("could not read %s, it won't be used in transport", operatorTrustedCAFile)
-		return nil
-	}
-	return caData
 }

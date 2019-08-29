@@ -176,9 +176,6 @@ func validateRouterSecret(routerSecret *corev1.Secret, ingress *configv1.Ingress
 		roots = x509.NewCertPool() // do not fail, we may have proxy roots
 	}
 
-	// always add proxy roots if they exist
-	_ = roots.AppendCertsFromPEM(trustedCABytes())
-
 	hasRoot := len(roots.Subjects()) > 0
 
 	opts := x509.VerifyOptions{
