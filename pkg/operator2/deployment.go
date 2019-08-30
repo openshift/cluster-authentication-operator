@@ -75,10 +75,10 @@ func defaultDeployment(
 		{
 			name:      trustedCABundleName,
 			configmap: true,
-			path:      trustedCABundleMountDir,
-			mappedKeys: map[string]string{
-				trustedCABundleKey: trustedCABundleMountFile,
-			},
+			path:      trustedCABundleMount,
+			// make this config map volume optional as it may not always exist
+			// this will prevent the node from blocking the container create process when the resource is missing
+			optional: true,
 		},
 	} {
 		v, m := data.split()
@@ -118,12 +118,14 @@ func defaultDeployment(
 							Image:           oauthserverImage,
 							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
 							Name:            targetName,
-							Command: []string{
-								"oauth-server",
-								"osinserver",
-								fmt.Sprintf("--config=%s", cliConfigPath),
-								fmt.Sprintf("--v=%d", getLogLevel(operatorConfig.Spec.LogLevel)),
-							},
+							Command:         []string{"/bin/bash", "-ec"},
+							Args: []string{fmt.Sprintf(`
+if [ -s %s ]; then
+    echo "Copying system trust bundle"
+    cp -f %s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+fi
+exec oauth-server osinserver --config=%s --v=%d
+`, trustedCABundlePath, trustedCABundlePath, cliConfigPath, getLogLevel(operatorConfig.Spec.LogLevel))},
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "https",
@@ -272,6 +274,7 @@ type volume struct {
 	path       string
 	keys       []string
 	mappedKeys map[string]string
+	optional   bool
 }
 
 func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
@@ -300,12 +303,14 @@ func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
 			LocalObjectReference: corev1.LocalObjectReference{
 				Name: v.name,
 			},
-			Items: items,
+			Items:    items,
+			Optional: &v.optional,
 		}
 	} else {
 		vol.Secret = &corev1.SecretVolumeSource{
 			SecretName: v.name,
 			Items:      items,
+			Optional:   &v.optional,
 		}
 	}
 
