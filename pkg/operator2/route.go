@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -84,7 +85,8 @@ func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
 
 func routerSecretToSNI(routerSecret *corev1.Secret) []configv1.NamedCertificate {
 	var out []configv1.NamedCertificate
-	for domain := range routerSecret.Data {
+	// make sure the output slice of named certs is sorted by domain so that the generated config is deterministic
+	for _, domain := range sets.StringKeySet(routerSecret.Data).List() {
 		out = append(out, configv1.NamedCertificate{
 			Names: []string{"*." + domain}, // ingress domain is always a wildcard
 			CertInfo: configv1.CertInfo{ // the cert and key are appended together
