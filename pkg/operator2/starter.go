@@ -26,6 +26,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
 const (
@@ -168,6 +170,17 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, ctx.EventRecorder)
 	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, ctx.EventRecorder)
+
+	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
+		operatorClient,
+		ctx.EventRecorder,
+		configInformers.Config().V1().Ingresses(),
+		kubeInformersNamespaced.Core().V1().Secrets(),
+		targetNamespace,
+		routerCertsLocalName,
+		targetName,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController(clusterOperatorName, operatorClient, ctx.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -193,6 +206,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		clusterOperatorStatus,
 		configOverridesController,
 		logLevelController,
+		routerCertsController,
 		managementStateController,
 	} {
 		go controller.Run(1, ctx.Done())

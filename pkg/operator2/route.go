@@ -1,7 +1,6 @@
 package operator2
 
 import (
-	"bytes"
 	"crypto/x509"
 	"fmt"
 
@@ -15,7 +14,6 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
@@ -54,9 +52,6 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 	routerSecret, err := c.secrets.Secrets(targetNamespace).Get(routerCertsLocalName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, "FailedRouterSecret", err
-	}
-	if reason, err := validateRouterSecret(routerSecret, ingress); err != nil {
-		return nil, nil, reason, err
 	}
 
 	return route, routerSecret, "", nil
@@ -147,87 +142,4 @@ func isIngressAdmitted(ingress routev1.RouteIngress) bool {
 
 func ingressToHost(ingress *configv1.Ingress) string {
 	return targetName + "." + ingress.Spec.Domain
-}
-
-func validateRouterSecret(routerSecret *corev1.Secret, ingress *configv1.Ingress) (string, error) {
-	// be careful not to print the routerSecret even when it is empty
-
-	if len(routerSecret.Data) == 0 {
-		return "EmptyRouterSecret", fmt.Errorf("router secret is empty")
-	}
-
-	domain := ingress.Spec.Domain
-	if len(domain) == 0 {
-		return "NoIngressDomain", fmt.Errorf("ingress config has no domain")
-	}
-
-	pemCerts := routerSecret.Data[domain]
-	if len(pemCerts) == 0 {
-		return "NoIngressDataRouterSecret", fmt.Errorf("router secret has no data for ingress domain %s", domain)
-	}
-
-	certificates, err := crypto.CertsFromPEM(pemCerts)
-	if err != nil {
-		return "InvalidPEMRouterSecret", fmt.Errorf("router secret contains invalid PEM data: %v", err)
-	}
-
-	// use system roots as starting point because let's encrypt only provides an intermediate
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		klog.Infof("failed to load system roots: %v", err)
-		roots = x509.NewCertPool() // do not fail, we may have proxy roots
-	}
-
-	hasRoot := len(roots.Subjects()) > 0
-
-	opts := x509.VerifyOptions{
-		DNSName:       ingressToHost(ingress),
-		Intermediates: x509.NewCertPool(),
-		Roots:         roots,
-	}
-
-	var hasServer bool
-
-	for _, certificate := range certificates {
-		if !certificate.IsCA {
-			continue
-		}
-
-		// consider self-signed CAs as roots
-		if bytes.Equal(certificate.RawIssuer, certificate.RawSubject) {
-			klog.V(4).Infof("using CA %s as root", certificate.Subject.String())
-			opts.Roots.AddCert(certificate)
-			hasRoot = true
-			continue
-		}
-
-		// consider all other CAs as intermediates
-		klog.V(4).Infof("using CA %s as intermediate", certificate.Subject.String())
-		opts.Intermediates.AddCert(certificate)
-	}
-
-	for _, certificate := range certificates {
-		if certificate.IsCA {
-			continue
-		}
-
-		if _, err := certificate.Verify(opts); err != nil {
-			klog.V(4).Infof("cert %s failed verification: %v", certificate.Subject.String(), err)
-			continue
-		}
-
-		klog.V(4).Infof("cert %s passed verification", certificate.Subject.String())
-		hasServer = true
-		break
-	}
-
-	if !hasRoot {
-		return "NoRootCARouterSecret", fmt.Errorf("router secret combined with system and proxy roots contains no root CA")
-	}
-
-	if !hasServer {
-		return "NoServerCertRouterSecret", fmt.Errorf("router secret has no cert for ingress domain %s", domain)
-	}
-
-	return "", nil
 }
