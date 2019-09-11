@@ -5,7 +5,7 @@ metadata:
   name: authentication-operator
   labels:
     app: authentication-operator
-  annotation:
+  annotations:
     config.openshift.io/inject-proxy: operator
 spec:
   replicas: 1
