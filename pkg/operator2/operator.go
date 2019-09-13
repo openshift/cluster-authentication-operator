@@ -530,7 +530,9 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (ready bool, msg, reason string, err error) {
 	caData := routerSecretToCA(route, routerSecret, ingress)
 
-	rt, err := transportFor("", caData, nil, nil)
+	// FIXME: this reads too often, either always merge system-trust store in transportForInner or keep this in memory
+	systemCaData, _ := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	rt, err := transportFor("", append(caData, systemCaData...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}

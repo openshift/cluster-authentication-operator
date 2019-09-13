@@ -13,6 +13,8 @@ import (
 	utilflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
 
+	"github.com/openshift/library-go/pkg/operator/watchdog"
+
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator2"
 )
 
@@ -43,6 +45,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(operator2.NewOperator())
+	cmd.AddCommand(watchdog.NewFileWatcherWatchdog())
 
 	return cmd
 }
