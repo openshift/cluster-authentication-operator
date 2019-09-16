@@ -29,9 +29,11 @@ func handleDegradedWithReason(operatorConfig *operatorv1.Authentication, prefix,
 		})
 }
 
-func isDegraded(operatorConfig *operatorv1.Authentication) bool {
+func isDegradedIgnoreGlobal(operatorConfig *operatorv1.Authentication, prefix string) bool {
+	globalDegraded := prefix + operatorv1.OperatorStatusTypeDegraded
 	for _, condition := range operatorConfig.Status.Conditions {
-		if strings.HasSuffix(condition.Type, operatorv1.OperatorStatusTypeDegraded) &&
+		if condition.Type != globalDegraded && // we want to know if we are degraded for something other than this
+			strings.HasSuffix(condition.Type, operatorv1.OperatorStatusTypeDegraded) &&
 			condition.Status == operatorv1.ConditionTrue {
 			return true
 		}
