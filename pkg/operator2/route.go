@@ -20,7 +20,7 @@ import (
 func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, string, error) {
 	expectedRoute := defaultRoute(ingress)
 
-	route, err := c.route.Get(targetName, metav1.GetOptions{})
+	route, err := c.route.Get("oauth-openshift", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		route, err = c.route.Create(expectedRoute)
 	}
@@ -49,7 +49,7 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 		return nil, nil, "FailedHost", fmt.Errorf("route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, route.Status.Ingress)
 	}
 
-	routerSecret, err := c.secrets.Secrets(targetNamespace).Get(routerCertsLocalName, metav1.GetOptions{})
+	routerSecret, err := c.secrets.Secrets("openshift-authentication").Get("v4-0-config-system-router-certs", metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, "FailedRouterSecret", err
 	}
@@ -65,10 +65,10 @@ func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
 			Subdomain: "",                     // TODO once subdomain is functional, remove reliance on ingress config and just set subdomain=targetName
 			To: routev1.RouteTargetReference{
 				Kind: "Service",
-				Name: targetName,
+				Name: "oauth-openshift",
 			},
 			Port: &routev1.RoutePort{
-				TargetPort: intstr.FromInt(containerPort),
+				TargetPort: intstr.FromInt(6443),
 			},
 			TLS: &routev1.TLSConfig{
 				Termination:                   routev1.TLSTerminationPassthrough,
@@ -85,8 +85,8 @@ func routerSecretToSNI(routerSecret *corev1.Secret) []configv1.NamedCertificate 
 		out = append(out, configv1.NamedCertificate{
 			Names: []string{"*." + domain}, // ingress domain is always a wildcard
 			CertInfo: configv1.CertInfo{ // the cert and key are appended together
-				CertFile: routerCertsLocalMount + "/" + domain,
-				KeyFile:  routerCertsLocalMount + "/" + domain,
+				CertFile: "/var/config/system/secrets/v4-0-config-system-router-certs/" + domain,
+				KeyFile:  "/var/config/system/secrets/v4-0-config-system-router-certs/" + domain,
 			},
 		})
 	}
@@ -141,5 +141,5 @@ func isIngressAdmitted(ingress routev1.RouteIngress) bool {
 }
 
 func ingressToHost(ingress *configv1.Ingress) string {
-	return targetName + "." + ingress.Spec.Domain
+	return "oauth-openshift." + ingress.Spec.Domain
 }

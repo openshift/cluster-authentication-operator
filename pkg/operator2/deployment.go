@@ -37,45 +37,45 @@ func defaultDeployment(
 
 	for _, data := range []volume{
 		{
-			name:      sessionNameAndKey,
+			name:      "v4-0-config-system-session",
 			configmap: false,
-			path:      sessionMount,
-			keys:      []string{sessionNameAndKey},
+			path:      "/var/config/system/secrets/v4-0-config-system-session",
+			keys:      []string{"v4-0-config-system-session"},
 		},
 		{
-			name:      cliConfigNameAndKey,
+			name:      "v4-0-config-system-cliconfig",
 			configmap: true,
-			path:      cliConfigMount,
-			keys:      []string{cliConfigNameAndKey},
+			path:      "/var/config/system/configmaps/v4-0-config-system-cliconfig",
+			keys:      []string{"v4-0-config-system-cliconfig"},
 		},
 		{
-			name:      servingCertName,
+			name:      "v4-0-config-system-serving-cert",
 			configmap: false,
-			path:      servingCertMount,
+			path:      "/var/config/system/secrets/v4-0-config-system-serving-cert",
 			keys:      []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey},
 		},
 		{
-			name:      serviceCAName,
+			name:      "v4-0-config-system-service-ca",
 			configmap: true,
-			path:      serviceCAMount,
-			keys:      []string{serviceCAKey},
+			path:      "/var/config/system/configmaps/v4-0-config-system-service-ca",
+			keys:      []string{"service-ca.crt"},
 		},
 		{
-			name:      routerCertsLocalName,
+			name:      "v4-0-config-system-router-certs",
 			configmap: false,
-			path:      routerCertsLocalMount,
+			path:      "/var/config/system/secrets/v4-0-config-system-router-certs",
 			keys:      sets.StringKeySet(routerSecret.Data).List(),
 		},
 		{
-			name:      ocpBrandingSecretName,
+			name:      "v4-0-config-system-ocp-branding-template",
 			configmap: false,
-			path:      ocpBrandingSecretMount,
+			path:      "/var/config/system/secrets/v4-0-config-system-ocp-branding-template",
 			keys:      []string{configv1.LoginTemplateKey, configv1.ProviderSelectionTemplateKey, configv1.ErrorsTemplateKey},
 		},
 		{
-			name:      trustedCABundleName,
+			name:      "v4-0-config-system-trusted-ca-bundle",
 			configmap: true,
-			path:      trustedCABundleMount,
+			path:      "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle",
 			// make this config map volume optional as it may not always exist
 			// this will prevent the node from blocking the container create process when the resource is missing
 			optional: true,
@@ -112,12 +112,12 @@ func defaultDeployment(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: meta,
 				Spec: corev1.PodSpec{
-					ServiceAccountName: targetName,
+					ServiceAccountName: "oauth-openshift",
 					Containers: []corev1.Container{
 						{
 							Image:           oauthserverImage,
 							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
-							Name:            targetName,
+							Name:            "oauth-openshift",
 							Command:         []string{"/bin/bash", "-ec"},
 							Args: []string{fmt.Sprintf(`
 if [ -s %s ]; then
@@ -125,12 +125,14 @@ if [ -s %s ]; then
     cp -f %s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 fi
 exec oauth-server osinserver --config=%s --v=%d
-`, trustedCABundlePath, trustedCABundlePath, cliConfigPath, getLogLevel(operatorConfig.Spec.LogLevel))},
+`, `/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt`,
+								`/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt`,
+								`/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig`, getLogLevel(operatorConfig.Spec.LogLevel))},
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "https",
 									Protocol:      corev1.ProtocolTCP,
-									ContainerPort: containerPort,
+									ContainerPort: 6443,
 								},
 							},
 							VolumeMounts:             mounts,
@@ -197,7 +199,7 @@ func defaultProbe() *corev1.Probe {
 		Handler: corev1.Handler{
 			HTTPGet: &corev1.HTTPGetAction{
 				Path:   "/healthz",
-				Port:   intstr.FromInt(containerPort),
+				Port:   intstr.FromInt(6443),
 				Scheme: corev1.URISchemeHTTPS,
 			},
 		},

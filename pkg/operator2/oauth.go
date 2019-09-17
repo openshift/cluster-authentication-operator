@@ -31,7 +31,7 @@ func (c *authOperator) handleOAuthConfig(
 	*configSyncData,
 	error,
 ) {
-	oauthConfigNoDefaults, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
+	oauthConfigNoDefaults, err := c.oauth.Get("cluster", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		oauthConfigNoDefaults, err = c.oauth.Create(&configv1.OAuth{
 			ObjectMeta: defaultGlobalConfigMeta(),
@@ -91,13 +91,13 @@ func (c *authOperator) handleOAuthConfig(
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
 				ServingInfo: configv1.ServingInfo{
-					BindAddress: fmt.Sprintf("0.0.0.0:%d", containerPort),
+					BindAddress: fmt.Sprintf("0.0.0.0:%d", 6443),
 					BindNetwork: "tcp4",
 					// we have valid serving certs provided by service-ca
 					// this is our main server cert which is used if SNI does not match
 					CertInfo: configv1.CertInfo{
-						CertFile: servingCertPathCert,
-						KeyFile:  servingCertPathKey,
+						CertFile: "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt",
+						KeyFile:  "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key",
 					},
 					ClientCA:          "", // I think this can be left unset
 					NamedCertificates: routerSecretToSNI(routerSecret),
@@ -130,7 +130,7 @@ func (c *authOperator) handleOAuthConfig(
 				ServiceAccountMethod: osinv1.GrantHandlerPrompt,
 			},
 			SessionConfig: &osinv1.SessionConfig{
-				SessionSecretsFile:   sessionPath,
+				SessionSecretsFile:   "/var/config/system/secrets/v4-0-config-system-session/v4-0-config-system-session",
 				SessionMaxAgeSeconds: 5 * 60, // 5 minutes
 				SessionName:          "ssn",
 			},
@@ -156,17 +156,17 @@ func (c *authOperator) handleOAuthConfig(
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
 	meta := defaultMeta()
-	meta.Name = cliConfigNameAndKey
+	meta.Name = "v4-0-config-system-cliconfig"
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,
 		Data: map[string]string{
-			cliConfigNameAndKey: string(completeConfigBytes),
+			"v4-0-config-system-cliconfig": string(completeConfigBytes),
 		},
 	}
 }
 
 func getMasterCA() *string {
-	ca := serviceCAPath // need local var to be able to take address of it
+	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt" // need local var to be able to take address of it
 	return &ca
 }
 

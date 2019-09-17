@@ -32,53 +32,53 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 		{
 			name: "user config only",
 			objects: []runtime.Object{
-				testRVSecret(userConfigPrefix+"a", "1"),
-				testRVConfigMap(userConfigPrefix+"b", "2"),
+				testRVSecret("v4-0-config-user-a", "1"),
+				testRVConfigMap("v4-0-config-user-b", "2"),
 			},
 			want: []string{
-				testRVString("configmaps", userConfigPrefix+"b", "2"),
-				testRVString("secrets", userConfigPrefix+"a", "1"),
+				testRVString("configmaps", "v4-0-config-user-b", "2"),
+				testRVString("secrets", "v4-0-config-user-a", "1"),
 			},
 		},
 		{
 			name: "system config only",
 			objects: []runtime.Object{
-				testRVSecret(systemConfigPrefix+"c", "3"),
-				testRVConfigMap(systemConfigPrefix+"d", "4"),
+				testRVSecret("v4-0-config-system-c", "3"),
+				testRVConfigMap("v4-0-config-system-d", "4"),
 			},
 			want: []string{
-				testRVString("configmaps", systemConfigPrefix+"d", "4"),
-				testRVString("secrets", systemConfigPrefix+"c", "3"),
+				testRVString("configmaps", "v4-0-config-system-d", "4"),
+				testRVString("secrets", "v4-0-config-system-c", "3"),
 			},
 		},
 		{
 			name: "both config",
 			objects: []runtime.Object{
-				testRVSecret(userConfigPrefix+"a", "1"),
-				testRVConfigMap(userConfigPrefix+"b", "2"),
-				testRVSecret(systemConfigPrefix+"c", "3"),
-				testRVConfigMap(systemConfigPrefix+"d", "4"),
+				testRVSecret("v4-0-config-user-a", "1"),
+				testRVConfigMap("v4-0-config-user-b", "2"),
+				testRVSecret("v4-0-config-system-c", "3"),
+				testRVConfigMap("v4-0-config-system-d", "4"),
 			},
 			want: []string{
-				testRVString("configmaps", userConfigPrefix+"b", "2"),
-				testRVString("configmaps", systemConfigPrefix+"d", "4"),
-				testRVString("secrets", userConfigPrefix+"a", "1"),
-				testRVString("secrets", systemConfigPrefix+"c", "3"),
+				testRVString("configmaps", "v4-0-config-user-b", "2"),
+				testRVString("configmaps", "v4-0-config-system-d", "4"),
+				testRVString("secrets", "v4-0-config-user-a", "1"),
+				testRVString("secrets", "v4-0-config-system-c", "3"),
 			},
 		},
 		{
 			name: "both config overlapping resource versions",
 			objects: []runtime.Object{
-				testRVSecret(userConfigPrefix+"a", "1"),
-				testRVConfigMap(userConfigPrefix+"b", "2"),
-				testRVSecret(systemConfigPrefix+"c", "2"),
-				testRVConfigMap(systemConfigPrefix+"d", "1"),
+				testRVSecret("v4-0-config-user-a", "1"),
+				testRVConfigMap("v4-0-config-user-b", "2"),
+				testRVSecret("v4-0-config-system-c", "2"),
+				testRVConfigMap("v4-0-config-system-d", "1"),
 			},
 			want: []string{
-				testRVString("configmaps", userConfigPrefix+"b", "2"),
-				testRVString("configmaps", systemConfigPrefix+"d", "1"),
-				testRVString("secrets", userConfigPrefix+"a", "1"),
-				testRVString("secrets", systemConfigPrefix+"c", "2"),
+				testRVString("configmaps", "v4-0-config-user-b", "2"),
+				testRVString("configmaps", "v4-0-config-system-d", "1"),
+				testRVString("secrets", "v4-0-config-user-a", "1"),
+				testRVString("secrets", "v4-0-config-system-c", "2"),
 			},
 		},
 		{
@@ -86,16 +86,16 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 			objects: []runtime.Object{
 				testRVSecret("e", "5"),
 				testRVConfigMap("f", "6"),
-				testRVSecret(userConfigPrefix+"a", "3"),
-				testRVConfigMap(userConfigPrefix+"b", "2"),
-				testRVSecret(systemConfigPrefix+"c", "2"),
-				testRVConfigMap(systemConfigPrefix+"d", "3"),
+				testRVSecret("v4-0-config-user-a", "3"),
+				testRVConfigMap("v4-0-config-user-b", "2"),
+				testRVSecret("v4-0-config-system-c", "2"),
+				testRVConfigMap("v4-0-config-system-d", "3"),
 			},
 			want: []string{
-				testRVString("configmaps", userConfigPrefix+"b", "2"),
-				testRVString("configmaps", systemConfigPrefix+"d", "3"),
-				testRVString("secrets", userConfigPrefix+"a", "3"),
-				testRVString("secrets", systemConfigPrefix+"c", "2"),
+				testRVString("configmaps", "v4-0-config-user-b", "2"),
+				testRVString("configmaps", "v4-0-config-system-d", "3"),
+				testRVString("secrets", "v4-0-config-user-a", "3"),
+				testRVString("secrets", "v4-0-config-system-c", "2"),
 			},
 		},
 	}
@@ -122,7 +122,7 @@ func testRVSecret(name, rv string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
-			Namespace:       targetNamespace,
+			Namespace:       "openshift-authentication",
 			ResourceVersion: rv,
 		},
 	}
@@ -132,7 +132,7 @@ func testRVConfigMap(name, rv string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
-			Namespace:       targetNamespace,
+			Namespace:       "openshift-authentication",
 			ResourceVersion: rv,
 		},
 	}

@@ -179,10 +179,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
 						Kind: "Service",
-						Name: targetName,
+						Name: "oauth-openshift",
 					},
 					Port: &v1.RoutePort{
-						TargetPort: intstr.FromInt(containerPort),
+						TargetPort: intstr.FromInt(6443),
 					},
 					TLS: &v1.TLSConfig{
 						Termination:                   v1.TLSTerminationPassthrough,
@@ -205,8 +205,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			expectedSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      routerCertsLocalName,
-					Namespace: targetNamespace,
+					Name:      "v4-0-config-system-router-certs",
+					Namespace: "openshift-authentication",
 				},
 				Data: map[string][]byte{
 					"apps.example.com": []byte(appCert),
@@ -216,8 +216,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			objects: []runtime.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      routerCertsLocalName,
-						Namespace: targetNamespace,
+						Name:      "v4-0-config-system-router-certs",
+						Namespace: "openshift-authentication",
 					},
 					Data: map[string][]byte{
 						"apps.example.com": []byte(appCert),
@@ -252,10 +252,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
 						Kind: "Service",
-						Name: targetName,
+						Name: "oauth-openshift",
 					},
 					Port: &v1.RoutePort{
-						TargetPort: intstr.FromInt(containerPort),
+						TargetPort: intstr.FromInt(6443),
 					},
 					TLS: &v1.TLSConfig{
 						Termination:                   v1.TLSTerminationPassthrough,
@@ -278,8 +278,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			expectedSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      routerCertsLocalName,
-					Namespace: targetNamespace,
+					Name:      "v4-0-config-system-router-certs",
+					Namespace: "openshift-authentication",
 				},
 				Data: map[string][]byte{
 					"apps.example.com": []byte(appCert),
@@ -289,8 +289,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			objects: []runtime.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      routerCertsLocalName,
-						Namespace: targetNamespace,
+						Name:      "v4-0-config-system-router-certs",
+						Namespace: "openshift-authentication",
 					},
 					Data: map[string][]byte{
 						"apps.example.com": []byte(appCert),
@@ -305,10 +305,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{
 							Kind: "Service",
-							Name: targetName,
+							Name: "oauth-openshift",
 						},
 						Port: &v1.RoutePort{
-							TargetPort: intstr.FromInt(containerPort),
+							TargetPort: intstr.FromInt(6443),
 						},
 						TLS: &v1.TLSConfig{
 							Termination:                   v1.TLSTerminationPassthrough,
@@ -343,10 +343,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 					Host: "oauth-openshift.bar.example.com",
 					To: v1.RouteTargetReference{
 						Kind: "Service",
-						Name: targetName,
+						Name: "oauth-openshift",
 					},
 					Port: &v1.RoutePort{
-						TargetPort: intstr.FromInt(containerPort),
+						TargetPort: intstr.FromInt(6443),
 					},
 					TLS: &v1.TLSConfig{
 						Termination:                   v1.TLSTerminationPassthrough,
@@ -383,8 +383,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			expectedSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      routerCertsLocalName,
-					Namespace: targetNamespace,
+					Name:      "v4-0-config-system-router-certs",
+					Namespace: "openshift-authentication",
 				},
 				Data: map[string][]byte{
 					"bar.example.com": []byte(barCert),
@@ -394,8 +394,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			objects: []runtime.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      routerCertsLocalName,
-						Namespace: targetNamespace,
+						Name:      "v4-0-config-system-router-certs",
+						Namespace: "openshift-authentication",
 					},
 					Data: map[string][]byte{
 						"bar.example.com": []byte(barCert),
@@ -410,10 +410,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{
 							Kind: "Service",
-							Name: targetName,
+							Name: "oauth-openshift",
 						},
 						Port: &v1.RoutePort{
-							TargetPort: intstr.FromInt(containerPort),
+							TargetPort: intstr.FromInt(6443),
 						},
 						TLS: &v1.TLSConfig{
 							Termination:                   v1.TLSTerminationPassthrough,
@@ -444,10 +444,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			expectedRoute: &v1.Route{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      targetName,
-					Namespace: targetNamespace,
+					Name:      "oauth-openshift",
+					Namespace: "openshift-authentication",
 					Labels: map[string]string{
-						"app": targetName,
+						"app": "oauth-openshift",
 					},
 					Annotations: map[string]string{
 						"annotationToPreserve": "foo",
@@ -457,10 +457,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
 						Kind: "Service",
-						Name: targetName,
+						Name: "oauth-openshift",
 					},
 					Port: &v1.RoutePort{
-						TargetPort: intstr.FromInt(containerPort),
+						TargetPort: intstr.FromInt(6443),
 					},
 					TLS: &v1.TLSConfig{
 						Termination:                   v1.TLSTerminationPassthrough,
@@ -497,8 +497,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			expectedSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      routerCertsLocalName,
-					Namespace: targetNamespace,
+					Name:      "v4-0-config-system-router-certs",
+					Namespace: "openshift-authentication",
 				},
 				Data: map[string][]byte{
 					"apps.example.com": []byte(appCert),
@@ -508,8 +508,8 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			objects: []runtime.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      routerCertsLocalName,
-						Namespace: targetNamespace,
+						Name:      "v4-0-config-system-router-certs",
+						Namespace: "openshift-authentication",
 					},
 					Data: map[string][]byte{
 						"apps.example.com": []byte(appCert),
@@ -520,10 +520,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			routeObjects: []runtime.Object{
 				&v1.Route{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      targetName,
-						Namespace: targetNamespace,
+						Name:      "oauth-openshift",
+						Namespace: "openshift-authentication",
 						Labels: map[string]string{
-							"app": targetName,
+							"app": "oauth-openshift",
 						},
 						Annotations: map[string]string{
 							"annotationToPreserve": "foo",
@@ -533,10 +533,10 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{
 							Kind: "Service",
-							Name: targetName,
+							Name: "oauth-openshift",
 						},
 						Port: &v1.RoutePort{
-							TargetPort: intstr.FromInt(containerPort),
+							TargetPort: intstr.FromInt(6443),
 						},
 						TLS: nil, // This invalidates the route
 					},
@@ -579,7 +579,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			c := &authOperator{
 				secrets:    client.CoreV1(),
 				configMaps: client.CoreV1(),
-				route:      routeClient.RouteV1().Routes(targetNamespace),
+				route:      routeClient.RouteV1().Routes("openshift-authentication"),
 			}
 
 			route, secret, _, err := c.handleRoute(tt.ingress)

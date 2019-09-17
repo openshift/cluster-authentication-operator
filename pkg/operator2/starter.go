@@ -64,16 +64,16 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-		informers.WithNamespace(targetNamespace),
+		informers.WithNamespace("openshift-authentication"),
 	)
 
 	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
-		authopinformer.WithTweakListOptions(singleNameListOptions(globalConfigName)),
+		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
-		routeinformer.WithNamespace(targetNamespace),
-		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
+		routeinformer.WithNamespace("openshift-authentication"),
+		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
 	)
 
 	// do not use WithTweakListOptions here as top level configs are all called "cluster"
@@ -82,9 +82,9 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
-		targetNamespace,
-		userConfigNamespace,
-		machineConfigNamespace,
+		"openshift-authentication",
+		"openshift-config",
+		"openshift-config-managed",
 	)
 
 	operatorClient := &OperatorClient{
@@ -102,24 +102,24 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	// add syncing for the OAuth metadata ConfigMap
 	if err := resourceSyncer.SyncConfigMap(
-		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: targetName},
-		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: oauthMetadataName},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "oauth-openshift"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-metadata"},
 	); err != nil {
 		return err
 	}
 
 	// add syncing for router certs for all cluster ingresses
 	if err := resourceSyncer.SyncSecret(
-		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: routerCertsLocalName},
-		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: routerCertsSharedName},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-router-certs"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "router-certs"},
 	); err != nil {
 		return err
 	}
 
 	// add syncing for the console-config ConfigMap (indirect watch for changes)
 	if err := resourceSyncer.SyncConfigMap(
-		resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: consoleConfigMapLocalName},
-		resourcesynccontroller.ResourceLocation{Namespace: machineConfigNamespace, Name: consoleConfigMapSharedName},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-console-config"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "console-config"},
 	); err != nil {
 		return err
 	}
@@ -141,16 +141,16 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
-		clusterOperatorName,
+		"authentication",
 		[]configv1.ObjectReference{
-			{Group: operatorv1.GroupName, Resource: "authentications", Name: globalConfigName},
-			{Group: configv1.GroupName, Resource: "authentications", Name: globalConfigName},
-			{Group: configv1.GroupName, Resource: "infrastructures", Name: globalConfigName},
-			{Group: configv1.GroupName, Resource: "oauths", Name: globalConfigName},
-			{Resource: "namespaces", Name: userConfigNamespace},
-			{Resource: "namespaces", Name: machineConfigNamespace},
-			{Resource: "namespaces", Name: targetNamespace},
-			{Resource: "namespaces", Name: targetNamespaceOperator},
+			{Group: operatorv1.GroupName, Resource: "authentications", Name: "cluster"},
+			{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
+			{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
+			{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
+			{Resource: "namespaces", Name: "openshift-config"},
+			{Resource: "namespaces", Name: "openshift-config-managed"},
+			{Resource: "namespaces", Name: "openshift-authentication"},
+			{Resource: "namespaces", Name: "openshift-authentication-operator"},
 		},
 		configClient.ConfigV1(),
 		configInformers.Config().V1().ClusterOperators(),
@@ -176,13 +176,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		ctx.EventRecorder,
 		configInformers.Config().V1().Ingresses(),
 		kubeInformersNamespaced.Core().V1().Secrets(),
-		targetNamespace,
-		routerCertsLocalName,
-		targetName,
+		"openshift-authentication",
+		"v4-0-config-system-router-certs",
+		"oauth-openshift",
 	)
 
 	// TODO remove this controller once we support Removed
-	managementStateController := management.NewOperatorManagementStateController(clusterOperatorName, operatorClient, ctx.EventRecorder)
+	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, ctx.EventRecorder)
 	management.SetOperatorNotRemovable()
 	// TODO move to config observers
 	// configobserver.NewConfigObserver(...)

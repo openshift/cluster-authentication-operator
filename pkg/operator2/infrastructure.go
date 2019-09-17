@@ -8,7 +8,7 @@ import (
 )
 
 func (c *authOperator) handleInfrastructureConfig() *configv1.Infrastructure {
-	infrastructureConfig, err := c.infrastructure.Get(globalConfigName, metav1.GetOptions{})
+	infrastructureConfig, err := c.infrastructure.Get("cluster", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("error getting infrastructure config: %v", err)
 		// have a placeholder that will at least look reasonable in the token request endpoint

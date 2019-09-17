@@ -9,15 +9,10 @@ import (
 	"k8s.io/klog"
 )
 
-const (
-	injectCABundleAnnotationName  = "service.alpha.openshift.io/inject-cabundle"
-	injectCABundleAnnotationValue = "true"
-)
-
 func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, error) {
-	cm := c.configMaps.ConfigMaps(targetNamespace)
-	secret := c.secrets.Secrets(targetNamespace)
-	serviceCA, err := cm.Get(serviceCAName, metav1.GetOptions{})
+	cm := c.configMaps.ConfigMaps("openshift-authentication")
+	secret := c.secrets.Secrets("openshift-authentication")
+	serviceCA, err := cm.Get("v4-0-config-system-service-ca", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		serviceCA, err = cm.Create(defaultServiceCA())
 	}
@@ -25,7 +20,7 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 		return nil, nil, err
 	}
 
-	if len(serviceCA.Data[serviceCAKey]) == 0 {
+	if len(serviceCA.Data["service-ca.crt"]) == 0 {
 		return nil, nil, fmt.Errorf("config map has no service ca data: %#v", serviceCA)
 	}
 
@@ -39,7 +34,7 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 		return nil, nil, err
 	}
 
-	servingCert, err := secret.Get(servingCertName, metav1.GetOptions{})
+	servingCert, err := secret.Get("v4-0-config-system-serving-cert", metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get serving cert: %v", err)
 	}
@@ -48,7 +43,7 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 }
 
 func isValidServiceCA(ca *corev1.ConfigMap) error {
-	if ca.Annotations[injectCABundleAnnotationName] != injectCABundleAnnotationValue {
+	if ca.Annotations["service.alpha.openshift.io/inject-cabundle"] != "true" {
 		return fmt.Errorf("config map missing injection annotation: %#v", ca)
 	}
 	return nil
@@ -56,8 +51,8 @@ func isValidServiceCA(ca *corev1.ConfigMap) error {
 
 func defaultServiceCA() *corev1.ConfigMap {
 	meta := defaultMeta()
-	meta.Name = serviceCAName
-	meta.Annotations[injectCABundleAnnotationName] = injectCABundleAnnotationValue
+	meta.Name = "v4-0-config-system-service-ca"
+	meta.Annotations["service.alpha.openshift.io/inject-cabundle"] = "true"
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,
 	}
