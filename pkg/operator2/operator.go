@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -171,6 +172,8 @@ type authOperator struct {
 	apiserver      configv1client.APIServerInterface
 	proxy          configv1client.ProxyInterface
 
+	systemCABundle []byte
+
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
 
@@ -213,6 +216,12 @@ func NewAuthenticationOperator(
 
 		resourceSyncer: resourceSyncer,
 	}
+
+	systemCABytes, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+	}
+	c.systemCABundle = systemCABytes
 
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
@@ -521,7 +530,12 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, opera
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (ready bool, msg, reason string, err error) {
 	caData := routerSecretToCA(route, routerSecret, ingress)
 
-	rt, err := transportFor("", caData, nil, nil)
+	// if systemCABundle is not empty, append the new line to the caData
+	if len(c.systemCABundle) > 0 {
+		caData = append(bytes.TrimSpace(caData), []byte("\n")...)
+	}
+
+	rt, err := transportFor("", append(caData, c.systemCABundle...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
