@@ -40,8 +40,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
-var deploymentVersionHashKey = operatorv1.GroupName + "/rvs-hash"
-
 const (
 	clusterOperatorName     = "authentication"
 	targetName              = "oauth-openshift" // this value must be "namespaced" to avoid using a route host that a customer may want
@@ -49,6 +47,8 @@ const (
 	targetNameOperator      = "authentication-operator"
 	targetNamespaceOperator = "openshift-authentication-operator"
 	globalConfigName        = "cluster"
+
+	deploymentVersionHashKey = "operator.openshift.io/rvs-hash"
 
 	operatorSelfName       = "operator"
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
@@ -60,79 +60,69 @@ const (
 	userConfigNamespace    = "openshift-config"
 
 	kasServiceAndEndpointName = "kubernetes"
-	kasServiceFullName        = kasServiceAndEndpointName + "." + corev1.NamespaceDefault + ".svc"
+	kasServiceFullName        = "kubernetes.default.svc"
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
-	systemConfigPath           = "/var/config/system"
-	systemConfigPathConfigMaps = systemConfigPath + "/configmaps"
-	systemConfigPathSecrets    = systemConfigPath + "/secrets"
-
-	// if one day we ever need to come up with something else, we can still find the old secrets and config maps
-	versionPrefix = "v4-0-"
-
-	configVersionPrefix = versionPrefix + "config-"
+	configVersionPrefix = "v4-0-config-"
 
 	// secrets and config maps that we manually managed have this prefix
-	systemConfigPrefix = configVersionPrefix + "system-"
+	systemConfigPrefix = "v4-0-config-system-"
 
 	// secrets and config maps synced from openshift-config into our namespace have this prefix
-	userConfigPrefix = configVersionPrefix + "user-"
+	userConfigPrefix = "v4-0-config-user-"
 	// idps that are synced have this prefix
-	userConfigPrefixIDP = userConfigPrefix + "idp-"
+	userConfigPrefixIDP = "v4-0-config-user-idp-"
 	// templates that are synced have this prefix
-	userConfigPrefixTemplate = userConfigPrefix + "template-"
+	userConfigPrefixTemplate = "v4-0-config-user-template-"
 
-	// secrets and config maps synced from openshift-config into our namespace have this path prefix
-	userConfigPath = "/var/config/user"
 	// root path for IDP data
-	userConfigPathPrefixIDP = userConfigPath + "/" + "idp"
+	userConfigPathPrefixIDP = "/var/config/user/idp"
 	// root path for template data
-	userConfigPathPrefixTemplate = userConfigPath + "/" + "template"
+	userConfigPathPrefixTemplate = "/var/config/user/template"
 
-	sessionNameAndKey = systemConfigPrefix + "session"
-	sessionMount      = systemConfigPathSecrets + "/" + sessionNameAndKey
-	sessionPath       = sessionMount + "/" + sessionNameAndKey
+	sessionNameAndKey = "v4-0-config-system-session"
+	sessionMount      = "/var/config/system/secrets/v4-0-config-system-session"
+	sessionPath       = "/var/config/system/secrets/v4-0-config-system-session/v4-0-config-system-session"
 
-	serviceCABase  = "service-ca"
-	serviceCAName  = systemConfigPrefix + serviceCABase
-	serviceCAKey   = serviceCABase + ".crt"
-	serviceCAMount = systemConfigPathConfigMaps + "/" + serviceCAName
-	serviceCAPath  = serviceCAMount + "/" + serviceCAKey
+	serviceCAName  = "v4-0-config-system-service-ca"
+	serviceCAKey   = "service-ca.crt"
+	serviceCAMount = "/var/config/system/configmaps/v4-0-config-system-service-ca"
+	serviceCAPath  = "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
 
-	servingCertName     = systemConfigPrefix + "serving-cert"
-	servingCertMount    = systemConfigPathSecrets + "/" + servingCertName
-	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
-	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
+	servingCertName     = "v4-0-config-system-serving-cert"
+	servingCertMount    = "/var/config/system/secrets/v4-0-config-system-serving-cert"
+	servingCertPathCert = "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt"
+	servingCertPathKey  = "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key"
 
 	consoleConfigMapSharedName = "console-config"
-	consoleConfigMapLocalName  = systemConfigPrefix + consoleConfigMapSharedName
-	consoleConfigKey           = consoleConfigMapSharedName + ".yaml"
+	consoleConfigMapLocalName  = "v4-0-config-system-console-config"
+	consoleConfigKey           = "console-config.yaml"
 
 	// trustedCABundleName is part of manifests so the names must be kept in sync
-	trustedCABundleName  = systemConfigPrefix + "trusted-ca-bundle"
-	trustedCABundleMount = systemConfigPathConfigMaps + "/" + trustedCABundleName
-	trustedCABundlePath  = trustedCABundleMount + "/" + "ca-bundle.crt"
+	trustedCABundleName  = "v4-0-config-system-trusted-ca-bundle"
+	trustedCABundleMount = "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle"
+	trustedCABundlePath  = "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt"
 
-	ocpBrandingSecretName   = systemConfigPrefix + "ocp-branding-template"
-	ocpBrandingSecretMount  = systemConfigPathSecrets + "/" + ocpBrandingSecretName
-	ocpBrandingLoginPath    = ocpBrandingSecretMount + "/" + configv1.LoginTemplateKey
-	ocpBrandingProviderPath = ocpBrandingSecretMount + "/" + configv1.ProviderSelectionTemplateKey
-	ocpBrandingErrorPath    = ocpBrandingSecretMount + "/" + configv1.ErrorsTemplateKey
+	ocpBrandingSecretName   = "v4-0-config-system-ocp-branding-template"
+	ocpBrandingSecretMount  = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template"
+	ocpBrandingLoginPath    = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/login.html"
+	ocpBrandingProviderPath = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/providers.html"
+	ocpBrandingErrorPath    = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/errors.html"
 
-	cliConfigNameAndKey = systemConfigPrefix + "cliconfig"
-	cliConfigMount      = systemConfigPathConfigMaps + "/" + cliConfigNameAndKey
-	cliConfigPath       = cliConfigMount + "/" + cliConfigNameAndKey
+	cliConfigNameAndKey = "v4-0-config-system-cliconfig"
+	cliConfigMount      = "/var/config/system/configmaps/v4-0-config-system-cliconfig"
+	cliConfigPath       = "/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig"
 
-	oauthMetadataName        = systemConfigPrefix + "metadata"
+	oauthMetadataName        = "v4-0-config-system-metadata"
 	oauthMetadataAPIEndpoint = "/.well-known/oauth-authorization-server"
 
 	oauthBrowserClientName     = "openshift-browser-client"
 	oauthChallengingClientName = "openshift-challenging-client"
 
 	routerCertsSharedName = "router-certs"
-	routerCertsLocalName  = systemConfigPrefix + routerCertsSharedName
-	routerCertsLocalMount = systemConfigPathSecrets + "/" + routerCertsLocalName
+	routerCertsLocalName  = "v4-0-config-system-router-certs"
+	routerCertsLocalMount = "/var/config/system/secrets/v4-0-config-system-router-certs"
 
 	servicePort   = 443
 	containerPort = 6443
@@ -152,7 +142,8 @@ func init() {
 	var err error
 	kasServicePort, err = strconv.Atoi(os.Getenv(kasServicePortEnvName))
 	if err != nil {
-		panic(err)
+		klog.Infof("defaulting KAS service port to 443 due to parsing error: %v", err)
+		kasServicePort = 443
 	}
 }
 
