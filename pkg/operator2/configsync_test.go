@@ -30,43 +30,43 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncConfigMap("b"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-a": "src-a",
-				userConfigPrefix + "dest-b": "src-b",
+				"v4-0-config-user-dest-a": "src-a",
+				"v4-0-config-user-dest-b": "src-b",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-c": "src-c",
-				userConfigPrefix + "dest-d": "src-d",
+				"v4-0-config-user-dest-c": "src-c",
+				"v4-0-config-user-dest-d": "src-d",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-e": "src-e",
-				userConfigPrefix + "dest-f": "src-f",
+				"v4-0-config-user-dest-e": "src-e",
+				"v4-0-config-user-dest-f": "src-f",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-a"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-b"},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-c"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-d"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-e"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-f"},
 				},
 			},
 			wantErr: "config maps [v4-0-config-user-dest-a v4-0-config-user-dest-b] in openshift-authentication not synced",
@@ -77,46 +77,46 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
 
-				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-a"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-a": "src-a",
-				userConfigPrefix + "dest-b": "src-b",
+				"v4-0-config-user-dest-a": "src-a",
+				"v4-0-config-user-dest-b": "src-b",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-c": "src-c",
-				userConfigPrefix + "dest-d": "src-d",
+				"v4-0-config-user-dest-c": "src-c",
+				"v4-0-config-user-dest-d": "src-d",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-e": "src-e",
-				userConfigPrefix + "dest-f": "src-f",
+				"v4-0-config-user-dest-e": "src-e",
+				"v4-0-config-user-dest-f": "src-f",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-a"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-b"},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-c"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-d"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-e"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-f"},
 				},
 			},
 			wantErr: "config maps [v4-0-config-user-dest-b] in openshift-authentication not synced",
@@ -127,47 +127,47 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
 
-				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-a"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-b"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-a": "src-a",
-				userConfigPrefix + "dest-b": "src-b",
+				"v4-0-config-user-dest-a": "src-a",
+				"v4-0-config-user-dest-b": "src-b",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-c": "src-c",
-				userConfigPrefix + "dest-d": "src-d",
+				"v4-0-config-user-dest-c": "src-c",
+				"v4-0-config-user-dest-d": "src-d",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-e": "src-e",
-				userConfigPrefix + "dest-f": "src-f",
+				"v4-0-config-user-dest-e": "src-e",
+				"v4-0-config-user-dest-f": "src-f",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-a"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-b"},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-c"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-d"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-e"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-f"},
 				},
 			},
 			wantErr: "secrets [v4-0-config-user-dest-c v4-0-config-user-dest-d v4-0-config-user-dest-e v4-0-config-user-dest-f] in openshift-authentication not synced",
@@ -178,52 +178,52 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
 
-				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-a"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-b"),
 
-				testConfigSyncSecret(userConfigPrefix + "dest-c"),
-				testConfigSyncSecret(userConfigPrefix + "dest-d"),
-				testConfigSyncSecret(userConfigPrefix + "dest-e"),
-				testConfigSyncSecret(userConfigPrefix + "dest-f"),
+				testConfigSyncSecret("v4-0-config-user-dest-c"),
+				testConfigSyncSecret("v4-0-config-user-dest-d"),
+				testConfigSyncSecret("v4-0-config-user-dest-e"),
+				testConfigSyncSecret("v4-0-config-user-dest-f"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-a": "src-a",
-				userConfigPrefix + "dest-b": "src-b",
+				"v4-0-config-user-dest-a": "src-a",
+				"v4-0-config-user-dest-b": "src-b",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-c": "src-c",
-				userConfigPrefix + "dest-d": "src-d",
+				"v4-0-config-user-dest-c": "src-c",
+				"v4-0-config-user-dest-d": "src-d",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-e": "src-e",
-				userConfigPrefix + "dest-f": "src-f",
+				"v4-0-config-user-dest-e": "src-e",
+				"v4-0-config-user-dest-f": "src-f",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-a"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-b"},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-c"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-d"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-e"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-f"},
 				},
 			},
 			wantErr: "",
@@ -234,65 +234,65 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
 
-				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-a"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-b"),
 
-				testConfigSyncSecret(userConfigPrefix + "dest-c"),
-				testConfigSyncSecret(userConfigPrefix + "dest-d"),
-				testConfigSyncSecret(userConfigPrefix + "dest-e"),
-				testConfigSyncSecret(userConfigPrefix + "dest-f"),
+				testConfigSyncSecret("v4-0-config-user-dest-c"),
+				testConfigSyncSecret("v4-0-config-user-dest-d"),
+				testConfigSyncSecret("v4-0-config-user-dest-e"),
+				testConfigSyncSecret("v4-0-config-user-dest-f"),
 
-				testConfigSyncSecret(userConfigPrefix + "dest-g"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-h"),
+				testConfigSyncSecret("v4-0-config-user-dest-g"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-h"),
 
-				testConfigSyncConfigMap(systemConfigPrefix + "dest-i"),
-				testConfigSyncConfigMap(systemConfigPrefix + "dest-j"),
+				testConfigSyncConfigMap(("v4-0-config-system-") + "dest-i"),
+				testConfigSyncConfigMap(("v4-0-config-system-") + "dest-j"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-a": "src-a",
-				userConfigPrefix + "dest-b": "src-b",
+				"v4-0-config-user-dest-a": "src-a",
+				"v4-0-config-user-dest-b": "src-b",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-c": "src-c",
-				userConfigPrefix + "dest-d": "src-d",
+				"v4-0-config-user-dest-c": "src-c",
+				"v4-0-config-user-dest-d": "src-d",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-e": "src-e",
-				userConfigPrefix + "dest-f": "src-f",
+				"v4-0-config-user-dest-e": "src-e",
+				"v4-0-config-user-dest-f": "src-f",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-a"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-b"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-h"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-h"},
 					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-c"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-d"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-e"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-f"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-g"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-g"},
 					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
 				},
 			},
@@ -304,65 +304,65 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				testConfigSyncSecret("panda"),
 				testConfigSyncConfigMap("bear"),
 
-				testConfigSyncConfigMap(userConfigPrefix + "dest-0"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-1"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-0"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-1"),
 
-				testConfigSyncSecret(userConfigPrefix + "dest-2"),
-				testConfigSyncSecret(userConfigPrefix + "dest-3"),
-				testConfigSyncSecret(userConfigPrefix + "dest-4"),
-				testConfigSyncSecret(userConfigPrefix + "dest-5"),
+				testConfigSyncSecret("v4-0-config-user-dest-2"),
+				testConfigSyncSecret("v4-0-config-user-dest-3"),
+				testConfigSyncSecret("v4-0-config-user-dest-4"),
+				testConfigSyncSecret("v4-0-config-user-dest-5"),
 
-				testConfigSyncSecret(userConfigPrefix + "dest-6"),
-				testConfigSyncConfigMap(userConfigPrefix + "dest-7"),
+				testConfigSyncSecret("v4-0-config-user-dest-6"),
+				testConfigSyncConfigMap("v4-0-config-user-dest-7"),
 
-				testConfigSyncConfigMap(systemConfigPrefix + "dest-8"),
-				testConfigSyncSecret(systemConfigPrefix + "dest-9"),
+				testConfigSyncConfigMap(("v4-0-config-system-") + "dest-8"),
+				testConfigSyncSecret(("v4-0-config-system-") + "dest-9"),
 			},
 			idpConfigMaps: map[string]string{
-				userConfigPrefix + "dest-0": "src-0",
-				userConfigPrefix + "dest-1": "src-0",
+				"v4-0-config-user-dest-0": "src-0",
+				"v4-0-config-user-dest-1": "src-0",
 			},
 			idpSecrets: map[string]string{
-				userConfigPrefix + "dest-2": "src-1",
-				userConfigPrefix + "dest-3": "src-1",
+				"v4-0-config-user-dest-2": "src-1",
+				"v4-0-config-user-dest-3": "src-1",
 			},
 			tplSecrets: map[string]string{
-				userConfigPrefix + "dest-4": "src-1",
-				userConfigPrefix + "dest-5": "src-1",
+				"v4-0-config-user-dest-4": "src-1",
+				"v4-0-config-user-dest-5": "src-1",
 			},
 			wantConfigMaps: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-0"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-0"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-0"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-0"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-1"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-0"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-1"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-0"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-7"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-7"},
 					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
 				},
 			},
 			wantSecrets: []location{
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-2"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-2"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-1"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-3"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-3"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-1"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-4"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-4"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-1"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-5"},
-					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-5"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "src-1"},
 				},
 				{
-					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-6"},
+					destination: resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-user-dest-6"},
 					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
 				},
 			},
@@ -438,7 +438,7 @@ func testConfigSyncSecret(name string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: targetNamespace,
+			Namespace: "openshift-authentication",
 		},
 	}
 }
@@ -447,7 +447,7 @@ func testConfigSyncConfigMap(name string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: targetNamespace,
+			Namespace: "openshift-authentication",
 		},
 	}
 }

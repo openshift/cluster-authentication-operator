@@ -9,7 +9,7 @@ import (
 )
 
 func (c *authOperator) handleIngress() (*configv1.Ingress, error) {
-	ingress, err := c.ingress.Get(globalConfigName, metav1.GetOptions{})
+	ingress, err := c.ingress.Get("cluster", metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

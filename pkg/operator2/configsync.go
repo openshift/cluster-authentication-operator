@@ -33,7 +33,7 @@ func (c *authOperator) handleConfigSync(data *configSyncData) error {
 
 	// TODO we probably need listers
 
-	configMaps, err := c.configMaps.ConfigMaps(targetNamespace).List(metav1.ListOptions{})
+	configMaps, err := c.configMaps.ConfigMaps("openshift-authentication").List(metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -41,15 +41,15 @@ func (c *authOperator) handleConfigSync(data *configSyncData) error {
 	prefixConfigMapNames := sets.NewString()
 	for _, cm := range configMaps.Items {
 		configMapNames.Insert(cm.Name)
-		if strings.HasPrefix(cm.Name, userConfigPrefix) {
+		if strings.HasPrefix(cm.Name, "v4-0-config-user-") {
 			prefixConfigMapNames.Insert(cm.Name)
 		}
 	}
 	if !configMapNames.IsSuperset(inUseConfigMapNames) {
-		return fmt.Errorf("config maps %s in %s not synced", inUseConfigMapNames.Difference(configMapNames).List(), targetNamespace)
+		return fmt.Errorf("config maps %s in %s not synced", inUseConfigMapNames.Difference(configMapNames).List(), "openshift-authentication")
 	}
 
-	secrets, err := c.secrets.Secrets(targetNamespace).List(metav1.ListOptions{})
+	secrets, err := c.secrets.Secrets("openshift-authentication").List(metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -57,12 +57,12 @@ func (c *authOperator) handleConfigSync(data *configSyncData) error {
 	prefixSecretNames := sets.NewString()
 	for _, secret := range secrets.Items {
 		secretNames.Insert(secret.Name)
-		if strings.HasPrefix(secret.Name, userConfigPrefix) {
+		if strings.HasPrefix(secret.Name, "v4-0-config-user-") {
 			prefixSecretNames.Insert(secret.Name)
 		}
 	}
 	if !secretNames.IsSuperset(inUseSecretNames) {
-		return fmt.Errorf("secrets %s in %s not synced", inUseSecretNames.Difference(secretNames).List(), targetNamespace)
+		return fmt.Errorf("secrets %s in %s not synced", inUseSecretNames.Difference(secretNames).List(), "openshift-authentication")
 	}
 
 	notInUseConfigMapNames := prefixConfigMapNames.Difference(inUseConfigMapNames)
@@ -198,29 +198,33 @@ func (sd *configSyncData) addTemplateSecret(secretRef configv1.SecretNameReferen
 }
 
 func getIDPName(i int, field string) string {
-	return fmt.Sprintf("%s%d-%s", userConfigPrefixIDP, i, field)
+	// idps that are synced have this prefix
+	return fmt.Sprintf("%s%d-%s", "v4-0-config-user-idp-", i, field)
 }
 
 func getIDPPath(i int, resource, dest string) string {
-	return fmt.Sprintf("%s/%d/%s/%s", userConfigPathPrefixIDP, i, resource, dest)
+	// root path for IDP data
+	return fmt.Sprintf("%s/%d/%s/%s", "/var/config/user/idp", i, resource, dest)
 }
 
 func getTemplateName(field string) string {
-	return userConfigPrefixTemplate + field
+	// templates that are synced have this prefix
+	return "v4-0-config-user-template-" + field
 }
 
 func getTemplatePath(resource, dest string) string {
-	return fmt.Sprintf("%s/%s/%s", userConfigPathPrefixTemplate, resource, dest)
+	// root path for template data
+	return fmt.Sprintf("%s/%s/%s", "/var/config/user/template", resource, dest)
 }
 
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
-	ns := userConfigNamespace
+	ns := "openshift-config"
 	if len(src) == 0 { // handle delete
 		ns = ""
 	}
 	if err := syncFunc(
 		resourcesynccontroller.ResourceLocation{
-			Namespace: targetNamespace,
+			Namespace: "openshift-authentication",
 			Name:      dest,
 		},
 		resourcesynccontroller.ResourceLocation{

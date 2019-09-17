@@ -7,7 +7,7 @@ import (
 
 func defaultService() *v1.Service {
 	meta := defaultMeta()
-	meta.Annotations["service.alpha.openshift.io/serving-cert-secret-name"] = servingCertName
+	meta.Annotations["service.alpha.openshift.io/serving-cert-secret-name"] = "v4-0-config-system-serving-cert"
 	return &v1.Service{
 		ObjectMeta: meta,
 		Spec: v1.ServiceSpec{
@@ -15,8 +15,8 @@ func defaultService() *v1.Service {
 				{
 					Name:       "https",
 					Protocol:   v1.ProtocolTCP,
-					Port:       servicePort,
-					TargetPort: intstr.FromInt(containerPort),
+					Port:       443,
+					TargetPort: intstr.FromInt(6443),
 				},
 			},
 			Selector:        defaultLabels(),

@@ -42,7 +42,7 @@ func secret(sessionSecret []byte) *v1.Secret {
 	return &v1.Secret{
 		ObjectMeta: defaultMeta(),
 		Data: map[string][]byte{
-			sessionNameAndKey: sessionSecret,
+			"v4-0-config-system-session": sessionSecret,
 		},
 	}
 }

@@ -22,7 +22,7 @@ import (
 func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error) {
 	// always make sure this function does not rely on defaulting from defaultAuthConfig
 
-	authConfigNoDefaults, err := c.authentication.Get(globalConfigName, metav1.GetOptions{})
+	authConfigNoDefaults, err := c.authentication.Get("cluster", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		authConfigNoDefaults, err = c.authentication.Create(&configv1.Authentication{
 			ObjectMeta: defaultGlobalConfigMeta(),
@@ -33,7 +33,7 @@ func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error)
 	}
 
 	expectedReference := configv1.ConfigMapNameReference{
-		Name: targetName,
+		Name: "oauth-openshift",
 	}
 
 	if authConfigNoDefaults.Status.IntegratedOAuthMetadata == expectedReference {

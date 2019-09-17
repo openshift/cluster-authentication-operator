@@ -60,7 +60,7 @@ func getMetadata(route *routev1.Route) string {
 
 func getMetadataConfigMap(route *routev1.Route) *corev1.ConfigMap {
 	meta := defaultMeta()
-	meta.Name = oauthMetadataName
+	meta.Name = "v4-0-config-system-metadata"
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,
 		Data: map[string]string{

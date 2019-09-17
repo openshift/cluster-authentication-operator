@@ -17,7 +17,7 @@ import (
 // ensureBootstrappedOAuthClients creates or updates the bootstrap oauth clients that openshift relies upon.
 func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) error {
 	browserClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: oauthBrowserClientName},
+		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
 		Secret:                random256BitsString(),
 		RespondWithChallenges: false,
 		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenDisplayURL(masterPublicURL)},
@@ -28,7 +28,7 @@ func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) er
 	}
 
 	cliClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: oauthChallengingClientName},
+		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-challenging-client"},
 		Secret:                "",
 		RespondWithChallenges: true,
 		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},

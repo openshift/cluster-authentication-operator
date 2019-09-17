@@ -42,106 +42,21 @@ import (
 )
 
 const (
-	clusterOperatorName     = "authentication"
-	targetName              = "oauth-openshift" // this value must be "namespaced" to avoid using a route host that a customer may want
-	targetNamespace         = "openshift-authentication"
-	targetNameOperator      = "authentication-operator"
-	targetNamespaceOperator = "openshift-authentication-operator"
-	globalConfigName        = "cluster"
-
 	deploymentVersionHashKey = "operator.openshift.io/rvs-hash"
-
-	operatorSelfName       = "operator"
-	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
-	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
-	operandImageEnvName    = "IMAGE"
-	kasServicePortEnvName  = "KUBERNETES_SERVICE_PORT_HTTPS"
-
-	machineConfigNamespace = "openshift-config-managed"
-	userConfigNamespace    = "openshift-config"
-
-	kasServiceAndEndpointName = "kubernetes"
-	kasServiceFullName        = "kubernetes.default.svc"
-
-	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-
-	configVersionPrefix = "v4-0-config-"
-
-	// secrets and config maps that we manually managed have this prefix
-	systemConfigPrefix = "v4-0-config-system-"
-
-	// secrets and config maps synced from openshift-config into our namespace have this prefix
-	userConfigPrefix = "v4-0-config-user-"
-	// idps that are synced have this prefix
-	userConfigPrefixIDP = "v4-0-config-user-idp-"
-	// templates that are synced have this prefix
-	userConfigPrefixTemplate = "v4-0-config-user-template-"
-
-	// root path for IDP data
-	userConfigPathPrefixIDP = "/var/config/user/idp"
-	// root path for template data
-	userConfigPathPrefixTemplate = "/var/config/user/template"
-
-	sessionNameAndKey = "v4-0-config-system-session"
-	sessionMount      = "/var/config/system/secrets/v4-0-config-system-session"
-	sessionPath       = "/var/config/system/secrets/v4-0-config-system-session/v4-0-config-system-session"
-
-	serviceCAName  = "v4-0-config-system-service-ca"
-	serviceCAKey   = "service-ca.crt"
-	serviceCAMount = "/var/config/system/configmaps/v4-0-config-system-service-ca"
-	serviceCAPath  = "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
-
-	servingCertName     = "v4-0-config-system-serving-cert"
-	servingCertMount    = "/var/config/system/secrets/v4-0-config-system-serving-cert"
-	servingCertPathCert = "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt"
-	servingCertPathKey  = "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key"
-
-	consoleConfigMapSharedName = "console-config"
-	consoleConfigMapLocalName  = "v4-0-config-system-console-config"
-	consoleConfigKey           = "console-config.yaml"
-
-	// trustedCABundleName is part of manifests so the names must be kept in sync
-	trustedCABundleName  = "v4-0-config-system-trusted-ca-bundle"
-	trustedCABundleMount = "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle"
-	trustedCABundlePath  = "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt"
-
-	ocpBrandingSecretName   = "v4-0-config-system-ocp-branding-template"
-	ocpBrandingSecretMount  = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template"
-	ocpBrandingLoginPath    = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/login.html"
-	ocpBrandingProviderPath = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/providers.html"
-	ocpBrandingErrorPath    = "/var/config/system/secrets/v4-0-config-system-ocp-branding-template/errors.html"
-
-	cliConfigNameAndKey = "v4-0-config-system-cliconfig"
-	cliConfigMount      = "/var/config/system/configmaps/v4-0-config-system-cliconfig"
-	cliConfigPath       = "/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig"
-
-	oauthMetadataName        = "v4-0-config-system-metadata"
-	oauthMetadataAPIEndpoint = "/.well-known/oauth-authorization-server"
-
-	oauthBrowserClientName     = "openshift-browser-client"
-	oauthChallengingClientName = "openshift-challenging-client"
-
-	routerCertsSharedName = "router-certs"
-	routerCertsLocalName  = "v4-0-config-system-router-certs"
-	routerCertsLocalMount = "/var/config/system/secrets/v4-0-config-system-router-certs"
-
-	servicePort   = 443
-	containerPort = 6443
 )
 
 // static environment variables from operator deployment
 var (
-	oauthserverImage   = os.Getenv(operandImageEnvName)
-	oauthserverVersion = os.Getenv(operandVersionEnvName)
-
-	operatorVersion = os.Getenv(operatorVersionEnvName)
+	oauthserverImage   = os.Getenv("IMAGE")
+	oauthserverVersion = os.Getenv("OPERAND_IMAGE_VERSION")
+	operatorVersion    = os.Getenv("OPERATOR_IMAGE_VERSION")
 
 	kasServicePort int
 )
 
 func init() {
 	var err error
-	kasServicePort, err = strconv.Atoi(os.Getenv(kasServicePortEnvName))
+	kasServicePort, err = strconv.Atoi(os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS"))
 	if err != nil {
 		klog.Infof("defaulting KAS service port to 443 due to parsing error: %v", err)
 		kasServicePort = 443
@@ -196,7 +111,7 @@ func NewAuthenticationOperator(
 		versionGetter: versionGetter,
 		recorder:      recorder,
 
-		route: routeClient.Routes(targetNamespace),
+		route: routeClient.Routes("openshift-authentication"),
 
 		oauthClientClient: oauthClientClient.OAuthClients(),
 
@@ -226,8 +141,8 @@ func NewAuthenticationOperator(
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	targetNameFilter := operator.FilterByNames(targetName)
-	configNameFilter := operator.FilterByNames(globalConfigName)
+	targetNameFilter := operator.FilterByNames("oauth-openshift")
+	configNameFilter := operator.FilterByNames("cluster")
 	prefixFilter := getPrefixFilter()
 
 	return operator.New("AuthenticationOperator2", c,
@@ -250,7 +165,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfigClient.Client.Authentications().Get(globalConfigName, metav1.GetOptions{})
+	return c.authOperatorConfigClient.Client.Authentications().Get("cluster", metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
@@ -393,7 +308,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	proxyConfig := c.handleProxyConfig()
 	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
 
-	operatorDeployment, err := c.deployments.Deployments(targetNamespaceOperator).Get(targetNameOperator, metav1.GetOptions{})
+	operatorDeployment, err := c.deployments.Deployments("openshift-authentication-operator").Get("authentication-operator", metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -494,8 +409,8 @@ func (c *authOperator) handleVersion(
 	// we have achieved our desired level
 	setProgressingFalse(operatorConfig)
 	setAvailableTrue(operatorConfig, "AsExpected")
-	c.setVersion(operatorSelfName, operatorVersion)
-	c.setVersion(targetName, oauthserverVersion)
+	c.setVersion("operator", operatorVersion)
+	c.setVersion("oauth-openshift", oauthserverVersion)
 
 	return nil
 }
@@ -565,13 +480,13 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 		return true, "", nil
 	}
 
-	caData, err := ioutil.ReadFile(rootCAFile)
+	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	if err != nil {
 		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
 
 	// pass the KAS service name for SNI
-	rt, err := transportFor(kasServiceFullName, caData, nil, nil)
+	rt, err := transportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
@@ -592,7 +507,7 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 }
 
 func (c *authOperator) getAPIServerIPs() ([]string, error) {
-	kasService, err := c.services.Services(corev1.NamespaceDefault).Get(kasServiceAndEndpointName, metav1.GetOptions{})
+	kasService, err := c.services.Services(corev1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
 	}
@@ -602,7 +517,7 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
 	}
 
-	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(kasServiceAndEndpointName, metav1.GetOptions{})
+	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
 	}
@@ -645,7 +560,7 @@ func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
 }
 
 func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
-	wellKnown := "https://" + apiIP + oauthMetadataAPIEndpoint
+	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
 	if err != nil {
@@ -680,7 +595,7 @@ func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTr
 }
 
 func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, error) {
-	_, err := c.oauthClientClient.Get(oauthBrowserClientName, metav1.GetOptions{})
+	_, err := c.oauthClientClient.Get("openshift-browser-client", metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return false, "browser oauthclient does not exist", nil
@@ -688,7 +603,7 @@ func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, er
 		return false, "", err
 	}
 
-	_, err = c.oauthClientClient.Get(oauthChallengingClientName, metav1.GetOptions{})
+	_, err = c.oauthClientClient.Get("openshift-challenging-client", metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return false, "challenging oauthclient does not exist", nil
@@ -707,14 +622,14 @@ func (c *authOperator) setVersion(operandName, version string) {
 
 func defaultLabels() map[string]string {
 	return map[string]string{
-		"app": targetName,
+		"app": "oauth-openshift",
 	}
 }
 
 func defaultMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:            targetName,
-		Namespace:       targetNamespace,
+		Name:            "oauth-openshift",
+		Namespace:       "openshift-authentication",
 		Labels:          defaultLabels(),
 		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO
@@ -723,7 +638,7 @@ func defaultMeta() metav1.ObjectMeta {
 
 func defaultGlobalConfigMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:   globalConfigName,
+		Name:   "cluster",
 		Labels: map[string]string{},
 		Annotations: map[string]string{
 			"release.openshift.io/create-only": "true",
@@ -732,9 +647,9 @@ func defaultGlobalConfigMeta() metav1.ObjectMeta {
 }
 
 func getPrefixFilter() controller.Filter {
-	names := operator.FilterByNames(targetName)
+	names := operator.FilterByNames("oauth-openshift")
 	prefix := func(obj metav1.Object) bool { // TODO add helper to combine filters
-		return names.Add(obj) || strings.HasPrefix(obj.GetName(), configVersionPrefix)
+		return names.Add(obj) || strings.HasPrefix(obj.GetName(), "v4-0-config-")
 	}
 	return controller.FilterFuncs{
 		AddFunc: prefix,

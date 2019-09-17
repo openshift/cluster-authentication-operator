@@ -12,7 +12,7 @@ import (
 
 func (c *authOperator) handleConsoleConfig() *configv1.Console {
 	// technically this should be an observed config loop
-	consoleConfig, err := c.console.Get(globalConfigName, metav1.GetOptions{})
+	consoleConfig, err := c.console.Get("cluster", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("error getting console config: %v", err)
 		return &configv1.Console{}

@@ -19,7 +19,7 @@ func (c OperatorClient) Informer() cache.SharedIndexInformer {
 }
 
 func (c OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operatorv1.OperatorStatus, string, error) {
-	instance, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
+	instance, err := c.Informers.Operator().V1().Authentications().Lister().Get("cluster")
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -28,7 +28,7 @@ func (c OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operatorv
 }
 
 func (c OperatorClient) UpdateOperatorSpec(resourceVersion string, spec *operatorv1.OperatorSpec) (*operatorv1.OperatorSpec, string, error) {
-	original, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
+	original, err := c.Informers.Operator().V1().Authentications().Lister().Get("cluster")
 	if err != nil {
 		return nil, "", err
 	}
@@ -45,7 +45,7 @@ func (c OperatorClient) UpdateOperatorSpec(resourceVersion string, spec *operato
 }
 
 func (c OperatorClient) UpdateOperatorStatus(resourceVersion string, status *operatorv1.OperatorStatus) (*operatorv1.OperatorStatus, error) {
-	original, err := c.Informers.Operator().V1().Authentications().Lister().Get(globalConfigName)
+	original, err := c.Informers.Operator().V1().Authentications().Lister().Get("cluster")
 	if err != nil {
 		return nil, err
 	}
