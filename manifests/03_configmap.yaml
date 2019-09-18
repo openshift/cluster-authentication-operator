@@ -7,23 +7,3 @@ data:
   operator-config.yaml: |
     apiVersion: operator.openshift.io/v1alpha1
     kind: GenericOperatorConfig
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: openshift-authentication-operator
-  name: trusted-ca-bundle
-  annotations:
-    release.openshift.io/create-only: "true"
-  labels:
-    config.openshift.io/inject-trusted-cabundle: "true"
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: openshift-authentication
-  name: v4-0-config-system-trusted-ca-bundle
-  annotations:
-    release.openshift.io/create-only: "true"
-  labels:
-    config.openshift.io/inject-trusted-cabundle: "true"

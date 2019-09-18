@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: openshift-authentication
+  name: v4-0-config-system-trusted-ca-bundle
+  annotations:
+    release.openshift.io/create-only: "true"
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
