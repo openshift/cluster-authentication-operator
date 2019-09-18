@@ -16,7 +16,6 @@
  *
  */
 
-// Package stats registers stats used for creating benchmarks
 package stats
 
 import (

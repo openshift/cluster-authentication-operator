@@ -19,13 +19,14 @@
 package grpc
 
 import (
-	"context"
 	"math"
 	"sync"
 	"testing"
 	"time"
 
+	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/internal/leakcheck"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
@@ -38,7 +39,8 @@ func errorDesc(err error) string {
 	return err.Error()
 }
 
-func (s) TestOneBackendPickfirst(t *testing.T) {
+func TestOneBackendPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -71,7 +73,8 @@ func (s) TestOneBackendPickfirst(t *testing.T) {
 	t.Fatalf("EmptyCall() = _, %v, want _, %v", err, servers[0].port)
 }
 
-func (s) TestBackendsPickfirst(t *testing.T) {
+func TestBackendsPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -104,7 +107,8 @@ func (s) TestBackendsPickfirst(t *testing.T) {
 	t.Fatalf("EmptyCall() = _, %v, want _, %v", err, servers[0].port)
 }
 
-func (s) TestNewAddressWhileBlockingPickfirst(t *testing.T) {
+func TestNewAddressWhileBlockingPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -140,7 +144,8 @@ func (s) TestNewAddressWhileBlockingPickfirst(t *testing.T) {
 	wg.Wait()
 }
 
-func (s) TestCloseWithPendingRPCPickfirst(t *testing.T) {
+func TestCloseWithPendingRPCPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -176,7 +181,8 @@ func (s) TestCloseWithPendingRPCPickfirst(t *testing.T) {
 	wg.Wait()
 }
 
-func (s) TestOneServerDownPickfirst(t *testing.T) {
+func TestOneServerDownPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -217,7 +223,8 @@ func (s) TestOneServerDownPickfirst(t *testing.T) {
 	t.Fatalf("EmptyCall() = _, %v, want _, %v", err, servers[0].port)
 }
 
-func (s) TestAllServersDownPickfirst(t *testing.T) {
+func TestAllServersDownPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
@@ -260,7 +267,8 @@ func (s) TestAllServersDownPickfirst(t *testing.T) {
 	t.Fatalf("EmptyCall() = _, %v, want _, error with code unavailable", err)
 }
 
-func (s) TestAddressesRemovedPickfirst(t *testing.T) {
+func TestAddressesRemovedPickfirst(t *testing.T) {
+	defer leakcheck.Check(t)
 	r, rcleanup := manual.GenerateAndRegisterManualResolver()
 	defer rcleanup()
 
