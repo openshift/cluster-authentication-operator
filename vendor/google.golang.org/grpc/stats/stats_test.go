@@ -1,3 +1,5 @@
+// +build go1.7
+
 /*
  *
  * Copyright 2016 gRPC authors.
@@ -19,7 +21,6 @@
 package stats_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -29,6 +30,7 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
@@ -274,7 +276,7 @@ func (te *test) doUnaryCall(c *rpcConfig) (*testpb.SimpleRequest, *testpb.Simple
 	}
 	ctx := metadata.NewOutgoingContext(context.Background(), testMetadata)
 
-	resp, err = tc.UnaryCall(ctx, req, grpc.WaitForReady(!c.failfast))
+	resp, err = tc.UnaryCall(ctx, req, grpc.FailFast(c.failfast))
 	return req, resp, err
 }
 
@@ -285,7 +287,7 @@ func (te *test) doFullDuplexCallRoundtrip(c *rpcConfig) ([]*testpb.SimpleRequest
 		err   error
 	)
 	tc := testpb.NewTestServiceClient(te.clientConn())
-	stream, err := tc.FullDuplexCall(metadata.NewOutgoingContext(context.Background(), testMetadata), grpc.WaitForReady(!c.failfast))
+	stream, err := tc.FullDuplexCall(metadata.NewOutgoingContext(context.Background(), testMetadata), grpc.FailFast(c.failfast))
 	if err != nil {
 		return reqs, resps, err
 	}
@@ -324,7 +326,7 @@ func (te *test) doClientStreamCall(c *rpcConfig) ([]*testpb.SimpleRequest, *test
 		err  error
 	)
 	tc := testpb.NewTestServiceClient(te.clientConn())
-	stream, err := tc.ClientStreamCall(metadata.NewOutgoingContext(context.Background(), testMetadata), grpc.WaitForReady(!c.failfast))
+	stream, err := tc.ClientStreamCall(metadata.NewOutgoingContext(context.Background(), testMetadata), grpc.FailFast(c.failfast))
 	if err != nil {
 		return reqs, resp, err
 	}
@@ -359,7 +361,7 @@ func (te *test) doServerStreamCall(c *rpcConfig) (*testpb.SimpleRequest, []*test
 		startID = errorID
 	}
 	req = &testpb.SimpleRequest{Id: startID}
-	stream, err := tc.ServerStreamCall(metadata.NewOutgoingContext(context.Background(), testMetadata), req, grpc.WaitForReady(!c.failfast))
+	stream, err := tc.ServerStreamCall(metadata.NewOutgoingContext(context.Background(), testMetadata), req, grpc.FailFast(c.failfast))
 	if err != nil {
 		return req, resps, err
 	}
@@ -401,7 +403,7 @@ const (
 	inTrailer
 	outPayload
 	outHeader
-	// TODO: test outTrailer ?
+	outTrailer
 	connbegin
 	connend
 )
