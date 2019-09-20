@@ -58,14 +58,19 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 }
 
 func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
+	// emulates server-side defaulting as in https://github.com/openshift/openshift-apiserver/blob/master/pkg/route/apis/route/v1/defaults.go
+	// TODO: replace with server-side apply
+	var weightVal int32 = 100
+
 	return &routev1.Route{
 		ObjectMeta: defaultMeta(),
 		Spec: routev1.RouteSpec{
 			Host:      ingressToHost(ingress), // mimic the behavior of subdomain
 			Subdomain: "",                     // TODO once subdomain is functional, remove reliance on ingress config and just set subdomain=targetName
 			To: routev1.RouteTargetReference{
-				Kind: "Service",
-				Name: "oauth-openshift",
+				Kind:   "Service",
+				Name:   "oauth-openshift",
+				Weight: &weightVal,
 			},
 			Port: &routev1.RoutePort{
 				TargetPort: intstr.FromInt(6443),
@@ -74,6 +79,7 @@ func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
 				Termination:                   routev1.TLSTerminationPassthrough,
 				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
 			},
+			WildcardPolicy: routev1.WildcardPolicyNone, // emulates server-side defaulting, see the link above
 		},
 	}
 }

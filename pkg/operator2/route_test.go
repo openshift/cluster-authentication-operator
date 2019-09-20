@@ -12,6 +12,7 @@ import (
 	testing2 "k8s.io/client-go/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	v1 "github.com/openshift/api/route/v1"
 	routefake "github.com/openshift/client-go/route/clientset/versioned/fake"
 )
@@ -155,6 +156,8 @@ J+hyJVALyXVcxEiKZKuQsZ0rpc9pixzkExWrReDCPrn1Gb+XedY=
 `
 
 func Test_authOperator_handleRoute(t *testing.T) {
+	var routeWeightVal int32 = 100
+
 	var tests = map[string]struct {
 		ingress             *configv1.Ingress
 		expectedRoute       *v1.Route
@@ -178,8 +181,9 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
-						Kind: "Service",
-						Name: "oauth-openshift",
+						Kind:   "Service",
+						Name:   "oauth-openshift",
+						Weight: &routeWeightVal,
 					},
 					Port: &v1.RoutePort{
 						TargetPort: intstr.FromInt(6443),
@@ -188,6 +192,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Termination:                   v1.TLSTerminationPassthrough,
 						InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
 				},
 				Status: v1.RouteStatus{
 					Ingress: []v1.RouteIngress{
@@ -251,8 +256,9 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
-						Kind: "Service",
-						Name: "oauth-openshift",
+						Kind:   "Service",
+						Name:   "oauth-openshift",
+						Weight: &routeWeightVal,
 					},
 					Port: &v1.RoutePort{
 						TargetPort: intstr.FromInt(6443),
@@ -261,6 +267,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Termination:                   v1.TLSTerminationPassthrough,
 						InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
 				},
 				Status: v1.RouteStatus{
 					Ingress: []v1.RouteIngress{
@@ -304,8 +311,9 @@ func Test_authOperator_handleRoute(t *testing.T) {
 					Spec: v1.RouteSpec{
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{
-							Kind: "Service",
-							Name: "oauth-openshift",
+							Kind:   "Service",
+							Name:   "oauth-openshift",
+							Weight: &routeWeightVal,
 						},
 						Port: &v1.RoutePort{
 							TargetPort: intstr.FromInt(6443),
@@ -314,6 +322,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 							Termination:                   v1.TLSTerminationPassthrough,
 							InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 						},
+						WildcardPolicy: routev1.WildcardPolicyNone,
 					},
 					Status: v1.RouteStatus{
 						Ingress: []v1.RouteIngress{
@@ -342,8 +351,9 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.bar.example.com",
 					To: v1.RouteTargetReference{
-						Kind: "Service",
-						Name: "oauth-openshift",
+						Kind:   "Service",
+						Name:   "oauth-openshift",
+						Weight: &routeWeightVal,
 					},
 					Port: &v1.RoutePort{
 						TargetPort: intstr.FromInt(6443),
@@ -352,6 +362,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Termination:                   v1.TLSTerminationPassthrough,
 						InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
 				},
 				Status: v1.RouteStatus{
 					Ingress: []v1.RouteIngress{
@@ -456,8 +467,9 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
-						Kind: "Service",
-						Name: "oauth-openshift",
+						Kind:   "Service",
+						Name:   "oauth-openshift",
+						Weight: &routeWeightVal,
 					},
 					Port: &v1.RoutePort{
 						TargetPort: intstr.FromInt(6443),
@@ -466,6 +478,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 						Termination:                   v1.TLSTerminationPassthrough,
 						InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
 				},
 				Status: v1.RouteStatus{
 					Ingress: []v1.RouteIngress{
