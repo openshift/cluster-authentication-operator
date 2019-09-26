@@ -1,29 +1,29 @@
+# Update deps with `glide update --strip-vendor`
+
 package: github.com/openshift/cluster-authentication-operator
 import:
 - package: k8s.io/apimachinery
-  version: kubernetes-1.14.0
+  version: kubernetes-1.16.0
 - package: k8s.io/api
-  version: kubernetes-1.14.0
+  version: kubernetes-1.16.0
 - package: k8s.io/apiserver
-  version: kubernetes-1.14.0
+  version: kubernetes-1.16.0
 - package: k8s.io/client-go
-  version: kubernetes-1.14.0
+  version: kubernetes-1.16.0
 - package: k8s.io/kube-aggregator
-  version: kubernetes-1.14.0
-- package: k8s.io/apiextensions-apiserver
-  repo: https://github.com/openshift/kubernetes-apiextensions-apiserver
-  version: origin-4.2-kubernetes-1.14.0 # pinned to get nullable patch
-# matches upstream kube
-- package: k8s.io/kube-openapi
-  version: b3a7cee44a305be0a69e1b9ac03018307287e1b0
-- package: sigs.k8s.io/structured-merge-diff
-  version: e85c7b244fd2cc57bb829d73a061f93a441e63ce
+  version: kubernetes-1.16.0
 - package: k8s.io/code-generator
-  version: kubernetes-1.14.0
+  version: kubernetes-1.16.0
+- package: k8s.io/apiextensions-apiserver
+  version: kubernetes-1.16.0
 
-  # pinned to a level that kubernetes uses.
+# Pin kube deps to the versions vendored by the target release
+- package: k8s.io/kube-openapi
+  version: 743ec37842bffe49dd4221d9026f30fb1d5adbc4
+- package: sigs.k8s.io/structured-merge-diff
+  version: 6149e4549fca4602cb9449007ff8ef61b2feff3b
 - package: github.com/evanphx/json-patch
-  version: 5858425f75500d40c52783dce87d085a483ce135
+  version: v4.2.0
 
 - package: github.com/openshift/api
   version: master
@@ -40,7 +40,7 @@ import:
 
 # codegen
 - package: k8s.io/gengo/args
-  version: 01a732e01d00cb9a81bb0ca050d3e6d2b947927b
+  version: 26a664648505d962332bda642b27306bc10d1082
 - package: golang.org/x/tools/imports
 
 # testing
