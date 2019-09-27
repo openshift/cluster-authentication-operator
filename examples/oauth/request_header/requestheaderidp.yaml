@@ -1,0 +1,15 @@
+apiVersion: config.openshift.io/v1
+kind: OAuth
+metadata:
+  name: cluster
+spec:
+  identityProviders:
+  - name: requestHeadersIdP
+    type: RequestHeader
+    requestHeader:
+      ca:
+        name: request-header-ca
+      headers: ["X-Remote-User"]
+      loginURL: "https://dontcare.com/web-login/oauth/authorize?${query}"
+      challengeURL: "https://dontcare.com/challenges/oauth/authorize?${query}"
+
