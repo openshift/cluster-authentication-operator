@@ -1,0 +1,28 @@
+apiVersion: config.openshift.io/v1
+kind: OAuth
+metadata:
+  name: cluster
+spec:
+  identityProviders:
+   - name: example-ldap
+     type: LDAP
+     ldap:
+       url: ldap://ldap.forumsys.com/dc=example,dc=com?uid?sub?(objectClass=person)
+       bindDN: cn=read-only-admin,dc=example,dc=com
+       bindPassword:
+         name: ldapbindpassword
+       insecure: true  # do not try this at home or in production
+       attributes:
+         id: ["uid"]
+         name: ["uid"]
+         preferredUsername: ["uid"]
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldapbindpassword
+  namespace: openshift-config
+data:
+  bindPassword: cGFzc3dvcmQ= # password
