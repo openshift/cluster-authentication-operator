@@ -25,6 +25,7 @@ func defaultDeployment(
 	routerSecret *corev1.Secret,
 	proxyConfig *configv1.Proxy,
 	operatorDeployment *appsv1.Deployment,
+	image string,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 	replicas := int32(2) // TODO configurable?
@@ -115,7 +116,7 @@ func defaultDeployment(
 					ServiceAccountName: "oauth-openshift",
 					Containers: []corev1.Container{
 						{
-							Image:           oauthserverImage,
+							Image:           image,
 							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
 							Name:            "oauth-openshift",
 							Command:         []string{"/bin/bash", "-ec"},

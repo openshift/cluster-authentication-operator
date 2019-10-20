@@ -45,24 +45,6 @@ const (
 	deploymentVersionHashKey = "operator.openshift.io/rvs-hash"
 )
 
-// static environment variables from operator deployment
-var (
-	oauthserverImage   = os.Getenv("IMAGE")
-	oauthserverVersion = os.Getenv("OPERAND_IMAGE_VERSION")
-	operatorVersion    = os.Getenv("OPERATOR_IMAGE_VERSION")
-
-	kasServicePort int
-)
-
-func init() {
-	var err error
-	kasServicePort, err = strconv.Atoi(os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS"))
-	if err != nil {
-		klog.Infof("defaulting KAS service port to 443 due to parsing error: %v", err)
-		kasServicePort = 443
-	}
-}
-
 type authOperator struct {
 	authOperatorConfigClient OperatorClient
 
@@ -90,6 +72,11 @@ type authOperator struct {
 	systemCABundle []byte
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
+
+	oauthServerImage      string
+	oauthServerVersion    string
+	operatorVersion       string
+	kubernetesServicePort int
 }
 
 func NewAuthenticationOperator(
@@ -130,6 +117,18 @@ func NewAuthenticationOperator(
 		proxy:          configClient.ConfigV1().Proxies(),
 
 		resourceSyncer: resourceSyncer,
+
+		// static environment variables from operator deployment
+		oauthServerImage:   os.Getenv("IMAGE"),
+		oauthServerVersion: status.VersionForOperandFromEnv(),
+		operatorVersion:    status.VersionForOperatorFromEnv(),
+	}
+
+	var err error
+	c.kubernetesServicePort, err = strconv.Atoi(os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS"))
+	if err != nil {
+		c.kubernetesServicePort = 443
+		klog.Infof("defaulting Kubernetes service port to %d due to parsing error: %v", c.kubernetesServicePort, err)
 	}
 
 	systemCABytes, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
@@ -328,6 +327,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		routerSecret,
 		proxyConfig,
 		operatorDeployment,
+		c.oauthServerImage,
 		resourceVersions...,
 	)
 	deployment, _, err := resourceapply.ApplyDeployment(
@@ -409,8 +409,8 @@ func (c *authOperator) handleVersion(
 	// we have achieved our desired level
 	setProgressingFalse(operatorConfig)
 	setAvailableTrue(operatorConfig, "AsExpected")
-	c.setVersion("operator", operatorVersion)
-	c.setVersion("oauth-openshift", oauthserverVersion)
+	c.setVersion("operator", c.operatorVersion)
+	c.setVersion("oauth-openshift", c.oauthServerVersion)
 
 	return nil
 }
@@ -512,7 +512,7 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
 	}
 
-	targetPort, ok := getKASTargetPortFromService(kasService)
+	targetPort, ok := getKASTargetPortFromService(kasService, c.kubernetesServicePort)
 	if !ok {
 		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
 	}
@@ -541,9 +541,9 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 	return nil, fmt.Errorf("unable to find kube api server endpoints port: %#v", kasEndpoint)
 }
 
-func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
+func getKASTargetPortFromService(service *corev1.Service, servicePort int) (int, bool) {
 	for _, port := range service.Spec.Ports {
-		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == kasServicePort {
+		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == servicePort {
 			return targetPort, true
 		}
 	}
