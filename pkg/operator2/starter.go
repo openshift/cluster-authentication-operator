@@ -22,7 +22,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
-	"github.com/openshift/library-go/pkg/operator/staleconditions"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -159,15 +158,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		ctx.EventRecorder,
 	)
 
-	staleConditions := staleconditions.NewRemoveStaleConditions(
-		[]string{
-			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
-			"Degraded",
-		},
-		operatorClient,
-		ctx.EventRecorder,
-	)
-
 	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, ctx.EventRecorder)
 	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, ctx.EventRecorder)
 
@@ -213,7 +203,6 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	go operator.Run(ctx.Done())
-	go staleConditions.Run(1, ctx.Done())
 
 	<-ctx.Done()
 
