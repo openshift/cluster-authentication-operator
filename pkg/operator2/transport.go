@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"k8s.io/apimachinery/pkg/util/net"
@@ -12,8 +13,25 @@ import (
 
 // TODO move all this to library-go
 
+var mockRoundTripResponses = map[string]*http.Response{}
+
+type mockRoundTripper struct{}
+
+func (m *mockRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	uri := request.URL.String()
+	if response, ok := mockRoundTripResponses[uri]; ok {
+		return response, nil
+	}
+
+	return nil, fmt.Errorf("no mock response for %s", uri)
+}
+
 // transportFor returns an http.Transport for the given ca and client cert data (which may be empty)
 func transportFor(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
+	if len(mockRoundTripResponses) > 0 {
+		return &mockRoundTripper{}, nil
+	}
+
 	transport, err := transportForInner(serverName, caData, certData, keyData)
 	if err != nil {
 		return nil, err
