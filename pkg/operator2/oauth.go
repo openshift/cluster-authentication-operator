@@ -86,6 +86,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 	corsAllowedOrigins = append(corsAllowedOrigins, apiServerConfig.Spec.AdditionalCORSAllowedOrigins...)
+	minTLSVersion, cipherSuites := getSecurityProfileCiphers(apiServerConfig.Spec.TLSSecurityProfile)
 
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
@@ -101,8 +102,8 @@ func (c *authOperator) handleOAuthConfig(
 					},
 					ClientCA:          "", // I think this can be left unset
 					NamedCertificates: routerSecretToSNI(routerSecret),
-					MinTLSVersion:     crypto.TLSVersionToNameOrDie(crypto.DefaultTLSVersion()),
-					CipherSuites:      crypto.CipherSuitesToNamesOrDie(crypto.DefaultCiphers()),
+					MinTLSVersion:     minTLSVersion,
+					CipherSuites:      cipherSuites,
 				},
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
@@ -184,4 +185,31 @@ func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	}
 
 	return out
+}
+
+// TODO: this is taken from lib-go and should go away once we start observing config
+func getSecurityProfileCiphers(profile *configv1.TLSSecurityProfile) (string, []string) {
+	var profileType configv1.TLSProfileType
+	if profile == nil {
+		profileType = configv1.TLSProfileIntermediateType
+	} else {
+		profileType = profile.Type
+	}
+
+	var profileSpec *configv1.TLSProfileSpec
+	if profileType == configv1.TLSProfileCustomType {
+		if profile.Custom != nil {
+			profileSpec = &profile.Custom.TLSProfileSpec
+		}
+	} else {
+		profileSpec = configv1.TLSProfiles[profileType]
+	}
+
+	// nothing found / custom type set but no actual custom spec
+	if profileSpec == nil {
+		profileSpec = configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	}
+
+	// need to remap all Ciphers to their respective IANA names used by Go
+	return string(profileSpec.MinTLSVersion), crypto.OpenSSLToIANACipherSuites(profileSpec.Ciphers)
 }

@@ -1,5 +1,5 @@
 hash: e253ff7c77a3692a69667c78dfc98bc014d01e5d326d96be25019b6e66de1280
-updated: 2019-09-25T03:43:41.499387852Z
+updated: 2019-10-29T15:25:07.632073109+01:00
 imports:
 - name: github.com/beorn7/perks
   version: 3a771d992973f24aa725d07868b467d1ddfceafb
@@ -133,7 +133,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: b2a15509183b34a7788dda71992d86d9cd9b80d4
+  version: abf28f93703b8d52d7f5022aa2e074d1620ca895
   subpackages:
   - apps
   - apps/v1
@@ -176,10 +176,8 @@ imports:
   - template/v1
   - user
   - user/v1
-  - webconsole
-  - webconsole/v1
 - name: github.com/openshift/client-go
-  version: 3b6373338c9bb11fbcf329c25e81ae7e9a1ed8c6
+  version: 2823239d2298214509c3536714f684101799e81b
   subpackages:
   - config/clientset/versioned
   - config/clientset/versioned/scheme
@@ -214,7 +212,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: a8c1174d4ee7b750c9f4653505bc20d47e5a861e
+  version: d368763acf527b139373e58d3d5356b21f8e7cc5
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -273,7 +271,7 @@ imports:
 - name: github.com/sirupsen/logrus
   version: 839c75faf7f98a33d445d181f3018b5c3409a45e
 - name: github.com/spf13/cobra
-  version: 67fc4837d267bc9bfd6e47f77783fcc3dffc68de
+  version: f2b07da1e2c38d5f12845a4f607e2e1018cbb1f5
 - name: github.com/spf13/pflag
   version: 298182f68c66c05229eb03ac171abe6e309ee79a
 - name: github.com/stretchr/testify
@@ -345,7 +343,7 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: e65039ee4138194d75ebaa2da35887260d5e15b2
+  version: 6e04913cbbac05c5c0c9d8f237717e292f700e76
   subpackages:
   - imports
 - name: google.golang.org/appengine
