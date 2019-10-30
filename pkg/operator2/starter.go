@@ -11,6 +11,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
@@ -147,10 +148,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 			{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
 			{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
 			{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
+			{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift"},
+			{Resource: "services", Name: "oauth-openshift"},
 			{Resource: "namespaces", Name: "openshift-config"},
 			{Resource: "namespaces", Name: "openshift-config-managed"},
 			{Resource: "namespaces", Name: "openshift-authentication"},
 			{Resource: "namespaces", Name: "openshift-authentication-operator"},
+			{Resource: "namespaces", Name: "openshift-ingress"},
 		},
 		configClient.ConfigV1(),
 		configInformers.Config().V1().ClusterOperators(),
