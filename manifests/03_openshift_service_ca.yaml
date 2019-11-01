@@ -1,0 +1,8 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: service-ca-bundle
+  namespace: openshift-authentication-operator
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+data: {}
