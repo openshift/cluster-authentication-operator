@@ -28,6 +28,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
@@ -185,6 +186,8 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		"oauth-openshift",
 	)
 
+	routeStateController := ingressstate.NewIngressStateController(kubeInformersNamespaced, kubeClient.CoreV1(), kubeClient.CoreV1(), operatorClient, "openshift-authentication", ctx.EventRecorder)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, ctx.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -218,6 +221,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	go operator.Run(ctx.Done())
 	go staleConditions.Run(1, ctx.Done())
+	go routeStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()
 
