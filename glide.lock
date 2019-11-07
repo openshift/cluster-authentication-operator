@@ -1,5 +1,5 @@
 hash: e253ff7c77a3692a69667c78dfc98bc014d01e5d326d96be25019b6e66de1280
-updated: 2019-10-29T15:25:07.632073109+01:00
+updated: 2019-11-07T13:08:47.906736775+01:00
 imports:
 - name: github.com/beorn7/perks
   version: 3a771d992973f24aa725d07868b467d1ddfceafb
@@ -133,7 +133,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: abf28f93703b8d52d7f5022aa2e074d1620ca895
+  version: 6feaabc7037a0688eefb36fd9f4618da7d780dda
   subpackages:
   - apps
   - apps/v1
@@ -212,7 +212,7 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: d368763acf527b139373e58d3d5356b21f8e7cc5
+  version: 97392cdc9bd3a5219fcd909f70d72e308fdcc1b0
   subpackages:
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
@@ -399,7 +399,7 @@ imports:
 - name: gopkg.in/natefinch/lumberjack.v2
   version: 7d6a1875575e09256dc552b4c0e450dcd02bd10e
 - name: gopkg.in/yaml.v2
-  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
+  version: f221b8435cfb71e54062f6c6e99e9ade30b124d5
 - name: k8s.io/api
   version: 95b840bb6a1f5f0462af804c8589396d294d4914
   subpackages:

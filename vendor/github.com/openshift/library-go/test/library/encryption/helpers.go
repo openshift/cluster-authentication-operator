@@ -1,7 +1,6 @@
 package encryption
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,11 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -109,7 +106,7 @@ func waitForNoNewEncryptionKey(t testing.TB, kubeClient kubernetes.Interface, pr
 	waitNoKeyPollTimeout := 6 * time.Minute
 	waitDuration := 5 * time.Minute
 
-	nextKeyName, err := determineNextEncryptionKeyName(prevKeyMeta.Name)
+	nextKeyName, err := determineNextEncryptionKeyName(prevKeyMeta.Name, labelSelector)
 	require.NoError(t, err)
 	t.Logf("Waiting up to %s to check if no new key %q will be crated, as the previous (%q) key's encryption mode (%q) is the same as the current/desired one", waitDuration.String(), nextKeyName, prevKeyMeta.Name, prevKeyMeta.Mode)
 
@@ -131,7 +128,8 @@ func waitForNoNewEncryptionKey(t testing.TB, kubeClient kubernetes.Interface, pr
 
 		return false, nil
 	}); err != nil {
-		t.Fatalf("Failed to check if no new key will be created, err %v", err)
+		newErr := fmt.Errorf("failed to check if no new key will be created, err %v", err)
+		require.NoError(t, newErr)
 	}
 }
 
@@ -140,7 +138,7 @@ func WaitForNextMigratedKey(t testing.TB, kubeClient kubernetes.Interface, prevK
 
 	var err error
 	nextKeyName := ""
-	nextKeyName, err = determineNextEncryptionKeyName(prevKeyMeta.Name)
+	nextKeyName, err = determineNextEncryptionKeyName(prevKeyMeta.Name, labelSelector)
 	require.NoError(t, err)
 	if len(prevKeyMeta.Name) == 0 {
 		prevKeyMeta.Name = "no previous key"
@@ -176,7 +174,8 @@ func WaitForNextMigratedKey(t testing.TB, kubeClient kubernetes.Interface, prevK
 		}
 		return false, nil
 	}); err != nil {
-		t.Fatalf("Failed waiting for key %s to be used to migrate %v, due to %v", nextKeyName, prevKeyMeta.Migrated, err)
+		newErr := fmt.Errorf("failed waiting for key %s to be used to migrate %v, due to %v", nextKeyName, prevKeyMeta.Migrated, err)
+		require.NoError(t, newErr)
 	}
 }
 
@@ -233,40 +232,6 @@ func ForceKeyRotation(t testing.TB, updateUnsupportedConfig UpdateUnsupportedCon
 	})
 }
 
-func CreateAndStoreSecretOfLife(t testing.TB, clientSet ClientSet, namespace string) *corev1.Secret {
-	t.Helper()
-	{
-		oldSecretOfLife, err := clientSet.Kube.CoreV1().Secrets(namespace).Get("secret-of-life", metav1.GetOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			t.Errorf("Failed to check if the secret already exists, due to %v", err)
-		}
-		if len(oldSecretOfLife.Name) > 0 {
-			t.Log("The secret already exist, removing it first")
-			err := clientSet.Kube.CoreV1().Secrets(namespace).Delete(oldSecretOfLife.Name, &metav1.DeleteOptions{})
-			if err != nil {
-				t.Errorf("Failed to delete %s, err %v", oldSecretOfLife.Name, err)
-			}
-		}
-	}
-	t.Logf("Creating %q in %s namespace", "secret-of-life", namespace)
-	secretOfLife, err := clientSet.Kube.CoreV1().Secrets(namespace).Create(SecretOfLife(t, namespace))
-	require.NoError(t, err)
-	return secretOfLife
-}
-
-func SecretOfLife(t testing.TB, namespace string) *corev1.Secret {
-	t.Helper()
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "secret-of-life",
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			"quote": []byte("I have no special talents. I am only passionately curious"),
-		},
-	}
-}
-
 // hasResource returns whether the given group resource is contained in the migrated group resource list.
 func hasResource(expectedResource schema.GroupResource, actualResources []schema.GroupResource) bool {
 	for _, gr := range actualResources {
@@ -287,7 +252,7 @@ func encryptionKeyNameToKeyID(name string) (uint64, bool) {
 	return id, err == nil
 }
 
-func determineNextEncryptionKeyName(prevKeyName string) (string, error) {
+func determineNextEncryptionKeyName(prevKeyName, labelSelector string) (string, error) {
 	if len(prevKeyName) > 0 {
 		prevKeyID, prevKeyValid := encryptionKeyNameToKeyID(prevKeyName)
 		if !prevKeyValid {
@@ -297,22 +262,39 @@ func determineNextEncryptionKeyName(prevKeyName string) (string, error) {
 		return strings.Replace(prevKeyName, fmt.Sprintf("%d", prevKeyID), fmt.Sprintf("%d", nexKeyID), 1), nil
 	}
 
-	// no encryption key - the first one will look like the following
-	return "encryption-key-openshift-kube-apiserver-1", nil
-}
-
-func GetRawSecretOfLife(t testing.TB, clientSet ClientSet, namespace string) string {
-	t.Helper()
-	timeout, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	secretOfLifeEtcdPrefix := fmt.Sprintf("/kubernetes.io/secrets/%s/%s", namespace, "secret-of-life")
-	resp, err := clientSet.Etcd.Get(timeout, secretOfLifeEtcdPrefix, clientv3.WithPrefix())
-	require.NoError(t, err)
-
-	if len(resp.Kvs) != 1 {
-		t.Errorf("Expected to get a single key from etcd, got %d", len(resp.Kvs))
+	ret := strings.Split(labelSelector, "=")
+	if len(ret) != 2 {
+		return "", fmt.Errorf("unable to read the component name from the label selector, wrong format of the selector, expected \"...openshift.io/component=name\", got %s", labelSelector)
 	}
 
-	return string(resp.Kvs[0].Value)
+	// no encryption key - the first one will look like the following
+	return fmt.Sprintf("encryption-key-%s-1", ret[1]), nil
+}
+
+func setUpTearDown(namespace string) func(testing.TB, bool) {
+	return func(t testing.TB, failed bool) {
+		if failed { // we don't use t.Failed() because we handle termination differently when running on a local machine
+			t.Logf("Tearing Down %s", t.Name())
+			eventsToPrint := 20
+			clientSet := GetClients(t)
+
+			eventList, err := clientSet.Kube.CoreV1().Events(namespace).List(metav1.ListOptions{})
+			require.NoError(t, err)
+
+			sort.Slice(eventList.Items, func(i, j int) bool {
+				first := eventList.Items[i]
+				second := eventList.Items[j]
+				return first.LastTimestamp.After(second.LastTimestamp.Time)
+			})
+
+			t.Logf("Dumping %d events from %q namespace", eventsToPrint, namespace)
+			now := time.Now()
+			if len(eventList.Items) > eventsToPrint {
+				eventList.Items = eventList.Items[:eventsToPrint]
+			}
+			for _, ev := range eventList.Items {
+				t.Logf("Last seen: %-15v Type: %-10v Reason: %-40v Source: %-55v Message: %v", now.Sub(ev.LastTimestamp.Time), ev.Type, ev.Reason, ev.Source.Component, ev.Message)
+			}
+		}
+	}
 }

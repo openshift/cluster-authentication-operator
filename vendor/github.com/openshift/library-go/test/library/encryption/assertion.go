@@ -5,19 +5,28 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/stretchr/testify/require"
 
-	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	apiserverconfigv1 "k8s.io/apiserver/pkg/apis/config/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 var protoEncodingPrefix = []byte{0x6b, 0x38, 0x73, 0x00}
+
+var (
+	apiserverScheme = runtime.NewScheme()
+	apiserverCodecs = serializer.NewCodecFactory(apiserverScheme)
+)
 
 const (
 	jsonEncodingPrefix           = "{"
@@ -26,19 +35,46 @@ const (
 	secretboxTransformerPrefixV1 = "k8s:enc:secretbox:v1:"
 )
 
-func AssertSecretOfLifeNotEncrypted(t testing.TB, clientSet ClientSet, secretOfLife *corev1.Secret) {
-	t.Helper()
-	rawSecretValue := GetRawSecretOfLife(t, clientSet, secretOfLife.Namespace)
-	if !strings.Contains(rawSecretValue, string(secretOfLife.Data["quote"])) {
-		t.Errorf("The secret received from etcd doesn't have %q, content of the secret (etcd) %s", string(secretOfLife.Data["quote"]), rawSecretValue)
-	}
+func init() {
+	utilruntime.Must(apiserverconfigv1.AddToScheme(apiserverScheme))
 }
 
-func AssertSecretOfLifeEncrypted(t testing.TB, clientSet ClientSet, secretOfLife *corev1.Secret) {
+// AssertEncryptionConfig checks if the encryption config holds only targetGRs, this ensures that only those resources were encrypted,
+// we don't check the keys because e2e tests are run randomly and we would have to consider all encryption secrets to get the right order of the keys.
+// We test the content of the encryption config in more detail in unit and integration tests
+func AssertEncryptionConfig(t testing.TB, clientSet ClientSet, encryptionConfigSecretName string, namespace string, targetGRs []schema.GroupResource) {
 	t.Helper()
-	rawSecretValue := GetRawSecretOfLife(t, clientSet, secretOfLife.Namespace)
-	if strings.Contains(rawSecretValue, string(secretOfLife.Data["quote"])) {
-		t.Errorf("The secret received from etcd have %q (plain text), content of the secret (etcd) %s", string(secretOfLife.Data["quote"]), rawSecretValue)
+	t.Logf("Checking if %q in %q has desired GRs %v", encryptionConfigSecretName, namespace, targetGRs)
+	encryptionCofnigSecret, err := clientSet.Kube.CoreV1().Secrets(namespace).Get(encryptionConfigSecretName, metav1.GetOptions{})
+	require.NoError(t, err)
+	encodedEncryptionConfig, foundEncryptionConfig := encryptionCofnigSecret.Data["encryption-config"]
+	if !foundEncryptionConfig {
+		t.Errorf("Haven't found encryption config at %q key in the encryption secret %q", "encryption-config", encryptionConfigSecretName)
+	}
+
+	decoder := apiserverCodecs.UniversalDecoder(apiserverconfigv1.SchemeGroupVersion)
+	encryptionConfigObj, err := runtime.Decode(decoder, encodedEncryptionConfig)
+	require.NoError(t, err)
+	encryptionConfig, ok := encryptionConfigObj.(*apiserverconfigv1.EncryptionConfiguration)
+	if !ok {
+		t.Errorf("Unable to decode encryption config, unexpected wrong type %T", encryptionConfigObj)
+	}
+
+	for _, rawActualResource := range encryptionConfig.Resources {
+		if len(rawActualResource.Resources) != 1 {
+			t.Errorf("Invalid encryption config for resource %s, expected exactly one resource, got %d", rawActualResource.Resources, len(rawActualResource.Resources))
+		}
+		actualResource := schema.ParseGroupResource(rawActualResource.Resources[0])
+		actualResourceFound := false
+		for _, expectedResource := range targetGRs {
+			if reflect.DeepEqual(expectedResource, actualResource) {
+				actualResourceFound = true
+				break
+			}
+		}
+		if !actualResourceFound {
+			t.Errorf("Encryption config has an invalid resource %v", actualResource)
+		}
 	}
 }
 
@@ -64,7 +100,7 @@ func AssertLastMigratedKey(t testing.TB, kubeClient kubernetes.Interface, target
 	}
 }
 
-func VerifyResources(t testing.TB, etcdClient EtcdClient, etcdKeyPreifx, expectedMode string) (int, error) {
+func VerifyResources(t testing.TB, etcdClient EtcdClient, etcdKeyPreifx string, expectedMode string, allowEmpty bool) (int, error) {
 	timeout, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -72,7 +108,7 @@ func VerifyResources(t testing.TB, etcdClient EtcdClient, etcdKeyPreifx, expecte
 	switch {
 	case err != nil:
 		return 0, fmt.Errorf("failed to list prefix %s: %v", etcdKeyPreifx, err)
-	case resp.Count == 0 || len(resp.Kvs) == 0:
+	case (resp.Count == 0 || len(resp.Kvs) == 0) && !allowEmpty:
 		return 0, fmt.Errorf("empty list response for prefix %s: %+v", etcdKeyPreifx, resp)
 	case resp.More:
 		return 0, fmt.Errorf("incomplete list response for prefix %s: %+v", etcdKeyPreifx, resp)
