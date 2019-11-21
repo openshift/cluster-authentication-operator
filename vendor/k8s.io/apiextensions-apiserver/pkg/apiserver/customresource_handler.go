@@ -102,6 +102,10 @@ type crdHandler struct {
 
 	// request timeout we should delay storage teardown for
 	requestTimeout time.Duration
+
+	// The limit on the request size that would be accepted and decoded in a write request
+	// 0 means no limit.
+	maxRequestBodyBytes int64
 }
 
 // crdInfo stores enough information to serve the storage for the custom resource
@@ -143,7 +147,8 @@ func NewCustomResourceDefinitionHandler(
 	serviceResolver webhook.ServiceResolver,
 	authResolverWrapper webhook.AuthenticationInfoResolverWrapper,
 	masterCount int,
-	requestTimeout time.Duration) (*crdHandler, error) {
+	requestTimeout time.Duration,
+	maxRequestBodyBytes int64) (*crdHandler, error) {
 	ret := &crdHandler{
 		versionDiscoveryHandler: versionDiscoveryHandler,
 		groupDiscoveryHandler:   groupDiscoveryHandler,
@@ -154,6 +159,7 @@ func NewCustomResourceDefinitionHandler(
 		admission:               admission,
 		establishingController:  establishingController,
 		masterCount:             masterCount,
+		maxRequestBodyBytes:     maxRequestBodyBytes,
 	}
 	crdInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: ret.updateCustomResourceDefinition,
@@ -176,6 +182,10 @@ func NewCustomResourceDefinitionHandler(
 // both on the server-side (by terminating the watch connection)
 // and on the client side (by restarting the watch)
 var longRunningFilter = genericfilters.BasicLongRunningRequestCheck(sets.NewString("watch"), sets.NewString())
+
+// possiblyAccrosAllNamespacesVerbs contains those verbs which can be per-namespace and accross all
+// namespaces for namespaces resources. I.e. for these an empty namespace in the requestInfo is fine.
+var possiblyAcrossAllNamespacesVerbs = sets.NewString("list", "watch")
 
 func (r *crdHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
@@ -212,10 +222,24 @@ func (r *crdHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// if the scope in the CRD and the scope in request differ (with exception of the verbs in possiblyAcrossAllNamespacesVerbs
+	// for namespaced resources), pass request to the delegate, which is supposed to lead to a 404.
+	namespacedCRD, namespacedReq := crd.Spec.Scope == apiextensions.NamespaceScoped, len(requestInfo.Namespace) > 0
+	if !namespacedCRD && namespacedReq {
+		r.delegate.ServeHTTP(w, req)
+		return
+	}
+	if namespacedCRD && !namespacedReq && !possiblyAcrossAllNamespacesVerbs.Has(requestInfo.Verb) {
+		r.delegate.ServeHTTP(w, req)
+		return
+	}
+
 	if !apiextensions.HasServedCRDVersion(crd, requestInfo.APIVersion) {
 		r.delegate.ServeHTTP(w, req)
 		return
 	}
+
 	// There is a small chance that a CRD is being served because NamesAccepted condition is true,
 	// but it becomes "unserved" because another names update leads to a conflict
 	// and EstablishingController wasn't fast enough to put the CRD into the Established condition.
@@ -605,6 +629,8 @@ func (r *crdHandler) getOrCreateServingInfoFor(crd *apiextensions.CustomResource
 			MetaGroupVersion: metav1.SchemeGroupVersion,
 
 			TableConvertor: storages[v.Name].CustomResource,
+
+			MaxRequestBodyBytes: r.maxRequestBodyBytes,
 		}
 
 		// override scaleSpec subresource values

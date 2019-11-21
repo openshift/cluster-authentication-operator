@@ -8,13 +8,18 @@ import:
   version: kubernetes-1.13.4
 - package: k8s.io/client-go
   version: kubernetes-1.13.4
+- package: k8s.io/code-generator
+  version: kubernetes-1.13.4
 - package: k8s.io/kube-aggregator
   version: kubernetes-1.13.4
 - package: k8s.io/apiextensions-apiserver
   repo: https://github.com/openshift/kubernetes-apiextensions-apiserver
   version: origin-4.1-kubernetes-1.13.4 # pinned to get nullable patch
-- package: k8s.io/code-generator
-  version: kubernetes-1.13.4
+
+# pinned to a level that kubernetes uses.
+- package: github.com/evanphx/json-patch
+  version: 5858425f75500d40c52783dce87d085a483ce135
+
 - package: github.com/openshift/api
   version: release-4.1
 - package: github.com/openshift/client-go
@@ -29,4 +34,34 @@ import:
 # codegen
 - package: k8s.io/gengo/args
   version: 01a732e01d00cb9a81bb0ca050d3e6d2b947927b
-- package: golang.org/x/tools/imports
+
+# testing
+- package: github.com/stretchr/testify
+  version: ~1.3.0
+
+# pin to avoid big bumps
+- package: google.golang.org/genproto
+  version: 09f6ed296fc66555a25fe4ce95173148778dfa85
+- package: gopkg.in/yaml.v2
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
+  repo: https://github.com/go-yaml/yaml.git
+- package: google.golang.org/grpc
+  version: 168a6198bcb0ef175f7dacec0b8691fc141dc9b8
+- package: github.com/prometheus/client_golang
+  version: e7e903064f5e9eb5da98208bae10b475d4db0f8c
+- package: github.com/PuerkitoBio/urlesc
+  version: 5bd2802263f21d8788851d5305584c82a5c75d7e
+- package: github.com/spf13/cobra
+  version: 1c9c46d5c1cc2aaebdd1898c0680e85e8a44b36d
+- pcakage: gopkg.in/natefinch/lumberjack.v2
+  version: v2
+  repo: https://github.com/natefinch/lumberjack.git
+- package: bitbucket.org/ww/goautoneg
+  repo: https://github.com/adjust/goautoneg # fork of the hg repo
+  version: d788f35a0315672bc90f50a6145d1252a230ee0d
+- package: github.com/spf13/pflag
+  version: 24fa6976df40757dce6aea913e7b81ade90530e1
+- package: golang.org/x/tools
+  version: ff9f1409240a6589b749f29c118cc0ac9bd5bcde
+- package: google.golang.org/appengine
+  version: b2f4a3cf3c67576a2ee09e1fe62656a5086ce880
