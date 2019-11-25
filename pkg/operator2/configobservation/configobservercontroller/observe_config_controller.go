@@ -66,6 +66,7 @@ func NewConfigObserver(
 		infrastructure.ObserveAPIServerURL,
 		oauth.ObserveIdentityProviders,
 		oauth.ObserveTemplates,
+		oauth.ObserveTokenConfig,
 		routersecret.ObserveRouterSecret,
 	} {
 		oauthServerObservers = append(oauthServerObservers,

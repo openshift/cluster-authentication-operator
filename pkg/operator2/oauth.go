@@ -7,8 +7,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -43,29 +41,6 @@ func (c *authOperator) handleOAuthConfig(
 	*corev1.ConfigMap,
 	error,
 ) {
-	oauthConfigNoDefaults, err := c.oauth.Get(ctx, "cluster", metav1.GetOptions{})
-	if errors.IsNotFound(err) {
-		oauthConfigNoDefaults, err = c.oauth.Create(ctx, &configv1.OAuth{
-			ObjectMeta: defaultGlobalConfigMeta(),
-		}, metav1.CreateOptions{})
-	}
-	if err != nil {
-		return nil, err
-	}
-	oauthConfig := defaultOAuthConfig(oauthConfigNoDefaults)
-
-	var accessTokenInactivityTimeoutSeconds *int32
-	timeout := oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds
-	switch {
-	case timeout < 0:
-		zero := int32(0)
-		accessTokenInactivityTimeoutSeconds = &zero
-	case timeout == 0:
-		accessTokenInactivityTimeoutSeconds = nil
-	case timeout > 0:
-		accessTokenInactivityTimeoutSeconds = &timeout
-	}
-
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
@@ -105,11 +80,6 @@ func (c *authOperator) handleOAuthConfig(
 				SessionSecretsFile:   "/var/config/system/secrets/v4-0-config-system-session/v4-0-config-system-session",
 				SessionMaxAgeSeconds: 5 * 60, // 5 minutes
 				SessionName:          "ssn",
-			},
-			TokenConfig: osinv1.TokenConfig{
-				AuthorizeTokenMaxAgeSeconds:         5 * 60, // 5 minutes
-				AccessTokenMaxAgeSeconds:            oauthConfig.Spec.TokenConfig.AccessTokenMaxAgeSeconds,
-				AccessTokenInactivityTimeoutSeconds: accessTokenInactivityTimeoutSeconds,
 			},
 		},
 	}
@@ -163,16 +133,6 @@ func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
 func getMasterCA() *string {
 	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt" // need local var to be able to take address of it
 	return &ca
-}
-
-func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
-	out := oauthConfig.DeepCopy() // do not mutate informer cache
-
-	if out.Spec.TokenConfig.AccessTokenMaxAgeSeconds == 0 {
-		out.Spec.TokenConfig.AccessTokenMaxAgeSeconds = 24 * 60 * 60 // 1 day
-	}
-
-	return out
 }
 
 func encodeOrDie(obj runtime.Object) []byte {
