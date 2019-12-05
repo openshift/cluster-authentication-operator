@@ -25,7 +25,6 @@ func (c *authOperator) handleOAuthConfig(
 	routerSecret *corev1.Secret,
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
-	infrastructureConfig *configv1.Infrastructure,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -117,7 +116,6 @@ func (c *authOperator) handleOAuthConfig(
 			MasterCA:                    getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
-			LoginURL:                    infrastructureConfig.Status.APIServerURL,
 			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
@@ -143,11 +141,11 @@ func (c *authOperator) handleOAuthConfig(
 
 	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, operatorConfig.Spec.ObservedConfig.Raw, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
+		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
-	return getCliConfigMap(completeConfigBytes), nil
+	return getCliConfigMap(completeConfigBytes), &syncData, nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {

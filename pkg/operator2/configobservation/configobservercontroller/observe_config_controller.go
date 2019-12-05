@@ -12,11 +12,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/infrastructure"
 )
-
-type ConfigObserver struct {
-	*configobserver.ConfigObserver
-}
 
 func NewConfigObserver(
 	operatorClient v1helpers.OperatorClient,
@@ -39,6 +36,7 @@ func NewConfigObserver(
 	informers := []factory.Informer{
 		operatorClient.Informer(),
 		configInformer.Config().V1().APIServers().Informer(),
+		configInformer.Config().V1().Infrastructures().Informer(),
 	}
 
 	for _, ns := range interestingNamespaces {
@@ -49,16 +47,19 @@ func NewConfigObserver(
 		operatorClient,
 		eventRecorder,
 		configobservation.Listers{
-			APIServerLister_: configInformer.Config().V1().APIServers().Lister(),
-			ResourceSync:     resourceSyncer,
+			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
+			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
+			ResourceSync:         resourceSyncer,
 			PreRunCachesSynced: append(preRunCacheSynced,
 				operatorClient.Informer().HasSynced,
 
 				configInformer.Config().V1().APIServers().Informer().HasSynced,
+				configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 			),
 		},
 		informers,
 		apiserver.ObserveAdditionalCORSAllowedOrigins,
 		apiserver.ObserveTLSSecurityProfile,
+		infrastructure.ObserveAPIServerURL,
 	)
 }

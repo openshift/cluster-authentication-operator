@@ -11,7 +11,8 @@ import (
 var _ configobserver.Listers = Listers{}
 
 type Listers struct {
-	APIServerLister_ configlistersv1.APIServerLister
+	APIServerLister_     configlistersv1.APIServerLister
+	InfrastructureLister configlistersv1.InfrastructureLister
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced []cache.InformerSynced
