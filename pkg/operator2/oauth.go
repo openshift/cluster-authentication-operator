@@ -14,7 +14,6 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -27,7 +26,6 @@ func (c *authOperator) handleOAuthConfig(
 	service *corev1.Service,
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
-	apiServerConfig *configv1.APIServer,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -86,9 +84,7 @@ func (c *authOperator) handleOAuthConfig(
 	}
 	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
-	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
-	corsAllowedOrigins = append(corsAllowedOrigins, apiServerConfig.Spec.AdditionalCORSAllowedOrigins...)
-	minTLSVersion, cipherSuites := getSecurityProfileCiphers(apiServerConfig.Spec.TLSSecurityProfile)
+	assetPublicURL, _ := consoleToDeploymentData(consoleConfig)
 
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
@@ -104,14 +100,11 @@ func (c *authOperator) handleOAuthConfig(
 					},
 					ClientCA:          "", // I think this can be left unset
 					NamedCertificates: routerSecretToSNI(routerSecret),
-					MinTLSVersion:     minTLSVersion,
-					CipherSuites:      cipherSuites,
 				},
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
 			},
-			CORSAllowedOrigins: corsAllowedOrigins,     // set console route as valid CORS (so JS can logout)
-			AuditConfig:        configv1.AuditConfig{}, // TODO probably need this
+			AuditConfig: configv1.AuditConfig{}, // TODO probably need this
 			KubeClientConfig: configv1.KubeClientConfig{
 				KubeConfig: "", // this should use in cluster config
 				ConnectionOverrides: configv1.ClientConnectionOverrides{
@@ -148,13 +141,13 @@ func (c *authOperator) handleOAuthConfig(
 
 	cliConfigBytes := encodeOrDie(cliConfig)
 
-	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, operatorConfig.Spec.ObservedConfig.Raw, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
+		return nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
-	return getCliConfigMap(completeConfigBytes), &syncData, nil
+	return getCliConfigMap(completeConfigBytes), nil
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
@@ -187,31 +180,4 @@ func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	}
 
 	return out
-}
-
-// TODO: this is taken from lib-go and should go away once we start observing config
-func getSecurityProfileCiphers(profile *configv1.TLSSecurityProfile) (string, []string) {
-	var profileType configv1.TLSProfileType
-	if profile == nil {
-		profileType = configv1.TLSProfileIntermediateType
-	} else {
-		profileType = profile.Type
-	}
-
-	var profileSpec *configv1.TLSProfileSpec
-	if profileType == configv1.TLSProfileCustomType {
-		if profile.Custom != nil {
-			profileSpec = &profile.Custom.TLSProfileSpec
-		}
-	} else {
-		profileSpec = configv1.TLSProfiles[profileType]
-	}
-
-	// nothing found / custom type set but no actual custom spec
-	if profileSpec == nil {
-		profileSpec = configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
-	}
-
-	// need to remap all Ciphers to their respective IANA names used by Go
-	return string(profileSpec.MinTLSVersion), crypto.OpenSSLToIANACipherSuites(profileSpec.Ciphers)
 }

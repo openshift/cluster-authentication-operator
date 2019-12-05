@@ -299,9 +299,7 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 
 	infrastructureConfig := c.handleInfrastructureConfig(ctx)
 
-	apiServerConfig := c.handleAPIServerConfig(ctx)
-
-	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
+	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
