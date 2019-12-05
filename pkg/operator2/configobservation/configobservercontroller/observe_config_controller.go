@@ -12,6 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/console"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/infrastructure"
 )
 
@@ -36,6 +37,7 @@ func NewConfigObserver(
 	informers := []factory.Informer{
 		operatorClient.Informer(),
 		configInformer.Config().V1().APIServers().Informer(),
+		configInformer.Config().V1().Consoles().Informer(),
 		configInformer.Config().V1().Infrastructures().Informer(),
 	}
 
@@ -48,18 +50,21 @@ func NewConfigObserver(
 		eventRecorder,
 		configobservation.Listers{
 			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
+			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
 			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
 			ResourceSync:         resourceSyncer,
 			PreRunCachesSynced: append(preRunCacheSynced,
 				operatorClient.Informer().HasSynced,
 
 				configInformer.Config().V1().APIServers().Informer().HasSynced,
+				configInformer.Config().V1().Consoles().Informer().HasSynced,
 				configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 			),
 		},
 		informers,
 		apiserver.ObserveAdditionalCORSAllowedOrigins,
 		apiserver.ObserveTLSSecurityProfile,
+		console.ObserveConsoleURL,
 		infrastructure.ObserveAPIServerURL,
 	)
 }

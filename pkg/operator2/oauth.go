@@ -24,7 +24,6 @@ func (c *authOperator) handleOAuthConfig(
 	route *routev1.Route,
 	routerSecret *corev1.Secret,
 	service *corev1.Service,
-	consoleConfig *configv1.Console,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -83,8 +82,6 @@ func (c *authOperator) handleOAuthConfig(
 	}
 	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
-	assetPublicURL, _ := consoleToDeploymentData(consoleConfig)
-
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
@@ -116,7 +113,6 @@ func (c *authOperator) handleOAuthConfig(
 			MasterCA:                    getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
-			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
 			GrantConfig: osinv1.GrantConfig{

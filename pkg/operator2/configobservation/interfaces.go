@@ -12,6 +12,7 @@ var _ configobserver.Listers = Listers{}
 
 type Listers struct {
 	APIServerLister_     configlistersv1.APIServerLister
+	ConsoleLister        configlistersv1.ConsoleLister
 	InfrastructureLister configlistersv1.InfrastructureLister
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
