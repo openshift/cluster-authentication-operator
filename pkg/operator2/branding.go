@@ -11,6 +11,8 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
 )
 
 const (
@@ -18,7 +20,7 @@ const (
 	okdBrand = "okd"
 )
 
-func (c *authOperator) handleBrandingTemplates(ctx context.Context, configTemplates configv1.OAuthTemplates, syncData configSyncData) (*osinv1.OAuthTemplates, error) {
+func (c *authOperator) handleBrandingTemplates(ctx context.Context, configTemplates configv1.OAuthTemplates, syncData datasync.ConfigSyncData) (*osinv1.OAuthTemplates, error) {
 	templates := osinv1.OAuthTemplates{}
 
 	brand, err := c.getConsoleBranding(ctx)
@@ -50,14 +52,16 @@ func (c *authOperator) handleBrandingTemplates(ctx context.Context, configTempla
 	}
 
 	// user-configured overrides everything else, individually.
-	if hasSecretRef(configTemplates.Login) {
-		templates.Login = syncData.addTemplateSecret(configTemplates.Login, "login", configv1.LoginTemplateKey)
+
+	// FIXME: need to wire syncing of the secrets in the observer
+	if len(configTemplates.Login.Name) > 0 {
+		templates.Login = "/var/config/user/template/secret/v4-0-config-user-template-login"
 	}
-	if hasSecretRef(configTemplates.ProviderSelection) {
-		templates.ProviderSelection = syncData.addTemplateSecret(configTemplates.ProviderSelection, "provider-selection", configv1.ProviderSelectionTemplateKey)
+	if len(configTemplates.ProviderSelection.Name) > 0 {
+		templates.ProviderSelection = "/var/config/user/template/secret/v4-0-config-user-template-provider-selection"
 	}
-	if hasSecretRef(configTemplates.Error) {
-		templates.Error = syncData.addTemplateSecret(configTemplates.Error, "error", configv1.ErrorsTemplateKey)
+	if len(configTemplates.Error.Name) > 0 {
+		templates.Error = "/var/config/user/template/secret/v4-0-config-user-template-error"
 	}
 
 	empty := osinv1.OAuthTemplates{}
@@ -88,8 +92,4 @@ func (c *authOperator) getConsoleBranding(ctx context.Context) (string, error) {
 	}
 
 	return config.Branding, nil
-}
-
-func hasSecretRef(ref configv1.SecretNameReference) bool {
-	return len(ref.Name) > 0
 }

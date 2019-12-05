@@ -14,6 +14,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/console"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/infrastructure"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/routersecret"
 )
 
@@ -26,6 +27,7 @@ func NewConfigObserver(
 ) factory.Controller {
 	interestingNamespaces := []string{
 		"openshift-authentication",
+		"openshift-config",
 	}
 
 	preRunCacheSynced := []cache.InformerSynced{
@@ -33,6 +35,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().APIServers().Informer().HasSynced,
 		configInformer.Config().V1().Consoles().Informer().HasSynced,
 		configInformer.Config().V1().Infrastructures().Informer().HasSynced,
+		configInformer.Config().V1().OAuths().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -40,6 +43,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().APIServers().Informer(),
 		configInformer.Config().V1().Consoles().Informer(),
 		configInformer.Config().V1().Infrastructures().Informer(),
+		configInformer.Config().V1().OAuths().Informer(),
 	}
 
 	for _, ns := range interestingNamespaces {
@@ -60,6 +64,7 @@ func NewConfigObserver(
 		apiserver.ObserveTLSSecurityProfile,
 		console.ObserveConsoleURL,
 		infrastructure.ObserveAPIServerURL,
+		oauth.ObserveIdentityProviders,
 		routersecret.ObserveRouterSecret,
 	} {
 		oauthServerObservers = append(oauthServerObservers,
@@ -70,11 +75,13 @@ func NewConfigObserver(
 		operatorClient,
 		eventRecorder,
 		configobservation.Listers{
-			SecretsLister: kubeInformersForNamespaces.SecretLister(),
+			ConfigMapLister: kubeInformersForNamespaces.ConfigMapLister(),
+			SecretsLister:   kubeInformersForNamespaces.SecretLister(),
 
 			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
 			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
 			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
+			OAuthLister:          configInformer.Config().V1().OAuths().Lister(),
 			ResourceSync:         resourceSyncer,
 			PreRunCachesSynced:   preRunCacheSynced,
 		},

@@ -70,6 +70,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
 		"openshift-authentication",
+		"openshift-config",
 		"kube-system",
 	)
 
@@ -200,6 +201,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 			// As of 4.4, this will appear as a configObserver error
 			"FailedRouterSecret",
+
+			// As of 4.6, this will appear as a configObserver error
+			"IdentityProviderConfigDegraded",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,

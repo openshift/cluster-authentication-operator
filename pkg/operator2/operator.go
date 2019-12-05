@@ -295,14 +295,9 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 
-	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
+	expectedCLIconfig, _, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
-	}
-
-	err = c.handleConfigSync(ctx, syncData)
-	if err != nil {
-		return fmt.Errorf("failed syncing configuration objects: %v", err)
 	}
 
 	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
@@ -338,13 +333,15 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment := defaultDeployment(
+	expectedDeployment, err := defaultDeployment(
 		operatorConfig,
-		syncData,
 		proxyConfig,
 		c.bootstrapUserChangeRollOut,
 		resourceVersions...,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to determine the shape of the expected deployment: %v", err)
+	}
 
 	deployment, _, err := resourceapply.ApplyDeployment(
 		c.deployments,
@@ -467,7 +464,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 		caData = append(bytes.TrimSpace(caData), []byte("\n")...)
 	}
 
-	rt, err := transportFor("", append(caData, c.systemCABundle...), nil, nil)
+	rt, err := TransportFor("", append(caData, c.systemCABundle...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
@@ -503,7 +500,7 @@ func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authCon
 	}
 
 	// pass the KAS service name for SNI
-	rt, err := transportFor("kubernetes.default.svc", caData, nil, nil)
+	rt, err := TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}

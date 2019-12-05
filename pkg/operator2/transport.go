@@ -13,7 +13,7 @@ import (
 // TODO move all this to library-go
 
 // transportFor returns an http.Transport for the given ca and client cert data (which may be empty)
-func transportFor(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
+func TransportFor(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
 	transport, err := transportForInner(serverName, caData, certData, keyData)
 	if err != nil {
 		return nil, err
