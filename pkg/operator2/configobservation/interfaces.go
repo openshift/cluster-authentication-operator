@@ -6,11 +6,14 @@ import (
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 )
 
 var _ configobserver.Listers = Listers{}
 
 type Listers struct {
+	SecretsLister corelistersv1.SecretLister
+
 	APIServerLister_     configlistersv1.APIServerLister
 	ConsoleLister        configlistersv1.ConsoleLister
 	InfrastructureLister configlistersv1.InfrastructureLister

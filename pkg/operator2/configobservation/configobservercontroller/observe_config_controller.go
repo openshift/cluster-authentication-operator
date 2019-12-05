@@ -14,6 +14,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/console"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/infrastructure"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/routersecret"
 )
 
 func NewConfigObserver(
@@ -31,6 +32,7 @@ func NewConfigObserver(
 	for _, ns := range interestingNamespaces {
 		preRunCacheSynced = append(preRunCacheSynced,
 			kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer().HasSynced,
+			kubeInformersForNamespaces.InformersFor(ns).Core().V1().Secrets().Informer().HasSynced,
 		)
 	}
 
@@ -42,13 +44,18 @@ func NewConfigObserver(
 	}
 
 	for _, ns := range interestingNamespaces {
-		informers = append(informers, kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer())
+		informers = append(informers,
+			kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
+			kubeInformersForNamespaces.InformersFor(ns).Core().V1().Secrets().Informer(),
+		)
 	}
 
 	return configobserver.NewConfigObserver(
 		operatorClient,
 		eventRecorder,
 		configobservation.Listers{
+			SecretsLister: kubeInformersForNamespaces.SecretLister(),
+
 			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
 			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
 			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
@@ -66,5 +73,6 @@ func NewConfigObserver(
 		apiserver.ObserveTLSSecurityProfile,
 		console.ObserveConsoleURL,
 		infrastructure.ObserveAPIServerURL,
+		routersecret.ObserveRouterSecret,
 	)
 }

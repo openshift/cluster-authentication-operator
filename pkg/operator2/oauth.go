@@ -22,7 +22,6 @@ func (c *authOperator) handleOAuthConfig(
 	ctx context.Context,
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
-	routerSecret *corev1.Secret,
 	service *corev1.Service,
 ) (
 	*corev1.ConfigMap,
@@ -94,8 +93,7 @@ func (c *authOperator) handleOAuthConfig(
 						CertFile: "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt",
 						KeyFile:  "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key",
 					},
-					ClientCA:          "", // I think this can be left unset
-					NamedCertificates: routerSecretToSNI(routerSecret),
+					ClientCA: "", // I think this can be left unset
 				},
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes

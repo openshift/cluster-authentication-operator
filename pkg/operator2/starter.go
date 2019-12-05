@@ -179,6 +179,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		[]string{
 			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
 			"Degraded",
+
+			// As of 4.4, this will appear as a configObserver error
+			"FailedRouterSecret",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,
