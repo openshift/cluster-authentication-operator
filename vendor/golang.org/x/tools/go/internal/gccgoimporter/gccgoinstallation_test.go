@@ -9,14 +9,10 @@ package gccgoimporter
 
 import (
 	"go/types"
+	"runtime"
 	"testing"
 )
 
-// importablePackages is a list of packages that we verify that we can
-// import. This should be all standard library packages in all relevant
-// versions of gccgo. Note that since gccgo follows a different release
-// cycle, and since different systems have different versions installed,
-// we can't use the last-two-versions rule of the gc toolchain.
 var importablePackages = [...]string{
 	"archive/tar",
 	"archive/zip",
@@ -63,7 +59,7 @@ var importablePackages = [...]string{
 	"encoding/binary",
 	"encoding/csv",
 	"encoding/gob",
-	// "encoding", // Added in GCC 4.9.
+	"encoding",
 	"encoding/hex",
 	"encoding/json",
 	"encoding/pem",
@@ -75,7 +71,7 @@ var importablePackages = [...]string{
 	"go/ast",
 	"go/build",
 	"go/doc",
-	// "go/format", // Added in GCC 4.8.
+	"go/format",
 	"go/parser",
 	"go/printer",
 	"go/scanner",
@@ -88,7 +84,7 @@ var importablePackages = [...]string{
 	"html",
 	"html/template",
 	"image/color",
-	// "image/color/palette", // Added in GCC 4.9.
+	"image/color/palette",
 	"image/draw",
 	"image/gif",
 	"image",
@@ -107,7 +103,7 @@ var importablePackages = [...]string{
 	"mime/multipart",
 	"net",
 	"net/http/cgi",
-	// "net/http/cookiejar", // Added in GCC 4.8.
+	"net/http/cookiejar",
 	"net/http/fcgi",
 	"net/http",
 	"net/http/httptest",
@@ -151,14 +147,14 @@ var importablePackages = [...]string{
 }
 
 func TestInstallationImporter(t *testing.T) {
-	// This test relies on gccgo being around.
-	gpath := gccgoPath()
-	if gpath == "" {
+	// This test relies on gccgo being around, which it most likely will be if we
+	// were compiled with gccgo.
+	if runtime.Compiler != "gccgo" {
 		t.Skip("This test needs gccgo")
 	}
 
 	var inst GccgoInstallation
-	err := inst.InitFromDriver(gpath)
+	err := inst.InitFromDriver("gccgo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,12 +179,12 @@ func TestInstallationImporter(t *testing.T) {
 
 	// Test for certain specific entities in the imported data.
 	for _, test := range [...]importerTest{
-		{pkgpath: "io", name: "Reader", want: "type Reader interface{Read(p []byte) (n int, err error)}"},
+		{pkgpath: "io", name: "Reader", want: "type Reader interface{Read(p []uint8) (n int, err error)}"},
 		{pkgpath: "io", name: "ReadWriter", want: "type ReadWriter interface{Reader; Writer}"},
 		{pkgpath: "math", name: "Pi", want: "const Pi untyped float"},
 		{pkgpath: "math", name: "Sin", want: "func Sin(x float64) float64"},
 		{pkgpath: "sort", name: "Ints", want: "func Ints(a []int)"},
-		{pkgpath: "unsafe", name: "Pointer", want: "type Pointer"},
+		{pkgpath: "unsafe", name: "Pointer", want: "type Pointer unsafe.Pointer"},
 	} {
 		runImporterTest(t, imp, nil, &test)
 	}

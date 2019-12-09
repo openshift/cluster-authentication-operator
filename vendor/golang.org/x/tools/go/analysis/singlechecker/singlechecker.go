@@ -33,7 +33,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/internal/analysisflags"
 	"golang.org/x/tools/go/analysis/internal/checker"
-	"golang.org/x/tools/go/analysis/unitchecker"
 )
 
 // Main is the main function for a checker command for a single analysis.
@@ -52,11 +51,11 @@ func Main(a *analysis.Analyzer) {
 	flag.Usage = func() {
 		paras := strings.Split(a.Doc, "\n\n")
 		fmt.Fprintf(os.Stderr, "%s: %s\n\n", a.Name, paras[0])
-		fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n\n", a.Name)
+		fmt.Printf("Usage: %s [-flag] [package]\n\n", a.Name)
 		if len(paras) > 1 {
-			fmt.Fprintln(os.Stderr, strings.Join(paras[1:], "\n\n"))
+			fmt.Println(strings.Join(paras[1:], "\n\n"))
 		}
-		fmt.Fprintf(os.Stderr, "\nFlags:")
+		fmt.Println("\nFlags:")
 		flag.PrintDefaults()
 	}
 
@@ -68,10 +67,7 @@ func Main(a *analysis.Analyzer) {
 		os.Exit(1)
 	}
 
-	if len(args) == 1 && strings.HasSuffix(args[0], ".cfg") {
-		unitchecker.Run(args[0], analyzers)
-		panic("unreachable")
+	if err := checker.Run(args, analyzers); err != nil {
+		log.Fatal(err)
 	}
-
-	os.Exit(checker.Run(args, analyzers))
 }
