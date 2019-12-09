@@ -90,68 +90,70 @@ func TestHeaderCall(t *testing.T) {
 	}
 }
 
-func prepare(ctx context.Context, t *testing.T, withHeaders bool) (*jsonrpc2.Conn, *jsonrpc2.Conn) {
-	aR, bW := io.Pipe()
-	bR, aW := io.Pipe()
-	a := run(ctx, t, withHeaders, aR, aW)
-	b := run(ctx, t, withHeaders, bR, bW)
+func prepare(ctx context.Context, t *testing.T, withHeaders bool) (*testHandler, *testHandler) {
+	a := &testHandler{t: t}
+	b := &testHandler{t: t}
+	a.reader, b.writer = io.Pipe()
+	b.reader, a.writer = io.Pipe()
+	for _, h := range []*testHandler{a, b} {
+		h := h
+		if withHeaders {
+			h.stream = jsonrpc2.NewHeaderStream(h.reader, h.writer)
+		} else {
+			h.stream = jsonrpc2.NewStream(h.reader, h.writer)
+		}
+		args := []interface{}{handle}
+		if *logRPC {
+			args = append(args, jsonrpc2.Log)
+		}
+		h.Conn = jsonrpc2.NewConn(ctx, h.stream, args...)
+		go func() {
+			defer func() {
+				h.reader.Close()
+				h.writer.Close()
+			}()
+			if err := h.Conn.Wait(ctx); err != nil {
+				t.Fatalf("Stream failed: %v", err)
+			}
+		}()
+	}
 	return a, b
 }
 
-func run(ctx context.Context, t *testing.T, withHeaders bool, r io.ReadCloser, w io.WriteCloser) *jsonrpc2.Conn {
-	var stream jsonrpc2.Stream
-	if withHeaders {
-		stream = jsonrpc2.NewHeaderStream(r, w)
-	} else {
-		stream = jsonrpc2.NewStream(r, w)
-	}
-	conn := jsonrpc2.NewConn(stream)
-	conn.Handler = handle
-	if *logRPC {
-		conn.Logger = jsonrpc2.Log
-	}
-	go func() {
-		defer func() {
-			r.Close()
-			w.Close()
-		}()
-		if err := conn.Run(ctx); err != nil {
-			t.Fatalf("Stream failed: %v", err)
-		}
-	}()
-	return conn
+type testHandler struct {
+	t      *testing.T
+	reader *io.PipeReader
+	writer *io.PipeWriter
+	stream jsonrpc2.Stream
+	*jsonrpc2.Conn
 }
 
-func handle(ctx context.Context, c *jsonrpc2.Conn, r *jsonrpc2.Request) {
+func handle(ctx context.Context, c *jsonrpc2.Conn, r *jsonrpc2.Request) (interface{}, *jsonrpc2.Error) {
 	switch r.Method {
 	case "no_args":
 		if r.Params != nil {
-			c.Reply(ctx, r, nil, jsonrpc2.NewErrorf(jsonrpc2.CodeInvalidParams, "Expected no params"))
-			return
+			return nil, jsonrpc2.NewErrorf(jsonrpc2.CodeInvalidParams, "Expected no params")
 		}
-		c.Reply(ctx, r, true, nil)
+		return true, nil
 	case "one_string":
 		var v string
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
-			c.Reply(ctx, r, nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error()))
-			return
+			return nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error())
 		}
-		c.Reply(ctx, r, "got:"+v, nil)
+		return "got:" + v, nil
 	case "one_number":
 		var v int
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
-			c.Reply(ctx, r, nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error()))
-			return
+			return nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error())
 		}
-		c.Reply(ctx, r, fmt.Sprintf("got:%d", v), nil)
+		return fmt.Sprintf("got:%d", v), nil
 	case "join":
 		var v []string
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
-			c.Reply(ctx, r, nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error()))
-			return
+			return nil, jsonrpc2.NewErrorf(jsonrpc2.CodeParseError, "%v", err.Error())
 		}
-		c.Reply(ctx, r, path.Join(v...), nil)
+		return path.Join(v...), nil
 	default:
-		c.Reply(ctx, r, nil, jsonrpc2.NewErrorf(jsonrpc2.CodeMethodNotFound, "method %q not found", r.Method))
+		return nil, jsonrpc2.NewErrorf(jsonrpc2.CodeMethodNotFound, "method %q not found", r.Method)
 	}
 }

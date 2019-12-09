@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"golang.org/x/tools/go/buildutil"
-	"golang.org/x/tools/go/packages/packagestest"
 )
 
 func TestAllPackages(t *testing.T) {
@@ -24,24 +23,7 @@ func TestAllPackages(t *testing.T) {
 		t.Skip("gccgo has no standard packages")
 	}
 
-	exported := packagestest.Export(t, packagestest.GOPATH, []packagestest.Module{
-		{Name: "golang.org/x/tools/go/buildutil", Files: packagestest.MustCopyFileTree(".")}})
-	defer exported.Cleanup()
-
-	var gopath string
-	for _, env := range exported.Config.Env {
-		if !strings.HasPrefix(env, "GOPATH=") {
-			continue
-		}
-		gopath = strings.TrimPrefix(env, "GOPATH=")
-	}
-	if gopath == "" {
-		t.Fatal("Failed to fish GOPATH out of env: ", exported.Config.Env)
-	}
-
-	var buildContext = build.Default
-	buildContext.GOPATH = gopath
-	all := buildutil.AllPackages(&buildContext)
+	all := buildutil.AllPackages(&build.Default)
 
 	set := make(map[string]bool)
 	for _, pkg := range all {

@@ -1,6 +1,7 @@
 package revisioncontroller
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -166,7 +167,7 @@ func (c RevisionController) isLatestRevisionCurrent(revision int32) (bool, strin
 		}
 		if !equality.Semantic.DeepEqual(existingData, requiredData) {
 			if klog.V(4) {
-				klog.Infof("configmap %q changes for revision %d: %s", cm.Name, revision, resourceapply.JSONPatch(existing, required))
+				klog.Infof("configmap %q changes for revision %d: %s", cm.Name, revision, resourceapply.JSONPatchNoError(existing, required))
 			}
 			configChanges = append(configChanges, fmt.Sprintf("configmap/%s has changed", cm.Name))
 		}
@@ -193,7 +194,7 @@ func (c RevisionController) isLatestRevisionCurrent(revision int32) (bool, strin
 		}
 		if !equality.Semantic.DeepEqual(existingData, requiredData) {
 			if klog.V(4) {
-				klog.Infof("Secret %q changes for revision %d: %s", s.Name, revision, resourceapply.JSONPatchSecret(existing, required))
+				klog.Infof("Secret %q changes for revision %d: %s", s.Name, revision, resourceapply.JSONPatchSecretNoError(existing, required))
 			}
 			secretChanges = append(secretChanges, fmt.Sprintf("secret/%s has changed", s.Name))
 		}
@@ -329,23 +330,23 @@ func (c RevisionController) sync() error {
 }
 
 // Run starts the kube-apiserver and blocks until stopCh is closed.
-func (c *RevisionController) Run(workers int, stopCh <-chan struct{}) {
+func (c *RevisionController) Run(ctx context.Context, workers int) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	klog.Infof("Starting RevisionController")
 	defer klog.Infof("Shutting down RevisionController")
-	if !cache.WaitForCacheSync(stopCh, c.cachesToSync...) {
+	if !cache.WaitForCacheSync(ctx.Done(), c.cachesToSync...) {
 		return
 	}
 
 	// doesn't matter what workers say, only start one.
-	go wait.Until(c.runWorker, time.Second, stopCh)
+	go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 
-	<-stopCh
+	<-ctx.Done()
 }
 
-func (c *RevisionController) runWorker() {
+func (c *RevisionController) runWorker(ctx context.Context) {
 	for c.processNextWorkItem() {
 	}
 }
