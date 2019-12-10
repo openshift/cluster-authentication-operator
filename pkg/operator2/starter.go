@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -190,6 +191,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	management.SetOperatorNotRemovable()
 	// TODO move to config observers
 	// configobserver.NewConfigObserver(...)
+	processCtx := ctx.Ctx
 
 	for _, informer := range []interface {
 		Start(stopCh <-chan struct{})
@@ -200,11 +202,11 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		resourceSyncerInformers,
 	} {
-		informer.Start(ctx.Done())
+		informer.Start(processCtx.Done())
 	}
 
 	for _, controller := range []interface {
-		Run(workers int, stopCh <-chan struct{})
+		Run(ctx context.Context, workers int)
 	}{
 		resourceSyncer,
 		clusterOperatorStatus,
@@ -213,13 +215,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routerCertsController,
 		managementStateController,
 	} {
-		go controller.Run(1, ctx.Done())
+		go controller.Run(processCtx, 1)
 	}
 
-	go operator.Run(ctx.Done())
-	go staleConditions.Run(1, ctx.Done())
+	go operator.Run(processCtx.Done())
+	go staleConditions.Run(1, processCtx.Done())
 
-	<-ctx.Done()
+	<-processCtx.Done()
 
 	return fmt.Errorf("stopped")
 }
