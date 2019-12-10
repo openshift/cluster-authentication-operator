@@ -43,6 +43,5 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(operator2.NewOperator())
-
 	return cmd
 }
