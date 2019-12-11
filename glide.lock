@@ -1,5 +1,5 @@
 hash: e253ff7c77a3692a69667c78dfc98bc014d01e5d326d96be25019b6e66de1280
-updated: 2019-11-07T13:08:47.906736775+01:00
+updated: 2019-12-09T09:27:03.28839323-06:00
 imports:
 - name: github.com/beorn7/perks
   version: 3a771d992973f24aa725d07868b467d1ddfceafb
@@ -133,7 +133,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 6feaabc7037a0688eefb36fd9f4618da7d780dda
+  version: 992bc3a41fe6c4e5bcf27dc8080f9e5c114c33fc
   subpackages:
   - apps
   - apps/v1
@@ -147,6 +147,8 @@ imports:
   - image/docker10
   - image/dockerpre012
   - image/v1
+  - imageregistry
+  - imageregistry/v1
   - kubecontrolplane
   - kubecontrolplane/v1
   - legacyconfig/v1
@@ -168,6 +170,8 @@ imports:
   - quota/v1
   - route
   - route/v1
+  - samples
+  - samples/v1
   - security
   - security/v1
   - servicecertsigner
@@ -177,7 +181,7 @@ imports:
   - user
   - user/v1
 - name: github.com/openshift/client-go
-  version: 2823239d2298214509c3536714f684101799e81b
+  version: 9faca5198b4f9018e9f63feb516a620a1b5c24b5
   subpackages:
   - config/clientset/versioned
   - config/clientset/versioned/scheme
@@ -212,8 +216,9 @@ imports:
   - route/informers/externalversions/route/v1
   - route/listers/route/v1
 - name: github.com/openshift/library-go
-  version: 97392cdc9bd3a5219fcd909f70d72e308fdcc1b0
+  version: acc37612b9f9bd6d637b870661082489eb575aa5
   subpackages:
+  - pkg/authentication/bootstrapauthenticator
   - pkg/config/client
   - pkg/config/clusteroperator/v1helpers
   - pkg/config/configdefaults
@@ -241,7 +246,7 @@ imports:
 - name: github.com/pborman/uuid
   version: 8b1b92947f46224e3b97bb1a3a5b0382be00d31e
 - name: github.com/pkg/profile
-  version: f6fe06335df110bcf1ed6d4e852b760bfc15beee
+  version: acd64d450fd45fb2afa41f833f3788c8a7797219
 - name: github.com/prometheus/client_golang
   version: 505eaef017263e299324067d40ca2c48f6a2cf50
   subpackages:
@@ -271,7 +276,7 @@ imports:
 - name: github.com/sirupsen/logrus
   version: 839c75faf7f98a33d445d181f3018b5c3409a45e
 - name: github.com/spf13/cobra
-  version: f2b07da1e2c38d5f12845a4f607e2e1018cbb1f5
+  version: 67fc4837d267bc9bfd6e47f77783fcc3dffc68de
 - name: github.com/spf13/pflag
   version: 298182f68c66c05229eb03ac171abe6e309ee79a
 - name: github.com/stretchr/testify
@@ -294,6 +299,8 @@ imports:
 - name: golang.org/x/crypto
   version: e84da0312774c21d64ee2317962ef669b27ffb41
   subpackages:
+  - bcrypt
+  - blowfish
   - cryptobyte
   - cryptobyte/asn1
   - internal/subtle
@@ -343,7 +350,7 @@ imports:
   subpackages:
   - rate
 - name: golang.org/x/tools
-  version: 6e04913cbbac05c5c0c9d8f237717e292f700e76
+  version: 6c7e314b6563ee0a4dc169c7ee9960e0b709c035
   subpackages:
   - imports
 - name: google.golang.org/appengine
@@ -399,7 +406,7 @@ imports:
 - name: gopkg.in/natefinch/lumberjack.v2
   version: 7d6a1875575e09256dc552b4c0e450dcd02bd10e
 - name: gopkg.in/yaml.v2
-  version: f221b8435cfb71e54062f6c6e99e9ade30b124d5
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
 - name: k8s.io/api
   version: 95b840bb6a1f5f0462af804c8589396d294d4914
   subpackages:

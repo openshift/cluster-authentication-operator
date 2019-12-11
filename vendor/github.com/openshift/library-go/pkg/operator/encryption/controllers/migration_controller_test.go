@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -146,7 +147,6 @@ func TestMigrationController(t *testing.T) {
 				"get:secrets:kms",
 				"list:secrets:openshift-config-managed",
 				"list:secrets:openshift-config-managed",
-				"list:secrets:openshift-config-managed",
 			},
 			expectedMigratorCalls: []string{
 				"ensure:configmaps:1",
@@ -244,7 +244,6 @@ func TestMigrationController(t *testing.T) {
 				"get:secrets:openshift-config-managed",
 				"update:secrets:openshift-config-managed",
 				"create:events:operator",
-				"list:secrets:openshift-config-managed",
 			},
 			expectedMigratorCalls: []string{
 				"ensure:configmaps:1",
@@ -342,7 +341,6 @@ func TestMigrationController(t *testing.T) {
 				"get:secrets:openshift-config-managed",
 				"update:secrets:openshift-config-managed",
 				"create:events:operator",
-				"list:secrets:openshift-config-managed",
 				"get:secrets:openshift-config-managed",
 				"get:secrets:openshift-config-managed",
 				"update:secrets:openshift-config-managed",
@@ -439,7 +437,6 @@ func TestMigrationController(t *testing.T) {
 				"get:secrets:kms",
 				"list:secrets:openshift-config-managed",
 				"list:secrets:openshift-config-managed",
-				"list:secrets:openshift-config-managed",
 			},
 			expectedMigratorCalls: []string{
 				"ensure:configmaps:1",
@@ -534,7 +531,6 @@ func TestMigrationController(t *testing.T) {
 			expectedActions: []string{
 				"list:pods:kms",
 				"get:secrets:kms",
-				"list:secrets:openshift-config-managed",
 				"list:secrets:openshift-config-managed",
 				"list:secrets:openshift-config-managed",
 			},
@@ -645,6 +641,7 @@ func TestMigrationController(t *testing.T) {
 
 			// act
 			target := NewMigrationController(
+				"kms",
 				deployer,
 				migrator,
 				fakeOperatorClient,
@@ -748,10 +745,10 @@ type fakeMigrator struct {
 	pruneReplies  map[schema.GroupResource]error
 }
 
-func (m *fakeMigrator) EnsureMigration(gr schema.GroupResource, writeKey string) (finished bool, result error, err error) {
+func (m *fakeMigrator) EnsureMigration(gr schema.GroupResource, writeKey string) (finished bool, result error, ts time.Time, err error) {
 	m.calls = append(m.calls, fmt.Sprintf("ensure:%s:%s", gr, writeKey))
 	r := m.ensureReplies[gr][writeKey]
-	return r.finished, r.result, r.err
+	return r.finished, r.result, time.Now(), r.err
 }
 
 func (m *fakeMigrator) PruneMigration(gr schema.GroupResource) error {

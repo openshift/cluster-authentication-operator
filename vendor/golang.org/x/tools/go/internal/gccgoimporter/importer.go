@@ -65,7 +65,6 @@ func findExportFile(searchpaths []string, pkgpath string) (string, error) {
 const (
 	gccgov1Magic    = "v1;\n"
 	gccgov2Magic    = "v2;\n"
-	gccgov3Magic    = "v3;\n"
 	goimporterMagic = "\n$$ "
 	archiveMagic    = "!<ar"
 )
@@ -94,7 +93,7 @@ func openExportFile(fpath string) (reader io.ReadSeeker, closer io.Closer, err e
 
 	var elfreader io.ReaderAt
 	switch string(magic[:]) {
-	case gccgov1Magic, gccgov2Magic, gccgov3Magic, goimporterMagic:
+	case gccgov1Magic, gccgov2Magic, goimporterMagic:
 		// Raw export data.
 		reader = f
 		return
@@ -199,7 +198,7 @@ func GetImporter(searchpaths []string, initmap map[*types.Package]InitData) Impo
 		}
 
 		switch magics {
-		case gccgov1Magic, gccgov2Magic, gccgov3Magic:
+		case gccgov1Magic, gccgov2Magic:
 			var p parser
 			p.init(fpath, reader, imports)
 			pkg = p.parsePackage()

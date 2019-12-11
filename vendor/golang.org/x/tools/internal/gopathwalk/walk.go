@@ -11,13 +11,12 @@ import (
 	"bytes"
 	"fmt"
 	"go/build"
+	"golang.org/x/tools/internal/fastwalk"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/tools/internal/fastwalk"
 )
 
 // Options controls the behavior of a Walk call.
@@ -35,7 +34,6 @@ const (
 	RootGOPATH
 	RootCurrentModule
 	RootModuleCache
-	RootOther
 )
 
 // A Root is a starting point for a Walk.
@@ -45,10 +43,10 @@ type Root struct {
 }
 
 // SrcDirsRoots returns the roots from build.Default.SrcDirs(). Not modules-compatible.
-func SrcDirsRoots(ctx *build.Context) []Root {
+func SrcDirsRoots() []Root {
 	var roots []Root
-	roots = append(roots, Root{filepath.Join(ctx.GOROOT, "src"), RootGOROOT})
-	for _, p := range filepath.SplitList(ctx.GOPATH) {
+	roots = append(roots, Root{filepath.Join(build.Default.GOROOT, "src"), RootGOROOT})
+	for _, p := range filepath.SplitList(build.Default.GOPATH) {
 		roots = append(roots, Root{filepath.Join(p, "src"), RootGOPATH})
 	}
 	return roots
@@ -163,7 +161,7 @@ func (w *walker) shouldSkipDir(fi os.FileInfo) bool {
 func (w *walker) walk(path string, typ os.FileMode) error {
 	dir := filepath.Dir(path)
 	if typ.IsRegular() {
-		if dir == w.root.Path && (w.root.Type == RootGOROOT || w.root.Type == RootGOPATH) {
+		if dir == w.root.Path {
 			// Doesn't make sense to have regular files
 			// directly in your $GOPATH/src or $GOROOT/src.
 			return fastwalk.SkipFiles
@@ -178,9 +176,7 @@ func (w *walker) walk(path string, typ os.FileMode) error {
 	if typ == os.ModeDir {
 		base := filepath.Base(path)
 		if base == "" || base[0] == '.' || base[0] == '_' ||
-			base == "testdata" ||
-			(w.root.Type == RootGOROOT && w.opts.ModulesEnabled && base == "vendor") ||
-			(!w.opts.ModulesEnabled && base == "node_modules") {
+			base == "testdata" || (!w.opts.ModulesEnabled && base == "node_modules") {
 			return filepath.SkipDir
 		}
 		fi, err := os.Lstat(path)

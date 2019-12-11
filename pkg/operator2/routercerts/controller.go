@@ -2,6 +2,7 @@ package routercerts
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"fmt"
 	"time"
@@ -197,20 +198,20 @@ func verifyWithAnyCertificate(serverCerts []*x509.Certificate, options x509.Veri
 	return err
 }
 
-func (c *RouterCertsDomainValidationController) Run(workers int, stopCh <-chan struct{}) {
+func (c *RouterCertsDomainValidationController) Run(ctx context.Context, workers int) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	klog.Infof("Starting RouterCertsDomainValidationController")
 	defer klog.Infof("Shutting down RouterCertsDomainValidationController")
-	if !cache.WaitForCacheSync(stopCh, c.cachesToSync...) {
+	if !cache.WaitForCacheSync(ctx.Done(), c.cachesToSync...) {
 		return
 	}
 
 	// doesn't matter what workers say, only start one.
-	go wait.Until(c.runWorker, time.Second, stopCh)
+	go wait.Until(c.runWorker, time.Second, ctx.Done())
 
-	<-stopCh
+	<-ctx.Done()
 }
 
 func (c *RouterCertsDomainValidationController) runWorker() {
