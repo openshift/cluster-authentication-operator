@@ -5,6 +5,7 @@ go 1.13
 require (
 	github.com/certifi/gocertifi v0.0.0-20180905225744-ee1a9a0726d2 // indirect
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
+	github.com/jteeuwen/go-bindata v3.0.8-0.20151023091102-a0ff2567cfb7+incompatible
 	github.com/openshift/api v3.9.1-0.20191107113335-6feaabc7037a+incompatible
 	github.com/openshift/client-go v0.0.0-20191022152013-2823239d2298
 	github.com/openshift/library-go v0.0.0-20191106124920-97392cdc9bd3
