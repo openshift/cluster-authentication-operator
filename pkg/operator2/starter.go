@@ -3,12 +3,13 @@ package operator2
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -16,8 +17,8 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
-	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
+	operatorclients "github.com/openshift/client-go/operator/clientset/versioned"
+	operatorinformers "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
@@ -28,7 +29,9 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/apiservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
@@ -43,7 +46,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	authConfigClient, err := authopclient.NewForConfig(ctx.KubeConfig)
+	authConfigClient, err := operatorclients.NewForConfig(ctx.KubeConfig)
+	if err != nil {
+		return err
+	}
+
+	apiregistrationClient, err := apiregistrationclient.NewForConfig(ctx.ProtoKubeConfig)
 	if err != nil {
 		return err
 	}
@@ -65,13 +73,17 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-		informers.WithNamespace("openshift-authentication"),
+	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
+		"openshift-authentication",
+		"openshift-apiserver-oauth",
+		"openshift-config",
 	)
 
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
-		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
+	authOperatorConfigInformers := operatorinformers.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
+		operatorinformers.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
+
+	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationClient, 10*time.Minute)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
 		routeinformer.WithNamespace("openshift-authentication"),
@@ -85,6 +97,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
 		"openshift-authentication",
+		"openshift-apiserver-oauth",
 		"openshift-config",
 		"openshift-config-managed",
 	)
@@ -131,7 +144,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	operator := NewAuthenticationOperator(
 		*operatorClient,
 		oauthClient.OauthV1(),
-		kubeInformersNamespaced,
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
 		routeClient.RouteV1(),
@@ -140,6 +153,22 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		versionGetter,
 		ctx.EventRecorder,
 		resourceSyncer,
+	)
+
+	oauthAPIServerWorkloadController := apiservercontroller.NewOAuthAPIServerController(
+		os.Getenv("OAUTH_APISERVER_IMAGE"), os.Getenv("OPERATOR_IMAGE"),
+		versionGetter,
+		authOperatorConfigInformers.Operator().V1().OpenShiftAPIServers(),
+		kubeInformersNamespaced.InformersFor("openshift-apiserver-oauth"),
+		kubeInformersNamespaced.InformersFor("openshift-config"),
+		kubeInformersNamespaced.InformersFor("openshift-config"),
+		apiregistrationInformers,
+		configInformers,
+		authConfigClient.OperatorV1(),
+		configClient.ConfigV1(),
+		kubeClient,
+		apiregistrationClient.ApiregistrationV1(),
+		ctx.EventRecorder,
 	)
 
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
@@ -180,7 +209,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		operatorClient,
 		ctx.EventRecorder,
 		configInformers.Config().V1().Ingresses(),
-		kubeInformersNamespaced.Core().V1().Secrets(),
+		kubeInformersNamespaced.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"oauth-openshift",
@@ -201,6 +230,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeInformersNamespaced,
 		configInformers,
 		resourceSyncerInformers,
+		apiregistrationInformers,
 	} {
 		informer.Start(processCtx.Done())
 	}
@@ -212,6 +242,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		clusterOperatorStatus,
 		configOverridesController,
 		logLevelController,
+		oauthAPIServerWorkloadController,
 		routerCertsController,
 		managementStateController,
 	} {
