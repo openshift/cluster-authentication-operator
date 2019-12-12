@@ -33,6 +33,7 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
+	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
@@ -73,11 +74,12 @@ type authOperator struct {
 
 	oauthClientClient oauthclient.OAuthClientInterface
 
-	services    corev1client.ServicesGetter
-	endpoints   corev1client.EndpointsGetter
-	secrets     corev1client.SecretsGetter
-	configMaps  corev1client.ConfigMapsGetter
-	deployments appsv1client.DeploymentsGetter
+	services                corev1client.ServicesGetter
+	endpoints               corev1client.EndpointsGetter
+	secrets                 corev1client.SecretsGetter
+	configMaps              corev1client.ConfigMapsGetter
+	deployments             appsv1client.DeploymentsGetter
+	bootstrapUserDataGetter bootstrapauthenticator.BootstrapUserDataGetter
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
@@ -88,6 +90,8 @@ type authOperator struct {
 	proxy          configv1client.ProxyInterface
 
 	systemCABundle []byte
+
+	bootstrapUserChangeRollOut bool
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -137,6 +141,15 @@ func NewAuthenticationOperator(
 		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
 	}
 	c.systemCABundle = systemCABytes
+
+	namespacesGetter := kubeClient.CoreV1()
+	c.bootstrapUserDataGetter = bootstrapauthenticator.NewBootstrapUserDataGetter(c.secrets, namespacesGetter)
+	if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
+		klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
+		c.bootstrapUserChangeRollOut = true
+	} else {
+		c.bootstrapUserChangeRollOut = userExists
+	}
 
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
@@ -330,12 +343,23 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		operatorDeployment,
 		resourceVersions...,
 	)
+
+	// redeploy on operatorConfig.spec changes or when bootstrap user is deleted
+	forceRollOut := operatorConfig.Generation != operatorConfig.Status.ObservedGeneration
+	if c.bootstrapUserChangeRollOut {
+		if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
+			klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
+		} else if !userExists {
+			forceRollOut = true
+			c.bootstrapUserChangeRollOut = false
+		}
+	}
 	deployment, _, err := resourceapply.ApplyDeployment(
 		c.deployments,
 		c.recorder,
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
-		operatorConfig.Generation != operatorConfig.Status.ObservedGeneration, // redeploy on operatorConfig.spec changes
+		forceRollOut,
 	)
 	if err != nil {
 		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)

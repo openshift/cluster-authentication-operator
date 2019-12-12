@@ -4,18 +4,7 @@
 
 package a
 
-// The purpose of this inherited test is unclear.
-
 import "C"
 
-const x = 1
-
-var a, b = 1, 2
-
 func F() {
-}
-
-func FAD(int, string) bool {
-	C.malloc(3)
-	return true
 }

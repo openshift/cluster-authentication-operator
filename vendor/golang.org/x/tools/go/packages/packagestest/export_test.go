@@ -5,6 +5,7 @@
 package packagestest_test
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,11 +17,7 @@ var testdata = []packagestest.Module{{
 	Name: "golang.org/fake1",
 	Files: map[string]interface{}{
 		"a.go": packagestest.Symlink("testdata/a.go"),
-		"b.go": "invalid file contents",
-	},
-	Overlay: map[string][]byte{
-		"b.go": []byte("package fake1"),
-		"c.go": []byte("package fake1"),
+		"b.go": "package fake1",
 	},
 }, {
 	Name: "golang.org/fake2",
@@ -36,7 +33,7 @@ var testdata = []packagestest.Module{{
 
 type fileTest struct {
 	module, fragment, expect string
-	check                    func(t *testing.T, exported *packagestest.Exported, filename string)
+	check                    func(t *testing.T, filename string)
 }
 
 func checkFiles(t *testing.T, exported *packagestest.Exported, tests []fileTest) {
@@ -49,14 +46,14 @@ func checkFiles(t *testing.T, exported *packagestest.Exported, tests []fileTest)
 			t.Errorf("Got file %v, expected %v", got, expect)
 		}
 		if test.check != nil {
-			test.check(t, exported, got)
+			test.check(t, got)
 		}
 	}
 }
 
-func checkLink(expect string) func(t *testing.T, exported *packagestest.Exported, filename string) {
+func checkLink(expect string) func(t *testing.T, filename string) {
 	expect = filepath.FromSlash(expect)
-	return func(t *testing.T, exported *packagestest.Exported, filename string) {
+	return func(t *testing.T, filename string) {
 		if target, err := os.Readlink(filename); err != nil {
 			t.Errorf("Error checking link %v: %v", filename, err)
 		} else if target != expect {
@@ -65,9 +62,9 @@ func checkLink(expect string) func(t *testing.T, exported *packagestest.Exported
 	}
 }
 
-func checkContent(expect string) func(t *testing.T, exported *packagestest.Exported, filename string) {
-	return func(t *testing.T, exported *packagestest.Exported, filename string) {
-		if content, err := exported.FileContents(filename); err != nil {
+func checkContent(expect string) func(t *testing.T, filename string) {
+	return func(t *testing.T, filename string) {
+		if content, err := ioutil.ReadFile(filename); err != nil {
 			t.Errorf("Error reading %v: %v", filename, err)
 		} else if string(content) != expect {
 			t.Errorf("Content of %v does not match, got %v expected %v", filename, string(content), expect)
