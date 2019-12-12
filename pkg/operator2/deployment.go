@@ -300,19 +300,22 @@ func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
 		})
 	}
 
+	// copy the value in case the *v struct was reused with different values
+	// so that the resulting objects don't share this field's value
+	optional := v.optional
 	if v.configmap {
 		vol.ConfigMap = &corev1.ConfigMapVolumeSource{
 			LocalObjectReference: corev1.LocalObjectReference{
 				Name: v.name,
 			},
 			Items:    items,
-			Optional: &v.optional,
+			Optional: &optional,
 		}
 	} else {
 		vol.Secret = &corev1.SecretVolumeSource{
 			SecretName: v.name,
 			Items:      items,
-			Optional:   &v.optional,
+			Optional:   &optional,
 		}
 	}
 
