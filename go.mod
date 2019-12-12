@@ -22,7 +22,7 @@ require (
 	k8s.io/client-go v0.0.0-20190918160344-1fbdaa4c8d90
 	k8s.io/component-base v0.0.0-20190918160511-547f6c5d7090
 	k8s.io/klog v0.4.0
-	k8s.io/kube-aggregator v0.0.0-20190918161219-8c8f079fddc3 // indirect
+	k8s.io/kube-aggregator v0.0.0-20190918161219-8c8f079fddc3
 	monis.app/go v0.0.0-20190702030534-c65526068664
 	sigs.k8s.io/structured-merge-diff v1.0.0 // indirect
 )
