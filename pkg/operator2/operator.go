@@ -338,9 +338,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
-		routerSecret,
 		proxyConfig,
-		operatorDeployment,
 		resourceVersions...,
 	)
 
