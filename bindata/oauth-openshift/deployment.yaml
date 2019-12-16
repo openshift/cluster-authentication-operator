@@ -1,0 +1,132 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  namespace: openshift-authentication
+  name: oauth-openshift
+  labels:
+    app: oauth-openshift
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: oauth-openshift
+  template:
+    metadata:
+      namespace: openshift-authentication
+      name: oauth-openshift
+      labels:
+        app: oauth-openshift
+    spec:
+      serviceAccountName: oauth-openshift
+      nodeSelector:
+        node-role.kubernetes.io/master: ''
+      priorityClassName: system-cluster-critical
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: oauth-openshift
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 120
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 120
+      containers:
+        - name: oauth-openshift
+          image: ${IMAGE}
+          command:
+            - /bin/bash
+            - '-ec'
+          args:
+            - |
+              if [ -s /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt]; then
+                  echo "Copying system trust bundle"
+                  cp -f /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt `/etc/pki/ca-trust/extracted/pem`/tls-ca-bundle.pem
+              fi
+              exec oauth-server osinserver \
+              --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
+              --v=${LOG_LEVEL}
+          ports:
+            - name: https
+              containerPort: 6443
+              protocol: TCP
+          volumeMounts:
+            - name: v4-0-config-system-session
+              readOnly: true
+              mountPath: /var/config/system/secrets/v4-0-config-system-session
+            - name: v4-0-config-system-cliconfig
+              readOnly: true
+              mountPath: /var/config/system/configmaps/v4-0-config-system-cliconfig
+            - name: v4-0-config-system-serving-cert
+              readOnly: true
+              mountPath: /var/config/system/secrets/v4-0-config-system-serving-cert
+            - name: v4-0-config-system-service-ca
+              readOnly: true
+              mountPath: /var/config/system/configmaps/v4-0-config-system-service-ca
+            - name: v4-0-config-system-router-certs
+              readOnly: true
+              mountPath: /var/config/system/secrets/v4-0-config-system-router-certs
+            - name: v4-0-config-system-ocp-branding-template
+              readOnly: true
+              mountPath: /var/config/system/secrets/v4-0-config-system-ocp-branding-template
+            - name: v4-0-config-system-trusted-ca-bundle
+              readOnly: true
+              mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 6443
+              scheme: HTTPS
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 6443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          terminationMessagePolicy: FallbackToLogsOnError
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: v4-0-config-system-session
+          secret:
+            secretName: v4-0-config-system-session
+        - name: v4-0-config-system-cliconfig
+          configMap:
+            name: v4-0-config-system-cliconfig
+        - name: v4-0-config-system-serving-cert
+          secret:
+            secretName: v4-0-config-system-serving-cert
+        - name: v4-0-config-system-service-ca
+          configMap:
+            name: v4-0-config-system-service-ca
+        - name: v4-0-config-system-router-certs
+          secret:
+            secretName: v4-0-config-system-router-certs
+        - name: v4-0-config-system-ocp-branding-template
+          secret:
+            secretName: v4-0-config-system-ocp-branding-template
+        - name: v4-0-config-system-trusted-ca-bundle
+          configMap:
+            name: v4-0-config-system-trusted-ca-bundle
+            optional: true
