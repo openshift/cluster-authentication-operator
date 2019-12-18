@@ -9,86 +9,25 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 )
 
 func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,
-	routerSecret *corev1.Secret,
 	proxyConfig *configv1.Proxy,
-	operatorDeployment *appsv1.Deployment,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
-	replicas := int32(2) // TODO configurable?
-	tolerationSeconds := int64(120)
 
-	var (
-		volumes []corev1.Volume
-		mounts  []corev1.VolumeMount
-	)
-
-	for _, data := range []volume{
-		{
-			name:      "v4-0-config-system-session",
-			configmap: false,
-			path:      "/var/config/system/secrets/v4-0-config-system-session",
-			keys:      []string{"v4-0-config-system-session"},
-		},
-		{
-			name:      "v4-0-config-system-cliconfig",
-			configmap: true,
-			path:      "/var/config/system/configmaps/v4-0-config-system-cliconfig",
-			keys:      []string{"v4-0-config-system-cliconfig"},
-		},
-		{
-			name:      "v4-0-config-system-serving-cert",
-			configmap: false,
-			path:      "/var/config/system/secrets/v4-0-config-system-serving-cert",
-			keys:      []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey},
-		},
-		{
-			name:      "v4-0-config-system-service-ca",
-			configmap: true,
-			path:      "/var/config/system/configmaps/v4-0-config-system-service-ca",
-			keys:      []string{"service-ca.crt"},
-		},
-		{
-			name:      "v4-0-config-system-router-certs",
-			configmap: false,
-			path:      "/var/config/system/secrets/v4-0-config-system-router-certs",
-			keys:      sets.StringKeySet(routerSecret.Data).List(),
-		},
-		{
-			name:      "v4-0-config-system-ocp-branding-template",
-			configmap: false,
-			path:      "/var/config/system/secrets/v4-0-config-system-ocp-branding-template",
-			keys:      []string{configv1.LoginTemplateKey, configv1.ProviderSelectionTemplateKey, configv1.ErrorsTemplateKey},
-		},
-		{
-			name:      "v4-0-config-system-trusted-ca-bundle",
-			configmap: true,
-			path:      "/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle",
-			// make this config map volume optional as it may not always exist
-			// this will prevent the node from blocking the container create process when the resource is missing
-			optional: true,
-		},
-	} {
-		v, m := data.split()
-		volumes = append(volumes, v)
-		mounts = append(mounts, m)
-	}
-
-	volumes, mounts = toVolumesAndMounts(syncData.idpConfigMaps, volumes, mounts)
-	volumes, mounts = toVolumesAndMounts(syncData.idpSecrets, volumes, mounts)
-	volumes, mounts = toVolumesAndMounts(syncData.tplSecrets, volumes, mounts)
+	// load deployment
+	deployment := resourceread.ReadDeploymentV1OrDie(assets.MustAsset("oauth-openshift/deployment.yaml"))
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely
@@ -98,122 +37,31 @@ func defaultDeployment(
 	klog.V(4).Infof("tracked resource versions: %s", rvs)
 	rvsHash := sha512.Sum512([]byte(rvs))
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
-
-	// make sure ApplyDeployment knows to update
-	meta := defaultMeta()
-	meta.Annotations[deploymentVersionHashKey] = rvsHashStr
-	deployment := &appsv1.Deployment{
-		ObjectMeta: meta,
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: defaultLabels(),
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: meta,
-				Spec: corev1.PodSpec{
-					ServiceAccountName: "oauth-openshift",
-					Containers: []corev1.Container{
-						{
-							Image:           oauthserverImage,
-							ImagePullPolicy: getImagePullPolicy(operatorDeployment),
-							Name:            "oauth-openshift",
-							Command:         []string{"/bin/bash", "-ec"},
-							Args: []string{fmt.Sprintf(`
-if [ -s %s ]; then
-    echo "Copying system trust bundle"
-    cp -f %s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
-fi
-exec oauth-server osinserver --config=%s --v=%d
-`, `/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt`,
-								`/var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt`,
-								`/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig`, getLogLevel(operatorConfig.Spec.LogLevel))},
-							Ports: []corev1.ContainerPort{
-								{
-									Name:          "https",
-									Protocol:      corev1.ProtocolTCP,
-									ContainerPort: 6443,
-								},
-							},
-							VolumeMounts:             mounts,
-							Env:                      proxyConfigToEnvVars(proxyConfig),
-							ReadinessProbe:           defaultProbe(),
-							LivenessProbe:            livenessProbe(),
-							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-							Resources: corev1.ResourceRequirements{
-								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("10m"),
-									corev1.ResourceMemory: resource.MustParse("50Mi"),
-								},
-							},
-						},
-					},
-					// deploy on master nodes
-					NodeSelector: map[string]string{
-						"node-role.kubernetes.io/master": "",
-					},
-					PriorityClassName: "system-cluster-critical",
-					Affinity: &corev1.Affinity{
-						// spread out across master nodes rather than congregate on one
-						PodAntiAffinity: &corev1.PodAntiAffinity{
-							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-								Weight: 100,
-								PodAffinityTerm: corev1.PodAffinityTerm{
-									LabelSelector: &metav1.LabelSelector{
-										MatchLabels: defaultLabels(),
-									},
-									TopologyKey: "kubernetes.io/hostname",
-								},
-							}},
-						},
-					},
-					Tolerations: []corev1.Toleration{
-						{
-							Key:      "node-role.kubernetes.io/master",
-							Operator: corev1.TolerationOpExists,
-							Effect:   corev1.TaintEffectNoSchedule,
-						},
-						{
-							Key:               "node.kubernetes.io/unreachable",
-							Operator:          corev1.TolerationOpExists,
-							Effect:            corev1.TaintEffectNoExecute,
-							TolerationSeconds: &tolerationSeconds,
-						},
-						{
-							Key:               "node.kubernetes.io/not-ready",
-							Operator:          corev1.TolerationOpExists,
-							Effect:            corev1.TaintEffectNoExecute,
-							TolerationSeconds: &tolerationSeconds,
-						},
-					},
-					Volumes: volumes,
-				},
-			},
-		},
+	if deployment.Annotations == nil {
+		deployment.Annotations = map[string]string{}
 	}
+	deployment.Annotations[deploymentVersionHashKey] = rvsHashStr
+
+	templateSpec := &deployment.Spec.Template.Spec
+	container := &templateSpec.Containers[0]
+
+	// image spec
+	if container.Image == "${IMAGE}" {
+		container.Image = oauthserverImage
+	}
+
+	// set proxy env vars
+	container.Env = append(container.Env, proxyConfigToEnvVars(proxyConfig)...)
+
+	// set log level
+	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
+
+	// mount more secrets and config maps
+	for _, sourceData := range []map[string]sourceData{syncData.idpConfigMaps, syncData.idpSecrets, syncData.tplSecrets} {
+		templateSpec.Volumes, container.VolumeMounts = toVolumesAndMounts(sourceData, templateSpec.Volumes, container.VolumeMounts)
+	}
+
 	return deployment
-}
-
-func defaultProbe() *corev1.Probe {
-	return &corev1.Probe{
-		Handler: corev1.Handler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path:   "/healthz",
-				Port:   intstr.FromInt(6443),
-				Scheme: corev1.URISchemeHTTPS,
-			},
-		},
-		TimeoutSeconds:   1,
-		PeriodSeconds:    10,
-		SuccessThreshold: 1,
-		FailureThreshold: 3,
-	}
-}
-
-func livenessProbe() *corev1.Probe {
-	probe := defaultProbe()
-	probe.InitialDelaySeconds = 30
-	return probe
 }
 
 func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
@@ -241,24 +89,11 @@ func getLogLevel(logLevel operatorv1.LogLevel) int {
 	}
 }
 
-// tie the operand's image pull policy to the operator's image pull policy
-// this makes it easy during development to change both the operator and
-// operand's image once the CVO is configured to no longer manage the operator
-func getImagePullPolicy(operatorDeployment *appsv1.Deployment) corev1.PullPolicy {
-	containers := operatorDeployment.Spec.Template.Spec.Containers
-	if len(containers) == 0 {
-		return corev1.PullIfNotPresent
-	}
-	return containers[0].ImagePullPolicy
-}
-
 func proxyConfigToEnvVars(proxy *configv1.Proxy) []corev1.EnvVar {
-	envVars := []corev1.EnvVar{}
-
+	var envVars []corev1.EnvVar
 	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Status.NoProxy)
 	envVars = appendEnvVar(envVars, "HTTP_PROXY", proxy.Status.HTTPProxy)
 	envVars = appendEnvVar(envVars, "HTTPS_PROXY", proxy.Status.HTTPSProxy)
-
 	return envVars
 }
 
@@ -266,7 +101,6 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 	if len(envVal) > 0 {
 		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
 	}
-
 	return envVars
 }
 
