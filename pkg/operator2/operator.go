@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -555,7 +556,7 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 
 		ips := make([]string, 0, len(subset.Addresses))
 		for _, address := range subset.Addresses {
-			ips = append(ips, fmt.Sprintf("%s:%d", address.IP, targetPort))
+			ips = append(ips, net.JoinHostPort(address.IP, strconv.Itoa(targetPort)))
 		}
 		return ips, nil
 	}
