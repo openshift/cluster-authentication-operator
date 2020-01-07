@@ -93,7 +93,7 @@ func (c *authOperator) handleOAuthConfig(
 			ServingInfo: configv1.HTTPServingInfo{
 				ServingInfo: configv1.ServingInfo{
 					BindAddress: fmt.Sprintf("0.0.0.0:%d", 6443),
-					BindNetwork: "tcp4",
+					BindNetwork: "tcp",
 					// we have valid serving certs provided by service-ca
 					// this is our main server cert which is used if SNI does not match
 					CertInfo: configv1.CertInfo{
