@@ -36,31 +36,31 @@ const (
 	resync = 20 * time.Minute
 )
 
-func RunOperator(ctx *controllercmd.ControllerContext) error {
+func RunOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext) error {
 	// protobuf can be used with non custom resources
-	kubeClient, err := kubernetes.NewForConfig(ctx.ProtoKubeConfig)
+	kubeClient, err := kubernetes.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
 	}
 
-	authConfigClient, err := authopclient.NewForConfig(ctx.KubeConfig)
-	if err != nil {
-		return err
-	}
-
-	// protobuf can be used with non custom resources
-	routeClient, err := routeclient.NewForConfig(ctx.ProtoKubeConfig)
+	authConfigClient, err := authopclient.NewForConfig(controllerContext.KubeConfig)
 	if err != nil {
 		return err
 	}
 
 	// protobuf can be used with non custom resources
-	oauthClient, err := oauthclient.NewForConfig(ctx.ProtoKubeConfig)
+	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
 	}
 
-	configClient, err := configclient.NewForConfig(ctx.KubeConfig)
+	// protobuf can be used with non custom resources
+	oauthClient, err := oauthclient.NewForConfig(controllerContext.ProtoKubeConfig)
+	if err != nil {
+		return err
+	}
+
+	configClient, err := configclient.NewForConfig(controllerContext.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		resourceSyncerInformers,
 		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
-		ctx.EventRecorder,
+		controllerContext.EventRecorder,
 	)
 
 	// add syncing for the OAuth metadata ConfigMap
@@ -138,7 +138,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		configClient,
 		versionGetter,
-		ctx.EventRecorder,
+		controllerContext.EventRecorder,
 		resourceSyncer,
 	)
 
@@ -161,7 +161,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers.Config().V1().ClusterOperators(),
 		operatorClient,
 		versionGetter,
-		ctx.EventRecorder,
+		controllerContext.EventRecorder,
 	)
 
 	staleConditions := staleconditions.NewRemoveStaleConditions(
@@ -170,15 +170,15 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 			"Degraded",
 		},
 		operatorClient,
-		ctx.EventRecorder,
+		controllerContext.EventRecorder,
 	)
 
-	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, ctx.EventRecorder)
-	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, ctx.EventRecorder)
+	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorClient, controllerContext.EventRecorder)
+	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorClient, controllerContext.EventRecorder)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
 		operatorClient,
-		ctx.EventRecorder,
+		controllerContext.EventRecorder,
 		configInformers.Config().V1().Ingresses(),
 		kubeInformersNamespaced.Core().V1().Secrets(),
 		"openshift-authentication",
@@ -187,11 +187,10 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	// TODO remove this controller once we support Removed
-	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, ctx.EventRecorder)
+	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
 	// TODO move to config observers
 	// configobserver.NewConfigObserver(...)
-	processCtx := ctx.Ctx
 
 	for _, informer := range []interface {
 		Start(stopCh <-chan struct{})
@@ -202,7 +201,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		resourceSyncerInformers,
 	} {
-		informer.Start(processCtx.Done())
+		informer.Start(ctx.Done())
 	}
 
 	for _, controller := range []interface {
@@ -215,13 +214,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routerCertsController,
 		managementStateController,
 	} {
-		go controller.Run(processCtx, 1)
+		go controller.Run(ctx, 1)
 	}
 
-	go operator.Run(processCtx.Done())
-	go staleConditions.Run(1, processCtx.Done())
+	go operator.Run(ctx.Done())
+	go staleConditions.Run(1, ctx.Done())
 
-	<-processCtx.Done()
+	<-ctx.Done()
 
 	return fmt.Errorf("stopped")
 }
