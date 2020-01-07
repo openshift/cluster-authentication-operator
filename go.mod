@@ -5,8 +5,8 @@ go 1.13
 require (
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
 	github.com/jteeuwen/go-bindata v3.0.8-0.20151023091102-a0ff2567cfb7+incompatible
-	github.com/openshift/api v3.9.1-0.20191107113335-6feaabc7037a+incompatible
-	github.com/openshift/client-go v0.0.0-20191216194936-57f413491e9e
+	github.com/openshift/api v0.0.0-20200106203948-7ab22a2c8316
+	github.com/openshift/client-go v0.0.0-20191219165006-ac3b642258cc
 	github.com/openshift/library-go v0.0.0-20200106191802-9821002633e8
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
@@ -20,10 +20,4 @@ require (
 	k8s.io/component-base v0.17.0
 	k8s.io/klog v1.0.0
 	monis.app/go v0.0.0-20190702030534-c65526068664
-)
-
-replace (
-	github.com/openshift/api => github.com/openshift/api v3.9.1-0.20191209132752-992bc3a41fe6+incompatible
-	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20191205152420-9faca5198b4f
-	github.com/prometheus/client_golang => github.com/prometheus/client_golang v0.9.2
 )
