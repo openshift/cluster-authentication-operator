@@ -97,7 +97,7 @@ spec:
             - '-ec'
           args:
             - |
-              if [ -s /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt]; then
+              if [ -s /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt ]; then
                   echo "Copying system trust bundle"
                   cp -f /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt ` + "`" + `/etc/pki/ca-trust/extracted/pem` + "`" + `/tls-ca-bundle.pem
               fi
