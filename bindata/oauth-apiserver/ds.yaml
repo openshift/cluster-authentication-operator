@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: apiserver
+  labels:
+    app: openshift-oauth-apiserver
+    apiserver: "true"
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: openshift-oauth-apiserver
+      apiserver: "true"
+  template:
+    metadata:
+      name: openshift-oauth-apiserver
+      labels:
+        app: openshift-oauth-apiserver
+        apiserver: "true"
+    spec:
+      serviceAccountName: oauth-apiserver-sa
+      priorityClassName: system-node-critical
+      initContainers:
+        - name: fix-audit-permissions
+          terminationMessagePolicy: FallbackToLogsOnError
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver']
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /var/log/oauth-apiserver
+              name: audit-dir
+      containers:
+      - name: oauth-apiserver
+        terminationMessagePolicy: FallbackToLogsOnError
+        image: ${IMAGE}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-ec"]
+        args:
+          - |
+            if [ -s /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem ]; then
+              echo "Copying system trust bundle"
+              cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+            fi
+            exec oauth-apiserver start \
+              --secure-port=8443 \
+              --audit-log-path=/var/log/oauth-apiserver/audit.log \
+              --audit-log-format=json \
+              --audit-log-maxsize=100 \
+              --audit-log-maxbackup=10 \
+              --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
+              --etcd-servers=https://etcd.openshift-etcd.svc:2379 \
+              --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
+              --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
+              --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
+              --shutdown-delay-duration=3s \
+              --v=2
+          # TODO: enable encryption support
+          # --encryption-provider-config=/var/run/secrets/encryption-config
+        resources:
+          requests:
+            memory: 200Mi
+            cpu: 150m
+        # we need to set this to privileged to be able to write audit to /var/log/oauth-apiserver
+        securityContext:
+          privileged: true
+        ports:
+        - containerPort: 8443
+        volumeMounts:
+        - mountPath: /var/run/configmaps/config
+          name: config
+        - mountPath: /var/run/secrets/etcd-client
+          name: etcd-client
+        - mountPath: /var/run/configmaps/etcd-serving-ca
+          name: etcd-serving-ca
+        - mountPath: /var/run/configmaps/trusted-ca-bundle
+          name: trusted-ca-bundle
+        - mountPath: /var/run/secrets/serving-cert
+          name: serving-cert
+        - mountPath: /var/run/secrets/encryption-config
+          name: encryption-config
+        - mountPath: /var/log/oauth-apiserver
+          name: audit-dir
+        livenessProbe:
+          initialDelaySeconds: 30
+          httpGet:
+            scheme: HTTPS
+            port: 8443
+            path: healthz
+        readinessProbe:
+          failureThreshold: 10
+          httpGet:
+            scheme: HTTPS
+            port: 8443
+            path: healthz
+      terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
+      volumes:
+      - name: config
+        configMap:
+          name: config
+      - name: etcd-client
+        secret:
+          secretName: etcd-client
+      - name: etcd-serving-ca
+        configMap:
+          name: etcd-serving-ca
+      - name: serving-cert
+        secret:
+          secretName: serving-cert
+      - name: trusted-ca-bundle
+        configMap:
+          name: trusted-ca-bundle
+          optional: true
+          items:
+          - key: ca-bundle.crt
+            path: tls-ca-bundle.pem
+      - name: encryption-config
+        secret:
+          secretName: encryption-config-${REVISION}
+          optional: true
+      - hostPath:
+          path: /var/log/oauth-apiserver
+        name: audit-dir
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - operator: Exists
