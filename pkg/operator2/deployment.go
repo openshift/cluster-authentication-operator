@@ -42,6 +42,11 @@ func defaultDeployment(
 	}
 	deployment.Annotations[deploymentVersionHashKey] = rvsHashStr
 
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = map[string]string{}
+	}
+	deployment.Spec.Template.Annotations[deploymentVersionHashKey] = rvsHashStr
+
 	templateSpec := &deployment.Spec.Template.Spec
 	container := &templateSpec.Containers[0]
 
