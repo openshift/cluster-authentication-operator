@@ -99,7 +99,7 @@ spec:
             - |
               if [ -s /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt ]; then
                   echo "Copying system trust bundle"
-                  cp -f /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt ` + "`" + `/etc/pki/ca-trust/extracted/pem` + "`" + `/tls-ca-bundle.pem
+                  cp -f /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle/ca-bundle.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
               fi
               exec oauth-server osinserver \
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
