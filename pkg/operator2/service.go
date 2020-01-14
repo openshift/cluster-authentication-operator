@@ -11,6 +11,12 @@ func defaultService() *v1.Service {
 	return &v1.Service{
 		ObjectMeta: meta,
 		Spec: v1.ServiceSpec{
+			// If more than one port is needed for this service, make
+			// sure to update IngressStateController to support more
+			// than a single subset. Only if more than one port is
+			// exposed by this service is it possible for the
+			// resulting endpoints resource to have more than one
+			// subset.
 			Ports: []v1.ServicePort{
 				{
 					Name:       "https",
