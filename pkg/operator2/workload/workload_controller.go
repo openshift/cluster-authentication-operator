@@ -40,10 +40,10 @@ type OAuthAPIServerOperator struct {
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface
 	syncOperatorFn               syncOperatorFunc
 
-	queue           workqueue.RateLimitingInterface
-	eventRecorder   events.Recorder
-	versionRecorder status.VersionGetter
-	preRunCachesSynced  []cache.InformerSynced
+	queue              workqueue.RateLimitingInterface
+	eventRecorder      events.Recorder
+	versionRecorder    status.VersionGetter
+	preRunCachesSynced []cache.InformerSynced
 }
 
 func NewController(operatorName, operatorNamespace, targetNamespace string,
@@ -65,7 +65,7 @@ func NewController(operatorName, operatorNamespace, targetNamespace string,
 		eventRecorder:                eventRecorder.WithComponentSuffix("workload-controller"),
 		versionRecorder:              versionRecorder,
 		queue:                        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), operatorName),
-		preRunCachesSynced: preRunCachesSynced,
+		preRunCachesSynced:           preRunCachesSynced,
 	}
 
 	return controllerRef
