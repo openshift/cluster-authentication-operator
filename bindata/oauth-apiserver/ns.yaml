@@ -5,5 +5,4 @@ metadata:
     openshift.io/node-selector: ""
   name: openshift-oauth-apiserver
   labels:
-    openshift.io/run-level: "1"
     openshift.io/cluster-monitoring: "true"
