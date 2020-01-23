@@ -1,8 +1,10 @@
 package workload
 
 import (
+	"encoding/json"
 	"fmt"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/apiserver-library-go/pkg/configflags"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -12,11 +14,10 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -86,16 +87,24 @@ func (c *OpenShiftOAuthAPIServerManager) syncOpenShiftOAuthAPIServerDaemonSet(au
 		return nil, err
 	}
 
+	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	// log level verbosity is taken from the spec always
+	operatorCfg.APIServerArguments["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
+	operandFlags := configflags.ToFlagSlice(operatorCfg.APIServerArguments)
+
 	r := strings.NewReplacer(
 		"${IMAGE}", c.targetImagePullSpec,
-		"${OPERATOR_IMAGE}", c.operatorImagePullSpec,
 		// TODO: add LatestAvailableRevision support
 		//"${REVISION}", strconv.Itoa(int(authOperator.Status.LatestAvailableRevision)),
 		"${REVISION}", "1",
-		"${VERBOSITY}", loglevelToKlog(authOperator.Spec.LogLevel),
+		"${FLAGS}", strings.Join(padFlags(operandFlags, strings.Repeat(" ", 14)), " \\\n"),
 	)
-	tmpl = []byte(r.Replace(string(tmpl)))
 
+	tmpl = []byte(r.Replace(string(tmpl)))
 	re := regexp.MustCompile("\\$\\{[^}]*}")
 	if match := re.Find(tmpl); len(match) > 0 {
 		return nil, fmt.Errorf("invalid template reference %q", string(match))
@@ -115,21 +124,6 @@ func (c *OpenShiftOAuthAPIServerManager) syncOpenShiftOAuthAPIServerDaemonSet(au
 	// TODO: add LatestAvailableRevision support
 	//required.Labels["revision"] = strconv.Itoa(int(authOperator.Status.LatestAvailableRevision))
 	//required.Spec.Template.Labels["revision"] = strconv.Itoa(int(authOperator.Status.LatestAvailableRevision))
-
-	// TODO: Spec.ObservedConfig.Raw exists and has desired data
-	//var observedConfig map[string]interface{}
-	/*if err := yaml.Unmarshal(authOperator.Spec.ObservedConfig.Raw, &observedConfig); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
-	}
-	proxyConfig, _, err := unstructured.NestedStringMap(observedConfig, "workloadcontroller", "proxy")
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get the proxy config from observedConfig: %v", err)
-	}
-
-	proxyEnvVars := proxyMapToEnvVars(proxyConfig)
-	for i, container := range required.Spec.Template.Spec.Containers {
-		required.Spec.Template.Spec.Containers[i].Env = append(container.Env, proxyEnvVars...)
-	}*/
 
 	// we watch some resources so that our daemonset will redeploy without explicitly and carefully ordered resource creation
 	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
@@ -156,6 +150,86 @@ func (c *OpenShiftOAuthAPIServerManager) syncOpenShiftOAuthAPIServerDaemonSet(au
 	return ds, err
 }
 
+// oAuthAPIServerConfig hold configuration for this controller it's taken from ObservedConfig.Raw
+// note that this struct is unsupported in a sense that it's not exposed through API
+type oAuthAPIServerConfig struct {
+	APIServerArguments map[string][]string `json:"apiServerArguments"`
+}
+
+// unstructuredConfigFrom extract raw config for this controller
+func unstructuredConfigFrom(rawCfg []byte) ([]byte, error) {
+	configJSON, err := kyaml.ToJSON(rawCfg)
+	if err != nil {
+		return nil, err
+	}
+	configMap := map[string]interface{}{}
+	if err := json.Unmarshal(configJSON, &configMap); err != nil {
+		return nil, err
+	}
+
+	oauthAPIServerCfg, ok := configMap["oauthAPIServer"]
+	if !ok {
+		return nil, nil
+	}
+
+	oauthAPIServerRaw, err := json.Marshal(oauthAPIServerCfg)
+	if err != nil {
+		return nil, err
+	}
+	return oauthAPIServerRaw, nil
+}
+
+// getStructuredConfig reads and merges configs for this controller from ObservedConfig.Raw and UnsupportedConfigOverrides.Raw,
+// merged config is then encoded into oAuthAPIServerConfig struct
+func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
+	unstructuredCfg, err := unstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw)
+	if err != nil {
+		return nil, err
+	}
+
+	unstructuredUnsupportedCfg, err := unstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw)
+	if err != nil {
+		return nil, err
+	}
+
+	unstructuredMergedCfg, err := resourcemerge.MergeProcessConfig(
+		nil,
+		unstructuredCfg,
+		unstructuredUnsupportedCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &oAuthAPIServerConfig{}
+	if err := json.Unmarshal(unstructuredMergedCfg, cfg); err != nil {
+		return nil, err
+	}
+
+	if cfg.APIServerArguments == nil {
+		cfg.APIServerArguments = map[string][]string{}
+	}
+
+	return cfg, nil
+}
+
+// padFlags appends "appendString" to each flag except the first one
+func padFlags(flags []string, appendString string) []string {
+	if len(flags) <= 1 {
+		return flags
+	}
+	paddedFlags := make([]string, len(flags))
+	paddedFlags[0] = flags[0]
+
+	flags = flags[1:]
+	for index, flag := range flags {
+		index++
+		paddedFlags[index] = fmt.Sprintf("%s%s", appendString, flag)
+	}
+
+	return paddedFlags
+}
+
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	switch logLevel {
 	case operatorv1.Normal:
@@ -169,19 +243,4 @@ func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	default:
 		return "2"
 	}
-}
-
-func proxyMapToEnvVars(proxyConfig map[string]string) []corev1.EnvVar {
-	if proxyConfig == nil {
-		return nil
-	}
-
-	envVars := []corev1.EnvVar{}
-	for k, v := range proxyConfig {
-		envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
-	}
-
-	// sort the env vars to prevent update hotloops
-	sort.Slice(envVars, func(i, j int) bool { return envVars[i].Name < envVars[j].Name })
-	return envVars
 }
