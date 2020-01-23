@@ -11,6 +11,11 @@ import (
 
 var _ configobserver.Listers = Listers{}
 
+const (
+	OAuthServerConfigPrefix    = "oauthServer"
+	OAuthAPIServerConfigPrefix = "oauthAPIServer"
+)
+
 type Listers struct {
 	SecretsLister corelistersv1.SecretLister
 

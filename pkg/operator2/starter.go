@@ -232,14 +232,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		configObserver,
 		configOverridesController,
 		logLevelController,
-		routerCertsController,
 		managementStateController,
+		routerCertsController,
+		staleConditions,
 	} {
 		go controller.Run(ctx, 1)
 	}
 
 	go operator.Run(ctx.Done())
-	go staleConditions.Run(ctx, 1)
 	go ingressStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()

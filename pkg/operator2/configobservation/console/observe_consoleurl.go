@@ -17,7 +17,6 @@ func ObserveConsoleURL(genericlisters configobserver.Listers, recorder events.Re
 	defer func() {
 		ret = configobserver.Pruned(ret, assetPublicURLPath)
 	}()
-
 	listers := genericlisters.(configobservation.Listers)
 	errs := []error{}
 

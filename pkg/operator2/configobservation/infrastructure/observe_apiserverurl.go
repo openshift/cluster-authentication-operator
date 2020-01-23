@@ -17,7 +17,6 @@ func ObserveAPIServerURL(genericlisters configobserver.Listers, recorder events.
 	defer func() {
 		ret = configobserver.Pruned(ret, loginURLPath)
 	}()
-
 	listers := genericlisters.(configobservation.Listers)
 	errs := []error{}
 

@@ -1,12 +1,15 @@
 package operator2
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog"
 
@@ -14,6 +17,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -132,14 +136,38 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	cliConfigBytes := encodeOrDie(cliConfig)
+	observedConfig, err := grabPrefixedConfig(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to grab oauth-server configuration: %v", err)
+	}
 
-	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, operatorConfig.Spec.ObservedConfig.Raw, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
 	return getCliConfigMap(completeConfigBytes), &syncData, nil
+}
+
+// grabPrefixedConfig returns the configuration from the operator's observedConfig field
+// in the subtree given by the prefix
+func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
+	if len(prefix) == 0 {
+		return observedBytes, nil
+	}
+
+	prefixedConfig := map[string]interface{}{}
+	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
+		klog.V(4).Infof("decode of existing config failed with error: %v", err)
+	}
+
+	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(actualConfig)
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {

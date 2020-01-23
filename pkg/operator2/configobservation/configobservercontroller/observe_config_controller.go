@@ -50,6 +50,18 @@ func NewConfigObserver(
 		)
 	}
 
+	oauthServerObservers := []configobserver.ObserveConfigFunc{}
+	for _, o := range []configobserver.ObserveConfigFunc{
+		apiserver.ObserveAdditionalCORSAllowedOrigins,
+		apiserver.ObserveTLSSecurityProfile,
+		console.ObserveConsoleURL,
+		infrastructure.ObserveAPIServerURL,
+		routersecret.ObserveRouterSecret,
+	} {
+		oauthServerObservers = append(oauthServerObservers,
+			configobserver.WithPrefix(o, configobservation.OAuthServerConfigPrefix))
+	}
+
 	return configobserver.NewConfigObserver(
 		operatorClient,
 		eventRecorder,
@@ -69,10 +81,6 @@ func NewConfigObserver(
 			),
 		},
 		informers,
-		apiserver.ObserveAdditionalCORSAllowedOrigins,
-		apiserver.ObserveTLSSecurityProfile,
-		console.ObserveConsoleURL,
-		infrastructure.ObserveAPIServerURL,
-		routersecret.ObserveRouterSecret,
+		oauthServerObservers...,
 	)
 }
