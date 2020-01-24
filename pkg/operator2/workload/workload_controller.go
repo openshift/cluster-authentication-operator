@@ -11,10 +11,12 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -64,8 +66,7 @@ func NewController(name, operatorNamespace, targetNamespace string,
 	syncFn syncFunc,
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface,
 	eventRecorder events.Recorder,
-	versionRecorder status.VersionGetter,
-	preRunCachesSynced []cache.InformerSynced) *Controller {
+	versionRecorder status.VersionGetter) *Controller {
 	controllerRef := &Controller{
 		operatorNamespace:            operatorNamespace,
 		name:                         fmt.Sprintf("%sWorkloadCtrl", name), // ends up being OAuthAPIWorkloadCtrl
@@ -77,7 +78,6 @@ func NewController(name, operatorNamespace, targetNamespace string,
 		eventRecorder:                eventRecorder.WithComponentSuffix("workload-controller"),
 		versionRecorder:              versionRecorder,
 		queue:                        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), name),
-		preRunCachesSynced:           preRunCachesSynced,
 	}
 
 	return controllerRef
@@ -145,8 +145,60 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
-// EventHandler queues the controller to check spec, status and managed resources
-func (c *Controller) EventHandler() cache.ResourceEventHandler {
+// AddInformer queues the given informer to check spec, status and managed resources
+func (c *Controller) AddInformer(informer cache.SharedIndexInformer) *Controller {
+	informer.AddEventHandler(c.eventHandler())
+	c.preRunCachesSynced = append(c.preRunCachesSynced, informer.HasSynced)
+	return c
+}
+
+// AddNamespaceInformer queues the given ns informer for the targetNamespace
+func (c *Controller) AddNamespaceInformer(informer cache.SharedIndexInformer) *Controller {
+	interestingNamespaces := sets.NewString(c.targetNamespace)
+	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				c.queue.Add(workQueueKey)
+			}
+			if interestingNamespaces.Has(ns.Name) {
+				c.queue.Add(workQueueKey)
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			ns, ok := old.(*corev1.Namespace)
+			if !ok {
+				c.queue.Add(workQueueKey)
+			}
+			if interestingNamespaces.Has(ns.Name) {
+				c.queue.Add(workQueueKey)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			ns, ok := obj.(*corev1.Namespace)
+			if !ok {
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					utilruntime.HandleError(fmt.Errorf("couldn't get object from tombstone %#v", obj))
+					return
+				}
+				ns, ok = tombstone.Obj.(*corev1.Namespace)
+				if !ok {
+					utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not a Namespace %#v", obj))
+					return
+				}
+			}
+			if interestingNamespaces.Has(ns.Name) {
+				c.queue.Add(workQueueKey)
+			}
+		},
+	})
+	c.preRunCachesSynced = append(c.preRunCachesSynced, informer.HasSynced)
+
+	return c
+}
+
+func (c *Controller) eventHandler() cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { c.queue.Add(workQueueKey) },
 		UpdateFunc: func(old, new interface{}) { c.queue.Add(workQueueKey) },
