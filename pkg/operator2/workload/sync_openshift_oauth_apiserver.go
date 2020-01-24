@@ -60,6 +60,18 @@ func (c *OpenShiftOAuthAPIServerManager) SyncOpenShiftOAuthAPIServer() (*appsv1.
 		return nil, errs
 	}
 
+	// TODO: block until config is obvserved when required
+	/*if operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec); err != nil {
+		errs = append(errs, err)
+		return nil, errs
+	} else {
+		if len(operatorCfg.APIServerArguments) == 0 {
+			klog.Info("Waiting for observed configuration to be available")
+			errs = append(errs, errors.New("waiting for observed configuration to be available (spec.ObservedConfig.Raw)"))
+			return nil, errs
+		}
+	}*/
+
 	// manage assets
 	directResourceResults := resourceapply.ApplyDirectly(c.kubeClient, c.eventRecorder, assets.Asset,
 		"oauth-apiserver/ns.yaml",

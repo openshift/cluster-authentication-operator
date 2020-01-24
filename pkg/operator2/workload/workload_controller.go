@@ -181,12 +181,6 @@ func (c *OAuthAPIServerOperator) preconditionFulfilled(operatorSpec *operatorv1.
 		return false, fmt.Errorf(message)
 	}
 
-	// TODO: block until config is obvserved
-	/*if len(operatorSpec.ObservedConfig.Raw) == 0 {
-		klog.Info("Waiting for observed configuration to be available")
-		return false, nil
-	}*/
-
 	return true, nil
 }
 
