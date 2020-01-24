@@ -176,9 +176,6 @@ func (c *Controller) shouldSync(operatorSpec *operatorv1.OperatorSpec) (bool, er
 func (c *Controller) preconditionFulfilled(operatorSpec *operatorv1.OperatorSpec) (bool, error) {
 	kubeAPIServerClusterOperator, err := c.openshiftClusterConfigClient.Get("kube-apiserver", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		kubeAPIServerClusterOperator, err = c.openshiftClusterConfigClient.Get("openshift-kube-apiserver-operator", metav1.GetOptions{})
-	}
-	if apierrors.IsNotFound(err) {
 		message := "clusteroperator/kube-apiserver not found"
 		c.eventRecorder.Warning("PrereqNotReady", message)
 		return false, fmt.Errorf(message)
@@ -247,6 +244,13 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []err
 		dsDegradedCondition.Reason = "NoDaemon"
 		dsDegradedCondition.Message = message
 
+		if _, _, updateError := v1helpers.UpdateStatus(c.operatorClient,
+			v1helpers.UpdateConditionFn(dsAvailableCondition),
+			v1helpers.UpdateConditionFn(workloadDegradedCondition),
+			v1helpers.UpdateConditionFn(dsDegradedCondition),
+			v1helpers.UpdateConditionFn(dsProgressingCondition)); updateError != nil {
+			return updateError
+		}
 		return errors.NewAggregate(errs)
 	}
 
