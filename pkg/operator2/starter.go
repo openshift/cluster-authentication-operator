@@ -2,6 +2,10 @@ package operator2
 
 import (
 	"context"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/workload"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"k8s.io/klog"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,11 +91,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	// whereas our cluster operator instance is called "authentication" (there is no OR support)
 	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
-	resourceSyncerInformers := v1helpers.NewKubeInformersForNamespaces(
+	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
 		"openshift-authentication",
 		"openshift-config",
 		"openshift-config-managed",
+		"openshift-oauth-apiserver",
+		"openshift-authentication-operator",
 	)
 
 	operatorClient := &OperatorClient{
@@ -99,11 +105,17 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		authConfigClient.OperatorV1(),
 	}
 
+	controllerRef, err := events.GetControllerReferenceForCurrentPod(kubeClient, "openshift-authentication-operator", nil)
+	if err != nil {
+		klog.Warningf("unable to get owner reference (falling back to namespace): %v", err)
+	}
+	eventRecorder := events.NewKubeRecorder(kubeClient.CoreV1().Events("openshift-authentication-operator"), "authentication", controllerRef)
+
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
 		operatorClient,
-		resourceSyncerInformers,
-		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), resourceSyncerInformers),
-		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
+		kubeInformersForNamespaces,
+		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), kubeInformersForNamespaces),
+		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), kubeInformersForNamespaces),
 		controllerContext.EventRecorder,
 	)
 
@@ -127,6 +139,20 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	if err := resourceSyncer.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-console-config"},
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "console-config"},
+	); err != nil {
+		return err
+	}
+
+	// add syncing for etcd certs for oauthapi-server
+	if err := resourceSyncer.SyncConfigMap(
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "etcd-serving-ca"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "etcd-serving-ca"},
+	); err != nil {
+		return err
+	}
+	if err := resourceSyncer.SyncSecret(
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "etcd-client"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "etcd-client"},
 	); err != nil {
 		return err
 	}
@@ -200,6 +226,23 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	workloadController := workload.NewController(
+		"OAuthAPIServerController",
+		"openshift-authentication-operator",
+		"openshift-oauth-apiserver",
+		operatorClient,
+		kubeClient,
+		workload.NewOAuthAPIServerWorkload(operatorClient.Client, "openshift-oauth-apiserver", os.Getenv("IMAGE"), os.Getenv("OPERATOR_IMAGE"), kubeClient, eventRecorder, versionGetter).Sync,
+		configClient.ConfigV1().ClusterOperators(),
+		eventRecorder, versionGetter).
+		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer()). // reactor for etcd-serving-ca
+		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer()).    // reactor for etcd-client
+		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ServiceAccounts().Informer()).
+		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Services().Informer()).
+		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().DaemonSets().Informer()).
+		AddInformer(operatorClient.Informers.Operator().V1().Authentications().Informer()).
+		AddNamespaceInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Namespaces().Informer())
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -214,7 +257,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
-		resourceSyncerInformers,
+		kubeInformersForNamespaces,
 	} {
 		informer.Start(ctx.Done())
 	}
@@ -228,6 +271,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		logLevelController,
 		routerCertsController,
 		managementStateController,
+		workloadController,
 	} {
 		go controller.Run(ctx, 1)
 	}
