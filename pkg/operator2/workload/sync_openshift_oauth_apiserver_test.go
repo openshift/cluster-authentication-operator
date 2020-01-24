@@ -31,7 +31,7 @@ var customAPIServerArgsYAML = `
       tls-min-version:
       - VersionTLS12`
 
-func TestSyncOpenShiftOAuthAPIServerDaemonSet(t *testing.T) {
+func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
 	scenarios := []struct {
 		name            string
 		goldenFile      string
@@ -66,12 +66,12 @@ func TestSyncOpenShiftOAuthAPIServerDaemonSet(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("")
 			fakeKubeClient := fake.NewSimpleClientset()
 
-			target := &OpenShiftOAuthAPIServerManager{
+			target := &OAuthAPIServerWorkload{
 				eventRecorder: eventRecorder,
 				kubeClient:    fakeKubeClient,
 			}
 
-			ds, err := target.syncOpenShiftOAuthAPIServerDaemonSet(scenario.operator, scenario.operator.Status.Generations)
+			ds, err := target.syncDaemonSet(scenario.operator, scenario.operator.Status.Generations)
 			if err != nil {
 				t.Fatal(err)
 			}

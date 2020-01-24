@@ -21,7 +21,8 @@ import (
 	"strings"
 )
 
-type OpenShiftOAuthAPIServerManager struct {
+// OAuthAPIServerWorkload a struct that holds necessary data to install OAuthAPIServer
+type OAuthAPIServerWorkload struct {
 	operatorClient        operatorconfigclient.AuthenticationsGetter
 	targetNamespace       string
 	targetImagePullSpec   string
@@ -31,7 +32,8 @@ type OpenShiftOAuthAPIServerManager struct {
 	versionRecorder       status.VersionGetter
 }
 
-func NewOpenShiftOAuthAPIServerManager(
+// NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
+func NewOAuthAPIServerWorkload(
 	operatorClient operatorconfigclient.AuthenticationsGetter,
 	targetNamespace string,
 	targetImagePullSpec string,
@@ -39,8 +41,8 @@ func NewOpenShiftOAuthAPIServerManager(
 	kubeClient kubernetes.Interface,
 	eventRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
-) *OpenShiftOAuthAPIServerManager {
-	return &OpenShiftOAuthAPIServerManager{
+) *OAuthAPIServerWorkload {
+	return &OAuthAPIServerWorkload{
 		operatorClient:        operatorClient,
 		targetNamespace:       targetNamespace,
 		targetImagePullSpec:   targetImagePullSpec,
@@ -51,7 +53,8 @@ func NewOpenShiftOAuthAPIServerManager(
 	}
 }
 
-func (c *OpenShiftOAuthAPIServerManager) SyncOpenShiftOAuthAPIServer() (*appsv1.DaemonSet, []error) {
+// Sync essentially manages OAuthAPI server.
+func (c *OAuthAPIServerWorkload) Sync() (*appsv1.DaemonSet, []error) {
 	errs := []error{}
 
 	authOperator, err := c.operatorClient.Authentications().Get("cluster", metav1.GetOptions{})
@@ -86,14 +89,14 @@ func (c *OpenShiftOAuthAPIServerManager) SyncOpenShiftOAuthAPIServer() (*appsv1.
 		}
 	}
 
-	actualDaemonSet, err := c.syncOpenShiftOAuthAPIServerDaemonSet(authOperator, authOperator.Status.Generations)
+	actualDaemonSet, err := c.syncDaemonSet(authOperator, authOperator.Status.Generations)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "daemonsets", err))
 	}
 	return actualDaemonSet, errs
 }
 
-func (c *OpenShiftOAuthAPIServerManager) syncOpenShiftOAuthAPIServerDaemonSet(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.DaemonSet, error) {
+func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.DaemonSet, error) {
 	tmpl, err := assets.Asset("oauth-apiserver/ds.yaml")
 	if err != nil {
 		return nil, err

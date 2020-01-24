@@ -28,17 +28,21 @@ const (
 	workloadDegradedCondition = "WorkloadDegraded"
 )
 
-type syncOperatorFunc func() (*appsv1.DaemonSet, []error)
+// syncFunc a function that will be used for delegation. It should bring the desired workload into operation.
+type syncFunc func() (*appsv1.DaemonSet, []error)
 
-type OAuthAPIServerOperator struct {
-	operatorName      string
+// Controller is a generic workload controller that deals with DaemonSet resource.
+// Callers must provide a sync function for delegation. It should bring the desired workload into operation.
+// The returned state along with errors will be converted into conditions and persisted in the status field.
+type Controller struct {
+	name              string
 	operatorNamespace string
 	targetNamespace   string
 
 	operatorClient               v1helpers.OperatorClient
 	kubeClient                   kubernetes.Interface
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface
-	syncOperatorFn               syncOperatorFunc
+	syncFn                       syncFunc
 
 	queue              workqueue.RateLimitingInterface
 	eventRecorder      events.Recorder
@@ -46,38 +50,46 @@ type OAuthAPIServerOperator struct {
 	preRunCachesSynced []cache.InformerSynced
 }
 
-func NewController(operatorName, operatorNamespace, targetNamespace string,
+// NewController creates a brand new Controller instance.
+//
+// the "name" param will be used to set conditions in the status field. It will be suffixed with "WorkloadCtrl",
+// so it can end up in the condition in the form of "OAuthAPIWorkloadCtrlDaemonSetAvailable"
+//
+// the "operatorNamespace" is used to set "version-mapping" in the correct namespace
+//
+// the "targetNamespace" represent the namespace for the managed resource (DaemonSet)
+func NewController(name, operatorNamespace, targetNamespace string,
 	operatorClient v1helpers.OperatorClient,
 	kubeClient kubernetes.Interface,
-	syncOperatorFn syncOperatorFunc,
+	syncFn syncFunc,
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface,
 	eventRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
-	preRunCachesSynced []cache.InformerSynced) *OAuthAPIServerOperator {
-	controllerRef := &OAuthAPIServerOperator{
+	preRunCachesSynced []cache.InformerSynced) *Controller {
+	controllerRef := &Controller{
 		operatorNamespace:            operatorNamespace,
-		operatorName:                 operatorName,
+		name:                         fmt.Sprintf("%sWorkloadCtrl", name), // ends up being OAuthAPIWorkloadCtrl
 		targetNamespace:              targetNamespace,
 		operatorClient:               operatorClient,
 		kubeClient:                   kubeClient,
-		syncOperatorFn:               syncOperatorFn,
+		syncFn:                       syncFn,
 		openshiftClusterConfigClient: openshiftClusterConfigClient,
 		eventRecorder:                eventRecorder.WithComponentSuffix("workload-controller"),
 		versionRecorder:              versionRecorder,
-		queue:                        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), operatorName),
+		queue:                        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), name),
 		preRunCachesSynced:           preRunCachesSynced,
 	}
 
 	return controllerRef
 }
 
-func (c *OAuthAPIServerOperator) sync() error {
+func (c *Controller) sync() error {
 	operatorSpec, _, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return err
 	}
 
-	if run, err := c.canRunOperator(operatorSpec); !run {
+	if run, err := c.shouldSync(operatorSpec); !run {
 		return err
 	}
 
@@ -85,18 +97,19 @@ func (c *OAuthAPIServerOperator) sync() error {
 		return err
 	}
 
-	workload, errs := c.syncOperatorFn()
+	workload, errs := c.syncFn()
 
 	return c.updateOperatorStatus(workload, errs)
 }
 
-// Run starts the oauth-apiserver operator and blocks until stopCh is closed.
-func (c *OAuthAPIServerOperator) Run(ctx context.Context, workers int) {
+// Run starts workload controller and blocks until stopCh is closed.
+// Note that setting workers doesn't have any effect, the controller is single-threaded.
+func (c *Controller) Run(ctx context.Context, workers int) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
-	klog.Infof("Starting %s", c.operatorName)
-	defer klog.Infof("Shutting down %s", c.operatorName)
+	klog.Infof("Starting %s", c.name)
+	defer klog.Infof("Shutting down %s", c.name)
 	if !cache.WaitForCacheSync(ctx.Done(), c.preRunCachesSynced...) {
 		utilruntime.HandleError(fmt.Errorf("caches did not sync"))
 		return
@@ -108,12 +121,12 @@ func (c *OAuthAPIServerOperator) Run(ctx context.Context, workers int) {
 	<-ctx.Done()
 }
 
-func (c *OAuthAPIServerOperator) runWorker() {
+func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
-func (c *OAuthAPIServerOperator) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem() bool {
 	dsKey, quit := c.queue.Get()
 	if quit {
 		return false
@@ -132,8 +145,8 @@ func (c *OAuthAPIServerOperator) processNextWorkItem() bool {
 	return true
 }
 
-// eventHandler queues the operator to check spec and status
-func (c *OAuthAPIServerOperator) EventHandler() cache.ResourceEventHandler {
+// EventHandler queues the controller to check spec, status and managed resources
+func (c *Controller) EventHandler() cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { c.queue.Add(workQueueKey) },
 		UpdateFunc: func(old, new interface{}) { c.queue.Add(workQueueKey) },
@@ -141,8 +154,8 @@ func (c *OAuthAPIServerOperator) EventHandler() cache.ResourceEventHandler {
 	}
 }
 
-// canRunOperator checks ManagementState to determine if we can run this operator, probably set by a cluster administrator.
-func (c *OAuthAPIServerOperator) canRunOperator(operatorSpec *operatorv1.OperatorSpec) (bool, error) {
+// shouldSync checks ManagementState to determine if we can run this operator, probably set by a cluster administrator.
+func (c *Controller) shouldSync(operatorSpec *operatorv1.OperatorSpec) (bool, error) {
 	switch operatorSpec.ManagementState {
 	case operatorv1.Managed:
 		return true, nil
@@ -159,10 +172,8 @@ func (c *OAuthAPIServerOperator) canRunOperator(operatorSpec *operatorv1.Operato
 	}
 }
 
-// preconditionFulfilled checks if:
-// - kube-apiserver is present and available
-// - TODO: Spec.ObservedConfig.Raw exists and has desired data
-func (c *OAuthAPIServerOperator) preconditionFulfilled(operatorSpec *operatorv1.OperatorSpec) (bool, error) {
+// preconditionFulfilled checks if kube-apiserver is present and available
+func (c *Controller) preconditionFulfilled(operatorSpec *operatorv1.OperatorSpec) (bool, error) {
 	kubeAPIServerClusterOperator, err := c.openshiftClusterConfigClient.Get("kube-apiserver", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		kubeAPIServerClusterOperator, err = c.openshiftClusterConfigClient.Get("openshift-kube-apiserver-operator", metav1.GetOptions{})
@@ -184,28 +195,29 @@ func (c *OAuthAPIServerOperator) preconditionFulfilled(operatorSpec *operatorv1.
 	return true, nil
 }
 
-func (c *OAuthAPIServerOperator) updateOperatorStatus(workload *appsv1.DaemonSet, errs []error) error {
+// updateOperatorStatus updates the status based on the actual workload and errors that might have occurred during synchronization.
+func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []error) error {
 	if errs == nil {
 		errs = []error{}
 	}
 
 	dsAvailableCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%sDaemonSet%s", c.operatorName, operatorv1.OperatorStatusTypeAvailable),
+		Type:   fmt.Sprintf("%sDaemonSet%s", c.name, operatorv1.OperatorStatusTypeAvailable),
 		Status: operatorv1.ConditionTrue,
 	}
 
 	workloadDegradedCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%s%s", c.operatorName, workloadDegradedCondition),
+		Type:   fmt.Sprintf("%s%s", c.name, workloadDegradedCondition),
 		Status: operatorv1.ConditionFalse,
 	}
 
 	dsDegradedCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%ssDaemonSetDegraded", c.operatorName),
+		Type:   fmt.Sprintf("%ssDaemonSetDegraded", c.name),
 		Status: operatorv1.ConditionFalse,
 	}
 
 	dsProgressingCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%ssDaemonSet%s", c.operatorName, operatorv1.OperatorStatusTypeProgressing),
+		Type:   fmt.Sprintf("%ssDaemonSet%s", c.name, operatorv1.OperatorStatusTypeProgressing),
 		Status: operatorv1.ConditionFalse,
 	}
 
@@ -222,7 +234,7 @@ func (c *OAuthAPIServerOperator) updateOperatorStatus(workload *appsv1.DaemonSet
 	}
 
 	if workload == nil {
-		message := fmt.Sprintf("daemonset/apiserver.%s: could not be retrieved", c.targetNamespace)
+		message := fmt.Sprintf("daemonset/%s: could not be retrieved", c.targetNamespace)
 		dsAvailableCondition.Status = operatorv1.ConditionFalse
 		dsAvailableCondition.Reason = "NoDaemon"
 		dsAvailableCondition.Message = message
