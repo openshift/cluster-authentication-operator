@@ -188,6 +188,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 			{Resource: "namespaces", Name: "openshift-authentication"},
 			{Resource: "namespaces", Name: "openshift-authentication-operator"},
 			{Resource: "namespaces", Name: "openshift-ingress"},
+			{Resource: "namespaces", Name: "openshift-oauth-apiserver"},
 		},
 		configClient.ConfigV1(),
 		configInformers.Config().V1().ClusterOperators(),
