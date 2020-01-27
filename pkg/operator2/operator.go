@@ -49,8 +49,8 @@ const (
 
 // static environment variables from operator deployment
 var (
-	oauthserverImage   = os.Getenv("IMAGE")
-	oauthserverVersion = os.Getenv("OPERAND_IMAGE_VERSION")
+	oauthserverImage   = os.Getenv("IMAGE_OAUTH_SERVER")
+	oauthserverVersion = os.Getenv("OPERAND_OAUTH_SERVER_IMAGE_VERSION")
 	operatorVersion    = os.Getenv("OPERATOR_IMAGE_VERSION")
 
 	kasServicePort int
