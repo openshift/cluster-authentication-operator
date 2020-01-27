@@ -233,7 +233,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-oauth-apiserver",
 		operatorClient,
 		kubeClient,
-		workload.NewOAuthAPIServerWorkload(operatorClient.Client, "openshift-oauth-apiserver", os.Getenv("IMAGE"), os.Getenv("OPERATOR_IMAGE"), kubeClient, eventRecorder, versionGetter).Sync,
+		workload.NewOAuthAPIServerWorkload(operatorClient.Client, "openshift-oauth-apiserver", os.Getenv("IMAGE_OAUTH_APISERVER"), os.Getenv("OPERATOR_IMAGE"), kubeClient, eventRecorder, versionGetter).Sync,
 		configClient.ConfigV1().ClusterOperators(),
 		eventRecorder, versionGetter).
 		AddInformer(kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer()). // reactor for etcd-serving-ca
