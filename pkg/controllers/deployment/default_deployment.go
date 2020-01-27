@@ -57,7 +57,7 @@ func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyCo
 
 	// image spec
 	if container.Image == "${IMAGE}" {
-		container.Image = os.Getenv("IMAGE")
+		container.Image = os.Getenv("IMAGE_OAUTH_SERVER")
 	}
 
 	// set proxy env vars
