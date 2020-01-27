@@ -1,12 +1,13 @@
 package operator2
 
 import (
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func defaultService() *v1.Service {
-	meta := defaultMeta()
+	meta := utils.DefaultMetaOAuthServerResources()
 	meta.Annotations["service.alpha.openshift.io/serving-cert-secret-name"] = "v4-0-config-system-serving-cert"
 	return &v1.Service{
 		ObjectMeta: meta,
@@ -25,7 +26,7 @@ func defaultService() *v1.Service {
 					TargetPort: intstr.FromInt(6443),
 				},
 			},
-			Selector:        defaultLabels(),
+			Selector:        utils.DefaultLabelsOAuthServerResources(),
 			Type:            "ClusterIP",
 			SessionAffinity: "None",
 		},

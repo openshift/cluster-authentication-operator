@@ -2,6 +2,7 @@ package operator2
 
 import (
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -156,7 +157,7 @@ func (c *authOperator) handleOAuthConfig(
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
-	meta := defaultMeta()
+	meta := utils.DefaultMetaOAuthServerResources()
 	meta.Name = "v4-0-config-system-cliconfig"
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,

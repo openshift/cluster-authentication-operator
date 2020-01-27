@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +58,7 @@ func randomSessionSecret() (*corev1.Secret, error) {
 	if err != nil {
 		return nil, err
 	}
-	meta := defaultMeta()
+	meta := utils.DefaultMetaOAuthServerResources()
 	meta.Name = "v4-0-config-system-session"
 	return &corev1.Secret{
 		ObjectMeta: meta,

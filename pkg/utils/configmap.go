@@ -1,4 +1,4 @@
-package operator2
+package utils
 
 import (
 	"encoding/json"
@@ -38,7 +38,7 @@ const stubMetadata = `
 }
 `
 
-func getMetadataStruct(route *routev1.Route) map[string]interface{} {
+func GetExpectedOAuthServerCapabilities(route *routev1.Route) map[string]interface{} {
 	var ret map[string]interface{}
 
 	metadataJSON := getMetadata(route)
@@ -58,8 +58,8 @@ func getMetadata(route *routev1.Route) string {
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
 }
 
-func getMetadataConfigMap(route *routev1.Route) *corev1.ConfigMap {
-	meta := defaultMeta()
+func CreateOAuthServerCapabilitiesConfigMap(route *routev1.Route) *corev1.ConfigMap {
+	meta := DefaultMetaOAuthServerResources()
 	meta.Name = "v4-0-config-system-metadata"
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,

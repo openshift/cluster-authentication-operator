@@ -257,7 +257,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	}
 
 	// make sure API server sees our metadata as soon as we've got a route with a host
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
+	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, utils.CreateOAuthServerCapabilitiesConfigMap(route))
 	if err != nil {
 		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
 	}
@@ -614,7 +614,7 @@ func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTr
 		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
 	}
 
-	expectedMetadata := getMetadataStruct(route)
+	expectedMetadata := utils.GetExpectedOAuthServerCapabilities(route)
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
 		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
 	}
@@ -645,22 +645,6 @@ func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, er
 func (c *authOperator) setVersion(operandName, version string) {
 	if c.versionGetter.GetVersions()[operandName] != version {
 		c.versionGetter.SetVersion(operandName, version)
-	}
-}
-
-func defaultLabels() map[string]string {
-	return map[string]string{
-		"app": "oauth-openshift",
-	}
-}
-
-func defaultMeta() metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:            "oauth-openshift",
-		Namespace:       "openshift-authentication",
-		Labels:          defaultLabels(),
-		Annotations:     map[string]string{},
-		OwnerReferences: nil, // TODO
 	}
 }
 

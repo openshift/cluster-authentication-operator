@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"strconv"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestIsValidSessionSecret(t *testing.T) {
 
 func secret(sessionSecret []byte) *v1.Secret {
 	return &v1.Secret{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 		Data: map[string][]byte{
 			"v4-0-config-system-session": sessionSecret,
 		},

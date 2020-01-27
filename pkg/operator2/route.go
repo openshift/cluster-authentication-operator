@@ -3,6 +3,7 @@ package operator2
 import (
 	"crypto/x509"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -63,7 +64,7 @@ func defaultRoute(ingress *configv1.Ingress) *routev1.Route {
 	var weightVal int32 = 100
 
 	return &routev1.Route{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 		Spec: routev1.RouteSpec{
 			Host:      ingressToHost(ingress), // mimic the behavior of subdomain
 			Subdomain: "",                     // TODO once subdomain is functional, remove reliance on ingress config and just set subdomain=targetName

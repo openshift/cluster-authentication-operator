@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"reflect"
 	"testing"
 
@@ -177,7 +178,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				},
 			},
 			expectedRoute: &v1.Route{
-				ObjectMeta: defaultMeta(),
+				ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
@@ -252,7 +253,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				},
 			},
 			expectedRoute: &v1.Route{
-				ObjectMeta: defaultMeta(),
+				ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.apps.example.com",
 					To: v1.RouteTargetReference{
@@ -307,7 +308,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			routeObjects: []runtime.Object{
 				&v1.Route{
-					ObjectMeta: defaultMeta(),
+					ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 					Spec: v1.RouteSpec{
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{
@@ -347,7 +348,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				},
 			},
 			expectedRoute: &v1.Route{
-				ObjectMeta: defaultMeta(),
+				ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 				Spec: v1.RouteSpec{
 					Host: "oauth-openshift.bar.example.com",
 					To: v1.RouteTargetReference{
@@ -416,7 +417,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 			},
 			routeObjects: []runtime.Object{
 				&v1.Route{
-					ObjectMeta: defaultMeta(),
+					ObjectMeta: utils.DefaultMetaOAuthServerResources(),
 					Spec: v1.RouteSpec{
 						Host: "oauth-openshift.apps.example.com", // mimic the behavior of subdomain
 						To: v1.RouteTargetReference{

@@ -2,6 +2,7 @@ package operator2
 
 import (
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -50,7 +51,7 @@ func isValidServiceCA(ca *corev1.ConfigMap) error {
 }
 
 func defaultServiceCA() *corev1.ConfigMap {
-	meta := defaultMeta()
+	meta := utils.DefaultMetaOAuthServerResources()
 	meta.Name = "v4-0-config-system-service-ca"
 	meta.Annotations["service.alpha.openshift.io/inject-cabundle"] = "true"
 	return &corev1.ConfigMap{
