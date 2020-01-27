@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -477,7 +478,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 		caData = append(bytes.TrimSpace(caData), []byte("\n")...)
 	}
 
-	rt, err := transportFor("", append(caData, c.systemCABundle...), nil, nil)
+	rt, err := utils.TransportFor("", append(caData, c.systemCABundle...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
@@ -513,7 +514,7 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 	}
 
 	// pass the KAS service name for SNI
-	rt, err := transportFor("kubernetes.default.svc", caData, nil, nil)
+	rt, err := utils.TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}

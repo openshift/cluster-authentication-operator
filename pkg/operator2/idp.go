@@ -3,6 +3,7 @@ package operator2
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"net/http"
 	"net/url"
 	"strings"
@@ -276,7 +277,7 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 
 func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
 	if len(ca.Name) == 0 {
-		return transportFor("", nil, nil, nil)
+		return utils.TransportFor("", nil, nil, nil)
 	}
 	cm, err := c.configMaps.ConfigMaps("openshift-config").Get(ca.Name, metav1.GetOptions{})
 	if err != nil {
@@ -289,7 +290,7 @@ func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key
 	if len(caData) == 0 {
 		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", "openshift-config", ca.Name, key)
 	}
-	return transportFor("", caData, nil, nil)
+	return utils.TransportFor("", caData, nil, nil)
 }
 
 type openIDProviderJSON struct {
