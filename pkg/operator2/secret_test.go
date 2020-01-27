@@ -1,11 +1,12 @@
 package operator2
 
 import (
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"strconv"
 	"testing"
 
 	"k8s.io/api/core/v1"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 )
 
 func TestRandomString(t *testing.T) {

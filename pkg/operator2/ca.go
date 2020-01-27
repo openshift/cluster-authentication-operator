@@ -2,12 +2,13 @@ package operator2
 
 import (
 	"fmt"
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 )
 
 func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, error) {

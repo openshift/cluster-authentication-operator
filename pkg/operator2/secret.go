@@ -6,13 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog"
 
 	osinv1 "github.com/openshift/api/osin/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 )
 
 func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {

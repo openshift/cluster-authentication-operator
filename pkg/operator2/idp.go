@@ -3,7 +3,6 @@ package operator2
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 )
 
 // field names are used to uniquely identify a secret or config map reference

@@ -1,9 +1,10 @@
 package operator2
 
 import (
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 )
 
 func defaultService() *v1.Service {

@@ -3,7 +3,6 @@ package operator2
 import (
 	"crypto/x509"
 	"fmt"
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -15,6 +14,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 

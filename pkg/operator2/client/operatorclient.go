@@ -1,10 +1,9 @@
-package operator2
+package client
 
 import (
 	"k8s.io/client-go/tools/cache"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	operatorclientinformers "github.com/openshift/client-go/operator/informers/externalversions"
 )

@@ -2,7 +2,6 @@ package operator2
 
 import (
 	"fmt"
-	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -14,6 +13,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/utils"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"

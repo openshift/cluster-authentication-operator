@@ -20,6 +20,10 @@ import (
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/authconfig"
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/client"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
@@ -28,9 +32,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
 const (
@@ -94,9 +95,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-config-managed",
 	)
 
-	operatorClient := &OperatorClient{
-		authOperatorConfigInformers,
-		authConfigClient.OperatorV1(),
+	operatorClient := &client.OperatorClient{
+		Informers: authOperatorConfigInformers,
+		Client:    authConfigClient.OperatorV1(),
 	}
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
@@ -200,6 +201,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	authConfigController := authconfig.NewAuthenticationConfigController(
+		configClient,
+		kubeClient,
+		routeClient.RouteV1(),
+		operatorClient,
+		controllerContext.EventRecorder)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -235,6 +243,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	go operator.Run(ctx.Done())
 	go staleConditions.Run(ctx, 1)
 	go ingressStateController.Run(1, ctx.Done())
+	go authConfigController.Run(ctx, 1)
 
 	<-ctx.Done()
 
