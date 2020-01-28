@@ -15,6 +15,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"regexp"
@@ -111,21 +112,37 @@ func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authenti
 	operatorCfg.APIServerArguments["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
 	operandFlags := configflags.ToFlagSlice(operatorCfg.APIServerArguments)
 
+	// use string replacer for simple things
 	r := strings.NewReplacer(
 		"${IMAGE}", c.targetImagePullSpec,
 		// TODO: add LatestAvailableRevision support
 		//"${REVISION}", strconv.Itoa(int(authOperator.Status.LatestAvailableRevision)),
 		"${REVISION}", "1",
-		"${FLAGS}", strings.Join(padFlags(operandFlags, strings.Repeat(" ", 14)), " \\\n"),
 	)
 
+	excludedReferences := sets.NewString("${FLAGS}")
 	tmpl = []byte(r.Replace(string(tmpl)))
 	re := regexp.MustCompile("\\$\\{[^}]*}")
-	if match := re.Find(tmpl); len(match) > 0 {
+	if match := re.Find(tmpl); len(match) > 0 && !excludedReferences.Has(string(match)) {
 		return nil, fmt.Errorf("invalid template reference %q", string(match))
 	}
 
 	required := resourceread.ReadDaemonSetV1OrDie(tmpl)
+
+	// use the following routine for things that would require special formatting/padding (yaml)
+	r = strings.NewReplacer(
+		"${FLAGS}", strings.Join(operandFlags, " \\\n"),
+	)
+	for containerIndex, container := range required.Spec.Template.Spec.Containers {
+		for argIndex, arg := range container.Args {
+			required.Spec.Template.Spec.Containers[containerIndex].Args[argIndex] = r.Replace(arg)
+		}
+	}
+	for initContainerIndex, initContainer := range required.Spec.Template.Spec.InitContainers {
+		for argIndex, arg := range initContainer.Args {
+			required.Spec.Template.Spec.InitContainers[initContainerIndex].Args[argIndex] = r.Replace(arg)
+		}
+	}
 
 	// we set this so that when the requested image pull spec changes, we always have a diff.  Remember that we don't directly
 	// diff any fields on the daemonset because they can be rewritten by admission and we don't want to constantly be fighting
