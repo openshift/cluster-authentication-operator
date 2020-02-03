@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
@@ -32,6 +33,11 @@ var (
 	scheme  = runtime.NewScheme()
 	codecs  = serializer.NewCodecFactory(scheme)
 	encoder = codecs.LegacyCodec(osinv1.GroupVersion) // TODO I think there is a better way to do this
+
+	// save latest OIDC password grant check not to bomb the provider with
+	// login requests each sync loop
+	// map is checkedSecretResourceVersion -> passwordGrantsAllowed
+	oidcPasswordChecks = map[string]bool{}
 )
 
 func init() {
@@ -44,7 +50,12 @@ type idpData struct {
 	login     bool
 }
 
-func (c *authOperator) convertProviderConfigToIDPData(ctx context.Context, providerConfig *configv1.IdentityProviderConfig, syncData *configSyncData, i int) (*idpData, error) {
+func (c *authOperator) convertProviderConfigToIDPData(
+	ctx context.Context,
+	providerConfig *configv1.IdentityProviderConfig,
+	syncData *configSyncData,
+	i int,
+) (*idpData, error) {
 	const missingProviderFmt string = "type %s was specified, but its configuration is missing"
 
 	data := &idpData{login: true}
@@ -189,7 +200,21 @@ func (c *authOperator) convertProviderConfigToIDPData(ctx context.Context, provi
 				Email:             openIDConfig.Claims.Email,
 			},
 		}
-		data.challenge = false // TODO perform password grant flow with dummy info to probe for this
+
+		// openshift CR validating in kube-apiserver does not allow
+		// challenge-redirecting IdPs to be configured with OIDC so it is safe
+		// to allow challenge-issuing flow if it's available on the OIDC side
+		challengeFlowsAllowed, err := c.checkOIDCPasswordGrantFlow(
+			ctx,
+			urls.Token,
+			openIDConfig.ClientID,
+			openIDConfig.CA,
+			openIDConfig.ClientSecret,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error attempting password grant flow: %v", err)
+		}
+		data.challenge = challengeFlowsAllowed
 
 	case configv1.IdentityProviderTypeRequestHeader:
 		requestHeaderConfig := providerConfig.RequestHeader
@@ -217,6 +242,8 @@ func (c *authOperator) convertProviderConfigToIDPData(ctx context.Context, provi
 	return data, nil
 }
 
+// discoverOpenIDURLs retrieves basic information about an OIDC server with hostname
+// given by the `issuer` argument
 func (c *authOperator) discoverOpenIDURLs(ctx context.Context, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
@@ -291,6 +318,75 @@ func (c *authOperator) transportForCARef(ctx context.Context, ca configv1.Config
 		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", "openshift-config", ca.Name, key)
 	}
 	return transportFor("", caData, nil, nil)
+}
+
+func (c *authOperator) checkOIDCPasswordGrantFlow(
+	ctx context.Context,
+	tokenURL, clientID string,
+	caRererence configv1.ConfigMapNameReference,
+	clientSecretReference configv1.SecretNameReference,
+) (bool, error) {
+	secret, err := c.secrets.Secrets("openshift-config").Get(ctx, clientSecretReference.Name, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("couldn't get the referenced secret: %v", err)
+	}
+
+	// check whether we already attempted this not to send unneccessary login
+	// requests against the provider
+	if cachedResult, ok := oidcPasswordChecks[secret.ResourceVersion]; ok {
+		klog.V(4).Info("using cached result for OIDC password grant check")
+		return cachedResult, nil
+	}
+
+	clientSecret, ok := secret.Data["clientSecret"]
+	if !ok || len(clientSecret) == 0 {
+		return false, fmt.Errorf("the referenced secret does not contain a value for the 'clientSecret' key")
+	}
+
+	transport, err := c.transportForCARef(ctx, caRererence, corev1.ServiceAccountRootCAKey)
+	if err != nil {
+		return false, fmt.Errorf("couldn't get a transport for the referenced CA: %v", err)
+	}
+
+	// prepare the grant-checking query
+	query := url.Values{}
+	query.Add("client_id", clientID)
+	query.Add("client_secret", string(clientSecret))
+	query.Add("grant_type", "password")
+	query.Add("scope", "openid") // "openid" is the minimal scope, it MUST be present in an OIDC authn request
+	query.Add("username", "test")
+	query.Add("password", "test")
+	body := strings.NewReader(query.Encode())
+
+	req, err := http.NewRequest("POST", tokenURL, body)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	// explicitly set Accept to 'application/json' as that's the expected deserializable output
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Transport: transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	respJSON := json.NewDecoder(resp.Body)
+	respMap := map[string]interface{}{}
+	if err = respJSON.Decode(&respMap); err != nil {
+		return false, fmt.Errorf("failed to decode response from the OIDC server: %v", err)
+	}
+
+	if errVal, ok := respMap["error"]; ok {
+		oidcPasswordChecks[secret.ResourceVersion] = errVal == "invalid_grant" // wrong password, but password grants allowed
+	} else {
+		_, ok = respMap["access_token"] // in case we managed to hit the correct user
+		oidcPasswordChecks[secret.ResourceVersion] = ok
+	}
+
+	return oidcPasswordChecks[secret.ResourceVersion], nil
 }
 
 type openIDProviderJSON struct {

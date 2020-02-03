@@ -66,12 +66,17 @@ func (c *authOperator) handleOAuthConfig(
 	var errsIDP []error
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		data, err := c.convertProviderConfigToIDPData(ctx, &idp.IdentityProviderConfig, &syncData, i)
+		data, err := c.convertProviderConfigToIDPData(ctx,
+			&idp.IdentityProviderConfig,
+			&syncData, i,
+		)
+
 		if err != nil {
 			klog.Errorf("failed to honor IDP %#v: %v", idp, err)
 			errsIDP = append(errsIDP, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
 			continue
 		}
+
 		identityProviders = append(identityProviders,
 			osinv1.IdentityProvider{
 				Name:            idp.Name,
