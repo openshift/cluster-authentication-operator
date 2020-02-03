@@ -233,7 +233,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}
 
 	go operator.Run(ctx.Done())
-	go staleConditions.Run(1, ctx.Done())
+	go staleConditions.Run(ctx, 1)
 	go ingressStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()
