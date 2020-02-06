@@ -70,6 +70,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		informers.WithNamespace("openshift-authentication"),
 	)
 
+	kubeSystemNamespaceInformers := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+		informers.WithNamespace("kube-system"),
+	)
+
 	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
 		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
@@ -133,6 +137,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		*operatorClient,
 		oauthClient.OauthV1(),
 		kubeInformersNamespaced,
+		kubeSystemNamespaceInformers,
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
 		routeClient.RouteV1(),
@@ -205,6 +210,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
+		kubeSystemNamespaceInformers,
 		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
