@@ -101,6 +101,7 @@ func NewAuthenticationOperator(
 	authOpConfigClient OperatorClient,
 	oauthClientClient oauthclient.OauthV1Interface,
 	kubeInformersNamespaced informers.SharedInformerFactory,
+	kubeSystemNamespaceInformers informers.SharedInformerFactory,
 	kubeClient kubernetes.Interface,
 	routeInformer routeinformer.RouteInformer,
 	routeClient routeclient.RouteV1Interface,
@@ -156,6 +157,7 @@ func NewAuthenticationOperator(
 	configV1Informers := configInformers.Config().V1()
 
 	targetNameFilter := operator.FilterByNames("oauth-openshift")
+	kubeadminNameFilter := operator.FilterByNames("kubeadmin")
 	configNameFilter := operator.FilterByNames("cluster")
 	prefixFilter := getPrefixFilter()
 
@@ -166,6 +168,8 @@ func NewAuthenticationOperator(
 
 		operator.WithInformer(coreInformers.Secrets(), prefixFilter),
 		operator.WithInformer(coreInformers.ConfigMaps(), prefixFilter),
+
+		operator.WithInformer(kubeSystemNamespaceInformers.Core().V1().Secrets(), kubeadminNameFilter),
 
 		operator.WithInformer(authOpConfigClient.Informers.Operator().V1().Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
