@@ -98,6 +98,7 @@ func defaultDeployment(
 	klog.V(4).Infof("tracked resource versions: %s", rvs)
 	rvsHash := sha512.Sum512([]byte(rvs))
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
+	gracePeriod := int64(40)
 
 	// make sure ApplyDeployment knows to update
 	meta := defaultMeta()
@@ -135,10 +136,21 @@ exec oauth-server osinserver --config=%s --v=%d
 									ContainerPort: 6443,
 								},
 							},
-							VolumeMounts:             mounts,
-							Env:                      proxyConfigToEnvVars(proxyConfig),
-							ReadinessProbe:           defaultProbe(),
-							LivenessProbe:            livenessProbe(),
+							VolumeMounts:   mounts,
+							Env:            proxyConfigToEnvVars(proxyConfig),
+							ReadinessProbe: defaultProbe(),
+							LivenessProbe:  livenessProbe(),
+							Lifecycle: &corev1.Lifecycle{
+								// Delay shutdown by 25s to ensure existing connections are drained
+								// * 5s for endpoint propagation on delete
+								// * 5s for route reload
+								// * 15s for the longest running request to finish
+								PreStop: &corev1.Handler{
+									Exec: &corev1.ExecAction{
+										Command: []string{"sleep", "25"},
+									},
+								},
+							},
 							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
@@ -148,6 +160,7 @@ exec oauth-server osinserver --config=%s --v=%d
 							},
 						},
 					},
+					TerminationGracePeriodSeconds: &gracePeriod,
 					// deploy on master nodes
 					NodeSelector: map[string]string{
 						"node-role.kubernetes.io/master": "",
