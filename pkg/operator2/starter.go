@@ -74,7 +74,8 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		informers.WithNamespace("kube-system"),
 	)
 
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, resync,
+	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
+	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, time.Second*30,
 		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
 
