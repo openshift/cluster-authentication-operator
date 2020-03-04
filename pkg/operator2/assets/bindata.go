@@ -2,7 +2,7 @@
 // sources:
 // bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
 // bindata/oauth-apiserver/cm.yaml
-// bindata/oauth-apiserver/ds.yaml
+// bindata/oauth-apiserver/deploy.yaml
 // bindata/oauth-apiserver/ns.yaml
 // bindata/oauth-apiserver/sa.yaml
 // bindata/oauth-apiserver/svc.yaml
@@ -139,17 +139,16 @@ func oauthApiserverCmYaml() (*asset, error) {
 	return a, nil
 }
 
-var _oauthApiserverDsYaml = []byte(`apiVersion: apps/v1
-kind: DaemonSet
+var _oauthApiserverDeployYaml = []byte(`apiVersion: apps/v1
+kind: Deployment
 metadata:
   namespace: openshift-oauth-apiserver
   name: apiserver
   labels:
     app: openshift-oauth-apiserver
     apiserver: "true"
+# The number of replicas will be set in code to the number of master nodes.
 spec:
-  updateStrategy:
-    type: RollingUpdate
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
@@ -268,20 +267,36 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
-      - operator: Exists
+        # Ensure pod can be scheduled on master nodes
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+          # Ensure pod can be evicted if the node is unreachable
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+          # Ensure scheduling is delayed until node readiness
+          # (i.e. network operator configures CNI on the node)
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+      # Anti-affinity is configured in code due to the need to scope
+      # selection to the computed pod template.
 `)
 
-func oauthApiserverDsYamlBytes() ([]byte, error) {
-	return _oauthApiserverDsYaml, nil
+func oauthApiserverDeployYamlBytes() ([]byte, error) {
+	return _oauthApiserverDeployYaml, nil
 }
 
-func oauthApiserverDsYaml() (*asset, error) {
-	bytes, err := oauthApiserverDsYamlBytes()
+func oauthApiserverDeployYaml() (*asset, error) {
+	bytes, err := oauthApiserverDeployYamlBytes()
 	if err != nil {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "oauth-apiserver/ds.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	info := bindataFileInfo{name: "oauth-apiserver/deploy.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -581,7 +596,7 @@ func AssetNames() []string {
 var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/apiserver-clusterrolebinding.yaml": oauthApiserverApiserverClusterrolebindingYaml,
 	"oauth-apiserver/cm.yaml":                           oauthApiserverCmYaml,
-	"oauth-apiserver/ds.yaml":                           oauthApiserverDsYaml,
+	"oauth-apiserver/deploy.yaml":                       oauthApiserverDeployYaml,
 	"oauth-apiserver/ns.yaml":                           oauthApiserverNsYaml,
 	"oauth-apiserver/sa.yaml":                           oauthApiserverSaYaml,
 	"oauth-apiserver/svc.yaml":                          oauthApiserverSvcYaml,
@@ -632,7 +647,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 	"oauth-apiserver": {nil, map[string]*bintree{
 		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
 		"cm.yaml":                           {oauthApiserverCmYaml, map[string]*bintree{}},
-		"ds.yaml":                           {oauthApiserverDsYaml, map[string]*bintree{}},
+		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
 		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
 		"sa.yaml":                           {oauthApiserverSaYaml, map[string]*bintree{}},
 		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
