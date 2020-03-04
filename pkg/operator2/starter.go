@@ -136,7 +136,6 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	return nil
 }
 
-
 func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
 	// protobuf can be used with non custom resources
 	// protobuf can be used with non custom resources
