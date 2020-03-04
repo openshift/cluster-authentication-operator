@@ -129,7 +129,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}
 
 	for _, controllerRunFn := range opCtx.controllersToRunFunc {
-		controllerRunFn(ctx, 1)
+		go controllerRunFn(ctx, 1)
 	}
 
 	<-ctx.Done()
