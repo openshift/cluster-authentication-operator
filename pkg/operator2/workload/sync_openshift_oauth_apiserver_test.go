@@ -73,7 +73,7 @@ func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
 				kubeClient:    fakeKubeClient,
 			}
 
-			ds, err := target.syncDaemonSet(scenario.operator, scenario.operator.Status.Generations)
+			ds, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations)
 			if err != nil {
 				t.Fatal(err)
 			}

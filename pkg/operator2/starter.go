@@ -85,6 +85,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-config-managed",
 		"openshift-oauth-apiserver",
 		"openshift-authentication-operator",
+		"", // an informer for non-namespaced resources
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
@@ -304,13 +305,24 @@ func prepareOauthAPIServerOperator(operatorCtx *operatorContext) error {
 		return err
 	}
 
+	authAPIServerSyncFn := workload.NewOAuthAPIServerWorkload(
+		operatorCtx.operatorClient.Client,
+		workload.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		workload.EnsureAtMostOnePodPerNode,
+		"openshift-oauth-apiserver",
+		os.Getenv("IMAGE_OAUTH_APISERVER"),
+		os.Getenv("OPERATOR_IMAGE"),
+		operatorCtx.kubeClient,
+		eventRecorder,
+		operatorCtx.versionRecorder).Sync
+
 	workloadController := workload.NewController(
 		"OAuthAPIServerController",
 		"openshift-authentication-operator",
 		"openshift-oauth-apiserver",
 		operatorCtx.operatorClient,
 		operatorCtx.kubeClient,
-		workload.NewOAuthAPIServerWorkload(operatorCtx.operatorClient.Client, "openshift-oauth-apiserver", os.Getenv("IMAGE_OAUTH_APISERVER"), os.Getenv("OPERATOR_IMAGE"), operatorCtx.kubeClient, eventRecorder, operatorCtx.versionRecorder).Sync,
+		authAPIServerSyncFn,
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		eventRecorder, operatorCtx.versionRecorder).
 		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer()). // reactor for etcd-serving-ca

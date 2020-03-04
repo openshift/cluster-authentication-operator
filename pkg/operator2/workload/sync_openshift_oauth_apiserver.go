@@ -26,18 +26,25 @@ import (
 
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
-	operatorClient        operatorconfigclient.AuthenticationsGetter
-	targetNamespace       string
-	targetImagePullSpec   string
-	operatorImagePullSpec string
-	kubeClient            kubernetes.Interface
-	eventRecorder         events.Recorder
-	versionRecorder       status.VersionGetter
+	operatorClient operatorconfigclient.AuthenticationsGetter
+	// countNodes a function to return count of nodes on which the workload will be installed
+	countNodes nodeCountFunc
+	// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+	// one pod of a given replicaset from landing on a node.
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc
+	targetNamespace           string
+	targetImagePullSpec       string
+	operatorImagePullSpec     string
+	kubeClient                kubernetes.Interface
+	eventRecorder             events.Recorder
+	versionRecorder           status.VersionGetter
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
 func NewOAuthAPIServerWorkload(
 	operatorClient operatorconfigclient.AuthenticationsGetter,
+	countNodes nodeCountFunc,
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc,
 	targetNamespace string,
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
@@ -46,18 +53,20 @@ func NewOAuthAPIServerWorkload(
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
-		operatorClient:        operatorClient,
-		targetNamespace:       targetNamespace,
-		targetImagePullSpec:   targetImagePullSpec,
-		operatorImagePullSpec: operatorImagePullSpec,
-		kubeClient:            kubeClient,
-		eventRecorder:         eventRecorder,
-		versionRecorder:       versionRecorder,
+		operatorClient:            operatorClient,
+		countNodes:                countNodes,
+		ensureAtMostOnePodPerNode: ensureAtMostOnePodPerNode,
+		targetNamespace:           targetNamespace,
+		targetImagePullSpec:       targetImagePullSpec,
+		operatorImagePullSpec:     operatorImagePullSpec,
+		kubeClient:                kubeClient,
+		eventRecorder:             eventRecorder,
+		versionRecorder:           versionRecorder,
 	}
 }
 
 // Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync() (*appsv1.DaemonSet, []error) {
+func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, []error) {
 	errs := []error{}
 
 	authOperator, err := c.operatorClient.Authentications().Get("cluster", metav1.GetOptions{})
@@ -92,15 +101,15 @@ func (c *OAuthAPIServerWorkload) Sync() (*appsv1.DaemonSet, []error) {
 		}
 	}
 
-	actualDaemonSet, err := c.syncDaemonSet(authOperator, authOperator.Status.Generations)
+	actualDeployment, err := c.syncDeployment(authOperator, authOperator.Status.Generations)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("%q: %v", "daemonsets", err))
+		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
-	return actualDaemonSet, errs
+	return actualDeployment, errs
 }
 
-func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.DaemonSet, error) {
-	tmpl, err := assets.Asset("oauth-apiserver/ds.yaml")
+func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.Deployment, error) {
+	tmpl, err := assets.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +138,7 @@ func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authenti
 		return nil, fmt.Errorf("invalid template reference %q", string(match))
 	}
 
-	required := resourceread.ReadDaemonSetV1OrDie(tmpl)
+	required := resourceread.ReadDeploymentV1OrDie(tmpl)
 
 	// use the following routine for things that would require special formatting/padding (yaml)
 	r = strings.NewReplacer(
@@ -147,7 +156,7 @@ func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authenti
 	}
 
 	// we set this so that when the requested image pull spec changes, we always have a diff.  Remember that we don't directly
-	// diff any fields on the daemonset because they can be rewritten by admission and we don't want to constantly be fighting
+	// diff any fields on the deployment because they can be rewritten by admission and we don't want to constantly be fighting
 	// against admission or defaults.  That was a problem with original versions of apply.
 	if required.Annotations == nil {
 		required.Annotations = map[string]string{}
@@ -159,7 +168,7 @@ func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authenti
 	//required.Labels["revision"] = strconv.Itoa(int(authOperator.Status.LatestAvailableRevision))
 	//required.Spec.Template.Labels["revision"] = strconv.Itoa(int(authOperator.Status.LatestAvailableRevision))
 
-	// we watch some resources so that our daemonset will redeploy without explicitly and carefully ordered resource creation
+	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
 	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
 		c.kubeClient,
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("config"),
@@ -180,8 +189,25 @@ func (c *OAuthAPIServerWorkload) syncDaemonSet(authOperator *operatorv1.Authenti
 		required.Spec.Template.Annotations[annotationKey] = v
 	}
 
-	ds, _, err := resourceapply.ApplyDaemonSet(c.kubeClient.AppsV1(), c.eventRecorder, required, resourcemerge.ExpectedDaemonSetGeneration(required, generationStatus), false)
-	return ds, err
+	err = c.ensureAtMostOnePodPerNode(&required.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
+	}
+
+	// Set the replica count to the number of master nodes.
+	masterNodeCount, err := c.countNodes(required.Spec.Template.Spec.NodeSelector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
+	}
+	required.Spec.Replicas = masterNodeCount
+	// Set the replica count as an annotation to ensure that ApplyDeployment
+	// will update the deployment in the API when the replica count
+	// changes. Updates are otherwise skipped if the metadata matches and the
+	// generation is up-to-date.
+	required.Annotations["openshiftapiservers.operator.openshift.io/replicas"] = fmt.Sprintf("%d", *masterNodeCount)
+
+	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), c.eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus), false)
+	return deployment, err
 }
 
 // oAuthAPIServerConfig hold configuration for this controller it's taken from ObservedConfig.Raw
@@ -245,23 +271,6 @@ func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPISer
 	}
 
 	return cfg, nil
-}
-
-// padFlags appends "appendString" to each flag except the first one
-func padFlags(flags []string, appendString string) []string {
-	if len(flags) <= 1 {
-		return flags
-	}
-	paddedFlags := make([]string, len(flags))
-	paddedFlags[0] = flags[0]
-
-	flags = flags[1:]
-	for index, flag := range flags {
-		index++
-		paddedFlags[index] = fmt.Sprintf("%s%s", appendString, flag)
-	}
-
-	return paddedFlags
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {

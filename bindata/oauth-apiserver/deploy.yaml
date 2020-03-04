@@ -1,14 +1,13 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   namespace: openshift-oauth-apiserver
   name: apiserver
   labels:
     app: openshift-oauth-apiserver
     apiserver: "true"
+# The number of replicas will be set in code to the number of master nodes.
 spec:
-  updateStrategy:
-    type: RollingUpdate
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
@@ -127,4 +126,20 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
-      - operator: Exists
+        # Ensure pod can be scheduled on master nodes
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+          # Ensure pod can be evicted if the node is unreachable
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+          # Ensure scheduling is delayed until node readiness
+          # (i.e. network operator configures CNI on the node)
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+      # Anti-affinity is configured in code due to the need to scope
+      # selection to the computed pod template.

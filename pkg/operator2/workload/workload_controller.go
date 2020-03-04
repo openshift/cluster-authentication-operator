@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	openshiftconfigclientv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	clusteroperatorv1helpers "github.com/openshift/library-go/pkg/config/clusteroperator/v1helpers"
@@ -17,11 +19,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
@@ -33,9 +37,16 @@ const (
 )
 
 // syncFunc a function that will be used for delegation. It should bring the desired workload into operation.
-type syncFunc func() (*appsv1.DaemonSet, []error)
+type syncFunc func() (*appsv1.Deployment, []error)
 
-// Controller is a generic workload controller that deals with DaemonSet resource.
+// nodeCountFunction a function to return count of nodes
+type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
+
+// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+// one pod of a given replicaset from landing on a node.
+type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec) error
+
+// Controller is a generic workload controller that deals with Deployment resource.
 // Callers must provide a sync function for delegation. It should bring the desired workload into operation.
 // The returned state along with errors will be converted into conditions and persisted in the status field.
 type Controller struct {
@@ -71,7 +82,7 @@ func NewController(name, operatorNamespace, targetNamespace string,
 	versionRecorder status.VersionGetter) *Controller {
 	controllerRef := &Controller{
 		operatorNamespace:            operatorNamespace,
-		name:                         fmt.Sprintf("%sWorkloadCtrl", name), // ends up being OAuthAPIWorkloadCtrl
+		name:                         fmt.Sprintf("%sWorkloadController", name), // ends up being OAuthAPIWorkloadController
 		targetNamespace:              targetNamespace,
 		operatorClient:               operatorClient,
 		kubeClient:                   kubeClient,
@@ -247,13 +258,13 @@ func (c *Controller) preconditionFulfilled(operatorSpec *operatorv1.OperatorSpec
 }
 
 // updateOperatorStatus updates the status based on the actual workload and errors that might have occurred during synchronization.
-func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []error) error {
+func (c *Controller) updateOperatorStatus(workload *appsv1.Deployment, errs []error) error {
 	if errs == nil {
 		errs = []error{}
 	}
 
-	dsAvailableCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%sDaemonSet%s", c.name, operatorv1.OperatorStatusTypeAvailable),
+	deploymentAvailableCondition := operatorv1.OperatorCondition{
+		Type:   fmt.Sprintf("%sDeployment%s", c.name, operatorv1.OperatorStatusTypeAvailable),
 		Status: operatorv1.ConditionTrue,
 	}
 
@@ -262,13 +273,13 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []err
 		Status: operatorv1.ConditionFalse,
 	}
 
-	dsDegradedCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%ssDaemonSetDegraded", c.name),
+	deploymentDegradedCondition := operatorv1.OperatorCondition{
+		Type:   fmt.Sprintf("%sDeploymentDegraded", c.name),
 		Status: operatorv1.ConditionFalse,
 	}
 
-	dsProgressingCondition := operatorv1.OperatorCondition{
-		Type:   fmt.Sprintf("%ssDaemonSet%s", c.name, operatorv1.OperatorStatusTypeProgressing),
+	deploymentProgressingCondition := operatorv1.OperatorCondition{
+		Type:   fmt.Sprintf("%sDeployment%s", c.name, operatorv1.OperatorStatusTypeProgressing),
 		Status: operatorv1.ConditionFalse,
 	}
 
@@ -285,64 +296,69 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []err
 	}
 
 	if workload == nil {
-		message := fmt.Sprintf("daemonset/%s: could not be retrieved", c.targetNamespace)
-		dsAvailableCondition.Status = operatorv1.ConditionFalse
-		dsAvailableCondition.Reason = "NoDaemon"
-		dsAvailableCondition.Message = message
+		message := fmt.Sprintf("deployment/%s: could not be retrieved", c.targetNamespace)
+		deploymentAvailableCondition.Status = operatorv1.ConditionFalse
+		deploymentAvailableCondition.Reason = "NoDeployment"
+		deploymentAvailableCondition.Message = message
 
-		dsProgressingCondition.Status = operatorv1.ConditionTrue
-		dsProgressingCondition.Reason = "NoDaemon"
-		dsProgressingCondition.Message = message
+		deploymentProgressingCondition.Status = operatorv1.ConditionTrue
+		deploymentProgressingCondition.Reason = "NoDeployment"
+		deploymentProgressingCondition.Message = message
 
-		dsDegradedCondition.Status = operatorv1.ConditionTrue
-		dsDegradedCondition.Reason = "NoDaemon"
-		dsDegradedCondition.Message = message
+		deploymentDegradedCondition.Status = operatorv1.ConditionTrue
+		deploymentDegradedCondition.Reason = "NoDeployment"
+		deploymentDegradedCondition.Message = message
 
 		if _, _, updateError := v1helpers.UpdateStatus(c.operatorClient,
-			v1helpers.UpdateConditionFn(dsAvailableCondition),
-			v1helpers.UpdateConditionFn(workloadDegradedCondition),
-			v1helpers.UpdateConditionFn(dsDegradedCondition),
-			v1helpers.UpdateConditionFn(dsProgressingCondition)); updateError != nil {
+			v1helpers.UpdateConditionFn(deploymentAvailableCondition),
+			v1helpers.UpdateConditionFn(deploymentDegradedCondition),
+			v1helpers.UpdateConditionFn(deploymentProgressingCondition),
+			v1helpers.UpdateConditionFn(workloadDegradedCondition)); updateError != nil {
 			return updateError
 		}
 		return errors.NewAggregate(errs)
 	}
 
-	if workload.Status.NumberAvailable == 0 {
-		dsAvailableCondition.Status = operatorv1.ConditionFalse
-		dsAvailableCondition.Reason = "NoPod"
-		dsAvailableCondition.Message = fmt.Sprintf("no %s.%s daemon pods available on any node.", workload.Name, c.targetNamespace)
+	if workload.Status.AvailableReplicas == 0 {
+		deploymentAvailableCondition.Status = operatorv1.ConditionFalse
+		deploymentAvailableCondition.Reason = "NoPod"
+		deploymentAvailableCondition.Message = fmt.Sprintf("no %s.%s pods available on any node.", workload.Name, c.targetNamespace)
 	} else {
-		dsAvailableCondition.Status = operatorv1.ConditionTrue
-		dsAvailableCondition.Reason = "AsExpected"
+		deploymentAvailableCondition.Status = operatorv1.ConditionTrue
+		deploymentAvailableCondition.Reason = "AsExpected"
 	}
 
-	// If the daemonset is up to date, then we are no longer progressing
-	daemonSetAtHighestGeneration := workload.ObjectMeta.Generation == workload.Status.ObservedGeneration
-	if !daemonSetAtHighestGeneration {
-		dsProgressingCondition.Status = operatorv1.ConditionTrue
-		dsProgressingCondition.Reason = "NewGeneration"
-		dsProgressingCondition.Message = fmt.Sprintf("daemonset/%s.%s: observed generation is %d, desired generation is %d.", workload.Name, c.targetNamespace, workload.Status.ObservedGeneration, workload.ObjectMeta.Generation)
+	// If the workload is up to date, then we are no longer progressing
+	workloadAtHighestGeneration := workload.ObjectMeta.Generation == workload.Status.ObservedGeneration
+	if !workloadAtHighestGeneration {
+		deploymentProgressingCondition.Status = operatorv1.ConditionTrue
+		deploymentProgressingCondition.Reason = "NewGeneration"
+		deploymentProgressingCondition.Message = fmt.Sprintf("deployment/%s.%s: observed generation is %d, desired generation is %d.", workload.Name, c.targetNamespace, workload.Status.ObservedGeneration, workload.ObjectMeta.Generation)
 	} else {
-		dsProgressingCondition.Status = operatorv1.ConditionFalse
-		dsProgressingCondition.Reason = "AsExpected"
+		deploymentProgressingCondition.Status = operatorv1.ConditionFalse
+		deploymentProgressingCondition.Reason = "AsExpected"
 	}
 
-	daemonSetHasAllPodsAvailable := workload.Status.NumberAvailable == workload.Status.DesiredNumberScheduled
-	if !daemonSetHasAllPodsAvailable {
-		numNonAvailablePods := workload.Status.DesiredNumberScheduled - workload.Status.NumberAvailable
-		dsDegradedCondition.Status = operatorv1.ConditionTrue
-		dsDegradedCondition.Reason = "UnavailablePod"
-		dsDegradedCondition.Message = fmt.Sprintf("%v of %v requested instances are unavailable for %s.%s", numNonAvailablePods, workload.Status.DesiredNumberScheduled, workload.Name, c.targetNamespace)
-	} else {
-		dsDegradedCondition.Status = operatorv1.ConditionFalse
-		dsDegradedCondition.Reason = "AsExpected"
+	desiredReplicas := int32(1)
+	if workload.Spec.Replicas != nil {
+		desiredReplicas = *(workload.Spec.Replicas)
 	}
 
-	// if the daemonset is all available and at the expected generation, then update the version to the latest
-	daemonSetHasAllPodsUpdated := workload.Status.UpdatedNumberScheduled == workload.Status.DesiredNumberScheduled
-	if daemonSetAtHighestGeneration && daemonSetHasAllPodsAvailable && daemonSetHasAllPodsUpdated {
-		// we have the actual daemonset and we need the pull spec
+	workloadHasAllPodsAvailable := workload.Status.AvailableReplicas == desiredReplicas
+	if !workloadHasAllPodsAvailable {
+		numNonAvailablePods := desiredReplicas - workload.Status.AvailableReplicas
+		deploymentDegradedCondition.Status = operatorv1.ConditionTrue
+		deploymentDegradedCondition.Reason = "UnavailablePod"
+		deploymentDegradedCondition.Message = fmt.Sprintf("%v of %v requested instances are unavailable for %s.%s", numNonAvailablePods, desiredReplicas, workload.Name, c.targetNamespace)
+	} else {
+		deploymentDegradedCondition.Status = operatorv1.ConditionFalse
+		deploymentDegradedCondition.Reason = "AsExpected"
+	}
+
+	// if the workload is all available and at the expected generation, then update the version to the latest
+	workloadHasAllPodsUpdated := workload.Status.UpdatedReplicas == desiredReplicas
+	if workloadAtHighestGeneration && workloadHasAllPodsAvailable && workloadHasAllPodsUpdated {
+		// we have the actual deployment and we need the pull spec
 		operandVersion := status.VersionForOperand(
 			c.operatorNamespace,
 			workload.Spec.Template.Spec.Containers[0].Image,
@@ -352,15 +368,15 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []err
 	}
 
 	updateGenerationFn := func(newStatus *operatorv1.OperatorStatus) error {
-		resourcemerge.SetDaemonSetGeneration(&newStatus.Generations, workload)
+		resourcemerge.SetDeploymentGeneration(&newStatus.Generations, workload)
 		return nil
 	}
 
 	if _, _, updateError := v1helpers.UpdateStatus(c.operatorClient,
-		v1helpers.UpdateConditionFn(dsAvailableCondition),
+		v1helpers.UpdateConditionFn(deploymentAvailableCondition),
+		v1helpers.UpdateConditionFn(deploymentDegradedCondition),
+		v1helpers.UpdateConditionFn(deploymentProgressingCondition),
 		v1helpers.UpdateConditionFn(workloadDegradedCondition),
-		v1helpers.UpdateConditionFn(dsDegradedCondition),
-		v1helpers.UpdateConditionFn(dsProgressingCondition),
 		updateGenerationFn); updateError != nil {
 		return updateError
 	}
@@ -369,4 +385,67 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.DaemonSet, errs []err
 		return errors.NewAggregate(errs)
 	}
 	return nil
+}
+
+// EnsureAtMostOnePodPerNode updates the deployment spec to prevent more than
+// one pod of a given replicaset from landing on a node. It accomplishes this
+// by adding a uuid as a label on the template and updates the pod
+// anti-affinity term to include that label. Since the deployment is only
+// written (via ApplyDeployment) when the metadata differs or the generations
+// don't match, the uuid should only be updated in the API when a new
+// replicaset is created.
+func EnsureAtMostOnePodPerNode(spec *appsv1.DeploymentSpec) error {
+	uuidKey := "anti-affinity-uuid"
+	uuidValue := uuid.New().String()
+
+	// Label the pod template with the template hash
+	spec.Template.Labels[uuidKey] = uuidValue
+
+	// Ensure that match labels are defined
+	if spec.Selector == nil {
+		return fmt.Errorf("deployment is missing spec.selector")
+	}
+	if len(spec.Selector.MatchLabels) == 0 {
+		return fmt.Errorf("deployment is missing spec.selector.matchLabels")
+	}
+
+	// Ensure anti-affinity selects on the uuid
+	antiAffinityMatchLabels := map[string]string{
+		uuidKey: uuidValue,
+	}
+	// Ensure anti-affinity selects on the same labels as the deployment
+	for key, value := range spec.Selector.MatchLabels {
+		antiAffinityMatchLabels[key] = value
+	}
+
+	// Add an anti-affinity rule to the pod template that precludes more than
+	// one pod for a uuid from being scheduled to a node.
+	spec.Template.Spec.Affinity = &corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+				{
+					TopologyKey: "kubernetes.io/hostname",
+					LabelSelector: &metav1.LabelSelector{
+						MatchLabels: antiAffinityMatchLabels,
+					},
+				},
+			},
+		},
+	}
+
+	return nil
+}
+
+// CountNodesFuncWrapper returns a function that returns the number of nodes that match the given
+// selector. This supports determining the number of master nodes to
+// allow setting the deployment replica count to match.
+func CountNodesFuncWrapper(nodeLister corev1listers.NodeLister) nodeCountFunc {
+	return func(nodeSelector map[string]string) (*int32, error) {
+		nodes, err := nodeLister.List(labels.SelectorFromSet(nodeSelector))
+		if err != nil {
+			return nil, err
+		}
+		replicas := int32(len(nodes))
+		return &replicas, nil
+	}
 }
