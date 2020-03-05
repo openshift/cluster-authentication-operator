@@ -47,6 +47,8 @@ spec:
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
                 --shutdown-delay-duration=3s \
+                --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
+                --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
                 --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 \
               --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
               --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 \
