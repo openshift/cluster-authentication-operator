@@ -33,7 +33,7 @@ var customAPIServerArgsYAML = `
       tls-min-version:
       - VersionTLS12`
 
-func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
+func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
 		name            string
 		goldenFile      string
@@ -42,24 +42,24 @@ func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
 	}{
 		// scenario 1
 		{
-			name:       "happy path: a daemonset with default values is created",
+			name:       "happy path: a deployment with default values is created",
 			goldenFile: "./testdata/sync_ds_scenario_1.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
 			},
-			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:daemonsets:openshift-oauth-apiserver:apiserver", "create:daemonsets:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
 		},
 
 		// scenario 2
 		{
-			name:       "a daemonset with custom flags (for oauthapi server) is created",
+			name:       "a deployment with custom flags (for oauthapi server) is created",
 			goldenFile: "./testdata/sync_ds_scenario_2.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsYAML)},
 				}},
 			},
-			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:daemonsets:openshift-oauth-apiserver:apiserver", "create:daemonsets:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
 		},
 	}
 
@@ -69,11 +69,13 @@ func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
 			fakeKubeClient := fake.NewSimpleClientset()
 
 			target := &OAuthAPIServerWorkload{
-				eventRecorder: eventRecorder,
-				kubeClient:    fakeKubeClient,
+				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
+				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec) error { return nil },
+				eventRecorder:             eventRecorder,
+				kubeClient:                fakeKubeClient,
 			}
 
-			ds, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations)
+			actualDeployment, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,13 +85,13 @@ func TestSyncOAuthAPIServerDaemonSet(t *testing.T) {
 
 			if len(scenario.goldenFile) > 0 {
 				data := readBytesFromFile(t, scenario.goldenFile)
-				goldenDs := &appsv1.DaemonSet{}
-				if err := runtime.DecodeInto(codec, data, goldenDs); err != nil {
+				goldenDeployment := &appsv1.Deployment{}
+				if err := runtime.DecodeInto(codec, data, goldenDeployment); err != nil {
 					t.Fatal(err)
 				}
 
-				if !equality.Semantic.DeepEqual(ds, goldenDs) {
-					t.Errorf("created DaemonSet is different from the expected one (file) : %s", diff.ObjectDiff(ds, goldenDs))
+				if !equality.Semantic.DeepEqual(actualDeployment, goldenDeployment) {
+					t.Errorf("created Deployment is different from the expected one (file) : %s", diff.ObjectDiff(actualDeployment, goldenDeployment))
 				}
 			}
 		})
