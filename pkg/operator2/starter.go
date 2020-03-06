@@ -156,7 +156,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 			{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
 			{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
 			{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
-			{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift"},
+			{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
 			{Resource: "services", Name: "oauth-openshift"},
 			{Resource: "namespaces", Name: "openshift-config"},
 			{Resource: "namespaces", Name: "openshift-config-managed"},
