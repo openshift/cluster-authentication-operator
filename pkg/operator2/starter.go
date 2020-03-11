@@ -2,10 +2,6 @@ package operator2
 
 import (
 	"context"
-	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
 	"os"
 	"time"
 
@@ -27,7 +23,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/workload"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
-	"github.com/openshift/library-go/pkg/operator/events"
+	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -117,10 +113,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	opCtx.resourceSyncController = resourceSyncer
 	opCtx.operatorClient = operatorClient
 
-	if err := prepareOauthOperator(ctx, controllerContext, opCtx); err != nil {
+	if err := prepareOauthOperator(controllerContext, opCtx); err != nil {
 		return err
 	}
-	if err := prepareOauthAPIServerOperator(opCtx); err != nil {
+	if err := prepareOauthAPIServerOperator(controllerContext, opCtx); err != nil {
 		return err
 	}
 
@@ -141,7 +137,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	return nil
 }
 
-func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
+func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
 	// protobuf can be used with non custom resources
 	// protobuf can be used with non custom resources
 	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
@@ -287,13 +283,8 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	return nil
 }
 
-func prepareOauthAPIServerOperator(operatorCtx *operatorContext) error {
-
-	controllerRef, err := events.GetControllerReferenceForCurrentPod(operatorCtx.kubeClient, "openshift-authentication-operator", nil)
-	if err != nil {
-		klog.Warningf("unable to get owner reference (falling back to namespace): %v", err)
-	}
-	eventRecorder := events.NewKubeRecorder(operatorCtx.kubeClient.CoreV1().Events("openshift-authentication-operator"), "authentication", controllerRef)
+func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
+	eventRecorder := controllerContext.EventRecorder.ForComponent("oauth-apiserver")
 
 	// add syncing for etcd certs for oauthapi-server
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
@@ -320,30 +311,26 @@ func prepareOauthAPIServerOperator(operatorCtx *operatorContext) error {
 		eventRecorder,
 		operatorCtx.versionRecorder)
 
-	workloadController := workloadcontroller.NewController(
+	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
+		operatorCtx.operatorClient,
+		eventRecorder,
+	).WithWorkloadController(
 		"OAuthAPIServerController",
 		"openshift-authentication-operator",
 		"openshift-oauth-apiserver",
 		os.Getenv("OPERATOR_IMAGE_VERSION"),
 		"APIServer",
-		operatorCtx.operatorClient,
 		operatorCtx.kubeClient,
 		authAPIServerWorkload,
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
-		eventRecorder, operatorCtx.versionRecorder).
-		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer()). // reactor for etcd-serving-ca
-		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer()).    // reactor for etcd-client
-		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ServiceAccounts().Informer()).
-		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Services().Informer()).
-		AddInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().DaemonSets().Informer()).
-		AddInformer(operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer()).
-		AddNamespaceInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Namespaces().Informer())
-
-
-
-	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
-		operatorCtx.operatorClient,
-		eventRecorder,
+		operatorCtx.versionRecorder,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Namespaces().Informer(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer(), // reactor for etcd-serving-ca
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer(),    // reactor for etcd-client
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ServiceAccounts().Informer(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Services().Informer(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().DaemonSets().Informer(),
+		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithoutAPIServiceController().
 		WithoutClusterOperatorStatusController().
 		WithoutFinalizerController().
@@ -352,9 +339,11 @@ func prepareOauthAPIServerOperator(operatorCtx *operatorContext) error {
 		WithoutStaticResourcesController().
 		PrepareRun()
 
+	if err != nil {
+		return err
+	}
 
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, workloadController.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int){apiServerControllers.Run(ctx)})
+	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) })
 
 	return nil
 }
