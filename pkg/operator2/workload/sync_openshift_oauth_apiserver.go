@@ -24,6 +24,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// nodeCountFunction a function to return count of nodes
+type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
+
+// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+// one pod of a given replicaset from landing on a node.
+type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec) error
+
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
 	operatorClient operatorconfigclient.AuthenticationsGetter
@@ -65,16 +72,8 @@ func NewOAuthAPIServerWorkload(
 	}
 }
 
-// Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, []error) {
-	errs := []error{}
-
-	authOperator, err := c.operatorClient.Authentications().Get("cluster", metav1.GetOptions{})
-	if err != nil {
-		errs = append(errs, err)
-		return nil, errs
-	}
-
+// PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
+func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
 	// TODO: block until config is obvserved when required
 	/*if operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec); err != nil {
 		errs = append(errs, err)
@@ -86,9 +85,21 @@ func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, []error) {
 			return nil, errs
 		}
 	}*/
+	return true, nil
+}
+
+// Sync essentially manages OAuthAPI server.
+func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
+	errs := []error{}
+
+	authOperator, err := c.operatorClient.Authentications().Get("cluster", metav1.GetOptions{})
+	if err != nil {
+		errs = append(errs, err)
+		return nil, false, errs
+	}
 
 	// manage assets
-	directResourceResults := resourceapply.ApplyDirectly(c.kubeClient, c.eventRecorder, assets.Asset,
+	directResourceResults := resourceapply.ApplyDirectly(resourceapply.NewKubeClientHolder(c.kubeClient), c.eventRecorder, assets.Asset,
 		"oauth-apiserver/ns.yaml",
 		"oauth-apiserver/apiserver-clusterrolebinding.yaml",
 		"oauth-apiserver/svc.yaml",
@@ -105,7 +116,7 @@ func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, []error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
-	return actualDeployment, errs
+	return actualDeployment, true, errs
 }
 
 func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.Deployment, error) {
