@@ -2,6 +2,9 @@ package operator2
 
 import (
 	"context"
+	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 	"os"
 	"time"
@@ -336,7 +339,22 @@ func prepareOauthAPIServerOperator(operatorCtx *operatorContext) error {
 		AddInformer(operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer()).
 		AddNamespaceInformer(operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Namespaces().Informer())
 
+
+
+	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
+		operatorCtx.operatorClient,
+		eventRecorder,
+	).WithoutAPIServiceController().
+		WithoutClusterOperatorStatusController().
+		WithoutFinalizerController().
+		WithoutLogLevelController().
+		WithoutConfigUpgradableController().
+		WithoutStaticResourcesController().
+		PrepareRun()
+
+
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, workloadController.Run)
+	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int){apiServerControllers.Run(ctx)})
 
 	return nil
 }
