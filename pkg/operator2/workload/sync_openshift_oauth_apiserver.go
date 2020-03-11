@@ -98,20 +98,6 @@ func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
 		return nil, false, errs
 	}
 
-	// manage assets
-	directResourceResults := resourceapply.ApplyDirectly(resourceapply.NewKubeClientHolder(c.kubeClient), c.eventRecorder, assets.Asset,
-		"oauth-apiserver/ns.yaml",
-		"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-		"oauth-apiserver/svc.yaml",
-		"oauth-apiserver/sa.yaml",
-		"oauth-apiserver/cm.yaml",
-	)
-	for _, currResult := range directResourceResults {
-		if currResult.Error != nil {
-			errs = append(errs, fmt.Errorf("%q (%T): %v", currResult.File, currResult.Type, currResult.Error))
-		}
-	}
-
 	actualDeployment, err := c.syncDeployment(authOperator, authOperator.Status.Generations)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))

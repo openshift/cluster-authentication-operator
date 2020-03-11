@@ -20,6 +20,9 @@ import (
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/workload"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -31,9 +34,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
 const (
@@ -331,12 +331,24 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Services().Informer(),
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().DaemonSets().Informer(),
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
-	).WithoutAPIServiceController().
+	).WithStaticResourcesController(
+		"APIServerStaticResources",
+		assets.Asset,
+		[]string{
+			"oauth-apiserver/ns.yaml",
+			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+			"oauth-apiserver/svc.yaml",
+			"oauth-apiserver/sa.yaml",
+			"oauth-apiserver/cm.yaml",
+		},
+		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.kubeClient,
+	).
+		WithoutAPIServiceController().
 		WithoutClusterOperatorStatusController().
 		WithoutFinalizerController().
 		WithoutLogLevelController().
 		WithoutConfigUpgradableController().
-		WithoutStaticResourcesController().
 		PrepareRun()
 
 	if err != nil {
@@ -344,7 +356,6 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 	}
 
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) })
-
 	return nil
 }
 
