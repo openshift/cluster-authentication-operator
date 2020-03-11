@@ -67,7 +67,7 @@ spec:
           readinessProbe:
             failureThreshold: 10
             httpGet:
-              path: healthz
+              path: readyz
               port: 8443
               scheme: HTTPS
           resources:

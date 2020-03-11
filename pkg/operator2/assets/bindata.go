@@ -237,7 +237,7 @@ spec:
           httpGet:
             scheme: HTTPS
             port: 8443
-            path: healthz
+            path: readyz
       terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
       volumes:
       - name: config
@@ -310,7 +310,6 @@ metadata:
     openshift.io/node-selector: ""
   name: openshift-oauth-apiserver
   labels:
-    openshift.io/run-level: "1"
     openshift.io/cluster-monitoring: "true"
 `)
 

@@ -7,7 +7,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -60,9 +59,6 @@ type operatorContext struct {
 // TODO: in the future we might move each operator to its onw pkg
 // TODO: consider using the new operator framework
 func RunOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext) error {
-	opCtx := &operatorContext{}
-
-	// protobuf can be used with non custom resources
 	kubeClient, err := kubernetes.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
@@ -86,6 +82,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-oauth-apiserver",
 		"openshift-authentication-operator",
 		"", // an informer for non-namespaced resources
+		"kube-system",
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
@@ -106,30 +103,31 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
-	opCtx.versionRecorder = status.NewVersionGetter()
-	opCtx.kubeClient = kubeClient
-	opCtx.configClient = configClient
-	opCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
-	opCtx.resourceSyncController = resourceSyncer
-	opCtx.operatorClient = operatorClient
+	operatorCtx := &operatorContext{}
+	operatorCtx.versionRecorder = status.NewVersionGetter()
+	operatorCtx.kubeClient = kubeClient
+	operatorCtx.configClient = configClient
+	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
+	operatorCtx.resourceSyncController = resourceSyncer
+	operatorCtx.operatorClient = operatorClient
 
-	if err := prepareOauthOperator(controllerContext, opCtx); err != nil {
+	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
 		return err
 	}
-	if err := prepareOauthAPIServerOperator(controllerContext, opCtx); err != nil {
+	if err := prepareOauthAPIServerOperator(controllerContext, operatorCtx); err != nil {
 		return err
 	}
 
-	opCtx.informersToRunFunc = append(opCtx.informersToRunFunc, kubeInformersForNamespaces.Start)
-	opCtx.informersToRunFunc = append(opCtx.informersToRunFunc, authOperatorConfigInformers.Start)
+	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, kubeInformersForNamespaces.Start)
+	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, authOperatorConfigInformers.Start)
 
-	opCtx.controllersToRunFunc = append(opCtx.controllersToRunFunc, resourceSyncer.Run)
+	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, resourceSyncer.Run)
 
-	for _, informerToRunFn := range opCtx.informersToRunFunc {
+	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
 		informerToRunFn(ctx.Done())
 	}
 
-	for _, controllerRunFn := range opCtx.controllersToRunFunc {
+	for _, controllerRunFn := range operatorCtx.controllersToRunFunc {
 		go controllerRunFn(ctx, 1)
 	}
 
@@ -138,8 +136,6 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 }
 
 func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
-	// protobuf can be used with non custom resources
-	// protobuf can be used with non custom resources
 	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
@@ -151,14 +147,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		return err
 	}
 
-	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(operatorCtx.kubeClient, resync,
-		informers.WithNamespace("openshift-authentication"),
-	)
-
-	kubeSystemNamespaceInformers := informers.NewSharedInformerFactoryWithOptions(operatorCtx.kubeClient, resync,
-		informers.WithNamespace("kube-system"),
-	)
-
+	openshiftAuthenticationInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication")
+	kubeSystemNamespaceInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("kube-system")
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
 		routeinformer.WithNamespace("openshift-authentication"),
 		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
@@ -195,7 +185,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	operator := NewAuthenticationOperator(
 		*operatorCtx.operatorClient,
 		oauthClient.OauthV1(),
-		kubeInformersNamespaced,
+		openshiftAuthenticationInformers,
 		kubeSystemNamespaceInformers,
 		operatorCtx.kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
@@ -246,14 +236,14 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
 		configInformers.Config().V1().Ingresses(),
-		kubeInformersNamespaced.Core().V1().Secrets(),
+		openshiftAuthenticationInformers.Core().V1().Secrets(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"oauth-openshift",
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
-		kubeInformersNamespaced,
+		openshiftAuthenticationInformers,
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.operatorClient,
@@ -266,19 +256,18 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	// TODO move to config observers
 	// configobserver.NewConfigObserver(...)
 
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, kubeInformersNamespaced.Start)
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, routeInformersNamespaced.Start)
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, configInformers.Start)
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, kubeSystemNamespaceInformers.Start)
+	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, routeInformersNamespaced.Start, configInformers.Start, kubeSystemNamespaceInformers.Start)
 
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, clusterOperatorStatus.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, configOverridesController.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, logLevelController.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, routerCertsController.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, managementStateController.Run)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) })
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, workers int) { ingressStateController.Run(workers, ctx.Done()) })
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int) { operator.Run(ctx.Done()) })
+	operatorCtx.controllersToRunFunc = append(
+		operatorCtx.controllersToRunFunc,
+		clusterOperatorStatus.Run,
+		configOverridesController.Run,
+		logLevelController.Run,
+		routerCertsController.Run,
+		managementStateController.Run,
+		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
+		func(ctx context.Context, workers int) { ingressStateController.Run(workers, ctx.Done()) },
+		func(ctx context.Context, _ int) { operator.Run(ctx.Done()) })
 
 	return nil
 }
@@ -343,8 +332,7 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		},
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
-	).
-		WithoutAPIServiceController().
+	).WithoutAPIServiceController().
 		WithoutClusterOperatorStatusController().
 		WithoutFinalizerController().
 		WithoutLogLevelController().
