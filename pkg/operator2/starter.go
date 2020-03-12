@@ -308,6 +308,7 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		"openshift-authentication-operator",
 		"openshift-oauth-apiserver",
 		os.Getenv("OPERATOR_IMAGE_VERSION"),
+		"oauth",
 		"APIServer",
 		operatorCtx.kubeClient,
 		authAPIServerWorkload,
