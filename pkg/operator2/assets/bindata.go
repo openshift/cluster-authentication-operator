@@ -64,6 +64,7 @@ spec:
       labels:
         app: oauth-openshift
     spec:
+      terminationGracePeriodSeconds: 40
       serviceAccountName: oauth-openshift
       nodeSelector:
         node-role.kubernetes.io/master: ''
@@ -149,6 +150,16 @@ spec:
             periodSeconds: 10
             successThreshold: 1
             failureThreshold: 3
+          lifecycle:
+            # delay shutdown by 25s to ensure existing connections are drained
+            # * 5s for endpoint propagation on delete
+            # * 5s for route reload
+            # * 15s for the longest running request to finish
+            preStop:
+              exec:
+                command:
+                - sleep
+                - "25"
           terminationMessagePolicy: FallbackToLogsOnError
           resources:
             requests:
