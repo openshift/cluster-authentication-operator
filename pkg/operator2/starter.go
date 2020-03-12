@@ -314,12 +314,7 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		authAPIServerWorkload,
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		operatorCtx.versionRecorder,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Namespaces().Informer(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Informer(), // reactor for etcd-serving-ca
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer(),    // reactor for etcd-client
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ServiceAccounts().Informer(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Services().Informer(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().DaemonSets().Informer(),
+		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
