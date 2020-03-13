@@ -7,7 +7,12 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
+	utilpointer "k8s.io/utils/pointer"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -20,6 +25,7 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/apiservices"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/workload"
@@ -289,6 +295,12 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		return err
 	}
 
+	apiregistrationv1Client, err := apiregistrationclient.NewForConfig(controllerContext.ProtoKubeConfig)
+	if err != nil {
+		return err
+	}
+	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationv1Client, 10*time.Minute)
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		operatorCtx.operatorClient.Client,
 		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
@@ -328,7 +340,50 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		},
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
-	).WithoutAPIServiceController().
+	).WithAPIServiceController(
+		"openshift-apiserver",
+		apiservices.NewAPIServicesToManage(
+			operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Lister(),
+			func() []*apiregistrationv1.APIService {
+				var apiServiceGroupVersions = []schema.GroupVersion{
+					// these are all the apigroups we manage
+					{Group: "oauth.openshift.io", Version: "v1"},
+					{Group: "user.openshift.io", Version: "v1"},
+				}
+
+				ret := []*apiregistrationv1.APIService{}
+				for _, apiServiceGroupVersion := range apiServiceGroupVersions {
+					obj := &apiregistrationv1.APIService{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: apiServiceGroupVersion.Version + "." + apiServiceGroupVersion.Group,
+							Annotations: map[string]string{
+								"service.alpha.openshift.io/inject-cabundle":   "true",
+								"authentication.operator.openshift.io/managed": "true",
+							},
+						},
+						Spec: apiregistrationv1.APIServiceSpec{
+							Group:   apiServiceGroupVersion.Group,
+							Version: apiServiceGroupVersion.Version,
+							Service: &apiregistrationv1.ServiceReference{
+								Namespace: "openshift-oauth-apiserver",
+								Name:      "api",
+								Port:      utilpointer.Int32Ptr(443),
+							},
+							GroupPriorityMinimum: 9900,
+							VersionPriority:      15,
+						},
+					}
+					ret = append(ret, obj)
+				}
+
+				return ret
+			}(),
+			eventRecorder,
+		).GetAPIServicesToManage,
+		apiregistrationInformers,
+		apiregistrationv1Client.ApiregistrationV1(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		operatorCtx.kubeClient).
 		WithoutClusterOperatorStatusController().
 		WithoutFinalizerController().
 		WithoutLogLevelController().
@@ -339,7 +394,15 @@ func prepareOauthAPIServerOperator(controllerContext *controllercmd.ControllerCo
 		return err
 	}
 
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) })
+	manageOAuthAPIController := apiservices.NewManageAPIServicesController(
+		"MangeOAuthAPIController",
+		operatorCtx.operatorClient.Client,
+		operatorCtx.operatorClient.Informers,
+		eventRecorder)
+
+	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) }, manageOAuthAPIController.Run)
+
+	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, apiregistrationInformers.Start)
 	return nil
 }
 
