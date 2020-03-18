@@ -2,7 +2,6 @@ package operator2
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -171,7 +170,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
-	staleConditions := staleconditions.NewRemoveStaleConditions(
+	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
 			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
 			"Degraded",
@@ -234,12 +233,12 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}
 
 	go operator.Run(ctx.Done())
-	go staleConditions.Run(1, ctx.Done())
+	go staleConditions.Run(ctx, 1)
 	go ingressStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()
 
-	return fmt.Errorf("stopped")
+	return nil
 }
 
 func singleNameListOptions(name string) func(opts *metav1.ListOptions) {
