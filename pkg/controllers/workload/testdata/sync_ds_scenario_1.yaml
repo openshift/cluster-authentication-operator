@@ -10,6 +10,7 @@ metadata:
   labels:
     apiserver: "true"
     app: openshift-oauth-apiserver
+    revision: '0'
   name: apiserver
   namespace: openshift-oauth-apiserver
 spec:
@@ -25,6 +26,7 @@ spec:
       labels:
         apiserver: "true"
         app: openshift-oauth-apiserver
+        revision: '0'
       name: openshift-oauth-apiserver
     spec:
       containers:
@@ -165,7 +167,7 @@ spec:
           name: encryption-config
           secret:
             optional: true
-            secretName: encryption-config-1
+            secretName: encryption-config-0
         -
           hostPath:
             path: /var/log/oauth-apiserver
