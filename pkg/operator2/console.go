@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"net/url"
 	"regexp"
 
@@ -10,9 +11,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 )
 
-func (c *authOperator) handleConsoleConfig() *configv1.Console {
+func (c *authOperator) handleConsoleConfig(ctx context.Context) *configv1.Console {
 	// technically this should be an observed config loop
-	consoleConfig, err := c.console.Get("cluster", metav1.GetOptions{})
+	consoleConfig, err := c.console.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("error getting console config: %v", err)
 		return &configv1.Console{}

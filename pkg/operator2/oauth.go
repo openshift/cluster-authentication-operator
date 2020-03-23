@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,7 @@ import (
 )
 
 func (c *authOperator) handleOAuthConfig(
+	ctx context.Context,
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
 	routerSecret *corev1.Secret,
@@ -31,11 +33,11 @@ func (c *authOperator) handleOAuthConfig(
 	*configSyncData,
 	error,
 ) {
-	oauthConfigNoDefaults, err := c.oauth.Get("cluster", metav1.GetOptions{})
+	oauthConfigNoDefaults, err := c.oauth.Get(ctx, "cluster", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		oauthConfigNoDefaults, err = c.oauth.Create(&configv1.OAuth{
+		oauthConfigNoDefaults, err = c.oauth.Create(ctx, &configv1.OAuth{
 			ObjectMeta: defaultGlobalConfigMeta(),
-		})
+		}, metav1.CreateOptions{})
 	}
 	if err != nil {
 		return nil, nil, err
@@ -56,7 +58,7 @@ func (c *authOperator) handleOAuthConfig(
 
 	syncData := newConfigSyncData()
 
-	templates, err := c.handleBrandingTemplates(oauthConfig.Spec.Templates, syncData)
+	templates, err := c.handleBrandingTemplates(ctx, oauthConfig.Spec.Templates, syncData)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -64,7 +66,7 @@ func (c *authOperator) handleOAuthConfig(
 	var errsIDP []error
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
 	for i, idp := range oauthConfig.Spec.IdentityProviders {
-		data, err := c.convertProviderConfigToIDPData(&idp.IdentityProviderConfig, &syncData, i)
+		data, err := c.convertProviderConfigToIDPData(ctx, &idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			klog.Errorf("failed to honor IDP %#v: %v", idp, err)
 			errsIDP = append(errsIDP, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))

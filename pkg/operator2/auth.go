@@ -1,6 +1,8 @@
 package operator2
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -19,14 +21,14 @@ import (
 // used to fill the data in the /.well-known/oauth-authorization-server
 // endpoint, but since that endpoint belongs to the apiserver, its syncing is
 // handled in cluster-kube-apiserver-operator
-func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error) {
+func (c *authOperator) handleAuthConfigInner(ctx context.Context) (*configv1.Authentication, error) {
 	// always make sure this function does not rely on defaulting from defaultAuthConfig
 
-	authConfigNoDefaults, err := c.authentication.Get("cluster", metav1.GetOptions{})
+	authConfigNoDefaults, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		authConfigNoDefaults, err = c.authentication.Create(&configv1.Authentication{
+		authConfigNoDefaults, err = c.authentication.Create(ctx, &configv1.Authentication{
 			ObjectMeta: defaultGlobalConfigMeta(),
-		})
+		}, metav1.CreateOptions{})
 	}
 	if err != nil {
 		return nil, err
@@ -41,11 +43,11 @@ func (c *authOperator) handleAuthConfigInner() (*configv1.Authentication, error)
 	}
 
 	authConfigNoDefaults.Status.IntegratedOAuthMetadata = expectedReference
-	return c.authentication.UpdateStatus(authConfigNoDefaults)
+	return c.authentication.UpdateStatus(ctx, authConfigNoDefaults, metav1.UpdateOptions{})
 }
 
-func (c *authOperator) handleAuthConfig() (*configv1.Authentication, error) {
-	auth, err := c.handleAuthConfigInner()
+func (c *authOperator) handleAuthConfig(ctx context.Context) (*configv1.Authentication, error) {
+	auth, err := c.handleAuthConfigInner(ctx)
 	if err != nil {
 		return nil, err
 	}

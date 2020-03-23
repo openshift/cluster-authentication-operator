@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -9,12 +10,12 @@ import (
 	"k8s.io/klog"
 )
 
-func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, error) {
+func (c *authOperator) handleServiceCA(ctx context.Context) (*corev1.ConfigMap, *corev1.Secret, error) {
 	cm := c.configMaps.ConfigMaps("openshift-authentication")
 	secret := c.secrets.Secrets("openshift-authentication")
-	serviceCA, err := cm.Get("v4-0-config-system-service-ca", metav1.GetOptions{})
+	serviceCA, err := cm.Get(ctx, "v4-0-config-system-service-ca", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		serviceCA, err = cm.Create(defaultServiceCA())
+		serviceCA, err = cm.Create(ctx, defaultServiceCA(), metav1.CreateOptions{})
 	}
 	if err != nil {
 		return nil, nil, err
@@ -27,14 +28,14 @@ func (c *authOperator) handleServiceCA() (*corev1.ConfigMap, *corev1.Secret, err
 	if err := isValidServiceCA(serviceCA); err != nil {
 		// delete the service CA config map so that it is replaced with the proper one in next reconcile loop
 		klog.Infof("deleting invalid service CA config map: %#v", serviceCA)
-		opts := &metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &serviceCA.UID}}
-		if err := cm.Delete(serviceCA.Name, opts); err != nil && !errors.IsNotFound(err) {
+		opts := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &serviceCA.UID}}
+		if err := cm.Delete(ctx, serviceCA.Name, opts); err != nil && !errors.IsNotFound(err) {
 			klog.Infof("failed to delete invalid service CA config map: %v", err)
 		}
 		return nil, nil, err
 	}
 
-	servingCert, err := secret.Get("v4-0-config-system-serving-cert", metav1.GetOptions{})
+	servingCert, err := secret.Get(ctx, "v4-0-config-system-serving-cert", metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get serving cert: %v", err)
 	}

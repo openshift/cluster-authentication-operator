@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -595,7 +596,7 @@ func Test_authOperator_handleRoute(t *testing.T) {
 				route:      routeClient.RouteV1().Routes("openshift-authentication"),
 			}
 
-			route, secret, _, err := c.handleRoute(tt.ingress)
+			route, secret, _, err := c.handleRoute(context.TODO(), tt.ingress)
 			if err != nil {
 				if len(tt.expectedErr) == 0 {
 					t.Errorf("unexpected error %s", err)

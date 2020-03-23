@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"crypto/x509"
 	"fmt"
 
@@ -17,12 +18,12 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, string, error) {
+func (c *authOperator) handleRoute(ctx context.Context, ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, string, error) {
 	expectedRoute := defaultRoute(ingress)
 
-	route, err := c.route.Get("oauth-openshift", metav1.GetOptions{})
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		route, err = c.route.Create(expectedRoute)
+		route, err = c.route.Create(ctx, expectedRoute, metav1.CreateOptions{})
 	}
 	if err != nil {
 		return nil, nil, "FailedCreate", err
@@ -38,7 +39,7 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 		// be careful not to print route.spec as it many contain secrets
 		klog.Info("updating route")
 		existingCopy.Spec = expectedRoute.Spec
-		route, err = c.route.Update(existingCopy)
+		route, err = c.route.Update(ctx, existingCopy, metav1.UpdateOptions{})
 		if err != nil {
 			return nil, nil, "FailedUpdate", err
 		}
@@ -49,7 +50,7 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 		return nil, nil, "FailedHost", fmt.Errorf("route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, route.Status.Ingress)
 	}
 
-	routerSecret, err := c.secrets.Secrets("openshift-authentication").Get("v4-0-config-system-router-certs", metav1.GetOptions{})
+	routerSecret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-router-certs", metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, "FailedRouterSecret", err
 	}

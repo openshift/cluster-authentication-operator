@@ -1,6 +1,7 @@
 package ingressstate
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -83,8 +84,8 @@ func (c *IngressStateController) eventHandler() cache.ResourceEventHandler {
 }
 
 // checkPodStatus will check the target pod container status and return a list of possible problems.
-func (c *IngressStateController) checkPodStatus(reference *corev1.ObjectReference) []string {
-	pod, err := c.podsGetter.Pods(reference.Namespace).Get(reference.Name, metav1.GetOptions{})
+func (c *IngressStateController) checkPodStatus(ctx context.Context, reference *corev1.ObjectReference) []string {
+	pod, err := c.podsGetter.Pods(reference.Namespace).Get(ctx, reference.Name, metav1.GetOptions{})
 	if err != nil {
 		return []string{fmt.Sprintf("error getting pod %q: %v", reference.Name, err)}
 	}
@@ -92,7 +93,7 @@ func (c *IngressStateController) checkPodStatus(reference *corev1.ObjectReferenc
 }
 
 func (c *IngressStateController) sync() error {
-	endpoints, err := c.endpointsGetter.Endpoints(c.targetNamespace).Get("oauth-openshift", metav1.GetOptions{})
+	endpoints, err := c.endpointsGetter.Endpoints(c.targetNamespace).Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		// Clear the error to allow checkSubset to report degraded because endpoints == nil
 		err = nil
@@ -113,7 +114,7 @@ func (c *IngressStateController) sync() error {
 		if err != nil {
 			return err
 		}
-		degradedConditions = checkAddresses(subset.Addresses, c.checkPodStatus, func(endpointIP string) error {
+		degradedConditions = checkAddresses(context.TODO(), subset.Addresses, c.checkPodStatus, func(endpointIP string) error {
 			return checkEndpointHealthz(endpointIP, serviceCA)
 		})
 	} else {
@@ -281,13 +282,13 @@ func subsetWithReadyAddresses(endpoints *corev1.Endpoints) (*corev1.EndpointSubs
 
 // Providing these helper functions as arguments to checkAddresses supports
 // substituting them in testing.
-type checkPodFunc func(reference *corev1.ObjectReference) []string
+type checkPodFunc func(ctx context.Context, reference *corev1.ObjectReference) []string
 type checkEndpointsFunc func(endpointIP string) error
 
 // checkAddresses checks that the provided endpoint addresses are reachable,
 // that their associated pods are healthy, and returns the appropriate operator
 // conditions if that is not the case.
-func checkAddresses(addresses []corev1.EndpointAddress, checkPod checkPodFunc, checkEndpoints checkEndpointsFunc) []operatorv1.OperatorCondition {
+func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, checkPod checkPodFunc, checkEndpoints checkEndpointsFunc) []operatorv1.OperatorCondition {
 	unhealthyAddresses := []string{}
 	podMessages := map[string][]string{}
 	unhealthyPodCount := 0
@@ -301,7 +302,7 @@ func checkAddresses(addresses []corev1.EndpointAddress, checkPod checkPodFunc, c
 				// A pod only needs to be checked once per sync for any address
 				continue
 			}
-			messages := checkPod(address.TargetRef)
+			messages := checkPod(ctx, address.TargetRef)
 			if len(messages) > 0 {
 				unhealthyPodCount += 1
 			}

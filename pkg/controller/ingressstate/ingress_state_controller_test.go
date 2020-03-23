@@ -1,6 +1,7 @@
 package ingressstate
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -125,8 +126,9 @@ func TestCheckAddresses(t *testing.T) {
 			unhealthyEndpoints := sets.NewString(tc.unhealthyEndpoints...)
 			unhealthyPods := sets.NewString(tc.unhealthyPods...)
 			conditions := checkAddresses(
+				context.TODO(),
 				tc.addresses,
-				func(reference *corev1.ObjectReference) []string {
+				func(_ context.Context, reference *corev1.ObjectReference) []string {
 					if unhealthyPods.Has(reference.Name) {
 						return []string{"unhealthy"}
 					}

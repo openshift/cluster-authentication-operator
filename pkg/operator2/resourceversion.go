@@ -1,15 +1,16 @@
 package operator2
 
 import (
+	"context"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (c *authOperator) handleConfigResourceVersions() ([]string, error) {
+func (c *authOperator) handleConfigResourceVersions(ctx context.Context) ([]string, error) {
 	var configRVs []string
 
-	configMaps, err := c.configMaps.ConfigMaps("openshift-authentication").List(metav1.ListOptions{})
+	configMaps, err := c.configMaps.ConfigMaps("openshift-authentication").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -20,7 +21,7 @@ func (c *authOperator) handleConfigResourceVersions() ([]string, error) {
 		}
 	}
 
-	secrets, err := c.secrets.Secrets("openshift-authentication").List(metav1.ListOptions{})
+	secrets, err := c.secrets.Secrets("openshift-authentication").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

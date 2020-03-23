@@ -2,6 +2,7 @@ package operator2
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -183,7 +184,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfigClient.Client.Authentications().Get("cluster", metav1.GetOptions{})
+	return c.authOperatorConfigClient.Client.Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
@@ -195,7 +196,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
-	syncErr := c.handleSync(operatorConfigCopy)
+	syncErr := c.handleSync(context.TODO(), operatorConfigCopy)
 	// this is a catch all degraded state that we only set when we are otherwise not degraded
 	globalDegradedErr := syncErr
 	const globalDegradedPrefix = "OperatorSync"
@@ -230,7 +231,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	return syncErr
 }
 
-func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) error {
+func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv1.Authentication) error {
 	// resourceVersions serves to store versions of config resources so that we
 	// can redeploy our payload should either change. We only omit the operator
 	// config version, it would both cause redeploy loops (status updates cause
@@ -244,12 +245,12 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// ==================================
 	// BLOCK 1: Metadata
 	// ==================================
-	ingress, err := c.handleIngress()
+	ingress, err := c.handleIngress(ctx)
 	if err != nil {
 		return fmt.Errorf("failed getting the ingress config: %v", err)
 	}
 
-	route, routerSecret, reason, err := c.handleRoute(ingress)
+	route, routerSecret, reason, err := c.handleRoute(ctx, ingress)
 	handleDegradedWithReason(operatorConfig, "RouteStatus", reason, err)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
@@ -261,7 +262,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
 	}
 
-	authConfig, err := c.handleAuthConfig()
+	authConfig, err := c.handleAuthConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed handling authentication config: %v", err)
 	}
@@ -276,7 +277,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed applying service object: %v", err)
 	}
 
-	_, _, err = c.handleServiceCA()
+	_, _, err = c.handleServiceCA(ctx)
 	if err != nil {
 		return fmt.Errorf("failed handling service CA: %v", err)
 	}
@@ -285,7 +286,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 3: build cli config
 	// ==================================
 
-	expectedSessionSecret, err := c.expectedSessionSecret()
+	expectedSessionSecret, err := c.expectedSessionSecret(ctx)
 	if err != nil {
 		return fmt.Errorf("failed obtaining session secret: %v", err)
 	}
@@ -294,18 +295,18 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 
-	consoleConfig := c.handleConsoleConfig()
+	consoleConfig := c.handleConsoleConfig(ctx)
 
-	infrastructureConfig := c.handleInfrastructureConfig()
+	infrastructureConfig := c.handleInfrastructureConfig(ctx)
 
-	apiServerConfig := c.handleAPIServerConfig()
+	apiServerConfig := c.handleAPIServerConfig(ctx)
 
-	expectedCLIconfig, syncData, err := c.handleOAuthConfig(operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
+	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, routerSecret, service, consoleConfig, infrastructureConfig, apiServerConfig)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
 
-	err = c.handleConfigSync(syncData)
+	err = c.handleConfigSync(ctx, syncData)
 	if err != nil {
 		return fmt.Errorf("failed syncing configuration objects: %v", err)
 	}
@@ -319,21 +320,21 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	// BLOCK 4: deployment
 	// ==================================
 
-	if err := c.ensureBootstrappedOAuthClients("https://" + route.Spec.Host); err != nil {
+	if err := c.ensureBootstrappedOAuthClients(ctx, "https://"+route.Spec.Host); err != nil {
 		return err
 	}
 
-	proxyConfig := c.handleProxyConfig()
+	proxyConfig := c.handleProxyConfig(ctx)
 	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
 
-	operatorDeployment, err := c.deployments.Deployments("openshift-authentication-operator").Get("authentication-operator", metav1.GetOptions{})
+	operatorDeployment, err := c.deployments.Deployments("openshift-authentication-operator").Get(ctx, "authentication-operator", metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 	// prefix the RV to make it clear where it came from since each resource can be from different etcd
 	resourceVersions = append(resourceVersions, "deployments:"+operatorDeployment.Name+":"+operatorDeployment.ResourceVersion)
 
-	configResourceVersions, err := c.handleConfigResourceVersions()
+	configResourceVersions, err := c.handleConfigResourceVersions(ctx)
 	if err != nil {
 		return err
 	}
@@ -375,7 +376,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	klog.V(4).Infof("current deployment: %#v", deployment)
 
-	if err := c.handleVersion(operatorConfig, authConfig, route, routerSecret, deployment, ingress); err != nil {
+	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
 	}
 
@@ -383,6 +384,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 }
 
 func (c *authOperator) handleVersion(
+	ctx context.Context,
 	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
@@ -409,7 +411,7 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(authConfig, route)
+	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(ctx, authConfig, route)
 	handleDegraded(operatorConfig, "WellKnownEndpoint", err)
 	if err != nil {
 		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
@@ -419,7 +421,7 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(route)
+	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx, route)
 	handleDegraded(operatorConfig, "OAuthClients", err)
 	if err != nil {
 		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
@@ -500,7 +502,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 	return true, "", "", nil
 }
 
-func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
+func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
 	// TODO: don't perform this check when OAuthMetadata reference is set up,
 	// the code in configmap.go does not handle such cases yet
 	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
@@ -518,7 +520,7 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
-	ips, err := c.getAPIServerIPs()
+	ips, err := c.getAPIServerIPs(ctx)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to get API server IPs: %v", err)
 	}
@@ -533,8 +535,8 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 	return true, "", nil
 }
 
-func (c *authOperator) getAPIServerIPs() ([]string, error) {
-	kasService, err := c.services.Services(corev1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
+func (c *authOperator) getAPIServerIPs(ctx context.Context) ([]string, error) {
+	kasService, err := c.services.Services(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
 	}
@@ -544,7 +546,7 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
 	}
 
-	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get("kubernetes", metav1.GetOptions{})
+	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
 	}
@@ -621,8 +623,8 @@ func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTr
 	return true, "", nil
 }
 
-func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, error) {
-	_, err := c.oauthClientClient.Get("openshift-browser-client", metav1.GetOptions{})
+func (c *authOperator) oauthClientsReady(ctx context.Context, route *routev1.Route) (bool, string, error) {
+	_, err := c.oauthClientClient.Get(ctx, "openshift-browser-client", metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return false, "browser oauthclient does not exist", nil
@@ -630,7 +632,7 @@ func (c *authOperator) oauthClientsReady(route *routev1.Route) (bool, string, er
 		return false, "", err
 	}
 
-	_, err = c.oauthClientClient.Get("openshift-challenging-client", metav1.GetOptions{})
+	_, err = c.oauthClientClient.Get(ctx, "openshift-challenging-client", metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return false, "challenging oauthclient does not exist", nil
