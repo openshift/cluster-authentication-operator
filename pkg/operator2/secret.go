@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,8 +15,8 @@ import (
 	osinv1 "github.com/openshift/api/osin/v1"
 )
 
-func (c *authOperator) expectedSessionSecret() (*corev1.Secret, error) {
-	secret, err := c.secrets.Secrets("openshift-authentication").Get("v4-0-config-system-session", metav1.GetOptions{})
+func (c *authOperator) expectedSessionSecret(ctx context.Context) (*corev1.Secret, error) {
+	secret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-session", metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		klog.V(4).Infof("failed to get secret %s: %v", "v4-0-config-system-session", err)
 		generatedSessionSecret, err := randomSessionSecret()

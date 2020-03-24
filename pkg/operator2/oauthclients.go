@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 
@@ -15,7 +16,7 @@ import (
 )
 
 // ensureBootstrappedOAuthClients creates or updates the bootstrap oauth clients that openshift relies upon.
-func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) error {
+func (c *authOperator) ensureBootstrappedOAuthClients(ctx context.Context, masterPublicURL string) error {
 	browserClient := oauthv1.OAuthClient{
 		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
 		Secret:                random256BitsString(),
@@ -23,7 +24,7 @@ func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) er
 		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenDisplayURL(masterPublicURL)},
 		GrantMethod:           oauthv1.GrantHandlerAuto,
 	}
-	if err := ensureOAuthClient(c.oauthClientClient, browserClient); err != nil {
+	if err := ensureOAuthClient(ctx, c.oauthClientClient, browserClient); err != nil {
 		return err
 	}
 
@@ -34,21 +35,21 @@ func (c *authOperator) ensureBootstrappedOAuthClients(masterPublicURL string) er
 		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},
 		GrantMethod:           oauthv1.GrantHandlerAuto,
 	}
-	if err := ensureOAuthClient(c.oauthClientClient, cliClient); err != nil {
+	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliClient); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func ensureOAuthClient(oauthClients oauthclient.OAuthClientInterface, client oauthv1.OAuthClient) error {
-	_, err := oauthClients.Create(&client)
+func ensureOAuthClient(ctx context.Context, oauthClients oauthclient.OAuthClientInterface, client oauthv1.OAuthClient) error {
+	_, err := oauthClients.Create(ctx, &client, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		existing, err := oauthClients.Get(client.Name, metav1.GetOptions{})
+		existing, err := oauthClients.Get(ctx, client.Name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -71,7 +72,7 @@ func ensureOAuthClient(oauthClients oauthclient.OAuthClientInterface, client oau
 			return nil
 		}
 
-		_, err = oauthClients.Update(existingCopy)
+		_, err = oauthClients.Update(ctx, existingCopy, metav1.UpdateOptions{})
 		return err
 	})
 }

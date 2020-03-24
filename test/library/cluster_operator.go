@@ -1,6 +1,7 @@
 package library
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -26,7 +27,7 @@ func WaitForClusterOperatorDegraded(t *testing.T, client configv1client.ConfigV1
 
 func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, available, progressing, degraded, upgradable configv1.ConditionStatus) error {
 	return wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
-		clusterOperator, err := client.ClusterOperators().Get(name, metav1.GetOptions{})
+		clusterOperator, err := client.ClusterOperators().Get(context.TODO(), name, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
 			return false, nil

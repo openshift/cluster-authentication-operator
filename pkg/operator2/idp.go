@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,7 +44,7 @@ type idpData struct {
 	login     bool
 }
 
-func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.IdentityProviderConfig, syncData *configSyncData, i int) (*idpData, error) {
+func (c *authOperator) convertProviderConfigToIDPData(ctx context.Context, providerConfig *configv1.IdentityProviderConfig, syncData *configSyncData, i int) (*idpData, error) {
 	const missingProviderFmt string = "type %s was specified, but its configuration is missing"
 
 	data := &idpData{login: true}
@@ -168,7 +169,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
-		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
+		urls, err := c.discoverOpenIDURLs(ctx, openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
 		if err != nil {
 			return nil, err
 		}
@@ -216,7 +217,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 	return data, nil
 }
 
-func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
+func (c *authOperator) discoverOpenIDURLs(ctx context.Context, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
 	wellKnown := issuer + "/.well-known/openid-configuration"
@@ -225,7 +226,7 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 		return nil, err
 	}
 
-	rt, err := c.transportForCARef(ca, key)
+	rt, err := c.transportForCARef(ctx, ca, key)
 	if err != nil {
 		return nil, err
 	}
@@ -274,11 +275,11 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 	}, nil
 }
 
-func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
+func (c *authOperator) transportForCARef(ctx context.Context, ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
 	if len(ca.Name) == 0 {
 		return transportFor("", nil, nil, nil)
 	}
-	cm, err := c.configMaps.ConfigMaps("openshift-config").Get(ca.Name, metav1.GetOptions{})
+	cm, err := c.configMaps.ConfigMaps("openshift-config").Get(ctx, ca.Name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *authOperator) handleConfigSync(data *configSyncData) error {
+func (c *authOperator) handleConfigSync(ctx context.Context, data *configSyncData) error {
 	// TODO this has too much boilerplate
 
 	inUseConfigMapNames := sets.NewString()
@@ -33,7 +34,7 @@ func (c *authOperator) handleConfigSync(data *configSyncData) error {
 
 	// TODO we probably need listers
 
-	configMaps, err := c.configMaps.ConfigMaps("openshift-authentication").List(metav1.ListOptions{})
+	configMaps, err := c.configMaps.ConfigMaps("openshift-authentication").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,7 @@ func (c *authOperator) handleConfigSync(data *configSyncData) error {
 		return fmt.Errorf("config maps %s in %s not synced", inUseConfigMapNames.Difference(configMapNames).List(), "openshift-authentication")
 	}
 
-	secrets, err := c.secrets.Secrets("openshift-authentication").List(metav1.ListOptions{})
+	secrets, err := c.secrets.Secrets("openshift-authentication").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}

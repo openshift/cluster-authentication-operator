@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -383,7 +384,7 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				idpSecrets:    testSourceData(tt.idpSecrets),
 				tplSecrets:    testSourceData(tt.tplSecrets),
 			}
-			if err := c.handleConfigSync(data); errString(err) != tt.wantErr {
+			if err := c.handleConfigSync(context.TODO(), data); errString(err) != tt.wantErr {
 				t.Errorf("handleConfigSync() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !reflect.DeepEqual(r.configMaps, tt.wantConfigMaps) {

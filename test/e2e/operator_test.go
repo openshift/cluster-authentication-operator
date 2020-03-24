@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,6 @@ func TestOperatorNamespace(t *testing.T) {
 	require.NoError(t, err)
 	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
 	require.NoError(t, err)
-	_, err = kubeClient.CoreV1().Namespaces().Get("openshift-authentication-operator", metav1.GetOptions{})
+	_, err = kubeClient.CoreV1().Namespaces().Get(context.TODO(), "openshift-authentication-operator", metav1.GetOptions{})
 	require.NoError(t, err)
 }

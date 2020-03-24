@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 
 	"gopkg.in/yaml.v2"
@@ -17,10 +18,10 @@ const (
 	okdBrand = "okd"
 )
 
-func (c *authOperator) handleBrandingTemplates(configTemplates configv1.OAuthTemplates, syncData configSyncData) (*osinv1.OAuthTemplates, error) {
+func (c *authOperator) handleBrandingTemplates(ctx context.Context, configTemplates configv1.OAuthTemplates, syncData configSyncData) (*osinv1.OAuthTemplates, error) {
 	templates := osinv1.OAuthTemplates{}
 
-	brand, err := c.getConsoleBranding()
+	brand, err := c.getConsoleBranding(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +68,8 @@ func (c *authOperator) handleBrandingTemplates(configTemplates configv1.OAuthTem
 	return &templates, nil
 }
 
-func (c *authOperator) getConsoleBranding() (string, error) {
-	cm, err := c.configMaps.ConfigMaps("openshift-authentication").Get("v4-0-config-system-console-config", metav1.GetOptions{})
+func (c *authOperator) getConsoleBranding(ctx context.Context) (string, error) {
+	cm, err := c.configMaps.ConfigMaps("openshift-authentication").Get(ctx, "v4-0-config-system-console-config", metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return "", nil
 	}

@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -106,7 +107,7 @@ func Test_authOperator_handleConfigResourceVersions(t *testing.T) {
 				secrets:    client.CoreV1(),
 				configMaps: client.CoreV1(),
 			}
-			got, err := c.handleConfigResourceVersions()
+			got, err := c.handleConfigResourceVersions(context.TODO())
 			if err != nil {
 				t.Errorf("handleConfigResourceVersions() error = %v", err)
 				return

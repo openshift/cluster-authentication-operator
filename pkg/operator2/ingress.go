@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"context"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -8,8 +9,8 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 )
 
-func (c *authOperator) handleIngress() (*configv1.Ingress, error) {
-	ingress, err := c.ingress.Get("cluster", metav1.GetOptions{})
+func (c *authOperator) handleIngress(ctx context.Context) (*configv1.Ingress, error) {
+	ingress, err := c.ingress.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
