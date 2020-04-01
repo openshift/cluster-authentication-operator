@@ -28,12 +28,11 @@ func NewConfigObserver(
 		"openshift-authentication",
 	}
 
-	preRunCacheSynced := []cache.InformerSynced{}
-	for _, ns := range interestingNamespaces {
-		preRunCacheSynced = append(preRunCacheSynced,
-			kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer().HasSynced,
-			kubeInformersForNamespaces.InformersFor(ns).Core().V1().Secrets().Informer().HasSynced,
-		)
+	preRunCacheSynced := []cache.InformerSynced{
+		operatorClient.Informer().HasSynced,
+		configInformer.Config().V1().APIServers().Informer().HasSynced,
+		configInformer.Config().V1().Consoles().Informer().HasSynced,
+		configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -44,6 +43,11 @@ func NewConfigObserver(
 	}
 
 	for _, ns := range interestingNamespaces {
+		preRunCacheSynced = append(preRunCacheSynced,
+			kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer().HasSynced,
+			kubeInformersForNamespaces.InformersFor(ns).Core().V1().Secrets().Informer().HasSynced,
+		)
+
 		informers = append(informers,
 			kubeInformersForNamespaces.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
 			kubeInformersForNamespaces.InformersFor(ns).Core().V1().Secrets().Informer(),
@@ -72,13 +76,7 @@ func NewConfigObserver(
 			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
 			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
 			ResourceSync:         resourceSyncer,
-			PreRunCachesSynced: append(preRunCacheSynced,
-				operatorClient.Informer().HasSynced,
-
-				configInformer.Config().V1().APIServers().Informer().HasSynced,
-				configInformer.Config().V1().Consoles().Informer().HasSynced,
-				configInformer.Config().V1().Infrastructures().Informer().HasSynced,
-			),
+			PreRunCachesSynced:   preRunCacheSynced,
 		},
 		informers,
 		oauthServerObservers...,
