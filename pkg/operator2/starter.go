@@ -6,7 +6,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -29,6 +28,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
@@ -43,7 +43,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		return err
 	}
 
-	authConfigClient, err := authopclient.NewForConfig(controllerContext.KubeConfig)
+	authOperatorClient, err := authopclient.NewForConfig(controllerContext.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -65,16 +65,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		return err
 	}
 
-	kubeInformersNamespaced := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-		informers.WithNamespace("openshift-authentication"),
-	)
-
-	kubeSystemNamespaceInformers := informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-		informers.WithNamespace("kube-system"),
+	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
+		"openshift-authentication",
+		"kube-system",
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authConfigClient, time.Second*30,
+	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
 		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
 
@@ -96,7 +93,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	operatorClient := &OperatorClient{
 		authOperatorConfigInformers,
-		authConfigClient.OperatorV1(),
+		authOperatorClient.OperatorV1(),
 	}
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
@@ -104,6 +101,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		resourceSyncerInformers,
 		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
+		controllerContext.EventRecorder,
+	)
+
+	configObserver := configobservercontroller.NewConfigObserver(
+		operatorClient,
+		kubeInformersNamespaced,
+		configInformers,
+		resourceSyncer,
 		controllerContext.EventRecorder,
 	)
 
@@ -136,8 +141,8 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operator := NewAuthenticationOperator(
 		*operatorClient,
 		oauthClient.OauthV1(),
-		kubeInformersNamespaced,
-		kubeSystemNamespaceInformers,
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		kubeInformersNamespaced.InformersFor("kube-system"),
 		kubeClient,
 		routeInformersNamespaced.Route().V1().Routes(),
 		routeClient.RouteV1(),
@@ -174,6 +179,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		[]string{
 			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
 			"Degraded",
+
+			// As of 4.4, this will appear as a configObserver error
+			"FailedRouterSecret",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,
@@ -186,14 +194,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		operatorClient,
 		controllerContext.EventRecorder,
 		configInformers.Config().V1().Ingresses(),
-		kubeInformersNamespaced.Core().V1().Secrets(),
+		kubeInformersNamespaced.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"oauth-openshift",
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
-		kubeInformersNamespaced,
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
 		kubeClient.CoreV1(),
 		kubeClient.CoreV1(),
 		operatorClient,
@@ -203,14 +211,11 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
-	// TODO move to config observers
-	// configobserver.NewConfigObserver(...)
 
 	for _, informer := range []interface {
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
-		kubeSystemNamespaceInformers,
 		authOperatorConfigInformers,
 		routeInformersNamespaced,
 		configInformers,
@@ -224,16 +229,17 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}{
 		resourceSyncer,
 		clusterOperatorStatus,
+		configObserver,
 		configOverridesController,
 		logLevelController,
-		routerCertsController,
 		managementStateController,
+		routerCertsController,
+		staleConditions,
 	} {
 		go controller.Run(ctx, 1)
 	}
 
 	go operator.Run(ctx.Done())
-	go staleConditions.Run(ctx, 1)
 	go ingressStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()

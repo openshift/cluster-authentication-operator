@@ -1,12 +1,15 @@
 package operator2
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog"
 
@@ -14,7 +17,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	"github.com/openshift/library-go/pkg/crypto"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -23,11 +26,7 @@ func (c *authOperator) handleOAuthConfig(
 	ctx context.Context,
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
-	routerSecret *corev1.Secret,
 	service *corev1.Service,
-	consoleConfig *configv1.Console,
-	infrastructureConfig *configv1.Infrastructure,
-	apiServerConfig *configv1.APIServer,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -86,10 +85,6 @@ func (c *authOperator) handleOAuthConfig(
 	}
 	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
-	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
-	corsAllowedOrigins = append(corsAllowedOrigins, apiServerConfig.Spec.AdditionalCORSAllowedOrigins...)
-	minTLSVersion, cipherSuites := getSecurityProfileCiphers(apiServerConfig.Spec.TLSSecurityProfile)
-
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
 			ServingInfo: configv1.HTTPServingInfo{
@@ -102,16 +97,12 @@ func (c *authOperator) handleOAuthConfig(
 						CertFile: "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt",
 						KeyFile:  "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key",
 					},
-					ClientCA:          "", // I think this can be left unset
-					NamedCertificates: routerSecretToSNI(routerSecret),
-					MinTLSVersion:     minTLSVersion,
-					CipherSuites:      cipherSuites,
+					ClientCA: "", // I think this can be left unset
 				},
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
 			},
-			CORSAllowedOrigins: corsAllowedOrigins,     // set console route as valid CORS (so JS can logout)
-			AuditConfig:        configv1.AuditConfig{}, // TODO probably need this
+			AuditConfig: configv1.AuditConfig{}, // TODO probably need this
 			KubeClientConfig: configv1.KubeClientConfig{
 				KubeConfig: "", // this should use in cluster config
 				ConnectionOverrides: configv1.ClientConnectionOverrides{
@@ -124,8 +115,6 @@ func (c *authOperator) handleOAuthConfig(
 			MasterCA:                    getMasterCA(), // we have valid serving certs provided by service-ca so we can use the service for loopback
 			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
 			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
-			LoginURL:                    infrastructureConfig.Status.APIServerURL,
-			AssetPublicURL:              assetPublicURL, // set console route as valid 302 redirect for logout
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
 			GrantConfig: osinv1.GrantConfig{
@@ -147,14 +136,38 @@ func (c *authOperator) handleOAuthConfig(
 	}
 
 	cliConfigBytes := encodeOrDie(cliConfig)
+	observedConfig, err := grabPrefixedConfig(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to grab oauth-server configuration: %v", err)
+	}
 
-	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
 	return getCliConfigMap(completeConfigBytes), &syncData, nil
+}
+
+// grabPrefixedConfig returns the configuration from the operator's observedConfig field
+// in the subtree given by the prefix
+func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
+	if len(prefix) == 0 {
+		return observedBytes, nil
+	}
+
+	prefixedConfig := map[string]interface{}{}
+	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
+		klog.V(4).Infof("decode of existing config failed with error: %v", err)
+	}
+
+	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(actualConfig)
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
@@ -187,31 +200,4 @@ func defaultOAuthConfig(oauthConfig *configv1.OAuth) *configv1.OAuth {
 	}
 
 	return out
-}
-
-// TODO: this is taken from lib-go and should go away once we start observing config
-func getSecurityProfileCiphers(profile *configv1.TLSSecurityProfile) (string, []string) {
-	var profileType configv1.TLSProfileType
-	if profile == nil {
-		profileType = configv1.TLSProfileIntermediateType
-	} else {
-		profileType = profile.Type
-	}
-
-	var profileSpec *configv1.TLSProfileSpec
-	if profileType == configv1.TLSProfileCustomType {
-		if profile.Custom != nil {
-			profileSpec = &profile.Custom.TLSProfileSpec
-		}
-	} else {
-		profileSpec = configv1.TLSProfiles[profileType]
-	}
-
-	// nothing found / custom type set but no actual custom spec
-	if profileSpec == nil {
-		profileSpec = configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
-	}
-
-	// need to remap all Ciphers to their respective IANA names used by Go
-	return string(profileSpec.MinTLSVersion), crypto.OpenSSLToIANACipherSuites(profileSpec.Ciphers)
 }
