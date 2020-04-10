@@ -9,6 +9,3 @@ subjects:
 - kind: ServiceAccount
   namespace: openshift-authentication-operator
   name: authentication-operator
-- kind: ServiceAccount
-  namespace: openshift-authentication
-  name: oauth-openshift

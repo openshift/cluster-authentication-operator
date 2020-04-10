@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: openshift-authentication-operator
+  name: openshift-authentication
   annotations:
     openshift.io/node-selector: ""
   labels:

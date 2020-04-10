@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:openshift:openshift-authentication
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin  # oauth-server needs to read secrets in all namespaces so there is no point trying to tighten its permissions
+subjects:
+- kind: ServiceAccount
+  namespace: openshift-authentication
+  name: oauth-openshift
