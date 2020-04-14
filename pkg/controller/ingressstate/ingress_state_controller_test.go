@@ -8,10 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func TestSubsetWithReadyAddresses(t *testing.T) {
+	objMeta := metav1.ObjectMeta{
+		UID: "foo-uid",
+	}
 	testCases := map[string]struct {
 		endpoints   *corev1.Endpoints
 		degraded    bool
@@ -20,12 +24,19 @@ func TestSubsetWithReadyAddresses(t *testing.T) {
 		"Degraded for missing endpoints": {
 			degraded: true,
 		},
-		"Degraded for no subsets": {
+		"Degraded for empty endpoints": {
 			endpoints: &corev1.Endpoints{},
 			degraded:  true,
 		},
+		"Degraded for no subsets": {
+			endpoints: &corev1.Endpoints{
+				ObjectMeta: objMeta,
+			},
+			degraded: true,
+		},
 		"Error if more than one subset": {
 			endpoints: &corev1.Endpoints{
+				ObjectMeta: objMeta,
 				Subsets: []corev1.EndpointSubset{
 					{},
 					{},
@@ -35,6 +46,7 @@ func TestSubsetWithReadyAddresses(t *testing.T) {
 		},
 		"Degraded if all addresses are not ready": {
 			endpoints: &corev1.Endpoints{
+				ObjectMeta: objMeta,
 				Subsets: []corev1.EndpointSubset{
 					{
 						NotReadyAddresses: []corev1.EndpointAddress{

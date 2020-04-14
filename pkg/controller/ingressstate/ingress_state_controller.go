@@ -259,7 +259,13 @@ func checkEndpointHealthz(endpointIP string, rootCAs *x509.CertPool) error {
 // there are more than one subsets, an error will be returned instead of either
 // a subset or condition.
 func subsetWithReadyAddresses(endpoints *corev1.Endpoints) (*corev1.EndpointSubset, *operatorv1.OperatorCondition, error) {
-	if endpoints == nil {
+	// Check for an empty uid to ensure correct error handling when the shared
+	// informer returns an empty endpoints resource (instead of nil) when the target
+	// endpoints resource has been deleted.
+	//
+	// TODO(marun) Figure out why the informer is not returning nil when the
+	// endpoints resource has been deleted.
+	if endpoints == nil || len(endpoints.UID) == 0 {
 		return nil, endpointsDegraded("MissingEndpoints", "No endpoints found for oauth-server"), nil
 	}
 	if len(endpoints.Subsets) == 0 {
