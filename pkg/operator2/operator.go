@@ -196,14 +196,14 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 
 	operatorConfigCopy := operatorConfig.DeepCopy()
 
-	syncErr := c.handleSync(context.TODO(), operatorConfigCopy)
+	conditions := newAuthConditions()
+	syncErr := c.handleSync(context.TODO(), operatorConfigCopy, conditions)
 	// this is a catch all degraded state that we only set when we are otherwise not degraded
 	globalDegradedErr := syncErr
-	const globalDegradedPrefix = "OperatorSync"
-	if isDegradedIgnoreGlobal(operatorConfigCopy, globalDegradedPrefix) {
+	if conditions.hasDegraded {
 		globalDegradedErr = nil // unset because we are already degraded for some other reason
 	}
-	handleDegraded(operatorConfigCopy, globalDegradedPrefix, globalDegradedErr)
+	conditions.handleDegraded("OperatorSync", globalDegradedErr)
 
 	if _, _, err := v1helpers.UpdateStatus(c.authOperatorConfigClient, func(status *operatorv1.OperatorStatus) error {
 		// store a copy of our starting conditions, we need to preserve last transition time
@@ -216,7 +216,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 		status.Conditions = originalConditions
 
 		// manually update the conditions while preserving last transition time
-		for _, condition := range operatorConfigCopy.Status.Conditions {
+		for _, condition := range conditions.conditions {
 			v1helpers.SetOperatorCondition(&status.Conditions, condition)
 		}
 
@@ -231,7 +231,7 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	return syncErr
 }
 
-func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv1.Authentication) error {
+func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv1.Authentication, conditions *authConditions) error {
 	// resourceVersions serves to store versions of config resources so that we
 	// can redeploy our payload should either change. We only omit the operator
 	// config version, it would both cause redeploy loops (status updates cause
@@ -251,7 +251,7 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	}
 
 	route, routerSecret, reason, err := c.handleRoute(ctx, ingress)
-	handleDegradedWithReason(operatorConfig, "RouteStatus", reason, err)
+	conditions.handleDegradedWithReason("RouteStatus", err, reason)
 	if err != nil {
 		return fmt.Errorf("failed handling the route: %v", err)
 	}
@@ -295,7 +295,7 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 
-	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, service)
+	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
@@ -370,7 +370,7 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 
 	klog.V(4).Infof("current deployment: %#v", deployment)
 
-	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress); err != nil {
+	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress, conditions); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
 	}
 
@@ -385,6 +385,7 @@ func (c *authOperator) handleVersion(
 	routerSecret *corev1.Secret,
 	deployment *appsv1.Deployment,
 	ingress *configv1.Ingress,
+	conditions *authConditions,
 ) error {
 	// Checks readiness of all of:
 	//    - route
@@ -396,69 +397,69 @@ func (c *authOperator) handleVersion(
 	// but we do NOT want to go to the next version until all OAuth server pods are at that version
 
 	routeReady, routeMsg, reason, err := c.checkRouteHealthy(route, routerSecret, ingress)
-	handleDegradedWithReason(operatorConfig, "RouteHealth", reason, err)
+	conditions.handleDegradedWithReason("RouteHealth", err, reason)
 	if err != nil {
 		return fmt.Errorf("unable to check route health: %v", err)
 	}
 	if !routeReady {
-		setProgressingTrueAndAvailableFalse(operatorConfig, "RouteNotReady", routeMsg)
+		conditions.setProgressingTrueAndAvailableFalse("RouteNotReady", routeMsg)
 		return nil
 	}
 
 	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(ctx, authConfig, route)
-	handleDegraded(operatorConfig, "WellKnownEndpoint", err)
+	conditions.handleDegraded("WellKnownEndpoint", err)
 	if err != nil {
 		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
 	if !wellknownReady {
-		setProgressingTrueAndAvailableFalse(operatorConfig, "WellKnownNotReady", wellknownMsg)
+		conditions.setProgressingTrueAndAvailableFalse("WellKnownNotReady", wellknownMsg)
 		return nil
 	}
 
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx, route)
-	handleDegraded(operatorConfig, "OAuthClients", err)
+	conditions.handleDegraded("OAuthClients", err)
 	if err != nil {
 		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
 	}
 	if !oauthClientsReady {
-		setProgressingTrueAndAvailableFalse(operatorConfig, "OAuthClientNotReady", oauthClientsMsg)
+		conditions.setProgressingTrueAndAvailableFalse("OAuthClientNotReady", oauthClientsMsg)
 		return nil
 	}
 
-	if deploymentReady := c.checkDeploymentReady(deployment, operatorConfig); !deploymentReady {
+	if deploymentReady := c.checkDeploymentReady(deployment, conditions); !deploymentReady {
 		return nil
 	}
 
 	// we have achieved our desired level
-	setProgressingFalse(operatorConfig)
-	setAvailableTrue(operatorConfig, "AsExpected")
+	conditions.setProgressingFalse()
+	conditions.setAvailableTrue("AsExpected")
 	c.setVersion("operator", operatorVersion)
 	c.setVersion("oauth-openshift", oauthserverVersion)
 
 	return nil
 }
 
-func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, operatorConfig *operatorv1.Authentication) bool {
+func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, conditions *authConditions) bool {
 	reason := "OAuthServerDeploymentNotReady"
 
 	if deployment.DeletionTimestamp != nil {
-		setProgressingTrueAndAvailableFalse(operatorConfig, reason, "deployment is being deleted")
+		conditions.setProgressingTrueAndAvailableFalse(reason, "deployment is being deleted")
 		return false
 	}
 
 	if deployment.Status.AvailableReplicas > 0 && deployment.Status.UpdatedReplicas != deployment.Status.Replicas {
-		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
-		setAvailableTrue(operatorConfig, "OAuthServerDeploymentHasAvailableReplica")
+		conditions.setProgressingTrue(reason, "not all deployment replicas are ready")
+		conditions.setAvailableTrue("OAuthServerDeploymentHasAvailableReplica")
 		return false
 	}
 
 	if deployment.Generation != deployment.Status.ObservedGeneration {
-		setProgressingTrue(operatorConfig, reason, "deployment's observed generation did not reach the expected generation")
+		conditions.setProgressingTrue(reason, "deployment's observed generation did not reach the expected generation")
 		return false
 	}
 
 	if deployment.Status.UpdatedReplicas != deployment.Status.Replicas || deployment.Status.UnavailableReplicas > 0 {
-		setProgressingTrue(operatorConfig, reason, "not all deployment replicas are ready")
+		conditions.setProgressingTrue(reason, "not all deployment replicas are ready")
 		return false
 	}
 

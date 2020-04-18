@@ -27,6 +27,7 @@ func (c *authOperator) handleOAuthConfig(
 	operatorConfig *operatorv1.Authentication,
 	route *routev1.Route,
 	service *corev1.Service,
+	conditions *authConditions,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -83,7 +84,7 @@ func (c *authOperator) handleOAuthConfig(
 			},
 		)
 	}
-	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
+	conditions.handleDegraded("IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
