@@ -321,43 +321,36 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	proxyConfig := c.handleProxyConfig(ctx)
 	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
 
-	operatorDeployment, err := c.deployments.Deployments("openshift-authentication-operator").Get(ctx, "authentication-operator", metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	// prefix the RV to make it clear where it came from since each resource can be from different etcd
-	resourceVersions = append(resourceVersions, "deployments:"+operatorDeployment.Name+":"+operatorDeployment.ResourceVersion)
-
 	configResourceVersions, err := c.handleConfigResourceVersions(ctx)
 	if err != nil {
 		return err
 	}
 	resourceVersions = append(resourceVersions, configResourceVersions...)
 
+	// Determine whether the bootstrap user has been deleted so that
+	// detail can be used in computing the deployment.
+	if c.bootstrapUserChangeRollOut {
+		if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
+			klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
+		} else {
+			c.bootstrapUserChangeRollOut = userExists
+		}
+	}
+
 	// deployment, have RV of all resources
 	expectedDeployment := defaultDeployment(
 		operatorConfig,
 		syncData,
 		proxyConfig,
+		c.bootstrapUserChangeRollOut,
 		resourceVersions...,
 	)
 
-	// redeploy on operatorConfig.spec changes or when bootstrap user is deleted
-	forceRollOut := operatorConfig.Generation != operatorConfig.Status.ObservedGeneration
-	if c.bootstrapUserChangeRollOut {
-		if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
-			klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
-		} else if !userExists {
-			forceRollOut = true
-			c.bootstrapUserChangeRollOut = false
-		}
-	}
 	deployment, _, err := resourceapply.ApplyDeployment(
 		c.deployments,
 		c.recorder,
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
-		forceRollOut,
 	)
 	if err != nil {
 		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)

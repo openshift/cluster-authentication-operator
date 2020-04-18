@@ -23,6 +23,7 @@ func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
 	syncData *configSyncData,
 	proxyConfig *configv1.Proxy,
+	bootstrapUserExists bool,
 	resourceVersions ...string,
 ) *appsv1.Deployment {
 
@@ -46,6 +47,11 @@ func defaultDeployment(
 		deployment.Spec.Template.Annotations = map[string]string{}
 	}
 	deployment.Spec.Template.Annotations[deploymentVersionHashKey] = rvsHashStr
+
+	// Ensure a rollout when the bootstrap user goes away
+	if bootstrapUserExists {
+		deployment.Spec.Template.Annotations["operator.openshift.io/bootstrap-user-exists"] = "true"
+	}
 
 	templateSpec := &deployment.Spec.Template.Spec
 	container := &templateSpec.Containers[0]
