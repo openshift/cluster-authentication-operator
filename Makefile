@@ -7,6 +7,7 @@ include $(addprefix ./vendor/github.com/openshift/build-machinery-go/make/, \
 	targets/openshift/deps-gomod.mk \
 	targets/openshift/images.mk \
 	targets/openshift/bindata.mk \
+	targets/openshift/operator/telepresence.mk \
 )
 
 # Run core verification and all self contained tests.
@@ -53,3 +54,11 @@ test-e2e-encryption: GO_TEST_FLAGS += -p 1
 test-e2e-encryption: GO_TEST_FLAGS += -parallel 1
 test-e2e-encryption: test-unit
 .PHONY: test-e2e-encryption
+
+# Configure the 'telepresence' target
+# See vendor/github.com/openshift/build-machinery-go/scripts/run-telepresence.sh for usage and configuration details
+export TP_DEPLOYMENT_YAML ?=./manifests/07_deployment.yaml
+export TP_CMD_PATH ?=./cmd/authentication-operator
+export TP_CMD_ARGS ?=operator --config=/var/run/configmaps/config/operator-config.yaml --v=2 --terminate-on-files=/var/run/configmaps/trusted-ca-bundle/ca-bundle.crt
+export TP_LOCK_CONFIGMAP ?=cluster-authentication-operator-lock
+export TP_BUILD_FLAGS ?=-tags ocp
