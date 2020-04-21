@@ -6,7 +6,9 @@ import (
 	"path"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -107,6 +109,22 @@ func NewConfigSyncDataFromJSON(jsBytes []byte) (*ConfigSyncData, error) {
 // Bytes returns JSON representation of the structure's internal data map
 func (sd *ConfigSyncData) Bytes() ([]byte, error) {
 	return json.Marshal(sd.data)
+}
+
+// Validate checks that the data to be synchronized is all present, has the required
+// fields, and performs additional validation of certificates and keys
+func (sd *ConfigSyncData) Validate(cmLister corelistersv1.ConfigMapLister, secretsLister corelistersv1.SecretLister) []error {
+	errs := []error{}
+	for _, src := range sd.data {
+		if src.Type == SecretType {
+			if secretErrs := validateSecret(secretsLister, src); len(secretErrs) > 0 {
+				errs = append(errs, fmt.Errorf("error validating secret openshift-config/%s: %w", src.Name, errors.NewAggregate(secretErrs)))
+			}
+		} else if cmErrs := validateConfigMap(cmLister, src); len(cmErrs) > 0 {
+			errs = append(errs, fmt.Errorf("error validating configMap openshift-config/%s: %w", src.Name, errors.NewAggregate(cmErrs)))
+		}
+	}
+	return errs
 }
 
 // AddIDPSecret initializes a sourceData object with proper data for a Secret

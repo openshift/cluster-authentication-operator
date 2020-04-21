@@ -74,6 +74,7 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 	}
 
 	datasync.HandleIdPConfigSync(resourceSyncer, existingSyncData, observedSyncData)
+	errs = append(errs, observedSyncData.Validate(listers.ConfigMapLister, listers.SecretsLister)...)
 
 	if err := unstructured.SetNestedField(observedConfig, string(observedSyncDataBytes), identityProvidersMounts...); err != nil {
 		return existingConfig, append(errs, err)
