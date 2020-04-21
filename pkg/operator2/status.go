@@ -1,48 +1,44 @@
 package operator2
 
 import (
-	"strings"
-
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
-func handleDegraded(operatorConfig *operatorv1.Authentication, prefix string, err error) {
-	handleDegradedWithReason(operatorConfig, prefix, "Error", err)
+type authConditions struct {
+	conditions  []operatorv1.OperatorCondition
+	hasDegraded bool
 }
 
-func handleDegradedWithReason(operatorConfig *operatorv1.Authentication, prefix, reason string, err error) {
+func newAuthConditions() *authConditions {
+	return &authConditions{
+		conditions: []operatorv1.OperatorCondition{},
+	}
+}
+
+func (c *authConditions) handleDegraded(prefix string, err error) {
+	c.handleDegradedWithReason(prefix, err, "Error")
+}
+
+func (c *authConditions) handleDegradedWithReason(prefix string, err error, reason string) {
 	if err != nil {
-		v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
-			operatorv1.OperatorCondition{
-				Type:    prefix + operatorv1.OperatorStatusTypeDegraded,
-				Status:  operatorv1.ConditionTrue,
-				Reason:  reason,
-				Message: err.Error(),
-			})
+		c.hasDegraded = true
+		v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
+			Type:    prefix + operatorv1.OperatorStatusTypeDegraded,
+			Status:  operatorv1.ConditionTrue,
+			Reason:  reason,
+			Message: err.Error(),
+		})
 		return
 	}
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
-		operatorv1.OperatorCondition{
-			Type:   prefix + operatorv1.OperatorStatusTypeDegraded,
-			Status: operatorv1.ConditionFalse,
-		})
+	v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
+		Type:   prefix + operatorv1.OperatorStatusTypeDegraded,
+		Status: operatorv1.ConditionFalse,
+	})
 }
 
-func isDegradedIgnoreGlobal(operatorConfig *operatorv1.Authentication, prefix string) bool {
-	globalDegraded := prefix + operatorv1.OperatorStatusTypeDegraded
-	for _, condition := range operatorConfig.Status.Conditions {
-		if condition.Type != globalDegraded && // we want to know if we are degraded for something other than this
-			strings.HasSuffix(condition.Type, operatorv1.OperatorStatusTypeDegraded) &&
-			condition.Status == operatorv1.ConditionTrue {
-			return true
-		}
-	}
-	return false
-}
-
-func setProgressingTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+func (c *authConditions) setProgressingTrue(reason, message string) {
+	v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
 		Type:    operatorv1.OperatorStatusTypeProgressing,
 		Status:  operatorv1.ConditionTrue,
 		Reason:  reason,
@@ -50,25 +46,24 @@ func setProgressingTrue(operatorConfig *operatorv1.Authentication, reason, messa
 	})
 }
 
-func setAvailableTrue(operatorConfig *operatorv1.Authentication, reason string) {
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+func (c *authConditions) setAvailableTrue(reason string) {
+	v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeAvailable,
 		Status: operatorv1.ConditionTrue,
 		Reason: reason,
 	})
 }
 
-func setProgressingFalse(operatorConfig *operatorv1.Authentication) {
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+func (c *authConditions) setProgressingFalse() {
+	v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeProgressing,
 		Status: operatorv1.ConditionFalse,
 	})
 }
 
-func setProgressingTrueAndAvailableFalse(operatorConfig *operatorv1.Authentication, reason, message string) {
-	setProgressingTrue(operatorConfig, reason, message)
-
-	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions, operatorv1.OperatorCondition{
+func (c *authConditions) setProgressingTrueAndAvailableFalse(reason, message string) {
+	c.setProgressingTrue(reason, message)
+	v1helpers.SetOperatorCondition(&c.conditions, operatorv1.OperatorCondition{
 		Type:   operatorv1.OperatorStatusTypeAvailable,
 		Status: operatorv1.ConditionFalse,
 	})
