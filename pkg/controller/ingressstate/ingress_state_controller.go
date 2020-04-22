@@ -306,7 +306,7 @@ func checkAddresses(addresses []corev1.EndpointAddress, checkPod checkPodFunc, c
 			}
 			messages := checkPod(address.TargetRef)
 			if len(messages) > 0 {
-				unhealthyPodCount += 1
+				unhealthyPodCount++
 			}
 			podMessages[podName] = messages
 		}
