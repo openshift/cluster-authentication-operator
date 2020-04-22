@@ -240,18 +240,14 @@ func checkEndpointHealthz(endpointIP string, rootCAs *x509.CertPool) error {
 	}
 	url := fmt.Sprintf("https://%s/healthz", net.JoinHostPort(endpointIP, "6443"))
 	response, err := client.Get(url)
-	if response != nil {
-		defer response.Body.Close()
-	}
 	if err != nil {
-		reportedError := err
-		if response != nil {
-			reportedError = fmt.Errorf("status:%q, body: %q, error: %v", response.Status, response.Body, reportedError)
-		}
-		return reportedError
+		return err
 	}
+	defer response.Body.Close()
+
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("status:%q, body: %q", response.Status, response.Body)
+		respBody, _ := ioutil.ReadAll(response.Body)
+		return fmt.Errorf("status:%q, body: %q", response.Status, respBody)
 	}
 	return nil
 }
