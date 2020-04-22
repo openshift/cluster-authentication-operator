@@ -313,7 +313,7 @@ func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, che
 			}
 			messages := checkPod(ctx, address.TargetRef)
 			if len(messages) > 0 {
-				unhealthyPodCount += 1
+				unhealthyPodCount++
 			}
 			podMessages[podName] = messages
 		}
