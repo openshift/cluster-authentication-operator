@@ -240,14 +240,13 @@ func checkEndpointHealthz(endpointIP string, rootCAs *x509.CertPool) error {
 	url := fmt.Sprintf("https://%s/healthz", net.JoinHostPort(endpointIP, "6443"))
 	response, err := client.Get(url)
 	if err != nil {
-		reportedError := err
-		if response != nil {
-			reportedError = fmt.Errorf("status:%q, body: %q, error: %v", response.Status, response.Body, reportedError)
-		}
-		return reportedError
+		return err
 	}
+	defer response.Body.Close()
+
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("status:%q, body: %q", response.Status, response.Body)
+		respBody, _ := ioutil.ReadAll(response.Body)
+		return fmt.Errorf("status:%q, body: %q", response.Status, respBody)
 	}
 	return nil
 }
@@ -303,7 +302,7 @@ func checkAddresses(addresses []corev1.EndpointAddress, checkPod checkPodFunc, c
 			}
 			messages := checkPod(address.TargetRef)
 			if len(messages) > 0 {
-				unhealthyPodCount += 1
+				unhealthyPodCount++
 			}
 			podMessages[podName] = messages
 		}
