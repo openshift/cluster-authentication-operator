@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -20,8 +18,8 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // field names are used to uniquely identify a secret or config map reference
@@ -66,7 +64,7 @@ func convertIdentityProviders(
 	errs := []error{}
 
 	for i, idp := range defaultIDPMappingMethods(identityProviders) {
-		data, err := convertProviderConfigToIDPData(cmLister, &idp.IdentityProviderConfig, &syncData, i)
+		data, err := convertProviderConfigToIDPData(cmLister, secretsLister, &idp.IdentityProviderConfig, &syncData, i)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
 			continue
@@ -318,7 +316,7 @@ func discoverOpenIDURLs(cmLister corelistersv1.ConfigMapLister, issuer, key stri
 		return nil, err
 	}
 
-	rt, err := transportForCARef(cmLister, ca, key)
+	rt, err := transport.TransportForCARef(cmLister, ca.Name, key)
 	if err != nil {
 		return nil, err
 	}
@@ -367,25 +365,6 @@ func discoverOpenIDURLs(cmLister corelistersv1.ConfigMapLister, issuer, key stri
 	}, nil
 }
 
-func transportForCARef(cmLister corelistersv1.ConfigMapLister, ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
-	if len(ca.Name) == 0 {
-		return operator2.TransportFor("", nil, nil, nil)
-	}
-
-	cm, err := cmLister.ConfigMaps("openshift-config").Get(ca.Name)
-	if err != nil {
-		return nil, err
-	}
-	caData := []byte(cm.Data[key])
-	if len(caData) == 0 {
-		caData = cm.BinaryData[key]
-	}
-	if len(caData) == 0 {
-		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", "openshift-config", ca.Name, key)
-	}
-	return operator2.TransportFor("", caData, nil, nil)
-}
-
 func checkOIDCPasswordGrantFlow(
 	cmLister corelistersv1.ConfigMapLister,
 	secretsLister corelistersv1.SecretLister,
@@ -393,7 +372,7 @@ func checkOIDCPasswordGrantFlow(
 	caRererence configv1.ConfigMapNameReference,
 	clientSecretReference configv1.SecretNameReference,
 ) (bool, error) {
-	secret, err := secretsLister.Secrets("openshift-config").Get(context.TODO(), clientSecretReference.Name, metav1.GetOptions{})
+	secret, err := secretsLister.Secrets("openshift-config").Get(clientSecretReference.Name)
 	if err != nil {
 		return false, fmt.Errorf("couldn't get the referenced secret: %v", err)
 	}
@@ -410,7 +389,7 @@ func checkOIDCPasswordGrantFlow(
 		return false, fmt.Errorf("the referenced secret does not contain a value for the 'clientSecret' key")
 	}
 
-	transport, err := transportForCARef(cmLister, caRererence, corev1.ServiceAccountRootCAKey)
+	transport, err := transport.TransportForCARef(cmLister, caRererence.Name, corev1.ServiceAccountRootCAKey)
 	if err != nil {
 		return false, fmt.Errorf("couldn't get a transport for the referenced CA: %v", err)
 	}

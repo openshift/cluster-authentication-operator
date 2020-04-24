@@ -35,6 +35,7 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -464,7 +465,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 		caData = append(bytes.TrimSpace(caData), []byte("\n")...)
 	}
 
-	rt, err := TransportFor("", append(caData, c.systemCABundle...), nil, nil)
+	rt, err := transport.TransportFor("", append(caData, c.systemCABundle...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
@@ -500,7 +501,7 @@ func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authCon
 	}
 
 	// pass the KAS service name for SNI
-	rt, err := TransportFor("kubernetes.default.svc", caData, nil, nil)
+	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}

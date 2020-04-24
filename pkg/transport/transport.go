@@ -1,24 +1,45 @@
-package operator2
+package transport
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"k8s.io/apimachinery/pkg/util/net"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	ktransport "k8s.io/client-go/transport"
 )
 
 // TODO move all this to library-go
 
-// transportFor returns an http.Transport for the given ca and client cert data (which may be empty)
+// TransportFor returns an http.Transport for the given ca and client cert data (which may be empty)
 func TransportFor(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
 	transport, err := transportForInner(serverName, caData, certData, keyData)
 	if err != nil {
 		return nil, err
 	}
 	return ktransport.DebugWrappers(transport), nil
+}
+
+func TransportForCARef(cmLister corelistersv1.ConfigMapLister, caConfigMapName, key string) (http.RoundTripper, error) {
+	if len(caConfigMapName) == 0 {
+		return TransportFor("", nil, nil, nil)
+	}
+
+	cm, err := cmLister.ConfigMaps("openshift-config").Get(caConfigMapName)
+	if err != nil {
+		return nil, err
+	}
+	caData := []byte(cm.Data[key])
+	if len(caData) == 0 {
+		caData = cm.BinaryData[key]
+	}
+	if len(caData) == 0 {
+		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", "openshift-config", caConfigMapName, key)
+	}
+	return TransportFor("", caData, nil, nil)
 }
 
 func transportForInner(serverName string, caData, certData, keyData []byte) (http.RoundTripper, error) {
