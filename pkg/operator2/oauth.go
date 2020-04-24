@@ -17,8 +17,9 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 
 var (

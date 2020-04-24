@@ -11,11 +11,11 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/console"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/infrastructure"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/oauth"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/routersecret"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/console"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/infrastructure"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/routersecret"
 )
 
 func NewConfigObserver(

@@ -19,9 +19,9 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
+	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
-	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
 )
 

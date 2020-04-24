@@ -29,10 +29,10 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
 const (
