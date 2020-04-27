@@ -21,13 +21,16 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/staleconditions"
+	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
@@ -103,6 +106,21 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), resourceSyncerInformers),
 		controllerContext.EventRecorder,
 	)
+
+	staticResourceController := staticresourcecontroller.NewStaticResourceController(
+		"OpenshiftAuthenticationStaticResources",
+		assets.Asset,
+		[]string{
+			"oauth-openshift/ns.yaml",
+			"oauth-openshift/authentication-clusterrolebinding.yaml",
+			"oauth-openshift/cabundle.yaml",
+			"oauth-openshift/branding-secret.yaml",
+			"oauth-openshift/serviceaccount.yaml",
+		},
+		resourceapply.NewKubeClientHolder(kubeClient),
+		operatorClient,
+		controllerContext.EventRecorder,
+	).AddKubeInformers(kubeInformersNamespaced)
 
 	configObserver := configobservercontroller.NewConfigObserver(
 		operatorClient,
@@ -235,6 +253,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		managementStateController,
 		routerCertsController,
 		staleConditions,
+		staticResourceController,
 	} {
 		go controller.Run(ctx, 1)
 	}
