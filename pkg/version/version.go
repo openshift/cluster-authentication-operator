@@ -1,9 +1,6 @@
 package version
 
 import (
-	"k8s.io/component-base/metrics"
-	"k8s.io/component-base/metrics/legacyregistry"
-
 	"k8s.io/apimachinery/pkg/version"
 )
 
@@ -32,17 +29,4 @@ func Get() version.Info {
 		GitVersion: versionFromGit,
 		BuildDate:  buildDate,
 	}
-}
-
-func init() {
-	buildInfo := metrics.NewGaugeVec(
-		&metrics.GaugeOpts{
-			Name: "openshift_cluster_authentication_operator_build_info",
-			Help: "A metric with a constant '1' value labeled by major, minor, git commit & git version from which OpenShift Authentication Operator was built.",
-		},
-		[]string{"major", "minor", "gitCommit", "gitVersion"},
-	)
-	buildInfo.WithLabelValues(majorFromGit, minorFromGit, commitFromGit, versionFromGit).Set(1)
-
-	legacyregistry.MustRegister(buildInfo)
 }
