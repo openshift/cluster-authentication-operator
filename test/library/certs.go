@@ -1,6 +1,7 @@
 package library
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -10,6 +11,10 @@ import (
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 type CryptoMaterials struct {
@@ -92,4 +97,24 @@ func NewCertificateAuthorityCertificate(t *testing.T, parent *CryptoMaterials) *
 		panic(err)
 	}
 	return result
+}
+
+// SyncDefaultIngressCAToConfig synchronizes the openshift-config-managed/default-ingress-cert
+// to the openshift-config NS as a CA suited for an IdP configuration.
+// Useful when deploying an IDP behind a reencrypt/edge-termination route.
+// Returns a cleanup function for the CM.
+func SyncDefaultIngressCAToConfig(t *testing.T, cmClient corev1client.ConfigMapsGetter, name string) func() {
+	ca, err := cmClient.ConfigMaps("openshift-config-managed").Get(context.TODO(), "default-ingress-cert", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	ca.ObjectMeta = metav1.ObjectMeta{Name: name, Labels: CAOE2ETestLabels()}
+	ca.Data["ca.crt"] = ca.Data["ca-bundle.crt"] // IdP config requires "ca.crt" key for CA bundles
+	_, err = cmClient.ConfigMaps("openshift-config").Create(context.TODO(), ca, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	return func() {
+		if err := cmClient.ConfigMaps("openshift-config").Delete(context.TODO(), name, metav1.DeleteOptions{}); err != nil {
+			t.Logf("cleanup failed for config map 'openshift-config/%s'", name)
+		}
+	}
 }

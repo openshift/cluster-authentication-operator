@@ -27,8 +27,8 @@ import (
 )
 
 func TestRouterCerts(t *testing.T) {
-	kubeConfig, err := e2e.NewClientConfigForTest()
-	require.NoError(t, err)
+	kubeConfig := e2e.NewClientConfigForTest(t)
+
 	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
 	require.NoError(t, err)
 	configClient, err := configclient.NewForConfig(kubeConfig)
