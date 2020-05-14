@@ -23,5 +23,3 @@ require (
 	k8s.io/klog v1.0.0
 	monis.app/go v0.0.0-20190702030534-c65526068664
 )
-
-replace github.com/openshift/build-machinery-go => github.com/marun/build-machinery-go v0.0.0-20200503165909-aca6df7a454a
