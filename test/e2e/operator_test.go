@@ -13,8 +13,8 @@ import (
 )
 
 func TestOperatorNamespace(t *testing.T) {
-	kubeConfig, err := test.NewClientConfigForTest()
-	require.NoError(t, err)
+	kubeConfig := test.NewClientConfigForTest(t)
+
 	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
 	require.NoError(t, err)
 	_, err = kubeClient.CoreV1().Namespaces().Get(context.TODO(), "openshift-authentication-operator", metav1.GetOptions{})
