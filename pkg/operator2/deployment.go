@@ -29,6 +29,7 @@ func defaultDeployment(
 ) *appsv1.Deployment {
 	replicas := int32(2) // TODO configurable?
 	tolerationSeconds := int64(120)
+	readOnlyFileSystem := false
 
 	var (
 		volumes []corev1.Volume
@@ -135,6 +136,9 @@ exec oauth-server osinserver --config=%s --v=%d
 									Protocol:      corev1.ProtocolTCP,
 									ContainerPort: 6443,
 								},
+							},
+							SecurityContext: &corev1.SecurityContext{
+								ReadOnlyRootFilesystem: &readOnlyFileSystem, // false because of the `cp` in args
 							},
 							VolumeMounts:   mounts,
 							Env:            proxyConfigToEnvVars(proxyConfig),

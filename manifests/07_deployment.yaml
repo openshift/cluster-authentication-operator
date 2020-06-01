@@ -36,6 +36,8 @@ spec:
           requests:
             memory: 50Mi
             cpu: 10m
+        securityContext:
+          readOnlyRootFilesystem: false # because of the `cp` in args
         volumeMounts:
         - mountPath: /var/run/configmaps/config
           name: config
