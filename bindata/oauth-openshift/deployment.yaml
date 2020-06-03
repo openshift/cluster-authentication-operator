@@ -62,6 +62,8 @@ spec:
             - name: https
               containerPort: 6443
               protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: false # because of the `cp` in args
           volumeMounts:
             - name: v4-0-config-system-session
               readOnly: true
