@@ -26,6 +26,7 @@ func (c *authOperator) handleOAuthConfig(
 	consoleConfig *configv1.Console,
 	infrastructureConfig *configv1.Infrastructure,
 	apiServerConfig *configv1.APIServer,
+	conditions *authConditions,
 ) (
 	*corev1.ConfigMap,
 	*configSyncData,
@@ -82,7 +83,7 @@ func (c *authOperator) handleOAuthConfig(
 			},
 		)
 	}
-	handleDegraded(operatorConfig, "IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
+	conditions.handleDegraded("IdentityProviderConfig", v1helpers.NewMultiLineAggregate(errsIDP))
 
 	assetPublicURL, corsAllowedOrigins := consoleToDeploymentData(consoleConfig)
 	corsAllowedOrigins = append(corsAllowedOrigins, apiServerConfig.Spec.AdditionalCORSAllowedOrigins...)
