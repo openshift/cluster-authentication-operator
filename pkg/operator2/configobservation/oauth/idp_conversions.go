@@ -57,14 +57,14 @@ func convertIdentityProviders(
 	cmLister corelistersv1.ConfigMapLister,
 	secretsLister corelistersv1.SecretLister,
 	identityProviders []configv1.IdentityProvider,
-) ([]interface{}, datasync.ConfigSyncData, []error) {
+) ([]interface{}, *datasync.ConfigSyncData, []error) {
 
 	converted := []osinv1.IdentityProvider{}
 	syncData := datasync.NewConfigSyncData()
 	errs := []error{}
 
 	for i, idp := range defaultIDPMappingMethods(identityProviders) {
-		data, err := convertProviderConfigToIDPData(cmLister, secretsLister, &idp.IdentityProviderConfig, &syncData, i)
+		data, err := convertProviderConfigToIDPData(cmLister, secretsLister, &idp.IdentityProviderConfig, syncData, i)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
 			continue

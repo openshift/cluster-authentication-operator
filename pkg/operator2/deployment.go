@@ -14,7 +14,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -79,7 +78,10 @@ func defaultDeployment(
 	}
 
 	// mount more secrets and config maps
-	v, m := idpSyncData.ToVolumesAndMounts()
+	v, m, err := idpSyncData.ToVolumesAndMounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to transform observed sync data to volumes and mounts: %w", err)
+	}
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
@@ -128,60 +130,4 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
 	}
 	return envVars
-}
-
-type volume struct {
-	name       string
-	configmap  bool
-	path       string
-	keys       []string
-	mappedKeys map[string]string
-	optional   bool
-}
-
-func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
-	vol := corev1.Volume{
-		Name: v.name,
-	}
-
-	var items []corev1.KeyToPath
-	// maps' keys are random,  we need to sort the output to prevent redeployment hotloops
-	for _, key := range sets.StringKeySet(v.mappedKeys).List() {
-		items = append(items, corev1.KeyToPath{
-			Key:  key,
-			Path: v.mappedKeys[key],
-		})
-	}
-
-	for _, key := range v.keys {
-		items = append(items, corev1.KeyToPath{
-			Key:  key,
-			Path: key,
-		})
-	}
-
-	// copy the value in case the *v struct was reused with different values
-	// so that the resulting objects don't share this field's value
-	optional := v.optional
-	if v.configmap {
-		vol.ConfigMap = &corev1.ConfigMapVolumeSource{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: v.name,
-			},
-			Items:    items,
-			Optional: &optional,
-		}
-	} else {
-		vol.Secret = &corev1.SecretVolumeSource{
-			SecretName: v.name,
-			Items:      items,
-			Optional:   &optional,
-		}
-	}
-
-	return vol, corev1.VolumeMount{
-		Name:      v.name,
-		ReadOnly:  true,
-		MountPath: v.path,
-	}
 }

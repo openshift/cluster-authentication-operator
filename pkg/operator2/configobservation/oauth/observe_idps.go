@@ -1,8 +1,6 @@
 package oauth
 
 import (
-	"encoding/json"
-
 	"k8s.io/klog"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -66,7 +64,7 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 		}
 	}
 
-	observedSyncDataBytes, err := json.Marshal(observedSyncData)
+	observedSyncDataBytes, err := observedSyncData.Bytes()
 	if err != nil {
 		return existingConfig, append(errs, err)
 	}
@@ -75,7 +73,7 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 		recorder.Eventf("ObserveIdentityProviders", "identity providers changed to %q", convertedObservedIdentityProviders)
 	}
 
-	datasync.HandleIdPConfigSync(resourceSyncer, existingSyncData, &observedSyncData)
+	datasync.HandleIdPConfigSync(resourceSyncer, existingSyncData, observedSyncData)
 
 	if err := unstructured.SetNestedField(observedConfig, string(observedSyncDataBytes), identityProvidersMounts...); err != nil {
 		return existingConfig, append(errs, err)
@@ -96,12 +94,5 @@ func GetIDPConfigSyncData(observedConfig map[string]interface{}) (*datasync.Conf
 		currentSyncDataBytes = []byte(currentSyncDataUnstructured.(string))
 	}
 
-	var currentSyncData datasync.ConfigSyncData = datasync.NewConfigSyncData()
-	if len(currentSyncDataBytes) > 0 {
-		if err := json.Unmarshal(currentSyncDataBytes, &currentSyncData); err != nil {
-			return nil, err
-		}
-	}
-
-	return &currentSyncData, nil
+	return datasync.NewConfigSyncDataFromJSON(currentSyncDataBytes)
 }

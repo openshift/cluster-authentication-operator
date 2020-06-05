@@ -1,9 +1,11 @@
 package datasync
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -11,110 +13,103 @@ import (
 )
 
 type ConfigSyncData struct {
-	// both maps are dest -> source
+	// data maps dest -> source
 	// dest is metadata.name for resource in our deployment's namespace
-	IdPConfigMaps map[string]sourceData
-	IdPSecrets    map[string]sourceData
+	data map[string]sourceData
 }
 
 type ResourceType string
 
 const (
-	ConfigMapType ResourceType = "ConfigMap"
-	SecretType    ResourceType = "Secret"
+	ConfigMapType ResourceType = "configMap"
+	SecretType    ResourceType = "secret"
 )
 
 type sourceData struct {
-	Src      string `json:"src"` // name of the source in openshift-config namespace
-	Path     string // the mount path that this source is mapped to
-	Key      string
-	Resource ResourceType
+	Name      string       `json:"name"`      // name of the source in openshift-config namespace
+	MountPath string       `json:"mountPath"` // the mount path that this source is mapped to
+	Key       string       `json:"key"`
+	Type      ResourceType `json:"type"`
 }
 
 func HandleIdPConfigSync(resourceSyncer resourcesynccontroller.ResourceSyncer, oldData, newData *ConfigSyncData) {
-	// TODO this has too much boilerplate
-
 	newConfigMapNames := sets.NewString()
 	newSecretNames := sets.NewString()
 
 	oldConfigMapNames := sets.NewString()
 	oldSecretNames := sets.NewString()
 
-	for _, dest := range sets.StringKeySet(newData.IdPConfigMaps).List() {
-		syncOrDie(resourceSyncer.SyncConfigMap, dest, newData.IdPConfigMaps[dest].Src)
-		newConfigMapNames.Insert(dest)
-	}
-	for _, dest := range sets.StringKeySet(newData.IdPSecrets).List() {
-		syncOrDie(resourceSyncer.SyncSecret, dest, newData.IdPSecrets[dest].Src)
-		newSecretNames.Insert(dest)
-	}
+	for _, dest := range sets.StringKeySet(newData.data).List() {
+		syncFunc := resourceSyncer.SyncSecret
 
-	for _, dst := range sets.StringKeySet(oldData.IdPConfigMaps).List() {
-		oldConfigMapNames.Insert(dst)
-	}
+		if newData.data[dest].Type == ConfigMapType {
+			syncFunc = resourceSyncer.SyncConfigMap
+			newConfigMapNames.Insert(dest)
+		} else {
+			newSecretNames.Insert(dest)
+		}
 
-	for _, dst := range sets.StringKeySet(oldData.IdPSecrets).List() {
-		oldSecretNames.Insert(dst)
+		SyncConfigOrDie(syncFunc, dest, newData.data[dest].Name)
 	}
 
-	// TODO: (?) originally we were testing that all CMs and Secrets are synced by listing CMs and Secrets in the target NS
+	for _, dest := range sets.StringKeySet(oldData.data).List() {
+		if oldData.data[dest].Type == ConfigMapType {
+			oldConfigMapNames.Insert(dest)
+		} else {
+			oldSecretNames.Insert(dest)
+		}
+	}
 
-	notInUseConfigMapNames := oldConfigMapNames.Difference(newConfigMapNames)
-	notInUseSecretNames := oldSecretNames.Difference(newSecretNames)
+	unusedConfigMapNames := oldConfigMapNames.Difference(newConfigMapNames)
+	unusedSecretNames := oldSecretNames.Difference(newSecretNames)
 
 	// TODO maybe update resource syncer in lib-go to cleanup its map as needed
 	// it does not really matter, we are talking as worse case of
 	// a few unneeded strings and a few unnecessary deletes
-	for dest := range notInUseConfigMapNames {
-		syncOrDie(resourceSyncer.SyncConfigMap, dest, "")
+	for dest := range unusedConfigMapNames {
+		SyncConfigOrDie(resourceSyncer.SyncConfigMap, dest, "")
 	}
-	for dest := range notInUseSecretNames {
-		syncOrDie(resourceSyncer.SyncSecret, dest, "")
+	for dest := range unusedSecretNames {
+		SyncConfigOrDie(resourceSyncer.SyncSecret, dest, "")
 	}
 }
 
-// TODO: newSourceDataIDP* could be a generic function grouping the common pieces of code
-// newSourceDataIDPSecret returns a name which is unique amongst the IdPs, and
-// sourceData which describes the volumes and mount volumes to mount the secret to
-func newSourceDataIDPSecret(index int, secretName configv1.SecretNameReference, field, key string) (string, sourceData) {
+// newSourceDataIDP returns a name which is unique amongst the IdPs, and sourceData
+// which describes the volumes and mount volumes to mount the CM/Secret to
+func newSourceDataIDP(index int, resourceType ResourceType, resourceName, field, key string) (string, sourceData) {
 	dest := getIDPName(index, field)
-	dirPath := getIDPPath(index, "secret", dest)
+	dirPath := getIDPPath(index, string(resourceType), dest)
 
-	// vol, mount, path := secretVolume(dirPath, dest, key)
-	ret := sourceData{
-		Src:      secretName.Name,
-		Path:     dirPath,
-		Key:      key,
-		Resource: SecretType,
-	}
-
-	return dest, ret
-}
-
-// newSourceDataIDPConfigMap returns a name which is unique amongst the IdPs, and
-// sourceData which describes the volumes and mountvolumes to mount the ConfigMap to
-func newSourceDataIDPConfigMap(index int, configMap configv1.ConfigMapNameReference, field, key string) (string, sourceData) {
-	dest := getIDPName(index, field)
-	dirPath := getIDPPath(index, "configmap", dest)
-
-	ret := sourceData{
-		Src:      configMap.Name,
-		Path:     dirPath,
-		Key:      key,
-		Resource: ConfigMapType,
-	}
-
-	return dest, ret
-}
-
-func NewConfigSyncData() ConfigSyncData {
-	return ConfigSyncData{
-		IdPConfigMaps: map[string]sourceData{},
-		IdPSecrets:    map[string]sourceData{},
+	return dest, sourceData{
+		Name:      resourceName,
+		MountPath: dirPath,
+		Key:       key,
+		Type:      resourceType,
 	}
 }
 
-// AddSecret initializes a sourceData object with proper data for a Secret
+func NewConfigSyncData() *ConfigSyncData {
+	return &ConfigSyncData{
+		data: map[string]sourceData{},
+	}
+}
+
+func NewConfigSyncDataFromJSON(jsBytes []byte) (*ConfigSyncData, error) {
+	data := map[string]sourceData{}
+	if len(jsBytes) > 0 {
+		if err := json.Unmarshal(jsBytes, &data); err != nil {
+			return nil, fmt.Errorf("%s: %v", jsBytes, err)
+		}
+	}
+	return &ConfigSyncData{data: data}, nil
+}
+
+// Bytes returns JSON representation of the structure's internal data map
+func (sd *ConfigSyncData) Bytes() ([]byte, error) {
+	return json.Marshal(sd.data)
+}
+
+// AddIDPSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
 func (sd *ConfigSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameReference, field, key string) string {
@@ -122,13 +117,13 @@ func (sd *ConfigSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameR
 		return ""
 	}
 
-	dest, data := newSourceDataIDPSecret(index, secretRef, field, key)
-	sd.IdPSecrets[dest] = data
+	dest, data := newSourceDataIDP(index, SecretType, secretRef.Name, field, key)
+	sd.data[dest] = data
 
-	return path.Join(data.Path, key)
+	return path.Join(data.MountPath, key)
 }
 
-// AddConfigMap initializes a sourceData object with proper data for a ConfigMap
+// AddIDPConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
 func (sd *ConfigSyncData) AddIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, field, key string) string {
@@ -136,52 +131,83 @@ func (sd *ConfigSyncData) AddIDPConfigMap(index int, configMapRef configv1.Confi
 		return ""
 	}
 
-	dest, data := newSourceDataIDPConfigMap(index, configMapRef, field, key)
-	sd.IdPConfigMaps[dest] = data
+	dest, data := newSourceDataIDP(index, ConfigMapType, configMapRef.Name, field, key)
+	sd.data[dest] = data
 
-	return path.Join(data.Path, key)
+	return path.Join(data.MountPath, key)
 }
 
-func (sd *ConfigSyncData) ToVolumes() []Volume {
-	ret := []Volume{}
+// ToVolumesAndMounts converts the synchronization data to Volumes and VoulumeMounts
+// so that these can be added to a container spec
+func (sd *ConfigSyncData) ToVolumesAndMounts() ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes := []corev1.Volume{}
+	volumeMounts := []corev1.VolumeMount{}
 
-	// FIXME: this is quite obviously unnecessary, maybe just have one string map for everything
-	for k, v := range sd.IdPConfigMaps {
-		ret = append(ret,
-			Volume{
-				Name:      k,
-				Configmap: true,
-				Path:      v.Path,
-				Keys:      []string{v.Key},
-			})
+	// maps' keys are random,  we need to sort the output to prevent redeployment hotloops
+	for _, dataKey := range sets.StringKeySet(sd.data).List() {
+		volume, volumeMount, err := sd.data[dataKey].ToVolumesAndMounts(dataKey)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		volumes = append(volumes, *volume)
+		volumeMounts = append(volumeMounts, *volumeMount)
 	}
 
-	for k, v := range sd.IdPSecrets {
-		ret = append(ret,
-			Volume{
-				Name:      k,
-				Configmap: false,
-				Path:      v.Path,
-				Keys:      []string{v.Key},
-			})
+	return volumes, volumeMounts, nil
+
+}
+
+func (s sourceData) ToVolumesAndMounts(volName string) (*corev1.Volume, *corev1.VolumeMount, error) {
+	vol := &corev1.Volume{
+		Name: volName,
 	}
 
-	return ret
+	items := []corev1.KeyToPath{
+		{
+			Key:  s.Key,
+			Path: s.Key,
+		},
+	}
+
+	switch s.Type {
+	case ConfigMapType:
+		vol.ConfigMap = &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: volName,
+			},
+			Items: items,
+		}
+	case SecretType:
+		vol.Secret = &corev1.SecretVolumeSource{
+			SecretName: volName,
+			Items:      items,
+		}
+	default:
+		return nil, nil, fmt.Errorf("unknown resource type: %s", s.Type)
+	}
+
+	return vol, &corev1.VolumeMount{
+		Name:      volName,
+		ReadOnly:  true,
+		MountPath: s.MountPath,
+	}, nil
 }
 
 func getIDPName(i int, field string) string {
 	// idps that are synced have this prefix
-	return fmt.Sprintf("%s%d-%s", "v4-0-config-user-idp-", i, field)
+	return fmt.Sprintf("v4-0-config-user-idp-%d-%s", i, field)
 }
 
 func getIDPPath(i int, resource, dest string) string {
 	// root path for IDP data
-	return fmt.Sprintf("%s/%d/%s/%s", "/var/config/user/idp", i, resource, dest)
+	return fmt.Sprintf("/var/config/user/idp/%d/%s/%s", i, resource, dest)
 }
 
-func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
+func SyncConfigOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
 	ns := "openshift-config"
-	if len(src) == 0 { // handle delete
+	if len(src) == 0 {
+		// handle deletion of the source by prompting the syncer to delete the image
 		ns = ""
 	}
 	if err := syncFunc(
