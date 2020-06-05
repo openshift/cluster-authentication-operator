@@ -32,7 +32,7 @@ func ObserveRouterSecret(genericlisters configobserver.Listers, recorder events.
 	}
 
 	observedConfig := map[string]interface{}{}
-	if err := unstructured.SetNestedField(
+	if err := unstructured.SetNestedSlice(
 		observedConfig,
 		observedNamedCertificates,
 		namedCertificatesPath...,
@@ -54,7 +54,7 @@ func ObserveRouterSecret(genericlisters configobserver.Listers, recorder events.
 }
 
 func routerSecretToSNI(routerSecret *corev1.Secret) ([]interface{}, error) {
-	var certs []interface{}
+	certs := []interface{}{}
 	// make sure the output slice of named certs is sorted by domain so that the generated config is deterministic
 	for _, domain := range sets.StringKeySet(routerSecret.Data).List() {
 		certs = append(certs, map[string]interface{}{
