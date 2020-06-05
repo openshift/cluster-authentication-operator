@@ -21,8 +21,6 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
 )
 
 var (
@@ -43,7 +41,6 @@ func (c *authOperator) handleOAuthConfig(
 	conditions *authConditions,
 ) (
 	*corev1.ConfigMap,
-	*datasync.ConfigSyncData,
 	error,
 ) {
 	oauthConfigNoDefaults, err := c.oauth.Get(ctx, "cluster", metav1.GetOptions{})
@@ -53,7 +50,7 @@ func (c *authOperator) handleOAuthConfig(
 		}, metav1.CreateOptions{})
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	oauthConfig := defaultOAuthConfig(oauthConfigNoDefaults)
 
@@ -67,13 +64,6 @@ func (c *authOperator) handleOAuthConfig(
 		accessTokenInactivityTimeoutSeconds = nil
 	case timeout > 0:
 		accessTokenInactivityTimeoutSeconds = &timeout
-	}
-
-	syncData := datasync.NewConfigSyncData()
-
-	templates, err := c.handleBrandingTemplates(ctx, oauthConfig.Spec.Templates, syncData)
-	if err != nil {
-		return nil, nil, err
 	}
 
 	cliConfig := &osinv1.OsinServerConfig{
@@ -121,23 +111,22 @@ func (c *authOperator) handleOAuthConfig(
 				AccessTokenMaxAgeSeconds:            oauthConfig.Spec.TokenConfig.AccessTokenMaxAgeSeconds,
 				AccessTokenInactivityTimeoutSeconds: accessTokenInactivityTimeoutSeconds,
 			},
-			Templates: templates,
 		},
 	}
 
 	cliConfigBytes := encodeOrDie(cliConfig)
 	observedConfig, err := grabPrefixedConfig(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to grab oauth-server configuration: %v", err)
+		return nil, fmt.Errorf("failed to grab oauth-server configuration: %v", err)
 	}
 
 	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
+		return nil, fmt.Errorf("failed to merge config with unsupportedConfigOverrides: %v", err)
 	}
 
 	// TODO update OAuth status
-	return getCliConfigMap(completeConfigBytes), &syncData, nil
+	return getCliConfigMap(completeConfigBytes), nil
 }
 
 // grabPrefixedConfig returns the configuration from the operator's observedConfig field

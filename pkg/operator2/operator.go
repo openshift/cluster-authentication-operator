@@ -296,7 +296,7 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 
-	expectedCLIconfig, _, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
+	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
 	}
