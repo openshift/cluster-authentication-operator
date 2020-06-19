@@ -7,25 +7,30 @@ import (
 	"sort"
 	"strings"
 
+	"k8s.io/klog"
+
+	"github.com/ghodss/yaml"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
+	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
 )
 
 func defaultDeployment(
 	operatorConfig *operatorv1.Authentication,
-	syncData *configSyncData,
 	proxyConfig *configv1.Proxy,
 	bootstrapUserExists bool,
 	resourceVersions ...string,
-) *appsv1.Deployment {
+) (*appsv1.Deployment, error) {
 
 	// load deployment
 	deployment := resourceread.ReadDeploymentV1OrDie(assets.MustAsset("oauth-openshift/deployment.yaml"))
@@ -67,22 +72,34 @@ func defaultDeployment(
 	// set log level
 	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
 
-	// mount more secrets and config maps
-	for _, sourceData := range []map[string]sourceData{syncData.idpConfigMaps, syncData.idpSecrets, syncData.tplSecrets} {
-		templateSpec.Volumes, container.VolumeMounts = toVolumesAndMounts(sourceData, templateSpec.Volumes, container.VolumeMounts)
+	idpSyncData, err := getSyncDataFromOperatorConfig(&operatorConfig.Spec.ObservedConfig)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't retrieve volumes to mount to the container from the observed config: %v", err)
 	}
 
-	return deployment
+	// mount more secrets and config maps
+	v, m, err := idpSyncData.ToVolumesAndMounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to transform observed sync data to volumes and mounts: %w", err)
+	}
+	templateSpec.Volumes = append(templateSpec.Volumes, v...)
+	container.VolumeMounts = append(container.VolumeMounts, m...)
+
+	return deployment, nil
 }
 
-func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
-	// iterate in a define order otherwise we will change the deployment's spec for no reason
-	names := sets.StringKeySet(data).List()
-	for _, name := range names {
-		volumes = append(volumes, data[name].volume)
-		mounts = append(mounts, data[name].mount)
+func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
+	var configDeserialized map[string]interface{}
+	oauthServerObservedConfig, err := grabPrefixedConfig(operatorConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
 	}
-	return volumes, mounts
+
+	if err := yaml.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
+	}
+
+	return observeoauth.GetIDPConfigSyncData(configDeserialized)
 }
 
 func getLogLevel(logLevel operatorv1.LogLevel) int {
@@ -113,60 +130,4 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
 	}
 	return envVars
-}
-
-type volume struct {
-	name       string
-	configmap  bool
-	path       string
-	keys       []string
-	mappedKeys map[string]string
-	optional   bool
-}
-
-func (v *volume) split() (corev1.Volume, corev1.VolumeMount) {
-	vol := corev1.Volume{
-		Name: v.name,
-	}
-
-	var items []corev1.KeyToPath
-	// maps' keys are random,  we need to sort the output to prevent redeployment hotloops
-	for _, key := range sets.StringKeySet(v.mappedKeys).List() {
-		items = append(items, corev1.KeyToPath{
-			Key:  key,
-			Path: v.mappedKeys[key],
-		})
-	}
-
-	for _, key := range v.keys {
-		items = append(items, corev1.KeyToPath{
-			Key:  key,
-			Path: key,
-		})
-	}
-
-	// copy the value in case the *v struct was reused with different values
-	// so that the resulting objects don't share this field's value
-	optional := v.optional
-	if v.configmap {
-		vol.ConfigMap = &corev1.ConfigMapVolumeSource{
-			LocalObjectReference: corev1.LocalObjectReference{
-				Name: v.name,
-			},
-			Items:    items,
-			Optional: &optional,
-		}
-	} else {
-		vol.Secret = &corev1.SecretVolumeSource{
-			SecretName: v.name,
-			Items:      items,
-			Optional:   &optional,
-		}
-	}
-
-	return vol, corev1.VolumeMount{
-		Name:      v.name,
-		ReadOnly:  true,
-		MountPath: v.path,
-	}
 }

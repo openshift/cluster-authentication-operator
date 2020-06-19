@@ -1,6 +1,6 @@
 // +build ocp
 
-package operator2
+package oauth
 
 const (
 	defaultBrand = ocpBrand

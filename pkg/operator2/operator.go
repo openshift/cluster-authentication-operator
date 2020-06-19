@@ -35,6 +35,7 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -295,14 +296,9 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 		return fmt.Errorf("failed applying session secret: %v", err)
 	}
 
-	expectedCLIconfig, syncData, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
+	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
 	if err != nil {
 		return fmt.Errorf("failed handling OAuth configuration: %v", err)
-	}
-
-	err = c.handleConfigSync(ctx, syncData)
-	if err != nil {
-		return fmt.Errorf("failed syncing configuration objects: %v", err)
 	}
 
 	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
@@ -338,13 +334,15 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment := defaultDeployment(
+	expectedDeployment, err := defaultDeployment(
 		operatorConfig,
-		syncData,
 		proxyConfig,
 		c.bootstrapUserChangeRollOut,
 		resourceVersions...,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to determine the shape of the expected deployment: %v", err)
+	}
 
 	deployment, _, err := resourceapply.ApplyDeployment(
 		c.deployments,
@@ -467,7 +465,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 		caData = append(bytes.TrimSpace(caData), []byte("\n")...)
 	}
 
-	rt, err := transportFor("", append(caData, c.systemCABundle...), nil, nil)
+	rt, err := transport.TransportFor("", append(caData, c.systemCABundle...), nil, nil)
 	if err != nil {
 		return false, "", "FailedTransport", fmt.Errorf("failed to build transport for route: %v", err)
 	}
@@ -503,7 +501,7 @@ func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authCon
 	}
 
 	// pass the KAS service name for SNI
-	rt, err := transportFor("kubernetes.default.svc", caData, nil, nil)
+	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}

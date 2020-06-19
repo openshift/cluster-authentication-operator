@@ -29,10 +29,10 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
 )
 
 const (
@@ -70,6 +70,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
 		"openshift-authentication",
+		"openshift-config",
 		"kube-system",
 	)
 
@@ -200,6 +201,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 			// As of 4.4, this will appear as a configObserver error
 			"FailedRouterSecret",
+
+			// As of 4.6, this will appear as a configObserver error
+			"IdentityProviderConfigDegraded",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,

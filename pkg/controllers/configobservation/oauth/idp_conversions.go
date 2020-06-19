@@ -1,7 +1,7 @@
-package operator2
+package oauth
 
 import (
-	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,14 +9,17 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // field names are used to uniquely identify a secret or config map reference
@@ -50,10 +53,69 @@ type idpData struct {
 	login     bool
 }
 
-func (c *authOperator) convertProviderConfigToIDPData(
-	ctx context.Context,
+func convertIdentityProviders(
+	cmLister corelistersv1.ConfigMapLister,
+	secretsLister corelistersv1.SecretLister,
+	identityProviders []configv1.IdentityProvider,
+) ([]interface{}, *datasync.ConfigSyncData, []error) {
+
+	converted := []osinv1.IdentityProvider{}
+	syncData := datasync.NewConfigSyncData()
+	errs := []error{}
+
+	for i, idp := range defaultIDPMappingMethods(identityProviders) {
+		data, err := convertProviderConfigToIDPData(cmLister, secretsLister, &idp.IdentityProviderConfig, syncData, i)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
+			continue
+		}
+		converted = append(converted,
+			osinv1.IdentityProvider{
+				Name:            idp.Name,
+				UseAsChallenger: data.challenge,
+				UseAsLogin:      data.login,
+				MappingMethod:   string(idp.MappingMethod),
+				Provider: runtime.RawExtension{
+					Raw: encodeOrDie(data.provider),
+				},
+			},
+		)
+	}
+
+	// convert to json bytes and then store them in unstructured interface slice to
+	// accomodate the observed config format
+	convertedBytes, err := json.Marshal(converted)
+	if err != nil {
+		return nil, syncData, append(errs, err)
+	}
+
+	unstructuredIDPs := []interface{}{}
+	if err := json.NewDecoder(bytes.NewBuffer(convertedBytes)).Decode(&unstructuredIDPs); err != nil {
+		// this should not happen, the bytes were mashalled just a few lines above
+		return nil, syncData, append(errs, fmt.Errorf("decode of observed config failed with error: %v", err))
+	}
+
+	return unstructuredIDPs, syncData, errs
+}
+
+func defaultIDPMappingMethods(identityProviders []configv1.IdentityProvider) []configv1.IdentityProvider {
+	out := make([]configv1.IdentityProvider, len(identityProviders)) // do not mutate informer cache
+
+	for i, idp := range identityProviders {
+		idp.DeepCopyInto(&out[i])
+		if out[i].MappingMethod == "" {
+			out[i].MappingMethod = configv1.MappingMethodClaim
+		}
+	}
+
+	return out
+}
+
+func convertProviderConfigToIDPData(
+	cmLister corelistersv1.ConfigMapLister,
+	secretsLister corelistersv1.SecretLister,
 	providerConfig *configv1.IdentityProviderConfig,
-	syncData *configSyncData,
+	syncData *datasync.ConfigSyncData,
 	i int,
 ) (*idpData, error) {
 	const missingProviderFmt string = "type %s was specified, but its configuration is missing"
@@ -70,10 +132,10 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		data.provider = &osinv1.BasicAuthPasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: basicAuthConfig.URL,
-				CA:  syncData.addIDPConfigMap(i, basicAuthConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddIDPConfigMap(i, basicAuthConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: syncData.addIDPSecret(i, basicAuthConfig.TLSClientCert, "tls-client-cert", corev1.TLSCertKey),
-					KeyFile:  syncData.addIDPSecret(i, basicAuthConfig.TLSClientKey, "tls-client-key", corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddIDPSecret(i, basicAuthConfig.TLSClientCert, "tls-client-cert", corev1.TLSCertKey),
+					KeyFile:  syncData.AddIDPSecret(i, basicAuthConfig.TLSClientKey, "tls-client-key", corev1.TLSPrivateKeyKey),
 				},
 			},
 		}
@@ -87,11 +149,11 @@ func (c *authOperator) convertProviderConfigToIDPData(
 
 		data.provider = &osinv1.GitHubIdentityProvider{
 			ClientID:      githubConfig.ClientID,
-			ClientSecret:  createFileStringSource(syncData.addIDPSecret(i, githubConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
+			ClientSecret:  createFileStringSource(syncData.AddIDPSecret(i, githubConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
 			Organizations: githubConfig.Organizations,
 			Teams:         githubConfig.Teams,
 			Hostname:      githubConfig.Hostname,
-			CA:            syncData.addIDPConfigMap(i, githubConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+			CA:            syncData.AddIDPConfigMap(i, githubConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 		}
 		data.challenge = false
 
@@ -102,10 +164,10 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		}
 
 		data.provider = &osinv1.GitLabIdentityProvider{
-			CA:           syncData.addIDPConfigMap(i, gitlabConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddIDPConfigMap(i, gitlabConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 			URL:          gitlabConfig.URL,
 			ClientID:     gitlabConfig.ClientID,
-			ClientSecret: createFileStringSource(syncData.addIDPSecret(i, gitlabConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
+			ClientSecret: createFileStringSource(syncData.AddIDPSecret(i, gitlabConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
 			Legacy:       new(bool), // we require OIDC for GitLab now
 		}
 		data.challenge = true
@@ -118,7 +180,7 @@ func (c *authOperator) convertProviderConfigToIDPData(
 
 		data.provider = &osinv1.GoogleIdentityProvider{
 			ClientID:     googleConfig.ClientID,
-			ClientSecret: createFileStringSource(syncData.addIDPSecret(i, googleConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
+			ClientSecret: createFileStringSource(syncData.AddIDPSecret(i, googleConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
 			HostedDomain: googleConfig.HostedDomain,
 		}
 		data.challenge = false
@@ -129,7 +191,7 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		}
 
 		data.provider = &osinv1.HTPasswdPasswordIdentityProvider{
-			File: syncData.addIDPSecret(i, providerConfig.HTPasswd.FileData, "file-data", configv1.HTPasswdDataKey),
+			File: syncData.AddIDPSecret(i, providerConfig.HTPasswd.FileData, "file-data", configv1.HTPasswdDataKey),
 		}
 		data.challenge = true
 
@@ -142,10 +204,10 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		data.provider = &osinv1.KeystonePasswordIdentityProvider{
 			RemoteConnectionInfo: configv1.RemoteConnectionInfo{
 				URL: keystoneConfig.URL,
-				CA:  syncData.addIDPConfigMap(i, keystoneConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+				CA:  syncData.AddIDPConfigMap(i, keystoneConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 				CertInfo: configv1.CertInfo{
-					CertFile: syncData.addIDPSecret(i, keystoneConfig.TLSClientCert, "tls-client-cert", corev1.TLSCertKey),
-					KeyFile:  syncData.addIDPSecret(i, keystoneConfig.TLSClientKey, "tls-client-key", corev1.TLSPrivateKeyKey),
+					CertFile: syncData.AddIDPSecret(i, keystoneConfig.TLSClientCert, "tls-client-cert", corev1.TLSCertKey),
+					KeyFile:  syncData.AddIDPSecret(i, keystoneConfig.TLSClientKey, "tls-client-key", corev1.TLSPrivateKeyKey),
 				},
 			},
 			DomainName:          keystoneConfig.DomainName,
@@ -162,9 +224,9 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		data.provider = &osinv1.LDAPPasswordIdentityProvider{
 			URL:          ldapConfig.URL,
 			BindDN:       ldapConfig.BindDN,
-			BindPassword: createFileStringSource(syncData.addIDPSecret(i, ldapConfig.BindPassword, "bind-password", configv1.BindPasswordKey)),
+			BindPassword: createFileStringSource(syncData.AddIDPSecret(i, ldapConfig.BindPassword, "bind-password", configv1.BindPasswordKey)),
 			Insecure:     ldapConfig.Insecure,
-			CA:           syncData.addIDPConfigMap(i, ldapConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+			CA:           syncData.AddIDPConfigMap(i, ldapConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 			Attributes: osinv1.LDAPAttributeMapping{
 				ID:                ldapConfig.Attributes.ID,
 				PreferredUsername: ldapConfig.Attributes.PreferredUsername,
@@ -180,15 +242,15 @@ func (c *authOperator) convertProviderConfigToIDPData(
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
-		urls, err := c.discoverOpenIDURLs(ctx, openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
+		urls, err := discoverOpenIDURLs(cmLister, openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
 		if err != nil {
 			return nil, err
 		}
 
 		data.provider = &osinv1.OpenIDIdentityProvider{
-			CA:                       syncData.addIDPConfigMap(i, openIDConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
+			CA:                       syncData.AddIDPConfigMap(i, openIDConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
-			ClientSecret:             createFileStringSource(syncData.addIDPSecret(i, openIDConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
+			ClientSecret:             createFileStringSource(syncData.AddIDPSecret(i, openIDConfig.ClientSecret, "client-secret", configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
 			URLs:                     *urls,
@@ -204,8 +266,9 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		// openshift CR validating in kube-apiserver does not allow
 		// challenge-redirecting IdPs to be configured with OIDC so it is safe
 		// to allow challenge-issuing flow if it's available on the OIDC side
-		challengeFlowsAllowed, err := c.checkOIDCPasswordGrantFlow(
-			ctx,
+		challengeFlowsAllowed, err := checkOIDCPasswordGrantFlow(
+			cmLister,
+			secretsLister,
 			urls.Token,
 			openIDConfig.ClientID,
 			openIDConfig.CA,
@@ -225,7 +288,7 @@ func (c *authOperator) convertProviderConfigToIDPData(
 		data.provider = &osinv1.RequestHeaderIdentityProvider{
 			LoginURL:                 requestHeaderConfig.LoginURL,
 			ChallengeURL:             requestHeaderConfig.ChallengeURL,
-			ClientCA:                 syncData.addIDPConfigMap(i, requestHeaderConfig.ClientCA, "ca", corev1.ServiceAccountRootCAKey),
+			ClientCA:                 syncData.AddIDPConfigMap(i, requestHeaderConfig.ClientCA, "ca", corev1.ServiceAccountRootCAKey),
 			ClientCommonNames:        requestHeaderConfig.ClientCommonNames,
 			Headers:                  requestHeaderConfig.Headers,
 			PreferredUsernameHeaders: requestHeaderConfig.PreferredUsernameHeaders,
@@ -244,7 +307,7 @@ func (c *authOperator) convertProviderConfigToIDPData(
 
 // discoverOpenIDURLs retrieves basic information about an OIDC server with hostname
 // given by the `issuer` argument
-func (c *authOperator) discoverOpenIDURLs(ctx context.Context, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
+func discoverOpenIDURLs(cmLister corelistersv1.ConfigMapLister, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
 	wellKnown := issuer + "/.well-known/openid-configuration"
@@ -253,7 +316,7 @@ func (c *authOperator) discoverOpenIDURLs(ctx context.Context, issuer, key strin
 		return nil, err
 	}
 
-	rt, err := c.transportForCARef(ctx, ca, key)
+	rt, err := transport.TransportForCARef(cmLister, ca.Name, key)
 	if err != nil {
 		return nil, err
 	}
@@ -302,31 +365,14 @@ func (c *authOperator) discoverOpenIDURLs(ctx context.Context, issuer, key strin
 	}, nil
 }
 
-func (c *authOperator) transportForCARef(ctx context.Context, ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
-	if len(ca.Name) == 0 {
-		return transportFor("", nil, nil, nil)
-	}
-	cm, err := c.configMaps.ConfigMaps("openshift-config").Get(ctx, ca.Name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	caData := []byte(cm.Data[key])
-	if len(caData) == 0 {
-		caData = cm.BinaryData[key]
-	}
-	if len(caData) == 0 {
-		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", "openshift-config", ca.Name, key)
-	}
-	return transportFor("", caData, nil, nil)
-}
-
-func (c *authOperator) checkOIDCPasswordGrantFlow(
-	ctx context.Context,
+func checkOIDCPasswordGrantFlow(
+	cmLister corelistersv1.ConfigMapLister,
+	secretsLister corelistersv1.SecretLister,
 	tokenURL, clientID string,
 	caRererence configv1.ConfigMapNameReference,
 	clientSecretReference configv1.SecretNameReference,
 ) (bool, error) {
-	secret, err := c.secrets.Secrets("openshift-config").Get(ctx, clientSecretReference.Name, metav1.GetOptions{})
+	secret, err := secretsLister.Secrets("openshift-config").Get(clientSecretReference.Name)
 	if err != nil {
 		return false, fmt.Errorf("couldn't get the referenced secret: %v", err)
 	}
@@ -343,7 +389,7 @@ func (c *authOperator) checkOIDCPasswordGrantFlow(
 		return false, fmt.Errorf("the referenced secret does not contain a value for the 'clientSecret' key")
 	}
 
-	transport, err := c.transportForCARef(ctx, caRererence, corev1.ServiceAccountRootCAKey)
+	transport, err := transport.TransportForCARef(cmLister, caRererence.Name, corev1.ServiceAccountRootCAKey)
 	if err != nil {
 		return false, fmt.Errorf("couldn't get a transport for the referenced CA: %v", err)
 	}
