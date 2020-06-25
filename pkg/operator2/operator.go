@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -383,51 +384,50 @@ func (c *authOperator) handleVersion(
 	//    - well-known oauth endpoint
 	//    - oauth clients
 	//    - deployment
-	// The ordering is important here as we want to become available after the
+	// We want to become available after the
 	// route + well-known + OAuth client checks AND one available OAuth server pod
 	// but we do NOT want to go to the next version until all OAuth server pods are at that version
+	errs := []error{}
+	wellKnownReady := false
 
-	routeReady, routeMsg, reason, err := c.checkRouteHealthy(route, routerSecret, ingress)
-	conditions.handleDegradedWithReason("RouteHealth", err, reason)
+	routeReady, routeMsg, routeReason, err := c.checkRouteHealthy(route, routerSecret, ingress)
+	conditions.handleDegradedWithReason("RouteHealth", err, routeReason)
 	if err != nil {
-		return fmt.Errorf("unable to check route health: %v", err)
+		errs = append(errs, fmt.Errorf("unable to check route health: %v", err))
 	}
-	if !routeReady {
+	if routeReady {
+		var wellKnownMsg string
+		wellKnownReady, wellKnownMsg, err = c.checkWellknownEndpointsReady(ctx, authConfig, route)
+		conditions.handleDegraded("WellKnownEndpoint", err)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("unable to check the .well-known endpoint: %v", err))
+		}
+		if !wellKnownReady {
+			conditions.setProgressingTrueAndAvailableFalse("WellKnownNotReady", wellKnownMsg)
+		}
+	} else {
 		conditions.setProgressingTrueAndAvailableFalse("RouteNotReady", routeMsg)
-		return nil
-	}
-
-	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(ctx, authConfig, route)
-	conditions.handleDegraded("WellKnownEndpoint", err)
-	if err != nil {
-		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
-	}
-	if !wellknownReady {
-		conditions.setProgressingTrueAndAvailableFalse("WellKnownNotReady", wellknownMsg)
-		return nil
 	}
 
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx)
 	conditions.handleDegraded("OAuthClients", err)
 	if err != nil {
-		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
+		errs = append(errs, fmt.Errorf("unable to check OAuth clients' readiness: %v", err))
 	}
-	if !oauthClientsReady {
+	if routeReady && wellKnownReady && !oauthClientsReady {
 		conditions.setProgressingTrueAndAvailableFalse("OAuthClientNotReady", oauthClientsMsg)
-		return nil
 	}
 
-	if deploymentReady := c.checkDeploymentReady(deployment, conditions); !deploymentReady {
-		return nil
+	deploymentReady := c.checkDeploymentReady(deployment, conditions)
+
+	if routeReady && wellKnownReady && oauthClientsReady && deploymentReady {
+		// we have achieved our desired level
+		conditions.setProgressingFalse()
+		conditions.setAvailableTrue("AsExpected")
+		c.setVersion("operator", operatorVersion)
 	}
 
-	// we have achieved our desired level
-	conditions.setProgressingFalse()
-	conditions.setAvailableTrue("AsExpected")
-	c.setVersion("operator", operatorVersion)
-	c.setVersion("oauth-openshift", oauthserverVersion)
-
-	return nil
+	return utilerrors.NewAggregate(errs)
 }
 
 func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, conditions *authConditions) bool {
@@ -454,6 +454,7 @@ func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, condi
 		return false
 	}
 
+	c.setVersion("oauth-openshift", oauthserverVersion)
 	return true
 }
 
