@@ -407,7 +407,7 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx, route)
+	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx)
 	conditions.handleDegraded("OAuthClients", err)
 	if err != nil {
 		return fmt.Errorf("unable to check OAuth clients' readiness: %v", err)
@@ -609,7 +609,7 @@ func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTr
 	return true, "", nil
 }
 
-func (c *authOperator) oauthClientsReady(ctx context.Context, route *routev1.Route) (bool, string, error) {
+func (c *authOperator) oauthClientsReady(ctx context.Context) (bool, string, error) {
 	_, err := c.oauthClientClient.Get(ctx, "openshift-browser-client", metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
