@@ -258,12 +258,12 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		routerCertsController,
 		staleConditions,
 		staticResourceController,
+		ingressStateController,
 	} {
 		go controller.Run(ctx, 1)
 	}
 
 	go operator.Run(ctx.Done())
-	go ingressStateController.Run(1, ctx.Done())
 
 	<-ctx.Done()
 

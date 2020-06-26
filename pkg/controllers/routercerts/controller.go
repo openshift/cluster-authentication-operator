@@ -10,11 +10,7 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informers "k8s.io/client-go/informers/core/v1"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -23,20 +19,17 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/library-go/pkg/controller/factory"
 )
 
 const (
-	controllerWorkQueueKey           = "key"
 	conditionRouterCertsDegradedType = "RouterCertsDegraded"
 )
 
-// RouterCertsDomainValidationController validates that router certs match the ingress domain
-type RouterCertsDomainValidationController struct {
-	operatorClient v1helpers.OperatorClient
-	cachesToSync   []cache.InformerSynced
-	queue          workqueue.RateLimitingInterface
-	eventRecorder  events.Recorder
-
+// routerCertsDomainValidationController validates that router certs match the ingress domain
+type routerCertsDomainValidationController struct {
+	operatorClient  v1helpers.OperatorClient
 	ingressLister   configv1listers.IngressLister
 	secretLister    corev1listers.SecretLister
 	targetNamespace string
@@ -54,12 +47,9 @@ func NewRouterCertsDomainValidationController(
 	targetNamespace string,
 	secretName string,
 	routeName string,
-) *RouterCertsDomainValidationController {
-	controller := &RouterCertsDomainValidationController{
+) factory.Controller {
+	controller := &routerCertsDomainValidationController{
 		operatorClient:  operatorClient,
-		cachesToSync:    nil,
-		queue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "RouterCertsDomainValidationController"),
-		eventRecorder:   eventRecorder,
 		ingressLister:   ingressInformer.Lister(),
 		secretLister:    secretInformer.Lister(),
 		targetNamespace: targetNamespace,
@@ -67,18 +57,15 @@ func NewRouterCertsDomainValidationController(
 		routeName:       routeName,
 		systemCertPool:  x509.SystemCertPool,
 	}
-	operatorClient.Informer().AddEventHandler(controller.newEventHandler())
-	ingressInformer.Informer().AddEventHandler(controller.newEventHandler())
-	secretInformer.Informer().AddEventHandler(controller.newEventHandler())
-	controller.cachesToSync = append(controller.cachesToSync,
-		operatorClient.Informer().HasSynced,
-		ingressInformer.Informer().HasSynced,
-		secretInformer.Informer().HasSynced,
-	)
-	return controller
+
+	return factory.New().
+		WithInformers(operatorClient.Informer(), ingressInformer.Informer(), secretInformer.Informer()).
+		WithSync(controller.sync).
+		ResyncEvery(30*time.Second).
+		ToController("RouterCertsDomainValidationController", eventRecorder)
 }
 
-func (c *RouterCertsDomainValidationController) sync() error {
+func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	spec, _, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return err
@@ -95,7 +82,7 @@ func (c *RouterCertsDomainValidationController) sync() error {
 	return nil
 }
 
-func (c *RouterCertsDomainValidationController) validateRouterCertificates() operatorv1.OperatorCondition {
+func (c *routerCertsDomainValidationController) validateRouterCertificates() operatorv1.OperatorCondition {
 	// get ingress
 	ingress, err := c.ingressLister.Get("cluster")
 	if err != nil {
@@ -196,53 +183,4 @@ func verifyWithAnyCertificate(serverCerts []*x509.Certificate, options x509.Veri
 	}
 	// no certificate was able to verify dns name, return last error
 	return err
-}
-
-func (c *RouterCertsDomainValidationController) Run(ctx context.Context, workers int) {
-	defer utilruntime.HandleCrash()
-	defer c.queue.ShutDown()
-
-	klog.Infof("Starting RouterCertsDomainValidationController")
-	defer klog.Infof("Shutting down RouterCertsDomainValidationController")
-	if !cache.WaitForCacheSync(ctx.Done(), c.cachesToSync...) {
-		return
-	}
-
-	// doesn't matter what workers say, only start one.
-	go wait.Until(c.runWorker, time.Second, ctx.Done())
-
-	<-ctx.Done()
-}
-
-func (c *RouterCertsDomainValidationController) runWorker() {
-	for c.processNextWorkItem() {
-	}
-}
-
-func (c *RouterCertsDomainValidationController) processNextWorkItem() bool {
-	dsKey, quit := c.queue.Get()
-	if quit {
-		return false
-	}
-	defer c.queue.Done(dsKey)
-
-	err := c.sync()
-	if err == nil {
-		c.queue.Forget(dsKey)
-		return true
-	}
-
-	utilruntime.HandleError(fmt.Errorf("%v failed with : %v", dsKey, err))
-	c.queue.AddRateLimited(dsKey)
-
-	return true
-}
-
-// newEventHandler returns an event handler that queues the operator to check spec and status
-func (c *RouterCertsDomainValidationController) newEventHandler() cache.ResourceEventHandler {
-	return cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { c.queue.Add(controllerWorkQueueKey) },
-		UpdateFunc: func(old, new interface{}) { c.queue.Add(controllerWorkQueueKey) },
-		DeleteFunc: func(obj interface{}) { c.queue.Add(controllerWorkQueueKey) },
-	}
 }
