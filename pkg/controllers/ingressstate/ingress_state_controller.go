@@ -11,26 +11,19 @@ import (
 	"strings"
 	"time"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog"
-
-	operatorv1 "github.com/openshift/api/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 const (
-	ingressStateControllerWorkQueueKey = "key"
-
 	maxToleratedPodPendingDuration = 5 * time.Minute
 )
 
@@ -40,14 +33,11 @@ var degradedConditionTypes = sets.NewString(
 	"IngressStatePodsDegraded",
 )
 
-type IngressStateController struct {
+type ingressStateController struct {
 	endpointsGetter corev1client.EndpointsGetter
 	podsGetter      corev1client.PodsGetter
-	queue           workqueue.RateLimitingInterface
-	cachesToSync    []cache.InformerSynced
 	targetNamespace string
 	operatorClient  v1helpers.OperatorClient
-	eventRecorder   events.Recorder
 }
 
 func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedInformerFactory,
@@ -56,35 +46,26 @@ func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedI
 	operatorClient v1helpers.OperatorClient,
 	targetNamespace string,
 	recorder events.Recorder,
-) *IngressStateController {
-	c := &IngressStateController{
+) factory.Controller {
+	c := &ingressStateController{
 		endpointsGetter: endpointsGetter,
 		podsGetter:      podsGetter,
 		targetNamespace: targetNamespace,
 		operatorClient:  operatorClient,
-		eventRecorder:   recorder.WithComponentSuffix("ingress-state-controller"),
-		queue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "IngressStateController"),
 	}
 
-	c.cachesToSync = append(c.cachesToSync, kubeInformersForTargetNamespace.Core().V1().Pods().Informer().HasSynced)
-	c.cachesToSync = append(c.cachesToSync, kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer().HasSynced)
-
-	kubeInformersForTargetNamespace.Core().V1().Pods().Informer().AddEventHandler(c.eventHandler())
-	kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer().AddEventHandler(c.eventHandler())
-
-	return c
-}
-
-func (c *IngressStateController) eventHandler() cache.ResourceEventHandler {
-	return cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { c.queue.Add(ingressStateControllerWorkQueueKey) },
-		UpdateFunc: func(old, new interface{}) { c.queue.Add(ingressStateControllerWorkQueueKey) },
-		DeleteFunc: func(obj interface{}) { c.queue.Add(ingressStateControllerWorkQueueKey) },
-	}
+	return factory.New().
+		WithInformers(
+			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
+		).
+		WithSync(c.sync).
+		ResyncEvery(30*time.Second).
+		ToController("IngressStateController", recorder.WithComponentSuffix("ingress-state-controller"))
 }
 
 // checkPodStatus will check the target pod container status and return a list of possible problems.
-func (c *IngressStateController) checkPodStatus(ctx context.Context, reference *corev1.ObjectReference) []string {
+func (c *ingressStateController) checkPodStatus(ctx context.Context, reference *corev1.ObjectReference) []string {
 	pod, err := c.podsGetter.Pods(reference.Namespace).Get(ctx, reference.Name, metav1.GetOptions{})
 	if err != nil {
 		return []string{fmt.Sprintf("error getting pod %q: %v", reference.Name, err)}
@@ -92,7 +73,7 @@ func (c *IngressStateController) checkPodStatus(ctx context.Context, reference *
 	return unhealthyPodMessages(pod)
 }
 
-func (c *IngressStateController) sync() error {
+func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	endpoints, err := c.endpointsGetter.Endpoints(c.targetNamespace).Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		// Clear the error to allow checkSubset to report degraded because endpoints == nil
@@ -136,49 +117,6 @@ func (c *IngressStateController) sync() error {
 	}
 	_, _, err = v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...)
 	return err
-}
-
-func (c *IngressStateController) Run(workers int, stopCh <-chan struct{}) {
-	defer utilruntime.HandleCrash()
-	defer c.queue.ShutDown()
-
-	klog.Infof("Starting IngressStateController")
-	defer klog.Infof("Shutting down IngressStateController")
-	if !cache.WaitForCacheSync(stopCh, c.cachesToSync...) {
-		return
-	}
-
-	// doesn't matter what workers say, only start one.
-	go wait.Until(c.runWorker, time.Second, stopCh)
-
-	// add time based trigger
-	go wait.Until(func() { c.queue.Add(ingressStateControllerWorkQueueKey) }, time.Minute, stopCh)
-
-	<-stopCh
-}
-
-func (c *IngressStateController) runWorker() {
-	for c.processNextWorkItem() {
-	}
-}
-
-func (c *IngressStateController) processNextWorkItem() bool {
-	dsKey, quit := c.queue.Get()
-	if quit {
-		return false
-	}
-	defer c.queue.Done(dsKey)
-
-	err := c.sync()
-	if err == nil {
-		c.queue.Forget(dsKey)
-		return true
-	}
-
-	utilruntime.HandleError(fmt.Errorf("%v failed with : %v", dsKey, err))
-	c.queue.AddRateLimited(dsKey)
-
-	return true
 }
 
 // unhealthyPodMessages returns a slice of messages intended to aid in the
