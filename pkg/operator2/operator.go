@@ -246,26 +246,18 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	// ==================================
 	// BLOCK 1: Metadata
 	// ==================================
-	ingress, err := c.handleIngress(ctx)
+	//
+	// TODO: Remove this when we break the order dependent code
+	_, operatorStatus, _, err := c.authOperatorConfigClient.GetOperatorState()
 	if err != nil {
-		return fmt.Errorf("failed getting the ingress config: %v", err)
+		return err
 	}
-
-	route, routerSecret, reason, err := c.handleRoute(ctx, ingress)
-	conditions.handleDegradedWithReason("RouteStatus", err, reason)
-	if err != nil {
-		return fmt.Errorf("failed handling the route: %v", err)
+	metadataCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthMetadataProgressing")
+	if metadataCondition == nil {
+		return fmt.Errorf("metadata progressing condition not found")
 	}
-
-	// make sure API server sees our metadata as soon as we've got a route with a host
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
-	if err != nil {
-		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
-	}
-
-	authConfig, err := c.handleAuthConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed handling authentication config: %v", err)
+	if metadataCondition.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator waiting for metadata")
 	}
 
 	// ==================================
@@ -294,6 +286,11 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	_, _, err = resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
 	if err != nil {
 		return fmt.Errorf("failed applying session secret: %v", err)
+	}
+
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get route: %v", err)
 	}
 
 	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
@@ -360,6 +357,19 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
 
 	klog.V(4).Infof("current deployment: %#v", deployment)
+
+	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get auth config: %v", err)
+	}
+	routerSecret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-router-certs", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get router secret: %v", err)
+	}
+	ingress, err := c.ingress.Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get ingress: %v", err)
+	}
 
 	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress, conditions); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
@@ -572,6 +582,50 @@ func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
 		}
 	}
 	return false
+}
+
+// TODO: Remove this as there is duplicate in controllers/metadata.
+func getOAuthMetadata(host string) string {
+	stubMetadata := `
+{
+  "issuer": "https://%s",
+  "authorization_endpoint": "https://%s/oauth/authorize",
+  "token_endpoint": "https://%s/oauth/token",
+  "scopes_supported": [
+    "user:check-access",
+    "user:full",
+    "user:info",
+    "user:list-projects",
+    "user:list-scoped-projects"
+  ],
+  "response_types_supported": [
+    "code",
+    "token"
+  ],
+  "grant_types_supported": [
+    "authorization_code",
+    "implicit"
+  ],
+  "code_challenge_methods_supported": [
+    "plain",
+    "S256"
+  ]
+}
+`
+	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
+}
+
+func getMetadataStruct(route *routev1.Route) map[string]interface{} {
+	var ret map[string]interface{}
+
+	metadataJSON := getOAuthMetadata(route.Spec.Host)
+	err := json.Unmarshal([]byte(metadataJSON), &ret)
+	if err != nil {
+		// should never happen unless the static metadata is broken
+		panic(err)
+	}
+
+	return ret
 }
 
 func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {

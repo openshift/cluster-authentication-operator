@@ -31,6 +31,7 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 )
@@ -230,6 +231,17 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	metadataController := metadata.NewMetadataController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		routeInformersNamespaced,
+		kubeClient.CoreV1(),
+		routeClient.RouteV1().Routes("openshift-authentication"),
+		configClient.ConfigV1().Authentications(),
+		operatorClient,
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -259,6 +271,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		staleConditions,
 		staticResourceController,
 		ingressStateController,
+		metadataController,
 	} {
 		go controller.Run(ctx, 1)
 	}
