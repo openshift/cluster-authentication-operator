@@ -2,6 +2,7 @@ package routercerts
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -24,7 +25,6 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
-	"github.com/openshift/library-go/pkg/operator/events/eventstesting"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -189,9 +189,8 @@ func TestValidateRouterCertificates(t *testing.T) {
 			if tc.systemCertPool == nil {
 				tc.systemCertPool = x509.SystemCertPool
 			}
-			controller := RouterCertsDomainValidationController{
+			controller := routerCertsDomainValidationController{
 				operatorClient:  operatorClient,
-				eventRecorder:   eventstesting.NewTestingEventRecorder(t),
 				ingressLister:   configv1listers.NewIngressLister(ingresses),
 				secretLister:    corev1listers.NewSecretLister(secrets),
 				targetNamespace: "target",
@@ -199,7 +198,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 				routeName:       "test-route",
 				systemCertPool:  tc.systemCertPool,
 			}
-			err = controller.sync()
+			err = controller.sync(context.TODO(), nil)
 			require.NoError(t, err)
 			_, s, _, _ := operatorClient.GetOperatorState()
 			require.Len(t, s.Conditions, 1)
