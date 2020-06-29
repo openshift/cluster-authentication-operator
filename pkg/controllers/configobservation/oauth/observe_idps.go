@@ -41,7 +41,7 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 		return existingConfig, append(errs, err)
 	}
 
-	oauthConfig, err := listers.OAuthLister.Get("cluster")
+	oauthConfig, err := listers.OAuthLister().Get("cluster")
 	if errors.IsNotFound(err) {
 		// revert to default state, meaning no IdPs
 		klog.Warning("oauth.config.openshift.io/cluster: not found")

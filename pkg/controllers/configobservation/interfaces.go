@@ -22,7 +22,7 @@ type Listers struct {
 	APIServerLister_     configlistersv1.APIServerLister
 	ConsoleLister        configlistersv1.ConsoleLister
 	InfrastructureLister configlistersv1.InfrastructureLister
-	OAuthLister          configlistersv1.OAuthLister
+	OAuthLister_         configlistersv1.OAuthLister
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced []cache.InformerSynced
@@ -34,6 +34,10 @@ func (l Listers) APIServerLister() configlistersv1.APIServerLister {
 
 func (l Listers) ResourceSyncer() resourcesynccontroller.ResourceSyncer {
 	return l.ResourceSync
+}
+
+func (l Listers) OAuthLister() configlistersv1.OAuthLister {
+	return l.OAuthLister_
 }
 
 func (l Listers) PreRunHasSynced() []cache.InformerSynced {

@@ -83,7 +83,7 @@ func TestObserveTemplates(t *testing.T) {
 			}
 			syncerData := map[string]string{}
 			listers := configobservation.Listers{
-				OAuthLister:     configlistersv1.NewOAuthLister(indexer),
+				OAuthLister_:    configlistersv1.NewOAuthLister(indexer),
 				ConfigMapLister: corelistersv1.NewConfigMapLister(indexer),
 				ResourceSync:    &mockResourceSyncer{t: t, synced: syncerData},
 			}
