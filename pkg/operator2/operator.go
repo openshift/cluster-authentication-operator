@@ -32,23 +32,16 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/transport"
-	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-)
 
-const (
-	deploymentVersionHashKey = "operator.openshift.io/rvs-hash"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // static environment variables from operator deployment
 var (
-	oauthserverImage   = os.Getenv("IMAGE")
 	oauthserverVersion = os.Getenv("OPERAND_IMAGE_VERSION")
 	operatorVersion    = os.Getenv("OPERATOR_IMAGE_VERSION")
 
@@ -74,12 +67,11 @@ type authOperator struct {
 
 	oauthClientClient oauthclient.OAuthClientInterface
 
-	services                corev1client.ServicesGetter
-	endpoints               corev1client.EndpointsGetter
-	secrets                 corev1client.SecretsGetter
-	configMaps              corev1client.ConfigMapsGetter
-	deployments             appsv1client.DeploymentsGetter
-	bootstrapUserDataGetter bootstrapauthenticator.BootstrapUserDataGetter
+	services    corev1client.ServicesGetter
+	endpoints   corev1client.EndpointsGetter
+	secrets     corev1client.SecretsGetter
+	configMaps  corev1client.ConfigMapsGetter
+	deployments appsv1client.DeploymentsGetter
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
@@ -90,8 +82,6 @@ type authOperator struct {
 	proxy          configv1client.ProxyInterface
 
 	systemCABundle []byte
-
-	bootstrapUserChangeRollOut bool
 
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
@@ -142,15 +132,6 @@ func NewAuthenticationOperator(
 		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
 	}
 	c.systemCABundle = systemCABytes
-
-	namespacesGetter := kubeClient.CoreV1()
-	c.bootstrapUserDataGetter = bootstrapauthenticator.NewBootstrapUserDataGetter(c.secrets, namespacesGetter)
-	if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
-		klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
-		c.bootstrapUserChangeRollOut = true
-	} else {
-		c.bootstrapUserChangeRollOut = userExists
-	}
 
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
@@ -229,117 +210,63 @@ func (c *authOperator) Sync(obj metav1.Object) error {
 	return syncErr
 }
 
-func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv1.Authentication, conditions *authConditions) error {
-	// resourceVersions serves to store versions of config resources so that we
-	// can redeploy our payload should either change. We only omit the operator
-	// config version, it would both cause redeploy loops (status updates cause
-	// version change) and the relevant changes (logLevel, unsupportedConfigOverrides)
-	// will cause a redeploy anyway
-	// TODO move this hash from deployment meta to operatorConfig.status.generations.[...].hash
-	resourceVersions := []string{}
+func waitForControllerComplete(name string, conditions []operatorv1.OperatorCondition) error {
+	c := v1helpers.FindOperatorCondition(conditions, "Auth"+name+"Progressing")
+	if c == nil {
+		return fmt.Errorf(name + " progressing condition not found")
+	}
+	if c.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator is still working towards " + name)
+	}
+	return nil
+}
 
+func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv1.Authentication, conditions *authConditions) error {
+	_, operatorStatus, _, err := c.authOperatorConfigClient.GetOperatorState()
+	if err != nil {
+		return err
+	}
 	// The BLOCK sections are highly order dependent
 
 	// ==================================
 	// BLOCK 1: Metadata
 	// ==================================
 	//
-	// TODO: Remove this when we break the order dependent code
-	_, operatorStatus, _, err := c.authOperatorConfigClient.GetOperatorState()
-	if err != nil {
+	// Wait for the controller to report complete (progressing=false).
+	// This is used to keep the ordering, until we break the ordering.
+	if err := waitForControllerComplete("Metadata", operatorStatus.Conditions); err != nil {
 		return err
-	}
-	metadataCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthMetadataProgressing")
-	if metadataCondition == nil {
-		return fmt.Errorf("metadata progressing condition not found")
-	}
-	if metadataCondition.Status == operatorv1.ConditionTrue {
-		return fmt.Errorf("operator is waiting for metadata")
 	}
 
 	// ==================================
 	// BLOCK 2: service and service-ca data
 	// ==================================
 	//
-	// TODO: Remove this when we break the order dependent code
-	serviceCaCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthServiceCAProgressing")
-	if serviceCaCondition == nil {
-		return fmt.Errorf("service ca progressing condition not found")
-	}
-	if serviceCaCondition.Status == operatorv1.ConditionTrue {
-		return fmt.Errorf("operator is waiting for service CA")
+	// Wait for the controller to report complete (progressing=false).
+	// This is used to keep the ordering, until we break the ordering.
+	if err := waitForControllerComplete("ServiceCA", operatorStatus.Conditions); err != nil {
+		return err
 	}
 
 	// ==================================
 	// BLOCK 3: build cli config
 	// ==================================
-
-	cliConfigCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthCLIConfigProgressing")
-	if cliConfigCondition == nil {
-		return fmt.Errorf("CLI config progressing condition not found")
-	}
-	if cliConfigCondition.Status == operatorv1.ConditionTrue {
-		return fmt.Errorf("operator is waiting for CLI config")
+	//
+	// Wait for the controller to report complete (progressing=false).
+	// This is used to keep the ordering, until we break the ordering.
+	if err := waitForControllerComplete("CLIConfig", operatorStatus.Conditions); err != nil {
+		return err
 	}
 
 	// ==================================
 	// BLOCK 4: deployment
 	// ==================================
-	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
-	if err != nil {
+	//
+	// Wait for the controller to report complete (progressing=false).
+	// This is used to keep the ordering, until we break the ordering.
+	if err := waitForControllerComplete("Deployment", operatorStatus.Conditions); err != nil {
 		return err
 	}
-
-	if err := c.ensureBootstrappedOAuthClients(ctx, "https://"+route.Spec.Host); err != nil {
-		return err
-	}
-
-	proxyConfig := c.handleProxyConfig(ctx)
-	resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
-
-	configResourceVersions, err := c.handleConfigResourceVersions(ctx)
-	if err != nil {
-		return err
-	}
-	resourceVersions = append(resourceVersions, configResourceVersions...)
-
-	// Determine whether the bootstrap user has been deleted so that
-	// detail can be used in computing the deployment.
-	if c.bootstrapUserChangeRollOut {
-		if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
-			klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
-		} else {
-			c.bootstrapUserChangeRollOut = userExists
-		}
-	}
-
-	// deployment, have RV of all resources
-	expectedDeployment, err := defaultDeployment(
-		operatorConfig,
-		proxyConfig,
-		c.bootstrapUserChangeRollOut,
-		resourceVersions...,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to determine the shape of the expected deployment: %v", err)
-	}
-
-	deployment, _, err := resourceapply.ApplyDeployment(
-		c.deployments,
-		c.recorder,
-		expectedDeployment,
-		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
-	)
-	if err != nil {
-		return fmt.Errorf("failed applying deployment for the integrated OAuth server: %v", err)
-	}
-
-	// make sure we record the changes to the deployment
-	resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
-	operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
-	operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
-
-	klog.V(4).Infof("current deployment: %#v", deployment)
 
 	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
@@ -353,8 +280,16 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	if err != nil {
 		return fmt.Errorf("unable to get ingress: %v", err)
 	}
+	deployment, err := c.deployments.Deployments("openshift-authentication").Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get deployment: %v", err)
+	}
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get route: %v", err)
+	}
 
-	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress, conditions); err != nil {
+	if err := c.handleVersion(ctx, authConfig, route, routerSecret, deployment, ingress, conditions); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
 	}
 
@@ -363,7 +298,6 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 
 func (c *authOperator) handleVersion(
 	ctx context.Context,
-	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
 	routerSecret *corev1.Secret,
@@ -400,10 +334,6 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	if deploymentReady := c.checkDeploymentReady(deployment, conditions); !deploymentReady {
-		return nil
-	}
-
 	// we have achieved our desired level
 	conditions.setProgressingFalse()
 	conditions.setAvailableTrue("AsExpected")
@@ -411,33 +341,6 @@ func (c *authOperator) handleVersion(
 	c.setVersion("oauth-openshift", oauthserverVersion)
 
 	return nil
-}
-
-func (c *authOperator) checkDeploymentReady(deployment *appsv1.Deployment, conditions *authConditions) bool {
-	reason := "OAuthServerDeploymentNotReady"
-
-	if deployment.DeletionTimestamp != nil {
-		conditions.setProgressingTrueAndAvailableFalse(reason, "deployment is being deleted")
-		return false
-	}
-
-	if deployment.Status.AvailableReplicas > 0 && deployment.Status.UpdatedReplicas != deployment.Status.Replicas {
-		conditions.setProgressingTrue(reason, "not all deployment replicas are ready")
-		conditions.setAvailableTrue("OAuthServerDeploymentHasAvailableReplica")
-		return false
-	}
-
-	if deployment.Generation != deployment.Status.ObservedGeneration {
-		conditions.setProgressingTrue(reason, "deployment's observed generation did not reach the expected generation")
-		return false
-	}
-
-	if deployment.Status.UpdatedReplicas != deployment.Status.Replicas || deployment.Status.UnavailableReplicas > 0 {
-		conditions.setProgressingTrue(reason, "not all deployment replicas are ready")
-		return false
-	}
-
-	return true
 }
 
 func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) (ready bool, msg, reason string, err error) {

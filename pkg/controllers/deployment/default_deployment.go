@@ -1,22 +1,18 @@
-package operator2
+package deployment
 
 import (
-	"bytes"
 	"crypto/sha512"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/klog"
-
 	"github.com/ghodss/yaml"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -28,13 +24,8 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
 )
 
-func defaultDeployment(
-	operatorConfig *operatorv1.Authentication,
-	proxyConfig *configv1.Proxy,
-	bootstrapUserExists bool,
-	resourceVersions ...string,
-) (*appsv1.Deployment, error) {
-
+func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyConfig *configv1.Proxy,
+	bootstrapUserExists bool, resourceVersions ...string) (*appsv1.Deployment, []operatorv1.OperatorCondition) {
 	// load deployment
 	deployment := resourceread.ReadDeploymentV1OrDie(assets.MustAsset("oauth-openshift/deployment.yaml"))
 
@@ -49,12 +40,12 @@ func defaultDeployment(
 	if deployment.Annotations == nil {
 		deployment.Annotations = map[string]string{}
 	}
-	deployment.Annotations[deploymentVersionHashKey] = rvsHashStr
+	deployment.Annotations["operator.openshift.io/rvs-hash"] = rvsHashStr
 
 	if deployment.Spec.Template.Annotations == nil {
 		deployment.Spec.Template.Annotations = map[string]string{}
 	}
-	deployment.Spec.Template.Annotations[deploymentVersionHashKey] = rvsHashStr
+	deployment.Spec.Template.Annotations["operator.openshift.io/rvs-hash"] = rvsHashStr
 
 	// Ensure a rollout when the bootstrap user goes away
 	if bootstrapUserExists {
@@ -66,7 +57,7 @@ func defaultDeployment(
 
 	// image spec
 	if container.Image == "${IMAGE}" {
-		container.Image = oauthserverImage
+		container.Image = os.Getenv("IMAGE")
 	}
 
 	// set proxy env vars
@@ -77,39 +68,32 @@ func defaultDeployment(
 
 	idpSyncData, err := getSyncDataFromOperatorConfig(&operatorConfig.Spec.ObservedConfig)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't retrieve volumes to mount to the container from the observed config: %v", err)
+		return nil, []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthServerDeploymentDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetIDPDataFailed",
+				Message: fmt.Sprintf("Unable to get IDP sync data: %v", err),
+			},
+		}
 	}
 
 	// mount more secrets and config maps
 	v, m, err := idpSyncData.ToVolumesAndMounts()
 	if err != nil {
-		return nil, fmt.Errorf("failed to transform observed sync data to volumes and mounts: %w", err)
+		return nil, []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthServerDeploymentDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "IDPDataToVolumesFailed",
+				Message: fmt.Sprintf("Unable to transform observed IDP sync data to volumes and mounts: %v", err),
+			},
+		}
 	}
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
 	return deployment, nil
-}
-
-// grabPrefixedConfig returns the configuration from the operator's observedConfig field
-// in the subtree given by the prefix
-// DEPRECATED: Do not use, this will be removed.
-func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
-	if len(prefix) == 0 {
-		return observedBytes, nil
-	}
-
-	prefixedConfig := map[string]interface{}{}
-	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
-		klog.V(4).Infof("decode of existing config failed with error: %v", err)
-	}
-
-	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(actualConfig)
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
@@ -126,6 +110,7 @@ func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datas
 	return observeoauth.GetIDPConfigSyncData(configDeserialized)
 }
 
+// TODO: reuse the library-go helper for this
 func getLogLevel(logLevel operatorv1.LogLevel) int {
 	switch logLevel {
 	case operatorv1.Normal, "": // treat empty string to mean the default
@@ -141,6 +126,7 @@ func getLogLevel(logLevel operatorv1.LogLevel) int {
 	}
 }
 
+// TODO: move to library-go:w
 func proxyConfigToEnvVars(proxy *configv1.Proxy) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Status.NoProxy)
