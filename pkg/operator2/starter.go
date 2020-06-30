@@ -32,6 +32,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 )
@@ -231,6 +232,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	wellKnownReadyController := readiness.NewWellKnownReadyController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		routeInformersNamespaced.Route().V1().Routes(),
+		operatorClient,
+		controllerContext.EventRecorder,
+	)
+
 	metadataController := metadata.NewMetadataController(
 		kubeInformersNamespaced.InformersFor("openshift-authentication"),
 		configInformers,
@@ -272,6 +281,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		staticResourceController,
 		ingressStateController,
 		metadataController,
+		wellKnownReadyController,
 	} {
 		go controller.Run(ctx, 1)
 	}

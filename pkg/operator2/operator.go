@@ -3,13 +3,10 @@ package operator2
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -407,16 +404,6 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(ctx, authConfig, route)
-	conditions.handleDegraded("WellKnownEndpoint", err)
-	if err != nil {
-		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
-	}
-	if !wellknownReady {
-		conditions.setProgressingTrueAndAvailableFalse("WellKnownNotReady", wellknownMsg)
-		return nil
-	}
-
 	oauthClientsReady, oauthClientsMsg, err := c.oauthClientsReady(ctx)
 	conditions.handleDegraded("OAuthClients", err)
 	if err != nil {
@@ -498,92 +485,6 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 	return true, "", "", nil
 }
 
-func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
-	// TODO: don't perform this check when OAuthMetadata reference is set up,
-	// the code in configmap.go does not handle such cases yet
-	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
-		return true, "", nil
-	}
-
-	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	if err != nil {
-		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
-	}
-
-	// pass the KAS service name for SNI
-	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
-	}
-
-	ips, err := c.getAPIServerIPs(ctx)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get API server IPs: %v", err)
-	}
-
-	for _, ip := range ips {
-		wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(ip, rt, route)
-		if err != nil || !wellknownReady {
-			return wellknownReady, wellknownMsg, err
-		}
-	}
-
-	return true, "", nil
-}
-
-func (c *authOperator) getAPIServerIPs(ctx context.Context) ([]string, error) {
-	kasService, err := c.services.Services(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
-	}
-
-	targetPort, ok := getKASTargetPortFromService(kasService)
-	if !ok {
-		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
-	}
-
-	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
-	}
-
-	for _, subset := range kasEndpoint.Subsets {
-		if !subsetHasKASTargetPort(subset, targetPort) {
-			continue
-		}
-
-		if len(subset.NotReadyAddresses) != 0 || len(subset.Addresses) == 0 {
-			return nil, fmt.Errorf("kube api server endpoints is not ready: %#v", kasEndpoint)
-		}
-
-		ips := make([]string, 0, len(subset.Addresses))
-		for _, address := range subset.Addresses {
-			ips = append(ips, net.JoinHostPort(address.IP, strconv.Itoa(targetPort)))
-		}
-		return ips, nil
-	}
-
-	return nil, fmt.Errorf("unable to find kube api server endpoints port: %#v", kasEndpoint)
-}
-
-func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
-	for _, port := range service.Spec.Ports {
-		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == kasServicePort {
-			return targetPort, true
-		}
-	}
-	return 0, false
-}
-
-func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
-	for _, port := range subset.Ports {
-		if port.Protocol == corev1.ProtocolTCP && int(port.Port) == targetPort {
-			return true
-		}
-	}
-	return false
-}
-
 // TODO: Remove this as there is duplicate in controllers/metadata.
 func getOAuthMetadata(host string) string {
 	stubMetadata := `
@@ -613,54 +514,6 @@ func getOAuthMetadata(host string) string {
 }
 `
 	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
-}
-
-func getMetadataStruct(route *routev1.Route) map[string]interface{} {
-	var ret map[string]interface{}
-
-	metadataJSON := getOAuthMetadata(route.Spec.Host)
-	err := json.Unmarshal([]byte(metadataJSON), &ret)
-	if err != nil {
-		// should never happen unless the static metadata is broken
-		panic(err)
-	}
-
-	return ret
-}
-
-func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
-	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
-
-	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
-	}
-
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown), nil
-	}
-
-	var receivedValues map[string]interface{}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
-	}
-	if err := json.Unmarshal(body, &receivedValues); err != nil {
-		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
-	}
-
-	expectedMetadata := getMetadataStruct(route)
-	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
-	}
-
-	return true, "", nil
 }
 
 func (c *authOperator) oauthClientsReady(ctx context.Context) (bool, string, error) {
