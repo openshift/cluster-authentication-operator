@@ -222,6 +222,15 @@ spec:
             - name: v4-0-config-system-ocp-branding-template
               readOnly: true
               mountPath: /var/config/system/secrets/v4-0-config-system-ocp-branding-template
+            - name: v4-0-config-user-template-login
+              readOnly: true
+              mountPath: /var/config/user/template/secret/v4-0-config-user-template-login
+            - name: v4-0-config-user-template-provider-selection
+              readOnly: true
+              mountPath: /var/config/user/template/secret/v4-0-config-user-template-provider-selection
+            - name: v4-0-config-user-template-error
+              readOnly: true
+              mountPath: /var/config/user/template/secret/v4-0-config-user-template-error
             - name: v4-0-config-system-trusted-ca-bundle
               readOnly: true
               mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
@@ -278,6 +287,18 @@ spec:
         - name: v4-0-config-system-ocp-branding-template
           secret:
             secretName: v4-0-config-system-ocp-branding-template
+        - name: v4-0-config-user-template-login
+          secret:
+            secretName: v4-0-config-user-template-login
+            optional: true
+        - name: v4-0-config-user-template-provider-selection
+          secret:
+            secretName: v4-0-config-user-template-provider-selection
+            optional: true
+        - name: v4-0-config-user-template-error
+          secret:
+            secretName: v4-0-config-user-template-error
+            optional: true
         - name: v4-0-config-system-trusted-ca-bundle
           configMap:
             name: v4-0-config-system-trusted-ca-bundle
