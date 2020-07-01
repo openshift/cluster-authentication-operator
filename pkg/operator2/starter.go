@@ -206,6 +206,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 			// As of 4.6, this will appear as a configObserver error
 			"IdentityProviderConfigDegraded",
+			"WellKnownEndpointDegraded",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,

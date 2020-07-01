@@ -59,11 +59,10 @@ type wellKnownReadyController struct {
 // These conditions are operated and defaulted by this controller.
 // Any new condition used by this controller sync() loop should be listed here.
 var knownConditionNames = sets.NewString(
-	"WellKnownEndpointDegraded",
 	"WellKnownRouteDegraded",
 	"WellKnownAuthConfigDegraded",
-	"WellKnownNotReadyProgressing",
-	"WellKnownNotReadyAvailable",
+	"WellKnownProgressing",
+	"WellKnownAvailable",
 )
 
 func NewWellKnownReadyController(kubeInformersNamespaced informers.SharedInformerFactory, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
@@ -95,34 +94,23 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 
 	if authConfig != nil && route != nil {
 		// TODO: refactor this to return conditions
-		ready, endpointsMessage, err := c.isWellknownEndpointsReady(authConfig, route)
+		ready, conditionMessage, err := c.isWellknownEndpointsReady(authConfig, route)
 		if !ready {
-			if err != nil {
-				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownNotReadyProgressing",
-					Status:  operatorv1.ConditionTrue,
-					Reason:  "RouteCheckFailed",
-					Message: fmt.Sprintf("Route %q is failing health check: %v", route.Name, err),
-				})
-				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownNotReadyAvailable",
-					Status:  operatorv1.ConditionFalse,
-					Reason:  "RouteCheckFailed",
-					Message: fmt.Sprintf("Route %q is failing health check: %v", route.Name, err),
-				})
+			if len(conditionMessage) == 0 && err != nil {
+				conditionMessage = err.Error()
 			}
-			if len(endpointsMessage) > 0 {
+			if len(conditionMessage) > 0 {
 				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownNotReadyProgressing",
+					Type:    "WellKnownProgressing",
 					Status:  operatorv1.ConditionTrue,
-					Reason:  "EndpointCheckFailed",
-					Message: fmt.Sprintf("Route %q endpoints failing health check: %v", route.Name, err),
+					Reason:  "NotReady",
+					Message: fmt.Sprintf("The well-known endpoint is not yet avaiable: %s", conditionMessage),
 				})
 				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownNotReadyAvailable",
+					Type:    "WellKnownAvailable",
 					Status:  operatorv1.ConditionFalse,
-					Reason:  "EndpointCheckFailed",
-					Message: fmt.Sprintf("Route %q endpoints failing health check: %v", route.Name, err),
+					Reason:  "NotReady",
+					Message: fmt.Sprintf("THe well-known endpoint is not yet available: %s", conditionMessage),
 				})
 			}
 		}
