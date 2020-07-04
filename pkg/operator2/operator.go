@@ -3,13 +3,10 @@ package operator2
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -246,26 +243,18 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	// ==================================
 	// BLOCK 1: Metadata
 	// ==================================
-	ingress, err := c.handleIngress(ctx)
+	//
+	// TODO: Remove this when we break the order dependent code
+	_, operatorStatus, _, err := c.authOperatorConfigClient.GetOperatorState()
 	if err != nil {
-		return fmt.Errorf("failed getting the ingress config: %v", err)
+		return err
 	}
-
-	route, routerSecret, reason, err := c.handleRoute(ctx, ingress)
-	conditions.handleDegradedWithReason("RouteStatus", err, reason)
-	if err != nil {
-		return fmt.Errorf("failed handling the route: %v", err)
+	metadataCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthMetadataProgressing")
+	if metadataCondition == nil {
+		return fmt.Errorf("metadata progressing condition not found")
 	}
-
-	// make sure API server sees our metadata as soon as we've got a route with a host
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
-	if err != nil {
-		return fmt.Errorf("failure applying configMap for the .well-known endpoint: %v", err)
-	}
-
-	authConfig, err := c.handleAuthConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed handling authentication config: %v", err)
+	if metadataCondition.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator waiting for metadata")
 	}
 
 	// ==================================
@@ -294,6 +283,11 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	_, _, err = resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
 	if err != nil {
 		return fmt.Errorf("failed applying session secret: %v", err)
+	}
+
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get route: %v", err)
 	}
 
 	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
@@ -361,6 +355,19 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 
 	klog.V(4).Infof("current deployment: %#v", deployment)
 
+	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get auth config: %v", err)
+	}
+	routerSecret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-router-certs", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get router secret: %v", err)
+	}
+	ingress, err := c.ingress.Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to get ingress: %v", err)
+	}
+
 	if err := c.handleVersion(ctx, operatorConfig, authConfig, route, routerSecret, deployment, ingress, conditions); err != nil {
 		return fmt.Errorf("error checking current version: %v", err)
 	}
@@ -394,16 +401,6 @@ func (c *authOperator) handleVersion(
 	}
 	if !routeReady {
 		conditions.setProgressingTrueAndAvailableFalse("RouteNotReady", routeMsg)
-		return nil
-	}
-
-	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(ctx, authConfig, route)
-	conditions.handleDegraded("WellKnownEndpoint", err)
-	if err != nil {
-		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
-	}
-	if !wellknownReady {
-		conditions.setProgressingTrueAndAvailableFalse("WellKnownNotReady", wellknownMsg)
 		return nil
 	}
 
@@ -488,125 +485,35 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 	return true, "", "", nil
 }
 
-func (c *authOperator) checkWellknownEndpointsReady(ctx context.Context, authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
-	// TODO: don't perform this check when OAuthMetadata reference is set up,
-	// the code in configmap.go does not handle such cases yet
-	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
-		return true, "", nil
-	}
-
-	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	if err != nil {
-		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
-	}
-
-	// pass the KAS service name for SNI
-	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
-	}
-
-	ips, err := c.getAPIServerIPs(ctx)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get API server IPs: %v", err)
-	}
-
-	for _, ip := range ips {
-		wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(ip, rt, route)
-		if err != nil || !wellknownReady {
-			return wellknownReady, wellknownMsg, err
-		}
-	}
-
-	return true, "", nil
+// TODO: Remove this as there is duplicate in controllers/metadata.
+func getOAuthMetadata(host string) string {
+	stubMetadata := `
+{
+  "issuer": "https://%s",
+  "authorization_endpoint": "https://%s/oauth/authorize",
+  "token_endpoint": "https://%s/oauth/token",
+  "scopes_supported": [
+    "user:check-access",
+    "user:full",
+    "user:info",
+    "user:list-projects",
+    "user:list-scoped-projects"
+  ],
+  "response_types_supported": [
+    "code",
+    "token"
+  ],
+  "grant_types_supported": [
+    "authorization_code",
+    "implicit"
+  ],
+  "code_challenge_methods_supported": [
+    "plain",
+    "S256"
+  ]
 }
-
-func (c *authOperator) getAPIServerIPs(ctx context.Context) ([]string, error) {
-	kasService, err := c.services.Services(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
-	}
-
-	targetPort, ok := getKASTargetPortFromService(kasService)
-	if !ok {
-		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
-	}
-
-	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
-	}
-
-	for _, subset := range kasEndpoint.Subsets {
-		if !subsetHasKASTargetPort(subset, targetPort) {
-			continue
-		}
-
-		if len(subset.NotReadyAddresses) != 0 || len(subset.Addresses) == 0 {
-			return nil, fmt.Errorf("kube api server endpoints is not ready: %#v", kasEndpoint)
-		}
-
-		ips := make([]string, 0, len(subset.Addresses))
-		for _, address := range subset.Addresses {
-			ips = append(ips, net.JoinHostPort(address.IP, strconv.Itoa(targetPort)))
-		}
-		return ips, nil
-	}
-
-	return nil, fmt.Errorf("unable to find kube api server endpoints port: %#v", kasEndpoint)
-}
-
-func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
-	for _, port := range service.Spec.Ports {
-		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == kasServicePort {
-			return targetPort, true
-		}
-	}
-	return 0, false
-}
-
-func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
-	for _, port := range subset.Ports {
-		if port.Protocol == corev1.ProtocolTCP && int(port.Port) == targetPort {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
-	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
-
-	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
-	}
-
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown), nil
-	}
-
-	var receivedValues map[string]interface{}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
-	}
-	if err := json.Unmarshal(body, &receivedValues); err != nil {
-		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
-	}
-
-	expectedMetadata := getMetadataStruct(route)
-	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
-	}
-
-	return true, "", nil
+`
+	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
 }
 
 func (c *authOperator) oauthClientsReady(ctx context.Context) (bool, string, error) {

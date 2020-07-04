@@ -31,6 +31,8 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 )
@@ -204,6 +206,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 			// As of 4.6, this will appear as a configObserver error
 			"IdentityProviderConfigDegraded",
+			"WellKnownEndpointDegraded",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,
@@ -229,6 +232,25 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		operatorClient,
 		"openshift-authentication",
 		controllerContext.EventRecorder)
+
+	wellKnownReadyController := readiness.NewWellKnownReadyController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		routeInformersNamespaced.Route().V1().Routes(),
+		operatorClient,
+		controllerContext.EventRecorder,
+	)
+
+	metadataController := metadata.NewMetadataController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		routeInformersNamespaced,
+		kubeClient.CoreV1(),
+		routeClient.RouteV1().Routes("openshift-authentication"),
+		configClient.ConfigV1().Authentications(),
+		operatorClient,
+		controllerContext.EventRecorder,
+	)
 
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
@@ -259,6 +281,8 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		staleConditions,
 		staticResourceController,
 		ingressStateController,
+		metadataController,
+		wellKnownReadyController,
 	} {
 		go controller.Run(ctx, 1)
 	}
