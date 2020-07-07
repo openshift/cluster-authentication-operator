@@ -274,30 +274,21 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 	// BLOCK 3: build cli config
 	// ==================================
 
+	cliConfigCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthCLIConfigProgressing")
+	if cliConfigCondition == nil {
+		return fmt.Errorf("CLI config progressing condition not found")
 	}
-	_, _, err = resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
-	if err != nil {
-		return fmt.Errorf("failed applying session secret: %v", err)
-	}
-
-	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get route: %v", err)
-	}
-
-	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
-	if err != nil {
-		return fmt.Errorf("failed handling OAuth configuration: %v", err)
-	}
-
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
-	if err != nil {
-		return fmt.Errorf("failed applying configMap for the CLI configuration: %v", err)
+	if cliConfigCondition.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator is waiting for CLI config")
 	}
 
 	// ==================================
 	// BLOCK 4: deployment
 	// ==================================
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
 
 	if err := c.ensureBootstrappedOAuthClients(ctx, "https://"+route.Spec.Host); err != nil {
 		return err
