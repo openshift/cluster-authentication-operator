@@ -34,6 +34,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 )
 
@@ -119,6 +120,8 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 			"oauth-openshift/cabundle.yaml",
 			"oauth-openshift/branding-secret.yaml",
 			"oauth-openshift/serviceaccount.yaml",
+			// oauth server:
+			"oauth-openshift/oauth-service.yaml",
 		},
 		resourceapply.NewKubeClientHolder(kubeClient),
 		operatorClient,
@@ -252,6 +255,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	serviceCAController := serviceca.NewServiceCAController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		kubeClient.CoreV1(),
+		operatorClient,
+		controllerContext.EventRecorder,
+	)
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -283,6 +293,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		ingressStateController,
 		metadataController,
 		wellKnownReadyController,
+		serviceCAController,
 	} {
 		go controller.Run(ctx, 1)
 	}

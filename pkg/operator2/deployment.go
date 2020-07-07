@@ -1,12 +1,15 @@
 package operator2
 
 import (
+	"bytes"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog"
 
 	"github.com/ghodss/yaml"
@@ -86,6 +89,27 @@ func defaultDeployment(
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
 	return deployment, nil
+}
+
+// grabPrefixedConfig returns the configuration from the operator's observedConfig field
+// in the subtree given by the prefix
+// DEPRECATED: Do not use, this will be removed.
+func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
+	if len(prefix) == 0 {
+		return observedBytes, nil
+	}
+
+	prefixedConfig := map[string]interface{}{}
+	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
+		klog.V(4).Infof("decode of existing config failed with error: %v", err)
+	}
+
+	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(actualConfig)
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
