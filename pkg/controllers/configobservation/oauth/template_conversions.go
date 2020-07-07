@@ -82,7 +82,7 @@ func convertTemplatesWithBranding(cmLister corelistersv1.ConfigMapLister, config
 }
 
 func getConsoleBranding(cmLister corelistersv1.ConfigMapLister) (string, error) {
-	cm, err := cmLister.ConfigMaps("openshift-authentication").Get("v4-0-config-system-console-config")
+	cm, err := cmLister.ConfigMaps("openshift-config-managed").Get("console-config")
 	if errors.IsNotFound(err) {
 		return "", nil
 	}

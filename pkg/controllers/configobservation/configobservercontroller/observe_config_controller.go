@@ -28,6 +28,7 @@ func NewConfigObserver(
 	interestingNamespaces := []string{
 		"openshift-authentication",
 		"openshift-config",
+		"openshift-config-managed",
 	}
 
 	preRunCacheSynced := []cache.InformerSynced{
