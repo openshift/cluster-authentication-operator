@@ -1,0 +1,468 @@
+package payload
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/informers"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	corev1lister "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog"
+
+	configv1 "github.com/openshift/api/config/v1"
+	operatorv1 "github.com/openshift/api/operator/v1"
+	osinv1 "github.com/openshift/api/osin/v1"
+	routev1 "github.com/openshift/api/route/v1"
+	operatorv1client "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
+	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
+	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
+)
+
+var (
+	scheme  = runtime.NewScheme()
+	codecs  = serializer.NewCodecFactory(scheme)
+	encoder = codecs.LegacyCodec(osinv1.GroupVersion) // TODO I think there is a better way to do this
+)
+
+func init() {
+	utilruntime.Must(osinv1.Install(scheme))
+}
+
+// knownConditionNames lists all condition types used by this controller.
+// These conditions are operated and defaulted by this controller.
+// Any new condition used by this controller sync() loop should be listed here.
+var knownConditionNames = sets.NewString(
+	"OAuthConfigDegraded",
+	"OAuthSessionSecretDegraded",
+	"OAuthConfigIngressDegraded",
+	"OAuthConfigServiceDegraded",
+	"AuthCLIConfigProgressing",
+)
+
+type payloadConfigController struct {
+	services corev1lister.ServiceLister
+	route    routev1lister.RouteLister
+
+	auth           operatorv1client.AuthenticationsGetter
+	configMaps     corev1client.ConfigMapsGetter
+	secrets        corev1client.SecretsGetter
+	operatorClient v1helpers.OperatorClient
+}
+
+func NewPayloadConfigController(kubeInformersForTargetNamespace informers.SharedInformerFactory, secrets corev1client.SecretsGetter, configMaps corev1client.ConfigMapsGetter,
+	operatorClient v1helpers.OperatorClient, authentication operatorv1client.AuthenticationsGetter, routeInformer routeinformer.RouteInformer, recorder events.Recorder) factory.Controller {
+	c := &payloadConfigController{
+		services:       kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		route:          routeInformer.Lister(),
+		secrets:        secrets,
+		configMaps:     configMaps,
+		operatorClient: operatorClient,
+		auth:           authentication,
+	}
+	return factory.New().WithInformers(
+		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
+		kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
+		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
+		routeInformer.Informer(),
+		operatorClient.Informer(),
+	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
+}
+
+func (c *payloadConfigController) getRoute() (*routev1.Route, []operatorv1.OperatorCondition) {
+	// route is a pre-requirement for this sync
+	// it is created by metadata controller
+	// if route does not exists, do nothing and wait
+	route, err := c.route.Routes("openshift-authentication").Get("oauth-openshift")
+	if err != nil {
+		return nil, []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigIngressDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetFailed",
+				Message: fmt.Sprintf("Unable to get oauth server route: %v", err),
+			},
+		}
+	}
+	return route, nil
+}
+
+func (c *payloadConfigController) getService() (*corev1.Service, []operatorv1.OperatorCondition) {
+	// service is a pre-requirement for this sync
+	// it is created by serviceca controller
+	// if service does not exists, do nothing and wait
+	service, err := c.services.Services("openshift-authentication").Get("oauth-openshift")
+	if err != nil {
+		return nil, []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigServiceDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetFailed",
+				Message: fmt.Sprintf("Unable to get oauth server service: %v", err),
+			},
+		}
+	}
+	return service, nil
+}
+
+func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
+	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetFailed",
+				Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
+			},
+		}
+	}
+	return operatorConfig, nil
+}
+
+func (c *payloadConfigController) getSessionSecret(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
+	secret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-session", metav1.GetOptions{})
+	if err != nil || !isValidSessionSecret(secret) {
+		klog.V(4).Infof("Failed to get session secret %q: %v (generating new random)", "v4-0-config-system-session", err)
+		secret, err = randomSessionSecret()
+		if err != nil {
+			return []operatorv1.OperatorCondition{
+				{
+					Type:    "OAuthSessionSecretDegraded",
+					Status:  operatorv1.ConditionTrue,
+					Reason:  "GenerateFailed",
+					Message: fmt.Sprintf("Failed to generate new session secret %q: %v", "v4-0-config-system-session", err),
+				},
+			}
+		}
+	}
+	if _, _, err := resourceapply.ApplySecret(c.secrets, recorder, secret); err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthSessionSecretDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "ApplyFailed",
+				Message: fmt.Sprintf("Failed to apply session secret %q: %v", "v4-0-config-system-session", err),
+			},
+		}
+	}
+	return nil
+}
+
+func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.SyncContext) error {
+	foundConditions := []operatorv1.OperatorCondition{}
+	foundConditions = append(foundConditions, c.getSessionSecret(ctx, syncContext.Recorder())...)
+
+	route, routeConditions := c.getRoute()
+	foundConditions = append(foundConditions, routeConditions...)
+
+	service, serviceConditions := c.getService()
+	foundConditions = append(foundConditions, serviceConditions...)
+
+	operatorConfig, operatorConfigConditions := c.getAuthConfig(ctx)
+	foundConditions = append(foundConditions, operatorConfigConditions...)
+
+	oauthConfigConditions := c.handleOAuthConfig(operatorConfig, route, service, syncContext.Recorder())
+	foundConditions = append(foundConditions, oauthConfigConditions...)
+
+	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
+
+	// TODO: Remove this as soon as we break the ordering of the main operator
+	if len(foundConditions) == 0 {
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:   "AuthCLIConfigProgressing",
+			Status: operatorv1.ConditionFalse,
+			Reason: "AsExpected",
+		})
+	} else {
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:   "AuthCLIConfigProgressing",
+			Status: operatorv1.ConditionTrue,
+			Reason: fmt.Sprintf("%d degraded conditions found while working towards metadata", len(foundConditions)),
+		})
+	}
+
+	for _, conditionType := range knownConditionNames.List() {
+		// clean up existing foundConditions
+		updatedCondition := operatorv1.OperatorCondition{
+			Type:   conditionType,
+			Status: operatorv1.ConditionFalse,
+		}
+		if condition := v1helpers.FindOperatorCondition(foundConditions, conditionType); condition != nil {
+			updatedCondition = *condition
+		}
+		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(updatedCondition))
+	}
+
+	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
+		return err
+	}
+
+	// retry faster when we got degraded condition
+	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthCLIConfigProgressing") {
+		// if len(foundConditions) > 0 {
+		return factory.SyntheticRequeueError
+	}
+
+	return nil
+}
+
+func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
+	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
+	cliConfig := &osinv1.OsinServerConfig{
+		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
+			ServingInfo: configv1.HTTPServingInfo{
+				ServingInfo: configv1.ServingInfo{
+					BindAddress: fmt.Sprintf("0.0.0.0:%d", 6443),
+					BindNetwork: "tcp",
+					// we have valid serving certs provided by service-ca
+					// this is our main server cert which is used if SNI does not match
+					CertInfo: configv1.CertInfo{
+						CertFile: "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.crt",
+						KeyFile:  "/var/config/system/secrets/v4-0-config-system-serving-cert/tls.key",
+					},
+					ClientCA: "", // I think this can be left unset
+				},
+				MaxRequestsInFlight:   1000,   // TODO this is a made up number
+				RequestTimeoutSeconds: 5 * 60, // 5 minutes
+			},
+			AuditConfig: configv1.AuditConfig{}, // TODO probably need this
+			KubeClientConfig: configv1.KubeClientConfig{
+				KubeConfig: "", // this should use in cluster config
+				ConnectionOverrides: configv1.ClientConnectionOverrides{
+					QPS:   400, // TODO figure out values
+					Burst: 400,
+				},
+			},
+		},
+		OAuthConfig: osinv1.OAuthConfig{
+			MasterCA:                    &ca, // we have valid serving certs provided by service-ca so we can use the service for loopback
+			MasterURL:                   fmt.Sprintf("https://%s.%s.svc", service.Name, service.Namespace),
+			MasterPublicURL:             fmt.Sprintf("https://%s", route.Spec.Host),
+			AlwaysShowProviderSelection: false,
+			GrantConfig: osinv1.GrantConfig{
+				Method:               osinv1.GrantHandlerDeny, // force denial as this field must be set per OAuth client
+				ServiceAccountMethod: osinv1.GrantHandlerPrompt,
+			},
+			SessionConfig: &osinv1.SessionConfig{
+				SessionSecretsFile:   "/var/config/system/secrets/v4-0-config-system-session/v4-0-config-system-session",
+				SessionMaxAgeSeconds: 5 * 60, // 5 minutes
+				SessionName:          "ssn",
+			},
+		},
+	}
+
+	cliConfigBytes, err := runtime.Encode(encoder, cliConfig)
+	if err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "EncodeFailed",
+				Message: fmt.Sprintf("Failed to encode CLI config: %v", err),
+			},
+		}
+	}
+
+	observedConfig, err := grabPrefixedConfig(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	if err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetOAuthServerConfigFailed",
+				Message: fmt.Sprintf("Unable to get oauth-server configuration: %v", err),
+			},
+		}
+	}
+
+	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	if err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "MergeConfigFailed",
+				Message: fmt.Sprintf("Failed to merge config with unsupportedConfigOverrides: %v", err),
+			},
+		}
+	}
+
+	expectedCLIConfig := getCliConfigMap(completeConfigBytes)
+
+	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, recorder, expectedCLIConfig)
+	if err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "ApplyFailed",
+				Message: fmt.Sprintf("Failed to apply CLI configuration %q: %v", expectedCLIConfig.Name, err),
+			},
+		}
+	}
+
+	return nil
+}
+
+// grabPrefixedConfig returns the configuration from the operator's observedConfig field
+// in the subtree given by the prefix
+func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
+	if len(prefix) == 0 {
+		return observedBytes, nil
+	}
+
+	prefixedConfig := map[string]interface{}{}
+	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
+		klog.V(4).Infof("decode of existing config failed with error: %v", err)
+	}
+
+	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(actualConfig)
+}
+
+func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "v4-0-config-system-cliconfig",
+			Namespace: "openshift-authentication",
+			Labels: map[string]string{
+				"app": "oauth-openshift",
+			},
+			Annotations:     map[string]string{},
+			OwnerReferences: nil, // TODO
+		},
+		Data: map[string]string{
+			"v4-0-config-system-cliconfig": string(completeConfigBytes),
+		},
+	}
+}
+
+func (c *payloadConfigController) getExpectedSessionSecret(ctx context.Context) (*corev1.Secret, error) {
+	secret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-session", metav1.GetOptions{})
+	if err != nil || !isValidSessionSecret(secret) {
+		klog.V(4).Infof("failed to get secret %s: %v", "v4-0-config-system-session", err)
+		generatedSessionSecret, err := randomSessionSecret()
+		if err != nil {
+			return nil, err
+		}
+		return generatedSessionSecret, nil
+	}
+	return secret, nil
+}
+
+func isValidSessionSecret(secret *corev1.Secret) bool {
+	// TODO add more validation?
+	if secret == nil {
+		return false
+	}
+	var sessionSecretsBytes [][]byte
+	for _, v := range secret.Data {
+		sessionSecretsBytes = append(sessionSecretsBytes, v)
+	}
+	for _, ss := range sessionSecretsBytes {
+		var sessionSecrets *osinv1.SessionSecrets
+		err := json.Unmarshal(ss, &sessionSecrets)
+		if err != nil {
+			return false
+		}
+		for _, s := range sessionSecrets.Secrets {
+			if len(s.Authentication) != 64 {
+				return false
+			}
+
+			if len(s.Encryption) != 32 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func randomSessionSecret() (*corev1.Secret, error) {
+	skey, err := newSessionSecretsJSON()
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "v4-0-config-system-session",
+			Namespace: "openshift-authentication",
+			Labels: map[string]string{
+				"app": "oauth-openshift",
+			},
+			Annotations:     map[string]string{},
+			OwnerReferences: nil, // TODO
+		},
+		Data: map[string][]byte{
+			"v4-0-config-system-session": skey,
+		},
+	}, nil
+
+}
+func newSessionSecretsJSON() ([]byte, error) {
+	const (
+		sha256KeyLenBytes = sha256.BlockSize // max key size with HMAC SHA256
+		aes256KeyLenBytes = 32               // max key size with AES (AES-256)
+	)
+
+	secrets := &osinv1.SessionSecrets{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "SessionSecrets",
+			APIVersion: "operatorv1client",
+		},
+		Secrets: []osinv1.SessionSecret{
+			{
+				Authentication: randomString(sha256KeyLenBytes), // 64 chars
+				Encryption:     randomString(aes256KeyLenBytes), // 32 chars
+			},
+		},
+	}
+	secretsBytes, err := json.Marshal(secrets)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling the session secret: %v", err) // should never happen
+	}
+
+	return secretsBytes, nil
+}
+
+// needs to be in lib-go
+func randomBytes(size int) []byte {
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // rand should never fail
+	}
+	return b
+}
+
+// randomString uses RawURLEncoding to ensure we do not get / characters or trailing ='s
+func randomString(size int) string {
+	// each byte (8 bits) gives us 4/3 base64 (6 bits) characters
+	// we account for that conversion and add one to handle truncation
+	b64size := base64.RawURLEncoding.DecodedLen(size) + 1
+	// trim down to the original requested size since we added one above
+	return base64.RawURLEncoding.EncodeToString(randomBytes(b64size))[:size]
+}

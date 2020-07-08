@@ -3,6 +3,7 @@ module github.com/openshift/cluster-authentication-operator
 go 1.13
 
 require (
+	github.com/davecgh/go-spew v1.1.1
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible

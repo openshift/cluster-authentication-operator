@@ -254,55 +254,41 @@ func (c *authOperator) handleSync(ctx context.Context, operatorConfig *operatorv
 		return fmt.Errorf("metadata progressing condition not found")
 	}
 	if metadataCondition.Status == operatorv1.ConditionTrue {
-		return fmt.Errorf("operator waiting for metadata")
+		return fmt.Errorf("operator is waiting for metadata")
 	}
 
 	// ==================================
 	// BLOCK 2: service and service-ca data
 	// ==================================
-
-	// make sure we create the service before we start asking about service certs
-	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
-	if err != nil {
-		return fmt.Errorf("failed applying service object: %v", err)
+	//
+	// TODO: Remove this when we break the order dependent code
+	serviceCaCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthServiceCAProgressing")
+	if serviceCaCondition == nil {
+		return fmt.Errorf("service ca progressing condition not found")
 	}
-
-	_, _, err = c.handleServiceCA(ctx)
-	if err != nil {
-		return fmt.Errorf("failed handling service CA: %v", err)
+	if serviceCaCondition.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator is waiting for service CA")
 	}
 
 	// ==================================
 	// BLOCK 3: build cli config
 	// ==================================
 
-	expectedSessionSecret, err := c.expectedSessionSecret(ctx)
-	if err != nil {
-		return fmt.Errorf("failed obtaining session secret: %v", err)
+	cliConfigCondition := v1helpers.FindOperatorCondition(operatorStatus.Conditions, "AuthCLIConfigProgressing")
+	if cliConfigCondition == nil {
+		return fmt.Errorf("CLI config progressing condition not found")
 	}
-	_, _, err = resourceapply.ApplySecret(c.secrets, c.recorder, expectedSessionSecret)
-	if err != nil {
-		return fmt.Errorf("failed applying session secret: %v", err)
-	}
-
-	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get route: %v", err)
-	}
-
-	expectedCLIconfig, err := c.handleOAuthConfig(ctx, operatorConfig, route, service, conditions)
-	if err != nil {
-		return fmt.Errorf("failed handling OAuth configuration: %v", err)
-	}
-
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedCLIconfig)
-	if err != nil {
-		return fmt.Errorf("failed applying configMap for the CLI configuration: %v", err)
+	if cliConfigCondition.Status == operatorv1.ConditionTrue {
+		return fmt.Errorf("operator is waiting for CLI config")
 	}
 
 	// ==================================
 	// BLOCK 4: deployment
 	// ==================================
+	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
 
 	if err := c.ensureBootstrappedOAuthClients(ctx, "https://"+route.Spec.Host); err != nil {
 		return err
@@ -539,32 +525,6 @@ func (c *authOperator) oauthClientsReady(ctx context.Context) (bool, string, err
 func (c *authOperator) setVersion(operandName, version string) {
 	if c.versionGetter.GetVersions()[operandName] != version {
 		c.versionGetter.SetVersion(operandName, version)
-	}
-}
-
-func defaultLabels() map[string]string {
-	return map[string]string{
-		"app": "oauth-openshift",
-	}
-}
-
-func defaultMeta() metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:            "oauth-openshift",
-		Namespace:       "openshift-authentication",
-		Labels:          defaultLabels(),
-		Annotations:     map[string]string{},
-		OwnerReferences: nil, // TODO
-	}
-}
-
-func defaultGlobalConfigMeta() metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:   "cluster",
-		Labels: map[string]string{},
-		Annotations: map[string]string{
-			"release.openshift.io/create-only": "true",
-		},
 	}
 }
 
