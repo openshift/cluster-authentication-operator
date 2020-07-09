@@ -20,6 +20,8 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 // knownConditionNames lists all condition types used by this controller.
@@ -58,15 +60,8 @@ func NewServiceCAController(kubeInformersForTargetNamespace informers.SharedInfo
 func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
-	// make sure we create the service before we start asking about service certs
-	if _, err := c.serviceLister.Services("openshift-authentication").Get("oauth-openshift"); err != nil {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "OAuthServiceDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "GetFailed",
-			Message: fmt.Sprintf("Failed to get %q service: %v", "oauth-openshift", err),
-		})
-	}
+	_, serviceConditions := common.GetOAuthServerService(c.serviceLister, "OAuthService")
+	foundConditions = append(foundConditions, serviceConditions...)
 
 	if len(foundConditions) == 0 {
 		serviceCAConditions, err := c.getServiceCA(ctx, syncCtx.Recorder())

@@ -31,6 +31,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
@@ -88,10 +89,10 @@ func NewWellKnownReadyController(kubeInformersNamespaced informers.SharedInforme
 func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
-	authConfig, configConditions := c.getAuthConfig()
+	authConfig, configConditions := common.GetAuthConfig(c.authLister, "WellKnownAuthConfig")
 	foundConditions = append(foundConditions, configConditions...)
 
-	route, routeConditions := c.getRoute()
+	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "WellKnownRoute")
 	foundConditions = append(foundConditions, routeConditions...)
 
 	if authConfig != nil && route != nil {
@@ -137,44 +138,6 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		return err
 	}
 	return nil
-}
-
-func (c *wellKnownReadyController) getRoute() (*routev1.Route, []operatorv1.OperatorCondition) {
-	// route is a pre-requirement for this sync
-	// if route does not exists, do nothing and wait
-	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
-	if err != nil && os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "WellKnownRouteDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get oauth-openshift route: %v", err),
-			},
-		}
-	}
-	return route, nil
-}
-
-func (c *wellKnownReadyController) getAuthConfig() (*configv1.Authentication, []operatorv1.OperatorCondition) {
-	operatorConfig, err := c.authLister.Get("cluster")
-	if err != nil && os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "WellKnownAuthConfigDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
-			},
-		}
-	}
-	return operatorConfig, nil
 }
 
 func (c *wellKnownReadyController) isWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
