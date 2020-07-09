@@ -48,11 +48,12 @@ func init() {
 }
 
 type wellKnownReadyController struct {
-	serviceLister  corev1lister.ServiceLister
-	endpointLister corev1lister.EndpointsLister
-	operatorClient v1helpers.OperatorClient
-	authLister     configv1lister.AuthenticationLister
-	routeLister    routev1lister.RouteLister
+	serviceLister   corev1lister.ServiceLister
+	endpointLister  corev1lister.EndpointsLister
+	operatorClient  v1helpers.OperatorClient
+	authLister      configv1lister.AuthenticationLister
+	configMapLister corev1lister.ConfigMapLister
+	routeLister     routev1lister.RouteLister
 }
 
 // knownConditionNames lists all condition types used by this controller.
@@ -68,11 +69,12 @@ var knownConditionNames = sets.NewString(
 func NewWellKnownReadyController(kubeInformersNamespaced informers.SharedInformerFactory, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
 	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
 	c := &wellKnownReadyController{
-		serviceLister:  kubeInformersNamespaced.Core().V1().Services().Lister(),
-		endpointLister: kubeInformersNamespaced.Core().V1().Endpoints().Lister(),
-		authLister:     configInformers.Config().V1().Authentications().Lister(),
-		routeLister:    routeInformer.Lister(),
-		operatorClient: operatorClient,
+		serviceLister:   kubeInformersNamespaced.Core().V1().Services().Lister(),
+		endpointLister:  kubeInformersNamespaced.Core().V1().Endpoints().Lister(),
+		authLister:      configInformers.Config().V1().Authentications().Lister(),
+		configMapLister: kubeInformersNamespaced.Core().V1().ConfigMaps().Lister(),
+		routeLister:     routeInformer.Lister(),
+		operatorClient:  operatorClient,
 	}
 
 	return factory.New().ResyncEvery(30*time.Second).WithInformers(
@@ -176,9 +178,9 @@ func (c *wellKnownReadyController) getAuthConfig() (*configv1.Authentication, []
 }
 
 func (c *wellKnownReadyController) isWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
-	// TODO: don't perform this check when OAuthMetadata reference is set up,
-	// the code in configmap.go does not handle such cases yet
-	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
+	// don't perform this check when OAuthMetadata reference is set up
+	// leave those cases to KAS-o which handles these cases
+	if userMetadataConfig := authConfig.Spec.OAuthMetadata.Name; authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth || len(userMetadataConfig) != 0 {
 		return true, "", nil
 	}
 
@@ -235,7 +237,11 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
 	}
 
-	expectedMetadata := getMetadataStruct(route)
+	expectedMetadata, err := c.getOAuthMetadata()
+	if err != nil {
+		return false, "", err
+	}
+
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
 		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
 	}
@@ -243,47 +249,23 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 	return true, "", nil
 }
 
-func getOAuthMetadata(host string) string {
-	stubMetadata := `
-{
-  "issuer": "https://%s",
-  "authorization_endpoint": "https://%s/oauth/authorize",
-  "token_endpoint": "https://%s/oauth/token",
-  "scopes_supported": [
-    "user:check-access",
-    "user:full",
-    "user:info",
-    "user:list-projects",
-    "user:list-scoped-projects"
-  ],
-  "response_types_supported": [
-    "code",
-    "token"
-  ],
-  "grant_types_supported": [
-    "authorization_code",
-    "implicit"
-  ],
-  "code_challenge_methods_supported": [
-    "plain",
-    "S256"
-  ]
-}
-`
-	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
-}
-
-func getMetadataStruct(route *routev1.Route) map[string]interface{} {
-	var ret map[string]interface{}
-
-	metadataJSON := getOAuthMetadata(route.Spec.Host)
-	err := json.Unmarshal([]byte(metadataJSON), &ret)
+func (c *wellKnownReadyController) getOAuthMetadata() (map[string]interface{}, error) {
+	cm, err := c.configMapLister.ConfigMaps("openshift-config-managed").Get("oauth-openshift")
 	if err != nil {
-		// should never happen unless the static metadata is broken
-		panic(err)
+		return nil, err
 	}
 
-	return ret
+	metadataJSON, ok := cm.Data["oauthMetadata"]
+	if !ok || len(metadataJSON) == 0 {
+		return nil, fmt.Errorf("the openshift-config-managed/oauth-openshift configMap is missing data in the 'oauthMetadata' key")
+	}
+
+	var metadataStruct map[string]interface{}
+	if err = json.Unmarshal([]byte(metadataJSON), &metadataStruct); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cm metadata: %w", err)
+	}
+
+	return metadataStruct, nil
 }
 
 func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
