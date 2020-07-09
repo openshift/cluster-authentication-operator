@@ -11,7 +11,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
 var identityProvidersMounts = []string{"volumesToMount", "identityProviders"}

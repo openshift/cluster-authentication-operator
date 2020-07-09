@@ -1,4 +1,4 @@
-package operator2
+package operator
 
 import (
 	"context"
@@ -38,7 +38,8 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 )
 
 const (
@@ -164,21 +165,6 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	versionGetter := status.NewVersionGetter()
 
-	operator := NewAuthenticationOperator(
-		*operatorClient,
-		oauthClient.OauthV1(),
-		kubeInformersNamespaced.InformersFor("openshift-authentication"),
-		kubeInformersNamespaced.InformersFor("kube-system"),
-		kubeClient,
-		routeInformersNamespaced.Route().V1().Routes(),
-		routeClient.RouteV1(),
-		configInformers,
-		configClient,
-		versionGetter,
-		controllerContext.EventRecorder,
-		resourceSyncer,
-	)
-
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
 		"authentication",
 		[]configv1.ObjectReference{
@@ -287,6 +273,16 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	targetVersionController := targetversion.NewTargetVersionController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		configInformers,
+		routeInformersNamespaced.Route().V1().Routes(),
+		oauthClient.OauthV1().OAuthClients(),
+		operatorClient,
+		versionGetter,
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -321,11 +317,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		serviceCAController,
 		payloadConfigController,
 		deploymentController,
+		targetVersionController,
 	} {
 		go controller.Run(ctx, 1)
 	}
-
-	go operator.Run(ctx.Done())
 
 	<-ctx.Done()
 

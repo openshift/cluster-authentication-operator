@@ -1,4 +1,4 @@
-package operator2
+package operator
 
 // partial copy of console CLI config
 

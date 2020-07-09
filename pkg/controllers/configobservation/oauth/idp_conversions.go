@@ -18,7 +18,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 

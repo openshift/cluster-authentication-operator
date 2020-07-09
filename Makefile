@@ -29,7 +29,7 @@ IMAGE_REGISTRY?=registry.svc.ci.openshift.org
 $(call build-image,ocp-cluster-authentication-operator,$(IMAGE_REGISTRY)/ocp/4.3:cluster-authentication-operator,./Dockerfile.rhel7,.)
 
 # generate bindata targets
-$(call add-bindata,assets,./bindata/...,bindata,assets,pkg/operator2/assets/bindata.go)
+$(call add-bindata,assets,./bindata/...,bindata,assets,pkg/operator/assets/bindata.go)
 
 clean:
 	$(RM) ./authentication-operator
