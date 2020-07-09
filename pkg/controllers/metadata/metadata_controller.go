@@ -262,8 +262,8 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 		return []operatorv1.OperatorCondition{{
 			Type:    "AuthConfigDegraded",
 			Status:  operatorv1.ConditionTrue,
-			Reason:  "FailedCreate",
-			Message: fmt.Sprintf("Unable to get or create cluster authentication config: %v", err),
+			Reason:  "FailedGet",
+			Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
 		}}
 	}
 
