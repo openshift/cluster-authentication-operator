@@ -24,5 +24,4 @@ require (
 	k8s.io/client-go v0.18.3
 	k8s.io/component-base v0.18.3
 	k8s.io/klog v1.0.0
-	monis.app/go v0.0.0-20190702030534-c65526068664
 )
