@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/client-go/informers"
 	appsv1lister "k8s.io/client-go/listers/apps/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
@@ -48,8 +50,6 @@ var knownConditionNames = sets.NewString(
 	"OAuthVersionDeploymentDegraded",
 	"OAuthVersionDeploymentProgressing",
 	"OAuthVersionDeploymentAvailable",
-
-	"AuthVersionProgressing",
 )
 
 type targetVersionController struct {
@@ -112,23 +112,10 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
-	// TODO: Remove this as soon as we break the ordering of the main operator
+	// We achieved desired state
 	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthVersionProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-		// We achieved desired state
 		c.setVersion("operator", operatorVersion)
 		c.setVersion("oauth-openshift", operandVersion)
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "AuthVersionProgressing",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "PreConditionFailed",
-			Message: fmt.Sprintf("%d degraded conditions found while working towards version", len(foundConditions)),
-		})
 	}
 
 	for _, conditionType := range knownConditionNames.List() {
@@ -148,6 +135,11 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
+	}
+
+	if len(foundConditions) > 0 {
+		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
+		return factory.SyntheticRequeueError
 	}
 
 	return nil

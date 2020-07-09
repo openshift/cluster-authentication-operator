@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/davecgh/go-spew/spew"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -52,7 +52,6 @@ var knownConditionNames = sets.NewString(
 	"OAuthServerIngressConfigDegraded",
 	"OAuthServerDeploymentProgressing",
 	"OAuthServerAvailable",
-	"AuthDeploymentProgressing",
 )
 
 type deploymentController struct {
@@ -188,25 +187,9 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 			}
 
 		}
-
 	}
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthDeploymentProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "AuthDeploymentProgressing",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "PreConditionFailed",
-			Message: fmt.Sprintf("%d degraded conditions found while working towards deployment", len(foundConditions)),
-		})
-	}
 
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
@@ -227,6 +210,11 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		return err
 	}
 
+	if len(foundConditions) > 0 {
+		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
+		return factory.SyntheticRequeueError
+	}
+
 	return nil
 }
 
@@ -245,21 +233,6 @@ func (c *deploymentController) getAuthConfig(ctx context.Context) (*operatorv1.A
 	return operatorConfig, nil
 }
 
-func routeHasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
-	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != canonicalHost {
-			continue
-		}
-		for _, condition := range ingress.Conditions {
-			if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-		return true
-	}
-	return false
-}
-
 func (c *deploymentController) getCanonicalRoute(ingressConfigDomain string) (*routev1.Route, []operatorv1.OperatorCondition) {
 	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "OAuthServerRoute")
 	if len(routeConditions) > 0 {
@@ -267,7 +240,7 @@ func (c *deploymentController) getCanonicalRoute(ingressConfigDomain string) (*r
 	}
 
 	expectedHost := "oauth-openshift." + ingressConfigDomain
-	if !routeHasCanonicalHost(route, expectedHost) {
+	if !common.RouteHasCanonicalHost(route, expectedHost) {
 		msg := spew.Sdump(route.Status.Ingress)
 		if len(route.Status.Ingress) == 0 {
 			msg = "route status ingress is empty"

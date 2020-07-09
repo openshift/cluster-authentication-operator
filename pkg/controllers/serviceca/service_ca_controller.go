@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"k8s.io/klog"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,7 +31,6 @@ import (
 var knownConditionNames = sets.NewString(
 	"OAuthServiceDegraded",
 	"SystemServiceCAConfigDegraded",
-	"AuthServiceCAProgressing",
 )
 
 type serviceCAController struct {
@@ -71,21 +71,6 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 		foundConditions = append(foundConditions, serviceCAConditions...)
 	}
 
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthServiceCAProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthServiceCAProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards service ca", len(foundConditions)),
-		})
-	}
-
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
 	for _, conditionType := range knownConditionNames.List() {
@@ -105,8 +90,8 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 	}
 
 	// retry faster if we have degraded condition
-	// TODO: replace this with len(foundConditions) != 0 after all controllers are extracted.
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthServiceCAProgressing") {
+	if len(foundConditions) > 0 {
+		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
 		return factory.SyntheticRequeueError
 	}
 

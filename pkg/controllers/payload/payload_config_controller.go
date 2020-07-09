@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -58,7 +59,6 @@ var knownConditionNames = sets.NewString(
 	"OAuthConfigRouteDegraded",
 	"OAuthConfigIngressDegraded",
 	"OAuthConfigServiceDegraded",
-	"AuthCLIConfigProgressing",
 )
 
 type payloadConfigController struct {
@@ -152,21 +152,6 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthCLIConfigProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthCLIConfigProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards metadata", len(foundConditions)),
-		})
-	}
-
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
 		updatedCondition := operatorv1.OperatorCondition{
@@ -184,8 +169,8 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	}
 
 	// retry faster when we got degraded condition
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthCLIConfigProgressing") {
-		// if len(foundConditions) > 0 {
+	if len(foundConditions) > 0 {
+		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
 		return factory.SyntheticRequeueError
 	}
 

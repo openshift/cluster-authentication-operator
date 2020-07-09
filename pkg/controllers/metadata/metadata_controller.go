@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -41,7 +43,6 @@ var knownConditionNames = sets.NewString(
 	"IngressConfigDegraded",
 	"AuthConfigDegraded",
 	"OAuthSystemMetadataDegraded",
-	"AuthMetadataProgressing",
 )
 
 type metadataController struct {
@@ -96,21 +97,6 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthMetadataProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthMetadataProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards metadata", len(foundConditions)),
-		})
-	}
-
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
 		updatedCondition := operatorv1.OperatorCondition{
@@ -128,8 +114,8 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 	}
 
 	// retry faster when we got degraded condition
-	// if len(foundConditions) > 0 {
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthMetadataProgressing") {
+	if len(foundConditions) > 0 {
+		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
 		return factory.SyntheticRequeueError
 	}
 
