@@ -60,7 +60,7 @@ func CheckDeploymentReady(deployment *appsv1.Deployment, conditionPrefix string)
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "ReplicasNotAvailable",
-				Message: fmt.Sprintf("Waiting for %d replicas of OAuth server to be avaiable", deployment.Status.UnavailableReplicas),
+				Message: fmt.Sprintf("Waiting for %d replicas of OAuth server to be available", deployment.Status.UnavailableReplicas),
 			},
 		}
 	}

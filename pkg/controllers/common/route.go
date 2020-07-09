@@ -31,7 +31,7 @@ func CheckRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, system
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "WaitingForRoute",
-				Message: fmt.Sprintf("Route %q was not admitted yet %s", route.Name),
+				Message: fmt.Sprintf("Route %q was not admitted yet", route.Name),
 			},
 			{
 				Type:    conditionPrefix + "Available",
