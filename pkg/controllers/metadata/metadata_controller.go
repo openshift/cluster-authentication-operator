@@ -246,8 +246,6 @@ func (c *metadataController) handleRoute(ctx context.Context, ingress *configv1.
 // FIXME: we need to handle Authentication config object properly, namely:
 // - honor Type field being set to none and don't create the OSIN
 //   deployment in that case
-// - the OAuthMetadata settings should be better respected in the code,
-//   currently there is no special handling around it (see configmap.go).
 // - the WebhookTokenAuthenticators field is currently not being handled
 //   anywhere
 //

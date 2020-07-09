@@ -485,37 +485,6 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 	return true, "", "", nil
 }
 
-// TODO: Remove this as there is duplicate in controllers/metadata.
-func getOAuthMetadata(host string) string {
-	stubMetadata := `
-{
-  "issuer": "https://%s",
-  "authorization_endpoint": "https://%s/oauth/authorize",
-  "token_endpoint": "https://%s/oauth/token",
-  "scopes_supported": [
-    "user:check-access",
-    "user:full",
-    "user:info",
-    "user:list-projects",
-    "user:list-scoped-projects"
-  ],
-  "response_types_supported": [
-    "code",
-    "token"
-  ],
-  "grant_types_supported": [
-    "authorization_code",
-    "implicit"
-  ],
-  "code_challenge_methods_supported": [
-    "plain",
-    "S256"
-  ]
-}
-`
-	return strings.TrimSpace(fmt.Sprintf(stubMetadata, host, host, host))
-}
-
 func (c *authOperator) oauthClientsReady(ctx context.Context) (bool, string, error) {
 	_, err := c.oauthClientClient.Get(ctx, "openshift-browser-client", metav1.GetOptions{})
 	if err != nil {
