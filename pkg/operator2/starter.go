@@ -18,6 +18,7 @@ import (
 	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
@@ -30,6 +31,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
@@ -273,6 +275,18 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	deploymentController := deployment.NewDeploymentController(
+		kubeInformersNamespaced.InformersFor("openshift-authentication"),
+		routeInformersNamespaced,
+		configInformers,
+		operatorClient,
+		operatorClient.Client,
+		oauthClient.OauthV1().OAuthClients(),
+		kubeClient.AppsV1(),
+		bootstrapauthenticator.NewBootstrapUserDataGetter(kubeClient.CoreV1(), kubeClient.CoreV1()),
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -306,6 +320,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		wellKnownReadyController,
 		serviceCAController,
 		payloadConfigController,
+		deploymentController,
 	} {
 		go controller.Run(ctx, 1)
 	}
