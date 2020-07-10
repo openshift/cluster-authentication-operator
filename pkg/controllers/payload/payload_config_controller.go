@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -166,12 +165,6 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	// retry faster when we got degraded condition
-	if len(foundConditions) > 0 {
-		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
-		return factory.SyntheticRequeueError
 	}
 
 	return nil

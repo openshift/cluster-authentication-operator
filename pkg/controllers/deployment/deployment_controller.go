@@ -210,11 +210,6 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		return err
 	}
 
-	if len(foundConditions) > 0 {
-		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
-		return factory.SyntheticRequeueError
-	}
-
 	return nil
 }
 

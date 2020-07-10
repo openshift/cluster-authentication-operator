@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"k8s.io/klog"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -87,12 +86,6 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	// retry faster if we have degraded condition
-	if len(foundConditions) > 0 {
-		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
-		return factory.SyntheticRequeueError
 	}
 
 	return nil

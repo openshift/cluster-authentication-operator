@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,7 +14,6 @@ import (
 	"k8s.io/client-go/informers"
 	appsv1lister "k8s.io/client-go/listers/apps/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
@@ -135,11 +133,6 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	if len(foundConditions) > 0 {
-		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
-		return factory.SyntheticRequeueError
 	}
 
 	return nil

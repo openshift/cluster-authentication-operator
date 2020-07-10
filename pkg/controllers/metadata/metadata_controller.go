@@ -16,7 +16,6 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -111,12 +110,6 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	// retry faster when we got degraded condition
-	if len(foundConditions) > 0 {
-		klog.V(4).Infof("Retrying because conditions: %s", spew.Sdump(foundConditions))
-		return factory.SyntheticRequeueError
 	}
 
 	return nil
