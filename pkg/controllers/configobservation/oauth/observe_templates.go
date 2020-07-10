@@ -15,7 +15,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
 func ObserveTemplates(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, errs []error) {

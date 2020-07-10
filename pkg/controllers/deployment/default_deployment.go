@@ -20,8 +20,8 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/datasync"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
 func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyConfig *configv1.Proxy,

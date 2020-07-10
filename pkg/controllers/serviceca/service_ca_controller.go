@@ -20,6 +20,8 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 // knownConditionNames lists all condition types used by this controller.
@@ -28,7 +30,6 @@ import (
 var knownConditionNames = sets.NewString(
 	"OAuthServiceDegraded",
 	"SystemServiceCAConfigDegraded",
-	"AuthServiceCAProgressing",
 )
 
 type serviceCAController struct {
@@ -58,15 +59,8 @@ func NewServiceCAController(kubeInformersForTargetNamespace informers.SharedInfo
 func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
-	// make sure we create the service before we start asking about service certs
-	if _, err := c.serviceLister.Services("openshift-authentication").Get("oauth-openshift"); err != nil {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "OAuthServiceDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "GetFailed",
-			Message: fmt.Sprintf("Failed to get %q service: %v", "oauth-openshift", err),
-		})
-	}
+	_, serviceConditions := common.GetOAuthServerService(c.serviceLister, "OAuthService")
+	foundConditions = append(foundConditions, serviceConditions...)
 
 	if len(foundConditions) == 0 {
 		serviceCAConditions, err := c.getServiceCA(ctx, syncCtx.Recorder())
@@ -74,21 +68,6 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 			return err
 		}
 		foundConditions = append(foundConditions, serviceCAConditions...)
-	}
-
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthServiceCAProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthServiceCAProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards service ca", len(foundConditions)),
-		})
 	}
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
@@ -107,12 +86,6 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	// retry faster if we have degraded condition
-	// TODO: replace this with len(foundConditions) != 0 after all controllers are extracted.
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthServiceCAProgressing") {
-		return factory.SyntheticRequeueError
 	}
 
 	return nil

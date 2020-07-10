@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/davecgh/go-spew/spew"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -39,6 +38,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 // knownConditionNames lists all condition types used by this controller.
@@ -51,7 +52,6 @@ var knownConditionNames = sets.NewString(
 	"OAuthServerIngressConfigDegraded",
 	"OAuthServerDeploymentProgressing",
 	"OAuthServerAvailable",
-	"AuthDeploymentProgressing",
 )
 
 type deploymentController struct {
@@ -107,97 +107,16 @@ func NewDeploymentController(kubeInformersForTargetNamespace informers.SharedInf
 	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("Deployment", recorder.WithComponentSuffix("deployment-controller"))
 }
 
-func (c *deploymentController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
-	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
-			},
-		}
-	}
-	return operatorConfig, nil
-}
-
-func routeHasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
-	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != canonicalHost {
-			continue
-		}
-		for _, condition := range ingress.Conditions {
-			if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-		return true
-	}
-	return false
-}
-
-func (c *deploymentController) getIngressConfig() (*configv1.Ingress, []operatorv1.OperatorCondition) {
-	ingress, err := c.ingressLister.Get("cluster")
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerIngressConfigDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "NotFound",
-			Message: fmt.Sprintf("Unable to get cluster ingress config: %v", err),
-		}}
-	}
-	if len(ingress.Spec.Domain) == 0 {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerIngressConfigDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "Invalid",
-			Message: fmt.Sprintf("The ingress config domain cannot be empty"),
-		}}
-	}
-	return ingress, nil
-}
-
-func (c *deploymentController) getRoute(ingressConfigDomain string) (*routev1.Route, []operatorv1.OperatorCondition) {
-	// route is a pre-requirement for this sync
-	// it is created by metadata controller
-	// if route does not exists, do nothing and wait
-	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerRouteDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get oauth-openshift route: %v", err),
-			},
-		}
-	}
-
-	expectedHost := "oauth-openshift." + ingressConfigDomain
-	if !routeHasCanonicalHost(route, expectedHost) {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerRouteDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "InvalidCanonicalHost",
-				Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedHost, route.Status.Ingress),
-			},
-		}
-	}
-	return route, nil
-}
-
 func (c *deploymentController) sync(ctx context.Context, syncContext factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	operatorConfig, authConfigConditions := c.getAuthConfig(ctx)
 	foundConditions = append(foundConditions, authConfigConditions...)
 
-	ingress, ingressConditions := c.getIngressConfig()
+	ingress, ingressConditions := common.GetIngressConfig(c.ingressLister, "OAuthServerIngressConfig")
 	foundConditions = append(foundConditions, ingressConditions...)
 
-	route, routeConditions := c.getRoute(ingress.Spec.Domain)
+	route, routeConditions := c.getCanonicalRoute(ingress.Spec.Domain)
 	foundConditions = append(foundConditions, routeConditions...)
 
 	proxyConfig, proxyConditions := c.getProxyConfig()
@@ -252,7 +171,7 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 			}
 
 			// check the deployment state, only record changed when the deployment is considered ready.
-			foundConditions = append(foundConditions, c.checkDeploymentReady(deployment)...)
+			foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthServerDeployment")...)
 			if len(foundConditions) == 0 {
 				// make sure we record the changes to the deployment
 				// if this fail, lets resync, this should not fail
@@ -268,25 +187,9 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 			}
 
 		}
-
 	}
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthDeploymentProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "AuthDeploymentProgressing",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "PreConditionFailed",
-			Message: fmt.Sprintf("%d degraded conditions found while working towards deployment", len(foundConditions)),
-		})
-	}
 
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
@@ -310,64 +213,43 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 	return nil
 }
 
-func (c *deploymentController) checkDeploymentReady(deployment *appsv1.Deployment) []operatorv1.OperatorCondition {
-	if deployment.DeletionTimestamp != nil {
-		return []operatorv1.OperatorCondition{
+func (c *deploymentController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
+	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, []operatorv1.OperatorCondition{
 			{
-				Type:    "OAuthServerDeploymentProgressing",
+				Type:    "OAuthServerDeploymentDegraded",
 				Status:  operatorv1.ConditionTrue,
-				Reason:  "Deleted",
-				Message: "Waiting for the OAuth server deployment deletion",
-			},
-			{
-				Type:    "OAuthServerAvailable",
-				Status:  operatorv1.ConditionFalse,
-				Reason:  "Deleted",
-				Message: "The OAuth server deployment is being deleted",
+				Reason:  "GetFailed",
+				Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
 			},
 		}
 	}
+	return operatorConfig, nil
+}
 
-	if deployment.Status.AvailableReplicas > 0 && deployment.Status.UpdatedReplicas != deployment.Status.Replicas {
-		return []operatorv1.OperatorCondition{
+func (c *deploymentController) getCanonicalRoute(ingressConfigDomain string) (*routev1.Route, []operatorv1.OperatorCondition) {
+	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "OAuthServerRoute")
+	if len(routeConditions) > 0 {
+		return nil, routeConditions
+	}
+
+	expectedHost := "oauth-openshift." + ingressConfigDomain
+	if !common.RouteHasCanonicalHost(route, expectedHost) {
+		msg := spew.Sdump(route.Status.Ingress)
+		if len(route.Status.Ingress) == 0 {
+			msg = "route status ingress is empty"
+		}
+		return nil, []operatorv1.OperatorCondition{
 			{
-				Type:    "OAuthServerDeploymentProgressing",
+				Type:    "OAuthServerRouteDegraded",
 				Status:  operatorv1.ConditionTrue,
-				Reason:  "ReplicasNotReady",
-				Message: fmt.Sprintf("Waiting for all OAuth server replicas to be ready (%d not ready)", deployment.Status.Replicas-deployment.Status.UpdatedReplicas),
-			},
-			{
-				Type:    "OAuthServerAvailable",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "AsExpected",
-				Message: fmt.Sprintf("%d available replicas found for OAuth Server", deployment.Status.AvailableReplicas),
+				Reason:  "InvalidCanonicalHost",
+				Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedHost, msg),
 			},
 		}
 	}
-
-	if deployment.Generation != deployment.Status.ObservedGeneration {
-		return []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentProgressing",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GenerationNotObserved",
-				Message: fmt.Sprintf("Waiting for OAuth server observed generation %d to match expected generation %d", deployment.Status.ObservedGeneration, deployment.Generation),
-			},
-		}
-	}
-
-	if deployment.Status.UpdatedReplicas != deployment.Status.Replicas || deployment.Status.UnavailableReplicas > 0 {
-		return []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentProgressing",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "ReplicasNotAvailable",
-				Message: fmt.Sprintf("Waiting for %d replicas of OAuth server to be avaiable", deployment.Status.UnavailableReplicas),
-			},
-		}
-	}
-
-	return nil
+	return route, nil
 }
 
 func (c *deploymentController) getProxyConfig() (*configv1.Proxy, []operatorv1.OperatorCondition) {

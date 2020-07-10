@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -29,6 +30,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 // knownConditionNames lists all condition types used by this controller.
@@ -39,7 +42,6 @@ var knownConditionNames = sets.NewString(
 	"IngressConfigDegraded",
 	"AuthConfigDegraded",
 	"OAuthSystemMetadataDegraded",
-	"AuthMetadataProgressing",
 )
 
 type metadataController struct {
@@ -77,7 +79,7 @@ func NewMetadataController(kubeInformersForTargetNamespace informers.SharedInfor
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
-	ingress, ingressConditions := c.getIngressConfig()
+	ingress, ingressConditions := common.GetIngressConfig(c.ingressLister, "IngressConfig")
 	foundConditions = append(foundConditions, ingressConditions...)
 
 	if len(foundConditions) == 0 {
@@ -93,21 +95,6 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 	}
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthMetadataProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthMetadataProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards metadata", len(foundConditions)),
-		})
-	}
 
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
@@ -125,34 +112,7 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 		return err
 	}
 
-	// retry faster when we got degraded condition
-	// if len(foundConditions) > 0 {
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthMetadataProgressing") {
-		return factory.SyntheticRequeueError
-	}
-
 	return nil
-}
-
-func (c *metadataController) getIngressConfig() (*configv1.Ingress, []operatorv1.OperatorCondition) {
-	ingress, err := c.ingressLister.Get("cluster")
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "IngressConfigDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "NotFound",
-			Message: fmt.Sprintf("Unable to get cluster ingress config: %v", err),
-		}}
-	}
-	if len(ingress.Spec.Domain) == 0 {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "IngressConfigDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "Invalid",
-			Message: fmt.Sprintf("The ingress config domain cannot be empty"),
-		}}
-	}
-	return ingress, nil
 }
 
 func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
@@ -221,13 +181,17 @@ func (c *metadataController) handleRoute(ctx context.Context, ingress *configv1.
 		}
 	}
 
-	if ok := routeHasCanonicalHost(route, expectedRoute.Spec.Host); !ok {
+	if ok := common.RouteHasCanonicalHost(route, expectedRoute.Spec.Host); !ok {
+		msg := spew.Sdump(route.Status.Ingress)
+		if len(route.Status.Ingress) == 0 {
+			msg = "route status ingress is empty"
+		}
 		// be careful not to print route.spec as it many contain secrets
 		return []operatorv1.OperatorCondition{{
 			Type:    "RouteDegraded",
 			Status:  operatorv1.ConditionTrue,
 			Reason:  "InvalidCanonicalHost",
-			Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, route.Status.Ingress),
+			Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, msg),
 		}}
 	}
 
@@ -283,20 +247,6 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 		}}
 	}
 	return nil
-}
-
-func routeHasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
-	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != canonicalHost {
-			continue
-		}
-		for _, condition := range ingress.Conditions {
-			if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func getOauthRoute(ingressConfig *configv1.Ingress) *routev1.Route {

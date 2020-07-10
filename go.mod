@@ -7,10 +7,10 @@ require (
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
-	github.com/openshift/api v0.0.0-20200521101457-60c476765272
+	github.com/openshift/api v0.0.0-20200619200343-6cafd5cd116b
 	github.com/openshift/build-machinery-go v0.0.0-20200512074546-3744767c4131
 	github.com/openshift/client-go v0.0.0-20200521150516-05eb9880269c
-	github.com/openshift/library-go v0.0.0-20200626110253-74ec6c634a0c
+	github.com/openshift/library-go v0.0.0-20200709151624-cc498c355c99
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
@@ -24,5 +24,4 @@ require (
 	k8s.io/client-go v0.18.3
 	k8s.io/component-base v0.18.3
 	k8s.io/klog v1.0.0
-	monis.app/go v0.0.0-20190702030534-c65526068664
 )

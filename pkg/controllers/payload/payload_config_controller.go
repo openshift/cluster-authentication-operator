@@ -35,6 +35,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 
@@ -54,14 +55,14 @@ func init() {
 var knownConditionNames = sets.NewString(
 	"OAuthConfigDegraded",
 	"OAuthSessionSecretDegraded",
+	"OAuthConfigRouteDegraded",
 	"OAuthConfigIngressDegraded",
 	"OAuthConfigServiceDegraded",
-	"AuthCLIConfigProgressing",
 )
 
 type payloadConfigController struct {
-	services corev1lister.ServiceLister
-	route    routev1lister.RouteLister
+	serviceLister corev1lister.ServiceLister
+	routeLister   routev1lister.RouteLister
 
 	auth           operatorv1client.AuthenticationsGetter
 	configMaps     corev1client.ConfigMapsGetter
@@ -72,8 +73,8 @@ type payloadConfigController struct {
 func NewPayloadConfigController(kubeInformersForTargetNamespace informers.SharedInformerFactory, secrets corev1client.SecretsGetter, configMaps corev1client.ConfigMapsGetter,
 	operatorClient v1helpers.OperatorClient, authentication operatorv1client.AuthenticationsGetter, routeInformer routeinformer.RouteInformer, recorder events.Recorder) factory.Controller {
 	c := &payloadConfigController{
-		services:       kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		route:          routeInformer.Lister(),
+		serviceLister:  kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		routeLister:    routeInformer.Lister(),
 		secrets:        secrets,
 		configMaps:     configMaps,
 		operatorClient: operatorClient,
@@ -86,42 +87,6 @@ func NewPayloadConfigController(kubeInformersForTargetNamespace informers.Shared
 		routeInformer.Informer(),
 		operatorClient.Informer(),
 	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
-}
-
-func (c *payloadConfigController) getRoute() (*routev1.Route, []operatorv1.OperatorCondition) {
-	// route is a pre-requirement for this sync
-	// it is created by metadata controller
-	// if route does not exists, do nothing and wait
-	route, err := c.route.Routes("openshift-authentication").Get("oauth-openshift")
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthConfigIngressDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get oauth server route: %v", err),
-			},
-		}
-	}
-	return route, nil
-}
-
-func (c *payloadConfigController) getService() (*corev1.Service, []operatorv1.OperatorCondition) {
-	// service is a pre-requirement for this sync
-	// it is created by serviceca controller
-	// if service does not exists, do nothing and wait
-	service, err := c.services.Services("openshift-authentication").Get("oauth-openshift")
-	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthConfigServiceDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get oauth server service: %v", err),
-			},
-		}
-	}
-	return service, nil
 }
 
 func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
@@ -172,10 +137,10 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	foundConditions := []operatorv1.OperatorCondition{}
 	foundConditions = append(foundConditions, c.getSessionSecret(ctx, syncContext.Recorder())...)
 
-	route, routeConditions := c.getRoute()
+	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "OAuthConfigRoute")
 	foundConditions = append(foundConditions, routeConditions...)
 
-	service, serviceConditions := c.getService()
+	service, serviceConditions := common.GetOAuthServerService(c.serviceLister, "OAuthConfigService")
 	foundConditions = append(foundConditions, serviceConditions...)
 
 	operatorConfig, operatorConfigConditions := c.getAuthConfig(ctx)
@@ -185,21 +150,6 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	foundConditions = append(foundConditions, oauthConfigConditions...)
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-
-	// TODO: Remove this as soon as we break the ordering of the main operator
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthCLIConfigProgressing",
-			Status: operatorv1.ConditionFalse,
-			Reason: "AsExpected",
-		})
-	} else {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "AuthCLIConfigProgressing",
-			Status: operatorv1.ConditionTrue,
-			Reason: fmt.Sprintf("%d degraded conditions found while working towards metadata", len(foundConditions)),
-		})
-	}
 
 	for _, conditionType := range knownConditionNames.List() {
 		// clean up existing foundConditions
@@ -215,12 +165,6 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 
 	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
 		return err
-	}
-
-	// retry faster when we got degraded condition
-	if v1helpers.IsOperatorConditionTrue(foundConditions, "AuthCLIConfigProgressing") {
-		// if len(foundConditions) > 0 {
-		return factory.SyntheticRequeueError
 	}
 
 	return nil
