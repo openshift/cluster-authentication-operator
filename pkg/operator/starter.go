@@ -76,9 +76,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}
 
 	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
+		"kube-system",
 		"openshift-authentication",
 		"openshift-config",
-		"kube-system",
+		"openshift-config-managed",
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
@@ -151,14 +152,6 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	if err := resourceSyncer.SyncSecret(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-router-certs"},
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "router-certs"},
-	); err != nil {
-		return err
-	}
-
-	// add syncing for the console-config ConfigMap (indirect watch for changes)
-	if err := resourceSyncer.SyncConfigMap(
-		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-console-config"},
-		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "console-config"},
 	); err != nil {
 		return err
 	}
