@@ -146,8 +146,11 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	operatorConfig, operatorConfigConditions := c.getAuthConfig(ctx)
 	foundConditions = append(foundConditions, operatorConfigConditions...)
 
-	oauthConfigConditions := c.handleOAuthConfig(operatorConfig, route, service, syncContext.Recorder())
-	foundConditions = append(foundConditions, oauthConfigConditions...)
+	// we need route and service to be not nil
+	if len(foundConditions) == 0 {
+		oauthConfigConditions := c.handleOAuthConfig(operatorConfig, route, service, syncContext.Recorder())
+		foundConditions = append(foundConditions, oauthConfigConditions...)
+	}
 
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
