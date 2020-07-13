@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -108,34 +107,13 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 
 	foundConditions = append(foundConditions, c.oauthClientsReady(ctx)...)
 
-	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-
 	// We achieved desired state
 	if len(foundConditions) == 0 {
 		c.setVersion("operator", operatorVersion)
 		c.setVersion("oauth-openshift", operandVersion)
 	}
 
-	for _, conditionType := range knownConditionNames.List() {
-		// clean up existing foundConditions
-		updatedCondition := operatorv1.OperatorCondition{
-			Type:   conditionType,
-			Status: operatorv1.ConditionFalse,
-		}
-		if strings.HasSuffix(conditionType, "Available") {
-			updatedCondition.Status = operatorv1.ConditionTrue
-		}
-		if condition := v1helpers.FindOperatorCondition(foundConditions, conditionType); condition != nil {
-			updatedCondition = *condition
-		}
-		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(updatedCondition))
-	}
-
-	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
-		return err
-	}
-
-	return nil
+	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func (c *targetVersionController) getRouteSecret() (*corev1.Secret, []operatorv1.OperatorCondition) {
