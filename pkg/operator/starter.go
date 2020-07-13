@@ -60,6 +60,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionprovider"
@@ -513,6 +514,9 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		[]string{
 			"oauth-apiserver/ns.yaml",
 			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+			"oauth-apiserver/authenticator-sa.yaml",
+			"oauth-apiserver/authenticator-clusterrole.yaml",
+			"oauth-apiserver/authenticator-clusterrolebinding.yaml",
 			"oauth-apiserver/svc.yaml",
 			"oauth-apiserver/sa.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
@@ -599,8 +603,20 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		controllerContext.EventRecorder,
 	)
 
+	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		operatorCtx.operatorConfigInformer,
+		operatorCtx.kubeClient.CoreV1(),
+		operatorCtx.kubeClient.CoreV1(),
+		operatorCtx.configClient.ConfigV1().Authentications(),
+		operatorCtx.operatorClient.Client,
+		operatorCtx.operatorClient,
+		eventRecorder,
+	)
+
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
 		configObserver.Run,
+		webhookAuthController.Run,
 		func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) },
 	)
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, apiregistrationInformers.Start, migrationInformer.Start)

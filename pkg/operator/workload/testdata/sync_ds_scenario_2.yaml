@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "610d34fa28656e6db6bf8c2d05af5bbf3295a977e5414d1196111e11c85d7c0d"
+    operator.openshift.io/spec-hash: "0155b7ef3a6af0aeb538a94741635e4b90c4b7ebdf1b90ee9baba16599c2813a"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -51,7 +51,8 @@ spec:
                 --shutdown-delay-duration=3s \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
-                --audit-policy-file=/var/run/configmaps/audit/default.yaml \
+                --api-audiences=https://kubernetes.default.svc \
+              --audit-policy-file=/var/run/configmaps/audit/default.yaml \
               --cors-allowed-origins='//127\.0\.0\.1(:|$)' \
               --cors-allowed-origins='//localhost(:|$)' \
               --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 \

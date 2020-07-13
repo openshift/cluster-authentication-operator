@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  name: system:openshift:tokenvalidator
+rules:
+- apiGroups:
+  - oauth.openshift.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
