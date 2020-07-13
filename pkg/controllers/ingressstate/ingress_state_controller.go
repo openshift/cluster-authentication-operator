@@ -12,6 +12,7 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -103,20 +104,7 @@ func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncC
 		degradedConditions = []operatorv1.OperatorCondition{*subsetCondition}
 	}
 
-	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-	for _, conditionName := range degradedConditionTypes.UnsortedList() {
-		// Ensure that missing degraded conditions are cleared
-		updatedCondition := operatorv1.OperatorCondition{
-			Type:   conditionName,
-			Status: operatorv1.ConditionFalse,
-		}
-		if condition := v1helpers.FindOperatorCondition(degradedConditions, conditionName); condition != nil {
-			updatedCondition = *condition
-		}
-		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(updatedCondition))
-	}
-	_, _, err = v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...)
-	return err
+	return common.UpdateControllerConditions(c.operatorClient, degradedConditionTypes, degradedConditions)
 }
 
 // unhealthyPodMessages returns a slice of messages intended to aid in the

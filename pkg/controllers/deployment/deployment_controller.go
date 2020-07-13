@@ -189,28 +189,7 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		}
 	}
 
-	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
-
-	for _, conditionType := range knownConditionNames.List() {
-		// clean up existing foundConditions
-		updatedCondition := operatorv1.OperatorCondition{
-			Type:   conditionType,
-			Status: operatorv1.ConditionFalse,
-		}
-		if strings.HasSuffix(conditionType, "Available") {
-			updatedCondition.Status = operatorv1.ConditionTrue
-		}
-		if condition := v1helpers.FindOperatorCondition(foundConditions, conditionType); condition != nil {
-			updatedCondition = *condition
-		}
-		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(updatedCondition))
-	}
-
-	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, updateConditionFuncs...); err != nil {
-		return err
-	}
-
-	return nil
+	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func (c *deploymentController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
