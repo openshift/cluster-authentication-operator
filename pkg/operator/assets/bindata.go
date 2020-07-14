@@ -3,6 +3,10 @@
 // bindata/oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml
 // bindata/oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml
 // bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
+// bindata/oauth-apiserver/authenticator-clusterrole.yaml
+// bindata/oauth-apiserver/authenticator-clusterrolebinding.yaml
+// bindata/oauth-apiserver/authenticator-kubeconfig.yaml
+// bindata/oauth-apiserver/authenticator-sa.yaml
 // bindata/oauth-apiserver/deploy.yaml
 // bindata/oauth-apiserver/ns.yaml
 // bindata/oauth-apiserver/sa.yaml
@@ -153,6 +157,121 @@ func oauthApiserverApiserverClusterrolebindingYaml() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "oauth-apiserver/apiserver-clusterrolebinding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverAuthenticatorClusterroleYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  name: system:openshift:tokenvalidator
+rules:
+- apiGroups:
+  - oauth.openshift.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+`)
+
+func oauthApiserverAuthenticatorClusterroleYamlBytes() ([]byte, error) {
+	return _oauthApiserverAuthenticatorClusterroleYaml, nil
+}
+
+func oauthApiserverAuthenticatorClusterroleYaml() (*asset, error) {
+	bytes, err := oauthApiserverAuthenticatorClusterroleYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/authenticator-clusterrole.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverAuthenticatorClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:openshift:tokenvalidator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:tokenvalidator
+subjects:
+- kind: ServiceAccount
+  namespace: openshift-oauth-apiserver
+  name: openshift-authenticator
+`)
+
+func oauthApiserverAuthenticatorClusterrolebindingYamlBytes() ([]byte, error) {
+	return _oauthApiserverAuthenticatorClusterrolebindingYaml, nil
+}
+
+func oauthApiserverAuthenticatorClusterrolebindingYaml() (*asset, error) {
+	bytes, err := oauthApiserverAuthenticatorClusterrolebindingYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/authenticator-clusterrolebinding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverAuthenticatorKubeconfigYaml = []byte(`apiVersion: v1
+clusters:
+- name: local-cluster
+  cluster:
+    certificate-authority-data: ${CA_DATA}
+    server: https://${APISERVER_IP}/apis/oauth.openshift.io/v1/tokenreviews
+    tls-server-name: api.openshift-oauth-apiserver.svc
+contexts:
+- name: local-context
+  context:
+    cluster: local-cluster
+    user: openshift-authenticator
+current-context: local-context
+kind: Config
+users:
+- name: openshift-authenticator
+  user:
+    token: ${AUTHENTICATOR_TOKEN}`)
+
+func oauthApiserverAuthenticatorKubeconfigYamlBytes() ([]byte, error) {
+	return _oauthApiserverAuthenticatorKubeconfigYaml, nil
+}
+
+func oauthApiserverAuthenticatorKubeconfigYaml() (*asset, error) {
+	bytes, err := oauthApiserverAuthenticatorKubeconfigYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/authenticator-kubeconfig.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverAuthenticatorSaYaml = []byte(`apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: openshift-authenticator
+`)
+
+func oauthApiserverAuthenticatorSaYamlBytes() ([]byte, error) {
+	return _oauthApiserverAuthenticatorSaYaml, nil
+}
+
+func oauthApiserverAuthenticatorSaYaml() (*asset, error) {
+	bytes, err := oauthApiserverAuthenticatorSaYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/authenticator-sa.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -812,6 +931,10 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml":     oauthApiserverRbacUseroauthaccesstokens_bindingYaml,
 	"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml": oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml,
 	"oauth-apiserver/apiserver-clusterrolebinding.yaml":           oauthApiserverApiserverClusterrolebindingYaml,
+	"oauth-apiserver/authenticator-clusterrole.yaml":              oauthApiserverAuthenticatorClusterroleYaml,
+	"oauth-apiserver/authenticator-clusterrolebinding.yaml":       oauthApiserverAuthenticatorClusterrolebindingYaml,
+	"oauth-apiserver/authenticator-kubeconfig.yaml":               oauthApiserverAuthenticatorKubeconfigYaml,
+	"oauth-apiserver/authenticator-sa.yaml":                       oauthApiserverAuthenticatorSaYaml,
 	"oauth-apiserver/deploy.yaml":                                 oauthApiserverDeployYaml,
 	"oauth-apiserver/ns.yaml":                                     oauthApiserverNsYaml,
 	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
@@ -871,11 +994,15 @@ var _bintree = &bintree{nil, map[string]*bintree{
 			"useroauthaccesstokens_binding.yaml":     {oauthApiserverRbacUseroauthaccesstokens_bindingYaml, map[string]*bintree{}},
 			"useroauthaccesstokens_clusterrole.yaml": {oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml, map[string]*bintree{}},
 		}},
-		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
-		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
-		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
-		"sa.yaml":                           {oauthApiserverSaYaml, map[string]*bintree{}},
-		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
+		"apiserver-clusterrolebinding.yaml":     {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
+		"authenticator-clusterrole.yaml":        {oauthApiserverAuthenticatorClusterroleYaml, map[string]*bintree{}},
+		"authenticator-clusterrolebinding.yaml": {oauthApiserverAuthenticatorClusterrolebindingYaml, map[string]*bintree{}},
+		"authenticator-kubeconfig.yaml":         {oauthApiserverAuthenticatorKubeconfigYaml, map[string]*bintree{}},
+		"authenticator-sa.yaml":                 {oauthApiserverAuthenticatorSaYaml, map[string]*bintree{}},
+		"deploy.yaml":                           {oauthApiserverDeployYaml, map[string]*bintree{}},
+		"ns.yaml":                               {oauthApiserverNsYaml, map[string]*bintree{}},
+		"sa.yaml":                               {oauthApiserverSaYaml, map[string]*bintree{}},
+		"svc.yaml":                              {oauthApiserverSvcYaml, map[string]*bintree{}},
 	}},
 	"oauth-openshift": {nil, map[string]*bintree{
 		"authentication-clusterrolebinding.yaml": {oauthOpenshiftAuthenticationClusterrolebindingYaml, map[string]*bintree{}},
