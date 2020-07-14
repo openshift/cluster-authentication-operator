@@ -7,7 +7,7 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorlistersv1 "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator2/apiservices"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/apiservices"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
