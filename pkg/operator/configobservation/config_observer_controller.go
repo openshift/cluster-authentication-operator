@@ -8,6 +8,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	encryptobserver "github.com/openshift/library-go/pkg/operator/encryption/observer"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -34,6 +35,9 @@ func NewConfigObserverController(
 		// for etcd observer
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer().HasSynced,
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().ConfigMaps().Informer().HasSynced,
+
+		// for encryption-config observer
+		kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -45,6 +49,9 @@ func NewConfigObserverController(
 		// for etcd observer
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer(),
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().ConfigMaps().Informer(),
+
+		// for encryption-config observer
+		kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer(),
 	}
 
 	observers := []configobserver.ObserveConfigFunc{}
@@ -52,6 +59,7 @@ func NewConfigObserverController(
 		apiserver.ObserveAdditionalCORSAllowedOriginsToArguments,
 		apiserver.ObserveTLSSecurityProfileToArguments,
 		libgoetcd.ObserveStorageURLsToArguments,
+		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
 	} {
 		observers = append(observers,
 			configobserver.WithPrefix(o, OAuthAPIServerConfigPrefix))

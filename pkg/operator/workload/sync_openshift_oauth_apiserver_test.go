@@ -20,18 +20,41 @@ import (
 )
 
 var codec = scheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
-var customAPIServerArgsYAML = `
-  oauthAPIServer:
-    apiServerArguments:
-      tls-cipher-suites:
-      - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-      - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-      - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-      - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-      - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
-      - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
-      tls-min-version:
-      - VersionTLS12`
+
+var customAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "cors-allowed-origins": [
+        "//127\\.0\\.0\\.1(:|$)",
+        "//localhost(:|$)"
+      ],
+      "tls-cipher-suites": [
+        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+      ],
+      "tls-min-version": "VersionTLS12"
+    }
+  }
+}
+`
+
+var unsupportedConfigOverridesAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "tls-cipher-suites": [
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+      ],
+      "tls-min-version": "VersionTLS13"
+    }
+  }
+}
+`
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
@@ -56,7 +79,20 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			goldenFile: "./testdata/sync_ds_scenario_2.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
-					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsYAML)},
+					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+				}},
+			},
+			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+		},
+
+		// scenario 3
+		{
+			name:       "a deployment with custom flags (for oauthapi server) is created with UnsupportedConfigOverrides",
+			goldenFile: "./testdata/sync_ds_scenario_3.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
 				}},
 			},
 			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
@@ -70,7 +106,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
-				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec) error { return nil },
+				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				eventRecorder:             eventRecorder,
 				kubeClient:                fakeKubeClient,
 			}

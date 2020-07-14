@@ -1,5 +1,11 @@
 // Code generated for package assets by go-bindata DO NOT EDIT. (@generated)
 // sources:
+// bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
+// bindata/oauth-apiserver/cm.yaml
+// bindata/oauth-apiserver/deploy.yaml
+// bindata/oauth-apiserver/ns.yaml
+// bindata/oauth-apiserver/sa.yaml
+// bindata/oauth-apiserver/svc.yaml
 // bindata/oauth-openshift/authentication-clusterrolebinding.yaml
 // bindata/oauth-openshift/branding-secret.yaml
 // bindata/oauth-openshift/cabundle.yaml
@@ -58,6 +64,345 @@ func (fi bindataFileInfo) IsDir() bool {
 // Sys return file is sys mode
 func (fi bindataFileInfo) Sys() interface{} {
 	return nil
+}
+
+var _oauthApiserverApiserverClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:openshift:oauth-apiserver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  namespace: openshift-oauth-apiserver
+  name: oauth-apiserver-sa`)
+
+func oauthApiserverApiserverClusterrolebindingYamlBytes() ([]byte, error) {
+	return _oauthApiserverApiserverClusterrolebindingYaml, nil
+}
+
+func oauthApiserverApiserverClusterrolebindingYaml() (*asset, error) {
+	bytes, err := oauthApiserverApiserverClusterrolebindingYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/apiserver-clusterrolebinding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverCmYaml = []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: config
+data:
+  audit-policy.yaml: |
+    apiVersion: audit.k8s.io/v1beta1
+    kind: Policy
+    # Don't generate audit events for all requests in RequestReceived stage.
+    omitStages:
+    - "RequestReceived"
+    rules:
+    # Don't log requests for events
+    - level: None
+      resources:
+      - group: ""
+        resources: ["events"]
+    # Don't log oauth tokens as metadata.name is the secret
+    - level: None
+      resources:
+      - group: "oauth.openshift.io"
+        resources: ["oauthaccesstokens", "oauthauthorizetokens"]
+    # Don't log authenticated requests to certain non-resource URL paths.
+    - level: None
+      userGroups: ["system:authenticated", "system:unauthenticated"]
+      nonResourceURLs:
+      - "/api*" # Wildcard matching.
+      - "/version"
+      - "/healthz"
+    # Log the full Identity API resource object so that the audit trail
+    # allows us to match the username with the IDP identity.
+    - level: RequestResponse
+      verbs: ["create", "update", "patch"]
+      resources:
+      - group: "user.openshift.io"
+        resources: ["identities"]
+    # A catch-all rule to log all other requests at the Metadata level.
+    - level: Metadata
+      # Long-running requests like watches that fall under this rule will not
+      # generate an audit event in RequestReceived.
+      omitStages:
+      - "RequestReceived"
+`)
+
+func oauthApiserverCmYamlBytes() ([]byte, error) {
+	return _oauthApiserverCmYaml, nil
+}
+
+func oauthApiserverCmYaml() (*asset, error) {
+	bytes, err := oauthApiserverCmYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/cm.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverDeployYaml = []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: apiserver
+  labels:
+    app: openshift-oauth-apiserver
+    apiserver: "true"
+# The number of replicas will be set in code to the number of master nodes.
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # To ensure that only one pod at a time writes to the node's
+      # audit log, require the update strategy to proceed a node at a
+      # time. Only when a master node has its existing
+      # oauth-apiserver pod stopped will a new one be allowed to
+      # start.
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: openshift-oauth-apiserver
+      apiserver: "true"
+  template:
+    metadata:
+      name: openshift-oauth-apiserver
+      labels:
+        app: openshift-oauth-apiserver
+        apiserver: "true"
+    spec:
+      serviceAccountName: oauth-apiserver-sa
+      priorityClassName: system-node-critical
+      initContainers:
+        - name: fix-audit-permissions
+          terminationMessagePolicy: FallbackToLogsOnError
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver']
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /var/log/oauth-apiserver
+              name: audit-dir
+      containers:
+      - name: oauth-apiserver
+        terminationMessagePolicy: FallbackToLogsOnError
+        image: ${IMAGE}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-ec"]
+        args:
+          - |
+            if [ -s /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem ]; then
+              echo "Copying system trust bundle"
+              cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+            fi
+            exec oauth-apiserver start \
+              --secure-port=8443 \
+              --audit-log-path=/var/log/oauth-apiserver/audit.log \
+              --audit-log-format=json \
+              --audit-log-maxsize=100 \
+              --audit-log-maxbackup=10 \
+              --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
+              --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
+              --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
+              --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
+              --shutdown-delay-duration=3s \
+              --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
+              --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+              ${FLAGS}
+        resources:
+          requests:
+            memory: 200Mi
+            cpu: 150m
+        # we need to set this to privileged to be able to write audit to /var/log/oauth-apiserver
+        securityContext:
+          privileged: true
+        ports:
+        - containerPort: 8443
+        volumeMounts:
+        - mountPath: /var/run/configmaps/config
+          name: config
+        - mountPath: /var/run/secrets/etcd-client
+          name: etcd-client
+        - mountPath: /var/run/configmaps/etcd-serving-ca
+          name: etcd-serving-ca
+        - mountPath: /var/run/configmaps/trusted-ca-bundle
+          name: trusted-ca-bundle
+        - mountPath: /var/run/secrets/serving-cert
+          name: serving-cert
+        - mountPath: /var/run/secrets/encryption-config
+          name: encryption-config
+        - mountPath: /var/log/oauth-apiserver
+          name: audit-dir
+        livenessProbe:
+          initialDelaySeconds: 30
+          httpGet:
+            scheme: HTTPS
+            port: 8443
+            path: healthz
+        readinessProbe:
+          failureThreshold: 10
+          httpGet:
+            scheme: HTTPS
+            port: 8443
+            path: readyz
+      terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
+      volumes:
+      - name: config
+        configMap:
+          name: config
+      - name: etcd-client
+        secret:
+          secretName: etcd-client
+      - name: etcd-serving-ca
+        configMap:
+          name: etcd-serving-ca
+      - name: serving-cert
+        secret:
+          secretName: serving-cert
+      - name: trusted-ca-bundle
+        configMap:
+          name: trusted-ca-bundle
+          optional: true
+          items:
+          - key: ca-bundle.crt
+            path: tls-ca-bundle.pem
+      - name: encryption-config
+        secret:
+          secretName: encryption-config-${REVISION}
+          optional: true
+      - hostPath:
+          path: /var/log/oauth-apiserver
+        name: audit-dir
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+        # Ensure pod can be scheduled on master nodes
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+          # Ensure pod can be evicted if the node is unreachable
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+          # Ensure scheduling is delayed until node readiness
+          # (i.e. network operator configures CNI on the node)
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 120
+      # Anti-affinity is configured in code due to the need to scope
+      # selection to the computed pod template.
+`)
+
+func oauthApiserverDeployYamlBytes() ([]byte, error) {
+	return _oauthApiserverDeployYaml, nil
+}
+
+func oauthApiserverDeployYaml() (*asset, error) {
+	bytes, err := oauthApiserverDeployYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/deploy.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverNsYaml = []byte(`apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    openshift.io/node-selector: ""
+  name: openshift-oauth-apiserver
+  labels:
+    openshift.io/cluster-monitoring: "true"
+`)
+
+func oauthApiserverNsYamlBytes() ([]byte, error) {
+	return _oauthApiserverNsYaml, nil
+}
+
+func oauthApiserverNsYaml() (*asset, error) {
+	bytes, err := oauthApiserverNsYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/ns.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverSaYaml = []byte(`apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: oauth-apiserver-sa
+`)
+
+func oauthApiserverSaYamlBytes() ([]byte, error) {
+	return _oauthApiserverSaYaml, nil
+}
+
+func oauthApiserverSaYaml() (*asset, error) {
+	bytes, err := oauthApiserverSaYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/sa.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverSvcYaml = []byte(`apiVersion: v1
+kind: Service
+metadata:
+  namespace: openshift-oauth-apiserver
+  name: api
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: serving-cert
+    prometheus.io/scrape: "true"
+    prometheus.io/scheme: https
+spec:
+  selector:
+    apiserver: "true"
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+`)
+
+func oauthApiserverSvcYamlBytes() ([]byte, error) {
+	return _oauthApiserverSvcYaml, nil
+}
+
+func oauthApiserverSvcYaml() (*asset, error) {
+	bytes, err := oauthApiserverSvcYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/svc.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
 }
 
 var _oauthOpenshiftAuthenticationClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
@@ -458,6 +803,12 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
+	"oauth-apiserver/apiserver-clusterrolebinding.yaml":      oauthApiserverApiserverClusterrolebindingYaml,
+	"oauth-apiserver/cm.yaml":                                oauthApiserverCmYaml,
+	"oauth-apiserver/deploy.yaml":                            oauthApiserverDeployYaml,
+	"oauth-apiserver/ns.yaml":                                oauthApiserverNsYaml,
+	"oauth-apiserver/sa.yaml":                                oauthApiserverSaYaml,
+	"oauth-apiserver/svc.yaml":                               oauthApiserverSvcYaml,
 	"oauth-openshift/authentication-clusterrolebinding.yaml": oauthOpenshiftAuthenticationClusterrolebindingYaml,
 	"oauth-openshift/branding-secret.yaml":                   oauthOpenshiftBrandingSecretYaml,
 	"oauth-openshift/cabundle.yaml":                          oauthOpenshiftCabundleYaml,
@@ -508,6 +859,14 @@ type bintree struct {
 }
 
 var _bintree = &bintree{nil, map[string]*bintree{
+	"oauth-apiserver": {nil, map[string]*bintree{
+		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
+		"cm.yaml":                           {oauthApiserverCmYaml, map[string]*bintree{}},
+		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
+		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
+		"sa.yaml":                           {oauthApiserverSaYaml, map[string]*bintree{}},
+		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
+	}},
 	"oauth-openshift": {nil, map[string]*bintree{
 		"authentication-clusterrolebinding.yaml": {oauthOpenshiftAuthenticationClusterrolebindingYaml, map[string]*bintree{}},
 		"branding-secret.yaml":                   {oauthOpenshiftBrandingSecretYaml, map[string]*bintree{}},

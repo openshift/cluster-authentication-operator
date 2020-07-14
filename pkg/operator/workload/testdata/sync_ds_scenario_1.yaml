@@ -3,9 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    openshiftapiservers.operator.openshift.io/pull-spec: ""
-    openshiftapiservers.operator.openshift.io/replicas: "1"
-    operator.openshift.io/pull-spec: ""
+    operator.openshift.io/spec-hash: "92610407b698257e2c982a8d7f52c0973867dcf0d773224963f45ad30655cfec"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -19,7 +17,11 @@ spec:
     matchLabels:
       apiserver: "true"
       app: openshift-oauth-apiserver
-  strategy: {}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       creationTimestamp: ~
@@ -44,7 +46,6 @@ spec:
                 --audit-log-maxsize=100 \
                 --audit-log-maxbackup=10 \
                 --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
-                --etcd-servers=https://etcd.openshift-etcd.svc:2379 \
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \

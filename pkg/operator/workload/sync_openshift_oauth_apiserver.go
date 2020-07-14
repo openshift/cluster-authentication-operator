@@ -3,6 +3,7 @@ package workload
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -11,27 +12,38 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/apiserver-library-go/pkg/configflags"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
+	oauthapiconfigobserver "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
+	"k8s.io/klog"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 )
+
+// shellEscapePattern determines if a string should be enclosed in single quotes
+// so that it can safely be passed to shell command line.
+var shellEscapePattern *regexp.Regexp
+
+func init() {
+	shellEscapePattern = regexp.MustCompile(`[^\w@%+=:,./-]`)
+}
 
 // nodeCountFunction a function to return count of nodes
 type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
 
 // ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
 // one pod of a given replicaset from landing on a node.
-type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec) error
+type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
 
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
@@ -76,17 +88,20 @@ func NewOAuthAPIServerWorkload(
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
 func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
-	// TODO: block until config is obvserved when required
-	/*if operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec); err != nil {
-		errs = append(errs, err)
-		return nil, errs
-	} else {
-		if len(operatorCfg.APIServerArguments) == 0 {
-			klog.Info("Waiting for observed configuration to be available")
-			errs = append(errs, errors.New("waiting for observed configuration to be available (spec.ObservedConfig.Raw)"))
-			return nil, errs
-		}
-	}*/
+	authOperator, err := c.operatorClient.Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
+	if err != nil {
+		return false, err
+	}
+
+	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
+	if err != nil {
+		return false, err
+	}
+
+	if len(operatorCfg.APIServerArguments) == 0 {
+		klog.Info("Waiting for observed configuration to be available")
+		return false, errors.New("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
+	}
 	return true, nil
 }
 
@@ -159,7 +174,6 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 	if required.Annotations == nil {
 		required.Annotations = map[string]string{}
 	}
-	required.Annotations["openshiftapiservers.operator.openshift.io/pull-spec"] = c.targetImagePullSpec
 	required.Annotations["openshiftapiservers.operator.openshift.io/operator-pull-spec"] = c.operatorImagePullSpec
 
 	required.Labels["revision"] = strconv.Itoa(int(authOperator.Status.OAuthAPIServer.LatestAvailableRevision))
@@ -186,7 +200,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 		required.Spec.Template.Annotations[annotationKey] = v
 	}
 
-	err = c.ensureAtMostOnePodPerNode(&required.Spec)
+	err = c.ensureAtMostOnePodPerNode(&required.Spec, "oauth-apiserver")
 	if err != nil {
 		return nil, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
 	}
@@ -197,13 +211,8 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
 	}
 	required.Spec.Replicas = masterNodeCount
-	// Set the replica count as an annotation to ensure that ApplyDeployment
-	// will update the deployment in the API when the replica count
-	// changes. Updates are otherwise skipped if the metadata matches and the
-	// generation is up-to-date.
-	required.Annotations["openshiftapiservers.operator.openshift.io/replicas"] = fmt.Sprintf("%d", *masterNodeCount)
 
-	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), c.eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus), false)
+	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), c.eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
 	return deployment, err
 }
 
@@ -213,38 +222,14 @@ type oAuthAPIServerConfig struct {
 	APIServerArguments map[string][]string `json:"apiServerArguments"`
 }
 
-// unstructuredConfigFrom extract raw config for this controller
-func unstructuredConfigFrom(rawCfg []byte) ([]byte, error) {
-	configJSON, err := kyaml.ToJSON(rawCfg)
-	if err != nil {
-		return nil, err
-	}
-	configMap := map[string]interface{}{}
-	if err := json.Unmarshal(configJSON, &configMap); err != nil {
-		return nil, err
-	}
-
-	oauthAPIServerCfg, ok := configMap["oauthAPIServer"]
-	if !ok {
-		return nil, nil
-	}
-
-	oauthAPIServerRaw, err := json.Marshal(oauthAPIServerCfg)
-	if err != nil {
-		return nil, err
-	}
-	return oauthAPIServerRaw, nil
-}
-
-// getStructuredConfig reads and merges configs for this controller from ObservedConfig.Raw and UnsupportedConfigOverrides.Raw,
 // merged config is then encoded into oAuthAPIServerConfig struct
 func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
-	unstructuredCfg, err := unstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw)
+	unstructuredCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw, oauthapiconfigobserver.OAuthAPIServerConfigPrefix)
 	if err != nil {
 		return nil, err
 	}
 
-	unstructuredUnsupportedCfg, err := unstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw)
+	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw, oauthapiconfigobserver.OAuthAPIServerConfigPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -258,13 +243,37 @@ func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPISer
 		return nil, err
 	}
 
-	cfg := &oAuthAPIServerConfig{}
-	if err := json.Unmarshal(unstructuredMergedCfg, cfg); err != nil {
+	type unstructuredOAuthAPIServerConfig struct {
+		APIServerArguments map[string]interface{} `json:"apiServerArguments"`
+	}
+
+	cfgUnstructured := &unstructuredOAuthAPIServerConfig{}
+	if err := json.Unmarshal(unstructuredMergedCfg, cfgUnstructured); err != nil {
 		return nil, err
 	}
 
-	if cfg.APIServerArguments == nil {
-		cfg.APIServerArguments = map[string][]string{}
+	cfg := &oAuthAPIServerConfig{}
+	cfg.APIServerArguments = map[string][]string{}
+	for argName, argRawValue := range cfgUnstructured.APIServerArguments {
+		var argsSlice []string
+		var found bool
+		var err error
+
+		argsSlice, found, err = unstructured.NestedStringSlice(cfgUnstructured.APIServerArguments, argName)
+		if !found || err != nil {
+			str, found, err := unstructured.NestedString(cfgUnstructured.APIServerArguments, argName)
+			if !found || err != nil {
+				return nil, fmt.Errorf("unable to create OAuthConfig, incorrect value %v under %v key, expected []string or string", argRawValue, argName)
+			}
+			argsSlice = append(argsSlice, str)
+		}
+
+		escapedArgsSlice := make([]string, len(argsSlice))
+		for index, str := range argsSlice {
+			escapedArgsSlice[index] = maybeQuote(str)
+		}
+
+		cfg.APIServerArguments[argName] = escapedArgsSlice
 	}
 
 	return cfg, nil
@@ -283,4 +292,19 @@ func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	default:
 		return "2"
 	}
+}
+
+// maybeQuote returns a shell-escaped version of the string s. The returned value
+// is a string that can safely be used as one token in a shell command line.
+//
+// note: this method was copied from https://github.com/alessio/shellescape/blob/0d13ae33b78a20a5d91c54ca7e216e1b75aaedef/shellescape.go#L30
+func maybeQuote(s string) string {
+	if len(s) == 0 {
+		return "''"
+	}
+	if shellEscapePattern.MatchString(s) {
+		return "'" + strings.Replace(s, "'", "'\"'\"'", -1) + "'"
+	}
+
+	return s
 }

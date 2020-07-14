@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "89af1eadb7c7abd6de4a19ae8fbcfd82b850710b7a1a919c5927cf6115e1d24d"
+    operator.openshift.io/spec-hash: "57ad455b8056a78229c11874a290d551bba9f9a7185e47c14b9fd18b00780854"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -54,13 +54,8 @@ spec:
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
                 --cors-allowed-origins='//127\.0\.0\.1(:|$)' \
               --cors-allowed-origins='//localhost(:|$)' \
-              --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 \
-              --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
-              --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 \
-              --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 \
-              --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305 \
               --tls-cipher-suites=TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 \
-              --tls-min-version=VersionTLS12 \
+              --tls-min-version=VersionTLS13 \
               --v=2
           command:
             - /bin/bash

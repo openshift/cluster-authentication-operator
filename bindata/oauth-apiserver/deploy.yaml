@@ -8,6 +8,16 @@ metadata:
     apiserver: "true"
 # The number of replicas will be set in code to the number of master nodes.
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # To ensure that only one pod at a time writes to the node's
+      # audit log, require the update strategy to proceed a node at a
+      # time. Only when a master node has its existing
+      # oauth-apiserver pod stopped will a new one be allowed to
+      # start.
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
@@ -51,7 +61,6 @@ spec:
               --audit-log-maxsize=100 \
               --audit-log-maxbackup=10 \
               --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
-              --etcd-servers=https://etcd.openshift-etcd.svc:2379 \
               --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
@@ -59,8 +68,6 @@ spec:
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
-          # TODO: enable encryption support
-          # --encryption-provider-config=/var/run/secrets/encryption-config
         resources:
           requests:
             memory: 200Mi

@@ -18,6 +18,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
@@ -98,7 +99,7 @@ func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyCo
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
 	var configDeserialized map[string]interface{}
-	oauthServerObservedConfig, err := grabPrefixedConfig(operatorConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Raw, configobservation.OAuthServerConfigPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
 	}
