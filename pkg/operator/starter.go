@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
@@ -279,6 +280,24 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
+		operatorClient,
+		routeInformersNamespaced.Route().V1().Routes(),
+		controllerContext.EventRecorder,
+	)
+
+	authServiceCheckController := endpointaccessible.NewOAuthServiceCheckController(
+		operatorClient,
+		kubeInformersNamespaced.InformersFor("openshift-authentication").Core().V1(),
+		controllerContext.EventRecorder,
+	)
+
+	authServiceEndpointCheckController := endpointaccessible.NewOAuthServiceEndpointsCheckController(
+		operatorClient,
+		kubeInformersNamespaced.InformersFor("openshift-authentication").Core().V1(),
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -314,6 +333,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		payloadConfigController,
 		deploymentController,
 		targetVersionController,
+		authRouteCheckController,
+		authServiceCheckController,
+		authServiceEndpointCheckController,
 	} {
 		go controller.Run(ctx, 1)
 	}
