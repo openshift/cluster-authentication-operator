@@ -29,6 +29,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/apiservices"
 	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
@@ -74,7 +75,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
+	authOperatorInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
 		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
 
@@ -95,7 +96,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	)
 
 	operatorClient := &OperatorClient{
-		authOperatorConfigInformers,
+		authOperatorInformers,
 		authOperatorClient.OperatorV1(),
 	}
 
@@ -226,6 +227,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	unmanageOAuthAPIController := apiservices.NewUnmanageAPIServicesController(
+		"UnmanageOAuthAPIController",
+		authOperatorClient.OperatorV1(),
+		authOperatorInformers,
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -234,7 +242,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
-		authOperatorConfigInformers,
+		authOperatorInformers,
 		routeInformersNamespaced,
 		configInformers,
 		resourceSyncerInformers,
@@ -251,6 +259,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		configOverridesController,
 		logLevelController,
 		managementStateController,
+		unmanageOAuthAPIController,
 		routerCertsController,
 		staleConditions,
 		staticResourceController,
