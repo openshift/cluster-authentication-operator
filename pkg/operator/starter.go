@@ -51,10 +51,10 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
@@ -374,19 +374,19 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
 
-	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
+	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
 		routeInformersNamespaced.Route().V1().Routes(),
 		controllerContext.EventRecorder,
 	)
 
-	authServiceCheckController := endpointaccessible.NewOAuthServiceCheckController(
+	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,
 	)
 
-	authServiceEndpointCheckController := endpointaccessible.NewOAuthServiceEndpointsCheckController(
+	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,

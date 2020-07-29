@@ -1,4 +1,4 @@
-package endpointaccessible
+package oauthendpoints
 
 import (
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/libs/endpointaccessible"
 
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -27,7 +29,7 @@ func NewOAuthRouteCheckController(
 		return listOAuthRoutes(routeLister, recorder)
 	}
 
-	return NewEndpointAccessibleController(
+	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthRouteCheck",
 		operatorClient, endpointListFunc, []factory.Informer{routeInformer}, recorder)
 }
@@ -44,7 +46,7 @@ func NewOAuthServiceCheckController(
 		return listOAuthServices(serviceLister, recorder)
 	}
 
-	return NewEndpointAccessibleController(
+	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServiceCheck",
 		operatorClient, endpointsListFunc, []factory.Informer{serviceInformer}, recorder)
 }
@@ -63,7 +65,7 @@ func NewOAuthServiceEndpointsCheckController(
 		return listOAuthServiceEndpoints(endpointsLister, recorder)
 	}
 
-	return NewEndpointAccessibleController(
+	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServiceEndpointsCheck",
 		operatorClient, endpointsListFn, []factory.Informer{endpointsInformer}, recorder)
 }
@@ -121,4 +123,12 @@ func listOAuthRoutes(routeLister routev1listers.RouteLister, recorder events.Rec
 		return nil, fmt.Errorf("route status does not have host address")
 	}
 	return toHealthzURL(results), nil
+}
+
+func toHealthzURL(urls []string) []string {
+	var res []string
+	for _, url := range urls {
+		res = append(res, "https://"+url+"/healthz")
+	}
+	return res
 }

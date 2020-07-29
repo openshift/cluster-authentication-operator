@@ -9,7 +9,6 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -129,12 +128,4 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	}
 
 	return utilerrors.NewAggregate(errors)
-}
-
-func toHealthzURL(urls []string) []string {
-	var res []string
-	for _, url := range urls {
-		res = append(res, "https://"+url+"/healthz")
-	}
-	return res
 }
