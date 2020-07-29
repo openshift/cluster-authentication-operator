@@ -1,15 +1,14 @@
 package apiservices_test
 
 import (
+	"testing"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/diff"
-	"testing"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorlistersv1 "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/apiservices"
-	"github.com/openshift/library-go/pkg/operator/events"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
@@ -47,7 +46,6 @@ func TestGetAPIServicesToManage(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			// set up
-			eventRecorder := events.NewInMemoryRecorder("")
 			fakeAuthOperatorIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			{
 				authOperator := &operatorv1.Authentication{
@@ -64,7 +62,7 @@ func TestGetAPIServicesToManage(t *testing.T) {
 			}
 
 			// act
-			target := apiservices.NewAPIServicesToManage(operatorlistersv1.NewAuthenticationLister(fakeAuthOperatorIndexer), scenario.apiServicesToMange, eventRecorder)
+			target := apiservices.NewAPIServicesToManage(operatorlistersv1.NewAuthenticationLister(fakeAuthOperatorIndexer), scenario.apiServicesToMange)
 			actualAPIServicesToMange, err := target.GetAPIServicesToManage()
 			if err != nil {
 				t.Fatal(err)
