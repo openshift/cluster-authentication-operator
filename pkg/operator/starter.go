@@ -50,9 +50,9 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
@@ -354,19 +354,19 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
-	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
+	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
 		routeInformersNamespaced.Route().V1().Routes(),
 		controllerContext.EventRecorder,
 	)
 
-	authServiceCheckController := endpointaccessible.NewOAuthServiceCheckController(
+	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,
 	)
 
-	authServiceEndpointCheckController := endpointaccessible.NewOAuthServiceEndpointsCheckController(
+	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,
