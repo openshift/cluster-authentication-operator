@@ -237,23 +237,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
-			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
-			"Degraded",
-
-			// As of 4.4, this will appear as a configObserver error
-			"FailedRouterSecret",
-
-			// As of 4.6, this will appear as a configObserver error
-			"IdentityProviderConfigDegraded",
-
-			"WellKnownEndpointDegraded",
-			"WellKnownRouteDegraded",
-			"WellKnownAuthConfigDegraded",
-			"WellKnownProgressing",
-			"OperatorSyncDegraded",
-			"RouteHealthDegraded",
-			"RouteStatusDegraded",
-			"OAuthServerAvailable",
+			"OAuthVersionIngressConfigDegraded",
+			"OAuthVersionRouteDegraded",
+			"OAuthVersionRouteProgressing",
+			"OAuthVersionRouteAvailable",
+			"OAuthVersionRouteSecretDegraded",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
@@ -351,19 +339,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
-	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
-	if err != nil {
-		// this may fail route-health checks in proxy environments
-		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
-	}
 	targetVersionController := targetversion.NewTargetVersionController(
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced.Route().V1().Routes(),
 		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.operatorClient,
 		operatorCtx.versionRecorder,
-		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 
@@ -373,6 +353,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
+	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		// this may fail route-health checks in proxy environments
+		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+	}
 
 	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
