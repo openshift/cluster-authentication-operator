@@ -46,6 +46,7 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
@@ -343,6 +344,24 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
+	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
+		operatorCtx.operatorClient,
+		routeInformersNamespaced.Route().V1().Routes(),
+		controllerContext.EventRecorder,
+	)
+
+	authServiceCheckController := endpointaccessible.NewOAuthServiceCheckController(
+		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		controllerContext.EventRecorder,
+	)
+
+	authServiceEndpointCheckController := endpointaccessible.NewOAuthServiceEndpointsCheckController(
+		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -365,6 +384,9 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		staticResourceController.Run,
 		targetVersionController.Run,
 		wellKnownReadyController.Run,
+		authRouteCheckController.Run,
+		authServiceCheckController.Run,
+		authServiceEndpointCheckController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)
