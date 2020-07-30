@@ -182,7 +182,6 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
 	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
 		c.kubeClient,
-		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("config"),
 		resourcehash.NewObjectRef().ForSecret().InNamespace(c.targetNamespace).Named("etcd-client"),
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("etcd-serving-ca"),
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("trusted-ca-bundle"),

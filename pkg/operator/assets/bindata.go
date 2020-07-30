@@ -1,7 +1,6 @@
 // Code generated for package assets by go-bindata DO NOT EDIT. (@generated)
 // sources:
 // bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
-// bindata/oauth-apiserver/cm.yaml
 // bindata/oauth-apiserver/deploy.yaml
 // bindata/oauth-apiserver/ns.yaml
 // bindata/oauth-apiserver/sa.yaml
@@ -94,66 +93,6 @@ func oauthApiserverApiserverClusterrolebindingYaml() (*asset, error) {
 	return a, nil
 }
 
-var _oauthApiserverCmYaml = []byte(`apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: openshift-oauth-apiserver
-  name: config
-data:
-  audit-policy.yaml: |
-    apiVersion: audit.k8s.io/v1beta1
-    kind: Policy
-    # Don't generate audit events for all requests in RequestReceived stage.
-    omitStages:
-    - "RequestReceived"
-    rules:
-    # Don't log requests for events
-    - level: None
-      resources:
-      - group: ""
-        resources: ["events"]
-    # Don't log oauth tokens as metadata.name is the secret
-    - level: None
-      resources:
-      - group: "oauth.openshift.io"
-        resources: ["oauthaccesstokens", "oauthauthorizetokens"]
-    # Don't log authenticated requests to certain non-resource URL paths.
-    - level: None
-      userGroups: ["system:authenticated", "system:unauthenticated"]
-      nonResourceURLs:
-      - "/api*" # Wildcard matching.
-      - "/version"
-      - "/healthz"
-    # Log the full Identity API resource object so that the audit trail
-    # allows us to match the username with the IDP identity.
-    - level: RequestResponse
-      verbs: ["create", "update", "patch"]
-      resources:
-      - group: "user.openshift.io"
-        resources: ["identities"]
-    # A catch-all rule to log all other requests at the Metadata level.
-    - level: Metadata
-      # Long-running requests like watches that fall under this rule will not
-      # generate an audit event in RequestReceived.
-      omitStages:
-      - "RequestReceived"
-`)
-
-func oauthApiserverCmYamlBytes() ([]byte, error) {
-	return _oauthApiserverCmYaml, nil
-}
-
-func oauthApiserverCmYaml() (*asset, error) {
-	bytes, err := oauthApiserverCmYamlBytes()
-	if err != nil {
-		return nil, err
-	}
-
-	info := bindataFileInfo{name: "oauth-apiserver/cm.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
-	a := &asset{bytes: bytes, info: info}
-	return a, nil
-}
-
 var _oauthApiserverDeployYaml = []byte(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -216,7 +155,6 @@ spec:
               --audit-log-format=json \
               --audit-log-maxsize=100 \
               --audit-log-maxbackup=10 \
-              --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
               --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
@@ -234,8 +172,8 @@ spec:
         ports:
         - containerPort: 8443
         volumeMounts:
-        - mountPath: /var/run/configmaps/config
-          name: config
+        - mountPath: /var/run/configmaps/audit
+          name: audit-policies
         - mountPath: /var/run/secrets/etcd-client
           name: etcd-client
         - mountPath: /var/run/configmaps/etcd-serving-ca
@@ -262,9 +200,9 @@ spec:
             path: readyz
       terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
       volumes:
-      - name: config
+      - name: audit-policies
         configMap:
-          name: config
+          name: audit-${REVISION}
       - name: etcd-client
         secret:
           secretName: etcd-client
@@ -804,7 +742,6 @@ func AssetNames() []string {
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/apiserver-clusterrolebinding.yaml":      oauthApiserverApiserverClusterrolebindingYaml,
-	"oauth-apiserver/cm.yaml":                                oauthApiserverCmYaml,
 	"oauth-apiserver/deploy.yaml":                            oauthApiserverDeployYaml,
 	"oauth-apiserver/ns.yaml":                                oauthApiserverNsYaml,
 	"oauth-apiserver/sa.yaml":                                oauthApiserverSaYaml,
@@ -861,7 +798,6 @@ type bintree struct {
 var _bintree = &bintree{nil, map[string]*bintree{
 	"oauth-apiserver": {nil, map[string]*bintree{
 		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
-		"cm.yaml":                           {oauthApiserverCmYaml, map[string]*bintree{}},
 		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
 		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
 		"sa.yaml":                           {oauthApiserverSaYaml, map[string]*bintree{}},

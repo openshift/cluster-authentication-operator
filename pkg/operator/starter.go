@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
 	"os"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	libgoassets "github.com/openshift/library-go/pkg/operator/apiserver/audit"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -465,19 +467,21 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
-		assets.Asset,
+		libgoassets.WithAuditPolicies("openshift-oauth-apiserver", assets.Asset),
 		[]string{
 			"oauth-apiserver/ns.yaml",
 			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
 			"oauth-apiserver/svc.yaml",
 			"oauth-apiserver/sa.yaml",
-			"oauth-apiserver/cm.yaml",
+			libgoassets.AuditPoliciesConfigMapFileName,
 		},
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
 	).WithRevisionController(
 		"openshift-oauth-apiserver",
-		nil,
+		[]revisioncontroller.RevisionResource{{
+			Name: "audit", // defined in library-go
+		}},
 		[]revision.RevisionResource{{
 			Name:     "encryption-config",
 			Optional: true,

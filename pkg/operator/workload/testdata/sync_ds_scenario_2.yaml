@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "89af1eadb7c7abd6de4a19ae8fbcfd82b850710b7a1a919c5927cf6115e1d24d"
+    operator.openshift.io/spec-hash: "0d452846c17cf730e532f1e6090087b13fc8558944e77936c9344365d03d1d36"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -45,7 +45,6 @@ spec:
                 --audit-log-format=json \
                 --audit-log-maxsize=100 \
                 --audit-log-maxbackup=10 \
-                --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
@@ -91,8 +90,8 @@ spec:
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             -
-              mountPath: /var/run/configmaps/config
-              name: config
+              mountPath: /var/run/configmaps/audit
+              name: audit-policies
             -
               mountPath: /var/run/secrets/etcd-client
               name: etcd-client
@@ -150,8 +149,8 @@ spec:
       volumes:
         -
           configMap:
-            name: config
-          name: config
+            name: audit-0
+          name: audit-policies
         -
           name: etcd-client
           secret:
