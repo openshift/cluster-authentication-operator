@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
 	"os"
 	"time"
 
@@ -39,6 +38,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
 	"github.com/openshift/library-go/pkg/operator/staleconditions"
 	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
@@ -572,11 +572,17 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers,
 		eventRecorder)
 
+	auditPolicyPahGetter, err := libgoassets.NewAuditPolicyPathGetter()
+	if err != nil {
+		return err
+	}
+
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
+		auditPolicyPahGetter,
 		controllerContext.EventRecorder,
 	)
 
