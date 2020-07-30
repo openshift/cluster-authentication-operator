@@ -24,6 +24,7 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
+	oauthinformer "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -60,6 +61,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/tokentimeoutsync"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionprovider"
@@ -167,7 +169,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
 		informerToRunFn(ctx.Done())
 	}
+
 	for _, controllerRunFn := range operatorCtx.controllersToRunFunc {
+		// if you're ever changing the number of workers, notice that
+		// TokenTimeoutSyncController hardcodes its own value
 		go controllerRunFn(ctx, 1)
 	}
 
@@ -186,6 +191,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	if err != nil {
 		return err
 	}
+
+	oauthInformers := oauthinformer.NewSharedInformerFactory(oauthClient, resync)
 
 	openshiftAuthenticationInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication")
 	kubeSystemNamespaceInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("kube-system")
@@ -408,10 +415,18 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
 
+	tokenTimeoutSync := tokentimeoutsync.NewTokenTimeoutSyncController(
+		oauthClient.OauthV1().OAuthAccessTokens(),
+		oauthInformers,
+		operatorCtx.operatorConfigInformer,
+		controllerContext.EventRecorder,
+	)
+
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
 		routeInformersNamespaced.Start,
 		kubeSystemNamespaceInformers.Start,
 		openshiftAuthenticationInformers.Start,
+		oauthInformers.Start,
 	)
 
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
@@ -431,8 +446,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		authServiceEndpointCheckController.Run,
 		workersAvailableController.Run,
 		proxyConfigController.Run,
-		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
-		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
+		staleConditions.Run,
+		ingressStateController.Run,
+		// the above control always only runs a single worker but token timeout
+		// syncer should be capable of running multiple workers at a time
+		func(ctx context.Context, workers int) { tokenTimeoutSync.Run(ctx, 3) },
 	)
 
 	return nil
