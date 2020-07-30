@@ -195,7 +195,7 @@ func TestObserveIdentityProviders(t *testing.T) {
 			listers := configobservation.Listers{
 				ConfigMapLister: corelistersv1.NewConfigMapLister(indexer),
 				SecretsLister:   corelistersv1.NewSecretLister(indexer),
-				OAuthLister:     configlistersv1.NewOAuthLister(indexer),
+				OAuthLister_:    configlistersv1.NewOAuthLister(indexer),
 				ResourceSync:    &mockResourceSyncer{t: t, synced: syncerData},
 			}
 			eventsRecorder := events.NewInMemoryRecorder(t.Name())

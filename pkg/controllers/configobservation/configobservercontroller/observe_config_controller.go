@@ -7,6 +7,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
+	configobserveroauth "github.com/openshift/library-go/pkg/operator/configobserver/oauth"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -68,6 +69,7 @@ func NewConfigObserver(
 		oauth.ObserveIdentityProviders,
 		oauth.ObserveTemplates,
 		oauth.ObserveTokenConfig,
+		configobserveroauth.ObserveAccessTokenInactivityTimeout,
 		routersecret.ObserveRouterSecret,
 	} {
 		oauthServerObservers = append(oauthServerObservers,
@@ -84,7 +86,7 @@ func NewConfigObserver(
 			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
 			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
 			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
-			OAuthLister:          configInformer.Config().V1().OAuths().Lister(),
+			OAuthLister_:         configInformer.Config().V1().OAuths().Lister(),
 			ResourceSync:         resourceSyncer,
 			PreRunCachesSynced:   preRunCacheSynced,
 		},

@@ -33,7 +33,7 @@ func ObserveTemplates(genericlisters configobserver.Listers, recorder events.Rec
 	}
 
 	observedConfig := map[string]interface{}{}
-	oauthConfig, err := listers.OAuthLister.Get("cluster")
+	oauthConfig, err := listers.OAuthLister().Get("cluster")
 	if errors.IsNotFound(err) {
 		// use the defauls for the platform set by `convertTemplatesWithBranding`
 		oauthConfig = &configv1.OAuth{}

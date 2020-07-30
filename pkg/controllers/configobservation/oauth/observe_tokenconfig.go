@@ -36,17 +36,6 @@ func ObserveTokenConfig(genericlisters configobserver.Listers, recorder events.R
 		errs = append(errs, err)
 	}
 
-	existingAccessTokenInactivityTimeoutSeconds, _, err := unstructured.NestedFieldCopy(existingConfig, "accessTokenInactivityTimeoutSeconds")
-	if err != nil {
-		errs = append(errs, err)
-	}
-	var existingAccessTokenInactivityTimeoutSecondsFloat *float64
-	if existingAccessTokenInactivityTimeoutSeconds != nil {
-		if f, ok := existingAccessTokenInactivityTimeoutSeconds.(float64); ok {
-			existingAccessTokenInactivityTimeoutSecondsFloat = &f
-		}
-	}
-
 	observedTokenConfigFieldMap := map[string]interface{}{
 		"accessTokenMaxAgeSeconds":    defaultAccessTokenMaxAgeSeconds,
 		"authorizeTokenMaxAgeSeconds": defaultAuthorizeTokenMaxAgeSeconds,
@@ -56,7 +45,7 @@ func ObserveTokenConfig(genericlisters configobserver.Listers, recorder events.R
 			"tokenConfig": observedTokenConfigFieldMap,
 		},
 	}
-	oauthConfig, err := listers.OAuthLister.Get("cluster")
+	oauthConfig, err := listers.OAuthLister().Get("cluster")
 	if errors.IsNotFound(err) {
 		klog.Warning("oauth.config.openshift.io/cluster: not found")
 		return observedConfig, errs
@@ -70,11 +59,6 @@ func ObserveTokenConfig(genericlisters configobserver.Listers, recorder events.R
 	}
 	observedTokenConfigFieldMap["accessTokenMaxAgeSeconds"] = observedAccessTokenMaxAgeSeconds
 
-	observedAccessTokenInactivityTimeoutSeconds := convertAccessTokenInactivityTimeout(oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds)
-	if observedAccessTokenInactivityTimeoutSeconds != nil {
-		observedTokenConfigFieldMap["accessTokenInactivityTimeoutSeconds"] = *observedAccessTokenInactivityTimeoutSeconds
-	}
-
 	if err := unstructured.SetNestedMap(
 		observedConfig,
 		observedTokenConfigFieldMap,
@@ -87,26 +71,5 @@ func ObserveTokenConfig(genericlisters configobserver.Listers, recorder events.R
 		recorder.Eventf("ObserveTokenConfig", "accessTokenMaxAgeSeconds changed from %d to %d", existingAccessTokenMaxAgeSeconds, observedAccessTokenMaxAgeSeconds)
 	}
 
-	if !(existingAccessTokenInactivityTimeoutSecondsFloat == observedAccessTokenInactivityTimeoutSeconds) {
-		recorder.Eventf("ObserveTokenConfig", "accessTokenInactivityTimeoutSeconds changed from %d to %d", existingAccessTokenInactivityTimeoutSecondsFloat, observedAccessTokenInactivityTimeoutSeconds)
-
-	}
-
 	return observedConfig, errs
-}
-
-func convertAccessTokenInactivityTimeout(observedValue int32) *float64 {
-	var ret *float64
-	floatVal := float64(observedValue)
-	switch {
-	case floatVal == 0:
-		ret = nil
-	case floatVal < 0:
-		zero := float64(0)
-		ret = &zero
-	case floatVal > 0:
-		ret = &floatVal
-	}
-
-	return ret
 }
