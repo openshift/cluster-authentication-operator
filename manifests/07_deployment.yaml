@@ -50,11 +50,13 @@ spec:
           name: service-ca-bundle
           readOnly: true
         env:
-        - name: IMAGE
+        - name: IMAGE_OAUTH_SERVER
           value: quay.io/openshift/origin-oauth-server:v4.2
+        - name: IMAGE_OAUTH_APISERVER
+          value: quay.io/openshift/origin-oauth-apiserver:v4.6
         - name: OPERATOR_IMAGE_VERSION
           value: "0.0.1-snapshot"
-        - name: OPERAND_IMAGE_VERSION
+        - name: OPERAND_OAUTH_SERVER_IMAGE_VERSION
           value: "0.0.1-snapshot_openshift"
         - name: POD_NAME
           valueFrom:

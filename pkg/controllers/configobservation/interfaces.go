@@ -12,8 +12,7 @@ import (
 var _ configobserver.Listers = Listers{}
 
 const (
-	OAuthServerConfigPrefix    = "oauthServer"
-	OAuthAPIServerConfigPrefix = "oauthAPIServer"
+	OAuthServerConfigPrefix = "oauthServer"
 )
 
 type Listers struct {

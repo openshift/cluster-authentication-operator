@@ -10,3 +10,7 @@ spec:
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-oauth-server:v4.2
+  - name: oauth-apiserver
+    from:
+      kind: DockerImage
+      name: quay.io/openshift/origin-oauth-apiserver:v4.6

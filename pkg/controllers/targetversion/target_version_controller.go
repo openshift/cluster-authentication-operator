@@ -30,7 +30,7 @@ import (
 
 var (
 	operatorVersion = os.Getenv("OPERATOR_IMAGE_VERSION")
-	operandVersion  = os.Getenv("OPERAND_IMAGE_VERSION")
+	operandVersion  = os.Getenv("OPERAND_OAUTH_SERVER_IMAGE_VERSION")
 )
 
 // knownConditionNames lists all condition types used by this controller.
