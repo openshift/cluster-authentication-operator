@@ -172,8 +172,15 @@ github.com/openshift/client-go/config/informers/externalversions/config/v1
 github.com/openshift/client-go/config/informers/externalversions/internalinterfaces
 github.com/openshift/client-go/config/listers/config/v1
 github.com/openshift/client-go/oauth/clientset/versioned
+github.com/openshift/client-go/oauth/clientset/versioned/fake
 github.com/openshift/client-go/oauth/clientset/versioned/scheme
 github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1
+github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1/fake
+github.com/openshift/client-go/oauth/informers/externalversions
+github.com/openshift/client-go/oauth/informers/externalversions/internalinterfaces
+github.com/openshift/client-go/oauth/informers/externalversions/oauth
+github.com/openshift/client-go/oauth/informers/externalversions/oauth/v1
+github.com/openshift/client-go/oauth/listers/oauth/v1
 github.com/openshift/client-go/operator/clientset/versioned
 github.com/openshift/client-go/operator/clientset/versioned/scheme
 github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1
@@ -193,6 +200,8 @@ github.com/openshift/client-go/route/informers/externalversions/internalinterfac
 github.com/openshift/client-go/route/informers/externalversions/route
 github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
+github.com/openshift/client-go/user/clientset/versioned/scheme
+github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
 # github.com/openshift/library-go v0.0.0-20210105160312-42fe32ec6e0f
 ## explicit
 github.com/openshift/library-go/pkg/apps/deployment
