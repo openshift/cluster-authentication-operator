@@ -23,6 +23,7 @@ func NewConfigObserverController(
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
 	configInformer configinformers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
+	auditPolicypathGetter apiserver.AuditPolicyPathGetterFunc,
 	eventRecorder events.Recorder,
 ) factory.Controller {
 
@@ -60,6 +61,7 @@ func NewConfigObserverController(
 		apiserver.ObserveTLSSecurityProfileToArguments,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
+		apiserver.NewAuditObserver(auditPolicypathGetter),
 	} {
 		observers = append(observers,
 			configobserver.WithPrefix(o, OAuthAPIServerConfigPrefix))

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "92610407b698257e2c982a8d7f52c0973867dcf0d773224963f45ad30655cfec"
+    operator.openshift.io/spec-hash: "1b0b8e398eda25b4901e44697aa775bd899be9edb50389d654f1a2fcb2e4f9c3"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -45,14 +45,14 @@ spec:
                 --audit-log-format=json \
                 --audit-log-maxsize=100 \
                 --audit-log-maxbackup=10 \
-                --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
                 --shutdown-delay-duration=3s \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
-                --v=2
+                --audit-policy-file=/var/run/configmaps/audit/default.yaml \
+              --v=2
           command:
             - /bin/bash
             - "-ec"
@@ -82,8 +82,8 @@ spec:
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             -
-              mountPath: /var/run/configmaps/config
-              name: config
+              mountPath: /var/run/configmaps/audit
+              name: audit-policies
             -
               mountPath: /var/run/secrets/etcd-client
               name: etcd-client
@@ -141,8 +141,8 @@ spec:
       volumes:
         -
           configMap:
-            name: config
-          name: config
+            name: audit-0
+          name: audit-policies
         -
           name: etcd-client
           secret:

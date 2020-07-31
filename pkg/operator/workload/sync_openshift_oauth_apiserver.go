@@ -129,7 +129,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 		return nil, err
 	}
 
-	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
+	operatorCfg, err := getStructuredConfigWithDefaultValues(authOperator.Spec.OperatorSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,6 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
 	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
 		c.kubeClient,
-		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("config"),
 		resourcehash.NewObjectRef().ForSecret().InNamespace(c.targetNamespace).Named("etcd-client"),
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("etcd-serving-ca"),
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("trusted-ca-bundle"),
@@ -220,6 +219,25 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 // note that this struct is unsupported in a sense that it's not exposed through API
 type oAuthAPIServerConfig struct {
 	APIServerArguments map[string][]string `json:"apiServerArguments"`
+}
+
+func getStructuredConfigWithDefaultValues(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
+	operatorCfg, err := getStructuredConfig(authOperatorSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	defaultAPIServerArguments := map[string][]string{
+		"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
+	}
+
+	for defArgName, defArgValue := range defaultAPIServerArguments {
+		if _, ok := operatorCfg.APIServerArguments[defArgName]; !ok {
+			operatorCfg.APIServerArguments[defArgName] = defArgValue
+		}
+	}
+
+	return operatorCfg, nil
 }
 
 // merged config is then encoded into oAuthAPIServerConfig struct

@@ -70,7 +70,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
 			},
-			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
 		},
 
 		// scenario 2
@@ -82,7 +82,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
 				}},
 			},
-			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
 		},
 
 		// scenario 3
@@ -95,7 +95,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
 				}},
 			},
-			expectedActions: []string{"get:configmaps:config", "get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
 		},
 	}
 
@@ -129,6 +129,66 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				if !equality.Semantic.DeepEqual(actualDeployment, goldenDeployment) {
 					t.Errorf("created Deployment is different from the expected one (file) : %s", diff.ObjectDiff(actualDeployment, goldenDeployment))
 				}
+			}
+		})
+	}
+}
+
+var emptyAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+    }
+  }
+}
+`
+
+var withDefaultsProvidedAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "audit-policy-file": "/var/run/configmaps/audit/writerequestbodies.yaml"
+    }
+  }
+}
+`
+
+func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
+	scenarios := []struct {
+		name                       string
+		spec                       operatorv1.OperatorSpec
+		expectedAPIServerArguments map[string][]string
+	}{
+		{
+			name: "default values are assigned when not provided",
+			spec: operatorv1.OperatorSpec{
+				ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
+			},
+			expectedAPIServerArguments: map[string][]string{
+				"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
+			},
+		},
+
+		{
+			name: "default values are NOT assigned when provided",
+			spec: operatorv1.OperatorSpec{
+				ObservedConfig: runtime.RawExtension{Raw: []byte(withDefaultsProvidedAPIServerArgsJSON)},
+			},
+			expectedAPIServerArguments: map[string][]string{
+				"audit-policy-file": {"/var/run/configmaps/audit/writerequestbodies.yaml"},
+			},
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			serverConfig, err := getStructuredConfigWithDefaultValues(scenario.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !equality.Semantic.DeepEqual(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments) {
+				t.Errorf("mismatch: %s", diff.ObjectDiff(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments))
 			}
 		})
 	}

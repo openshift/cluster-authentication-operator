@@ -60,7 +60,6 @@ spec:
               --audit-log-format=json \
               --audit-log-maxsize=100 \
               --audit-log-maxbackup=10 \
-              --audit-policy-file=/var/run/configmaps/config/audit-policy.yaml \
               --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
@@ -78,8 +77,8 @@ spec:
         ports:
         - containerPort: 8443
         volumeMounts:
-        - mountPath: /var/run/configmaps/config
-          name: config
+        - mountPath: /var/run/configmaps/audit
+          name: audit-policies
         - mountPath: /var/run/secrets/etcd-client
           name: etcd-client
         - mountPath: /var/run/configmaps/etcd-serving-ca
@@ -106,9 +105,9 @@ spec:
             path: readyz
       terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
       volumes:
-      - name: config
+      - name: audit-policies
         configMap:
-          name: config
+          name: audit-${REVISION}
       - name: etcd-client
         secret:
           secretName: etcd-client
