@@ -134,6 +134,66 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	}
 }
 
+var emptyAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+    }
+  }
+}
+`
+
+var withDefaultsProvidedAPIServerArgsJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "audit-policy-file": "/var/run/configmaps/audit/writerequestbodies.yaml"
+    }
+  }
+}
+`
+
+func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
+	scenarios := []struct {
+		name                       string
+		spec                       operatorv1.OperatorSpec
+		expectedAPIServerArguments map[string][]string
+	}{
+		{
+			name: "default values are assigned when not provided",
+			spec: operatorv1.OperatorSpec{
+				ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
+			},
+			expectedAPIServerArguments: map[string][]string{
+				"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
+			},
+		},
+
+		{
+			name: "default values are NOT assigned when provided",
+			spec: operatorv1.OperatorSpec{
+				ObservedConfig: runtime.RawExtension{Raw: []byte(withDefaultsProvidedAPIServerArgsJSON)},
+			},
+			expectedAPIServerArguments: map[string][]string{
+				"audit-policy-file": {"/var/run/configmaps/audit/writerequestbodies.yaml"},
+			},
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			serverConfig, err := getStructuredConfigWithDefaultValues(scenario.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !equality.Semantic.DeepEqual(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments) {
+				t.Errorf("mismatch: %s", diff.ObjectDiff(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments))
+			}
+		})
+	}
+}
+
 func validateActionsVerbs(actualActions []clientgotesting.Action, expectedActions []string) error {
 	if len(actualActions) != len(expectedActions) {
 		return fmt.Errorf("expected to get %d actions but got %d\nexpected=%v \n got=%v", len(expectedActions), len(actualActions), expectedActions, actionStrings(actualActions))
