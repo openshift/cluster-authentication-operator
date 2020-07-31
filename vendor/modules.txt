@@ -199,7 +199,7 @@ github.com/openshift/client-go/route/informers/externalversions/internalinterfac
 github.com/openshift/client-go/route/informers/externalversions/route
 github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
-# github.com/openshift/library-go v0.0.0-20200729091908-e7ccd44b1f7f
+# github.com/openshift/library-go v0.0.0-20200731053141-ff55255233e3
 github.com/openshift/library-go/pkg/assets
 github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator
 github.com/openshift/library-go/pkg/config/client
@@ -213,6 +213,8 @@ github.com/openshift/library-go/pkg/controller/fileobserver
 github.com/openshift/library-go/pkg/controller/metrics
 github.com/openshift/library-go/pkg/crypto
 github.com/openshift/library-go/pkg/oauth/oauthdiscovery
+github.com/openshift/library-go/pkg/operator/apiserver/audit
+github.com/openshift/library-go/pkg/operator/apiserver/audit/bindata
 github.com/openshift/library-go/pkg/operator/apiserver/controller/apiservice
 github.com/openshift/library-go/pkg/operator/apiserver/controller/nsfinalizer
 github.com/openshift/library-go/pkg/operator/apiserver/controller/workload
