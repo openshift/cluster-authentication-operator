@@ -73,8 +73,11 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 		recorder.Eventf("ObserveIdentityProviders", "identity providers changed to %q", convertedObservedIdentityProviders)
 	}
 
+	if syncDataErrs := observedSyncData.Validate(listers.ConfigMapLister, listers.SecretsLister); len(syncDataErrs) > 0 {
+		return existingConfig, append(errs, syncDataErrs...)
+	}
+
 	datasync.HandleIdPConfigSync(resourceSyncer, existingSyncData, observedSyncData)
-	errs = append(errs, observedSyncData.Validate(listers.ConfigMapLister, listers.SecretsLister)...)
 
 	if err := unstructured.SetNestedField(observedConfig, string(observedSyncDataBytes), identityProvidersMounts...); err != nil {
 		return existingConfig, append(errs, err)
