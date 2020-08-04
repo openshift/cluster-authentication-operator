@@ -61,8 +61,16 @@ type targetVersionController struct {
 	systemCABundle    []byte
 }
 
-func NewTargetVersionController(kubeInformersNamespaced informers.SharedInformerFactory, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
-	oauthClient oauthclient.OAuthClientInterface, operatorClient v1helpers.OperatorClient, versionGetter status.VersionGetter, recorder events.Recorder) factory.Controller {
+func NewTargetVersionController(
+	kubeInformersNamespaced informers.SharedInformerFactory,
+	configInformers configinformer.SharedInformerFactory,
+	routeInformer routeinformer.RouteInformer,
+	oauthClient oauthclient.OAuthClientInterface,
+	operatorClient v1helpers.OperatorClient,
+	versionGetter status.VersionGetter,
+	systemCABundle []byte,
+	recorder events.Recorder,
+) factory.Controller {
 	c := &targetVersionController{
 		deploymentLister:  kubeInformersNamespaced.Apps().V1().Deployments().Lister(),
 		secretLister:      kubeInformersNamespaced.Core().V1().Secrets().Lister(),
@@ -72,6 +80,7 @@ func NewTargetVersionController(kubeInformersNamespaced informers.SharedInformer
 		versionGetter:     versionGetter,
 
 		operatorClient: operatorClient,
+		systemCABundle: systemCABundle,
 	}
 
 	return factory.New().ResyncEvery(30*time.Second).WithInformers(
