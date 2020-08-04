@@ -422,7 +422,7 @@ func checkOIDCPasswordGrantFlow(
 	respJSON := json.NewDecoder(resp.Body)
 	respMap := map[string]interface{}{}
 	if err = respJSON.Decode(&respMap); err != nil {
-		return false, fmt.Errorf("failed to decode response from the OIDC server: %v", err)
+		return false, fmt.Errorf("failed to JSON-decode the response from the OIDC server's token endpoint (%s): %v", tokenURL, err)
 	}
 
 	if errVal, ok := respMap["error"]; ok {
