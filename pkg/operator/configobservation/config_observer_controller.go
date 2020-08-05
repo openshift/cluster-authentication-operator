@@ -80,6 +80,7 @@ func NewConfigObserverController(
 		},
 		informers,
 		[]string{OAuthAPIServerConfigPrefix},
+		"OAuthAPIServer",
 		observers...,
 	)
 }
