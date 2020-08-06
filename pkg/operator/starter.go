@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"io/ioutil"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
@@ -336,6 +338,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
+	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		// this may fail route-health checks in proxy environments
+		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+	}
 	targetVersionController := targetversion.NewTargetVersionController(
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		operatorCtx.operatorConfigInformer,
@@ -343,6 +350,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.operatorClient,
 		operatorCtx.versionRecorder,
+		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 
