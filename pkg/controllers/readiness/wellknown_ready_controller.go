@@ -96,7 +96,11 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 
 	if authConfig != nil && route != nil {
 		// TODO: refactor this to return conditions
-		ready, conditionMessage, err := c.isWellknownEndpointsReady(authConfig, route)
+		spec, _, _, err := c.operatorClient.GetOperatorState()
+		if err != nil {
+			return err
+		}
+		ready, conditionMessage, err := c.isWellknownEndpointsReady(spec, authConfig, route)
 		if !ready {
 			if len(conditionMessage) == 0 && err != nil {
 				conditionMessage = err.Error()
@@ -121,7 +125,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
 	if userMetadataConfig := authConfig.Spec.OAuthMetadata.Name; authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth || len(userMetadataConfig) != 0 {
@@ -149,6 +153,16 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(authConfig *configv
 		if err != nil || !wellknownReady {
 			return wellknownReady, wellknownMsg, err
 		}
+	}
+
+	// if we don't have the min number of masters, this is actually ok, however Clayton has draw a hardline on starting tests as soon as all operators are Available=true
+	// while ignoring progressing=false.  This means that even though no external observer will see a invalid .well-known information,
+	// the tests end up failing when their long lived connections are terminated.  Killing long lived connections is normal and
+	// acceptable for the kube-apiserver to do during a rollout.  However, because we are not allowed to merge code that ensures
+	// a stable kube-apiserver and because rewriting client tests like e2e-cmd is impractical, we are left trying to enforce
+	// this by delaying our availability because it's a backdoor into slowing down the test suite start time to gain stability.
+	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec); len(ips) < expectedMinNumber {
+		return false, "", fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
 	}
 
 	return true, "", nil
