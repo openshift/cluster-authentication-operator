@@ -43,7 +43,7 @@ func NewIngressNodesAvailableController(
 			operatorClient.Informer(),
 			nodeInformer.Informer(),
 		).
-		WithSync(controller.sync).
+		WithSync(common.WithManagementStateSync(operatorClient, controller.sync)).
 		ResyncEvery(1*time.Minute).
 		ToController("IngressNodesAvailableController", eventRecorder)
 }

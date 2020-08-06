@@ -73,7 +73,7 @@ func NewMetadataController(kubeInformersForTargetNamespace informers.SharedInfor
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
 		routeInformer.Route().V1().Routes().Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("MetadataController", recorder.WithComponentSuffix("metadata-controller"))
+	).ResyncEvery(30*time.Second).WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).ToController("MetadataController", recorder.WithComponentSuffix("metadata-controller"))
 }
 
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {

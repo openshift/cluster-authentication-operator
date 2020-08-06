@@ -597,6 +597,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		deployer,
 		operatorCtx.operatorClient.Client,
 		operatorCtx.operatorClient.Informers,
+		operatorCtx.operatorClient,
 		eventRecorder)
 
 	auditPolicyPathGetter, err := libgoassets.NewAuditPolicyPathGetter("/var/run/configmaps/audit")

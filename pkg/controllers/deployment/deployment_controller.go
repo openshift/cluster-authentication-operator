@@ -106,7 +106,7 @@ func NewDeploymentController(kubeInformersForTargetNamespace informers.SharedInf
 		configInformers.Config().V1().Proxies().Informer(),
 		configInformers.Config().V1().Ingresses().Informer(),
 		operatorClient.Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("Deployment", recorder.WithComponentSuffix("deployment-controller"))
+	).ResyncEvery(30*time.Second).WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).ToController("Deployment", recorder.WithComponentSuffix("deployment-controller"))
 }
 
 func (c *deploymentController) sync(ctx context.Context, syncContext factory.SyncContext) error {

@@ -91,7 +91,7 @@ func NewTargetVersionController(
 		kubeInformersNamespaced.Apps().V1().Deployments().Informer(),
 		configInformers.Config().V1().Ingresses().Informer(),
 		routeInformer.Informer(),
-	).WithSync(c.sync).ToController("TargetVersion", recorder.WithComponentSuffix("target-version-controller"))
+	).WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).ToController("TargetVersion", recorder.WithComponentSuffix("target-version-controller"))
 }
 
 func (c *targetVersionController) sync(ctx context.Context, syncContext factory.SyncContext) error {

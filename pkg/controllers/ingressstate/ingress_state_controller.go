@@ -60,7 +60,7 @@ func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedI
 			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
 		).
-		WithSync(c.sync).
+		WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).
 		ResyncEvery(30*time.Second).
 		ToController("IngressStateController", recorder.WithComponentSuffix("ingress-state-controller"))
 }

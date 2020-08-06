@@ -8,6 +8,7 @@ import (
 	"time"
 
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
 	corev1informers "k8s.io/client-go/informers/core/v1"
@@ -17,7 +18,6 @@ import (
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -66,23 +66,16 @@ func NewRouterCertsDomainValidationController(
 			operatorClient.Informer(),
 			ingressInformer.Informer(),
 			secretInformer.Informer(),
-			configMapInformer.Informer()).
-		WithSync(controller.sync).
+			configMapInformer.Informer(),
+		).
+		WithSync(common.WithManagementStateSync(controller.operatorClient, controller.sync)).
 		ResyncEvery(30*time.Second).
 		ToController("RouterCertsDomainValidationController", eventRecorder)
 }
 
 func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
-	spec, _, _, err := c.operatorClient.GetOperatorState()
-	if err != nil {
-		return err
-	}
-	if !management.IsOperatorManaged(spec.ManagementState) {
-		return nil
-	}
-
 	condition := c.validateRouterCertificates()
-	if _, _, err = v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(condition)); err != nil {
+	if _, _, err := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(condition)); err != nil {
 		return err
 	}
 

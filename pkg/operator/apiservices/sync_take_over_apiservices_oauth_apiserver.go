@@ -12,6 +12,7 @@ import (
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	operatorclientinformers "github.com/openshift/client-go/operator/informers/externalversions"
 	operatorlistersv1 "github.com/openshift/client-go/operator/listers/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/encryption/statemachine"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -28,11 +29,12 @@ func NewManageAPIServicesController(
 	deployer statemachine.Deployer,
 	authOperatorClient operatorconfigclient.AuthenticationsGetter,
 	authOperatorInformers operatorclientinformers.SharedInformerFactory,
+	operatorClient v1helpers.OperatorClient,
 	eventRecorder events.Recorder) factory.Controller {
 
 	controllerFactory := factory.New()
 	authOperatorLister := authOperatorInformers.Operator().V1().Authentications().Lister()
-	controllerFactory.WithSync(syncManageAPIServicesController(deployer, authOperatorClient, authOperatorLister))
+	controllerFactory.WithSync(common.WithManagementStateSync(operatorClient, syncManageAPIServicesController(deployer, authOperatorClient, authOperatorLister)))
 	controllerFactory.WithInformers(authOperatorInformers.Operator().V1().Authentications().Informer())
 
 	return controllerFactory.ToController(name, eventRecorder.WithComponentSuffix("manage-oauth-api-controller"))

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -43,7 +43,7 @@ func NewEndpointAccessibleController(
 	return factory.New().
 		WithInformers(triggers...).
 		WithInformers(operatorClient.Informer()).
-		WithSync(c.sync).
+		WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).
 		ResyncEvery(30*time.Second).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(name+"EndpointAccessibleController", recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))

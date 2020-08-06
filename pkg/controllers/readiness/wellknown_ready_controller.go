@@ -21,6 +21,7 @@ import (
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -87,7 +88,7 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 		routeInformer.Informer(),
 	).
 		ResyncEvery(30*time.Second).
-		WithSync(c.sync).
+		WithSync(common.WithManagementStateSync(c.operatorClient, c.sync)).
 		WithSyncDegradedOnError(operatorClient).
 		ToController("WellKnownReadyController", recorder.WithComponentSuffix("wellknown-ready-controller"))
 }
