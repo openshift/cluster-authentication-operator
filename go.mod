@@ -17,11 +17,12 @@ require (
 	go.uber.org/multierr v1.1.1-0.20180122172545-ddea229ff1df // indirect
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.2.8
-	k8s.io/api v0.18.2
-	k8s.io/apimachinery v0.18.2
-	k8s.io/apiserver v0.18.2
-	k8s.io/client-go v0.18.2
-	k8s.io/component-base v0.18.2
+	k8s.io/api v0.18.6
+	k8s.io/apimachinery v0.18.6
+	k8s.io/apiserver v0.18.6
+	k8s.io/client-go v0.18.6
+	k8s.io/component-base v0.18.6
 	k8s.io/klog v1.0.0
+	k8s.io/kube-aggregator v0.18.6
 	monis.app/go v0.0.0-20190702030534-c65526068664
 )
