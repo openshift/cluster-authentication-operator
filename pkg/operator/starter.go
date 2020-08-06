@@ -467,7 +467,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
-		libgoassets.WithAuditPolicies("openshift-oauth-apiserver", assets.Asset),
+		libgoassets.WithAuditPolicies("audit", "openshift-oauth-apiserver", assets.Asset),
 		[]string{
 			"oauth-apiserver/ns.yaml",
 			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
@@ -572,7 +572,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers,
 		eventRecorder)
 
-	auditPolicyPahGetter, err := libgoassets.NewAuditPolicyPathGetter()
+	auditPolicyPathGetter, err := libgoassets.NewAuditPolicyPathGetter("/var/run/configmaps/audit")
 	if err != nil {
 		return err
 	}
@@ -582,7 +582,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
-		auditPolicyPahGetter,
+		auditPolicyPathGetter,
 		controllerContext.EventRecorder,
 	)
 

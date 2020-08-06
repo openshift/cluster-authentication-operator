@@ -92,6 +92,7 @@ func NewConfigObserver(
 		},
 		informers,
 		[]string{configobservation.OAuthServerConfigPrefix},
+		"OAuthServer",
 		oauthServerObservers...,
 	)
 }
