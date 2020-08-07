@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog"
 
 	"github.com/openshift/library-go/pkg/operator/encryption/encryptionconfig"
 	"github.com/openshift/library-go/pkg/operator/encryption/statemachine"
@@ -94,6 +95,7 @@ func (d *RevisionLabelPodDeployer) DeployedEncryptionConfigSecret() (secret *cor
 		return nil, false, err
 	}
 	if len(nodes) == 0 {
+		klog.Info("DeployedEncryptionConfigSecret: no nodes, len(nodes) == 0")
 		return nil, false, nil
 	}
 
@@ -108,6 +110,7 @@ func (d *RevisionLabelPodDeployer) DeployedEncryptionConfigSecret() (secret *cor
 		return nil, false, fmt.Errorf("failed to get converged static pod revision: %v", err)
 	}
 	if len(revision) == 0 {
+		klog.Info("DeployedEncryptionConfigSecret: no reision, len(revision) == 0")
 		return nil, false, nil
 	}
 
@@ -119,6 +122,7 @@ func (d *RevisionLabelPodDeployer) DeployedEncryptionConfigSecret() (secret *cor
 		}
 		return nil, false, err
 	}
+	
 	return s, true, nil
 }
 
@@ -165,6 +169,7 @@ func getAPIServerRevisionOfAllInstances(revisionLabel string, nodes []string, ap
 		return "", err
 	}
 	if progressing {
+		klog.Info("getAPIServerRevisionOfAllInstances: progressing")
 		return "", nil
 	}
 
@@ -192,6 +197,7 @@ func getAPIServerRevisionOfAllInstances(revisionLabel string, nodes []string, ap
 		}
 	}
 	if len(missingNodes) > 0 {
+		klog.Info("getAPIServerRevisionOfAllInstances: missingNodes, we are still progressing")
 		return "", nil // we are still progressing
 	}
 
@@ -217,6 +223,8 @@ func getAPIServerRevisionOfAllInstances(revisionLabel string, nodes []string, ap
 		}
 	}
 
+
+	klog.Info("getAPIServerRevisionOfAllInstances: reached the end of function")
 	return revision, nil
 }
 
