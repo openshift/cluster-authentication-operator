@@ -6,6 +6,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
@@ -63,7 +64,8 @@ func syncManageAPIServicesController(deployer statemachine.Deployer, authOperato
 			return err
 		}
 		if !converged && !operator.Status.ManagingOAuthAPIServer {
-			syncContext.Recorder().Warning("PrereqNotReady", "the encryption deployer hasn't yet converged, retrying in 5 minutes")
+			// !converged will also be reported during the oauth apiserver installation
+			klog.V(2).Infof("the encryption deployer hasn't yet converged, retrying in 5 minutes")
 			syncContext.Queue().AddAfter(syncContext.QueueKey(), 5*time.Minute)
 			return nil
 		}
