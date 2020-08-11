@@ -112,6 +112,12 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 
 	if deployment != nil {
 		foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthVersionDeployment")...)
+	} else {
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:   "OAuthVersionDeploymentAvailable",
+			Status: operatorv1.ConditionFalse,
+			Reason: "MissingDeployment",
+		})
 	}
 
 	foundConditions = append(foundConditions, c.oauthClientsReady(ctx)...)
