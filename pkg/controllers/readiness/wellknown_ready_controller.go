@@ -100,58 +100,62 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		if err != nil {
 			return err
 		}
-		ready, conditionMessage, err := c.isWellknownEndpointsReady(spec, authConfig, route)
-		if !ready {
-			if len(conditionMessage) == 0 && err != nil {
-				conditionMessage = err.Error()
-			}
-			if len(conditionMessage) > 0 {
-				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownProgressing",
-					Status:  operatorv1.ConditionTrue,
-					Reason:  "NotReady",
-					Message: fmt.Sprintf("The well-known endpoint is not yet avaiable: %s", conditionMessage),
-				})
-				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "WellKnownAvailable",
-					Status:  operatorv1.ConditionFalse,
-					Reason:  "NotReady",
-					Message: fmt.Sprintf("THe well-known endpoint is not yet available: %s", conditionMessage),
-				})
-			}
+		if err := c.isWellknownEndpointsReady(spec, authConfig, route); err != nil {
+			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+				Type:    "WellKnownProgressing",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "NotReady",
+				Message: fmt.Sprintf("The well-known endpoint is not yet avaiable: %s", err.Error()),
+			})
+			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+				Type:    "WellKnownAvailable",
+				Status:  operatorv1.ConditionFalse,
+				Reason:  "NotReady",
+				Message: fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()),
+			})
 		}
+	} else {
+		// if the prereqs aren't present we don't have well-known correct
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:    "WellKnownAvailable",
+			Status:  operatorv1.ConditionFalse,
+			Reason:  "PrereqsNotReady",
+			Message: "THe well-known endpoint prereqs are not yet available",
+		})
 	}
 
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, authConfig *configv1.Authentication, route *routev1.Route) error {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
-	if userMetadataConfig := authConfig.Spec.OAuthMetadata.Name; authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth || len(userMetadataConfig) != 0 {
-		return true, "", nil
+	// the operator manages the metadata if specifically requested and by default
+	isOperatorManagedMetadata := authConfig.Spec.Type == configv1.AuthenticationTypeIntegratedOAuth || len(authConfig.Spec.Type) == 0
+	if userMetadataConfig := authConfig.Spec.OAuthMetadata.Name; !isOperatorManagedMetadata || len(userMetadataConfig) != 0 {
+		return nil
 	}
 
 	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	if err != nil {
-		return false, "", fmt.Errorf("failed to read SA ca.crt: %v", err)
+		return fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
 
 	// pass the KAS service name for SNI
 	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
+		return fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
 	ips, err := c.getAPIServerIPs()
 	if err != nil {
-		return false, "", fmt.Errorf("failed to get API server IPs: %v", err)
+		return fmt.Errorf("failed to get API server IPs: %v", err)
 	}
 
 	for _, ip := range ips {
-		wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(ip, rt, route)
-		if err != nil || !wellknownReady {
-			return wellknownReady, wellknownMsg, err
+		err := c.checkWellknownEndpointReady(ip, rt, route)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -162,49 +166,49 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 	// a stable kube-apiserver and because rewriting client tests like e2e-cmd is impractical, we are left trying to enforce
 	// this by delaying our availability because it's a backdoor into slowing down the test suite start time to gain stability.
 	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec); len(ips) < expectedMinNumber {
-		return false, "", fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
+		return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
 	}
 
-	return true, "", nil
+	return nil
 }
 
-func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
+func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) error {
 	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
+		return fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
 	}
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
+		return fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return false, fmt.Sprintf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown), nil
+		return fmt.Errorf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown)
 	}
 
 	var receivedValues map[string]interface{}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
+		return fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
 	}
 	if err := json.Unmarshal(body, &receivedValues); err != nil {
-		return false, "", fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
+		return fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
 	}
 
 	expectedMetadata, err := c.getOAuthMetadata()
 	if err != nil {
-		return false, "", err
+		return err
 	}
 
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return false, fmt.Sprintf("the value returned by the well-known %s endpoint does not match expectations", wellKnown), nil
+		return fmt.Errorf("the value returned by the well-known %s endpoint does not match expectations", wellKnown)
 	}
 
-	return true, "", nil
+	return nil
 }
 
 func (c *wellKnownReadyController) getOAuthMetadata() (map[string]interface{}, error) {
