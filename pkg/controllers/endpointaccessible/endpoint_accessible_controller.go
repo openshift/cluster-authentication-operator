@@ -183,10 +183,15 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 			req.WithContext(reqCtx)
 
 			// we don't really care  if anyone lies to us. We aren't sending important data.
-			insecureTransport := &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			client := &http.Client{
+				Timeout: 5 * time.Second,
+				Transport: &http.Transport{
+					Proxy: http.ProxyFromEnvironment,
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+				},
 			}
-			client := &http.Client{Transport: insecureTransport}
 
 			resp, err := client.Do(req)
 			if err != nil {
