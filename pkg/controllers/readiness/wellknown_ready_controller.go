@@ -13,12 +13,6 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/informers"
-	corev1lister "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog"
-
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -26,12 +20,16 @@ import (
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/transport"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	corev1lister "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog"
 )
 
 var kasServicePort int
@@ -60,74 +58,89 @@ type wellKnownReadyController struct {
 // These conditions are operated and defaulted by this controller.
 // Any new condition used by this controller sync() loop should be listed here.
 var knownConditionNames = sets.NewString(
-	"WellKnownRouteDegraded",
-	"WellKnownAuthConfigDegraded",
-	"WellKnownProgressing",
 	"WellKnownAvailable",
 )
 
-func NewWellKnownReadyController(kubeInformersNamespaced informers.SharedInformerFactory, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
+func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
 	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
+
+	nsOpenshiftConfigManagedInformers := kubeInformers.InformersFor("openshift-config-managed")
+	nsDefaultInformers := kubeInformers.InformersFor("default")
+
 	c := &wellKnownReadyController{
-		serviceLister:   kubeInformersNamespaced.Core().V1().Services().Lister(),
-		endpointLister:  kubeInformersNamespaced.Core().V1().Endpoints().Lister(),
+		serviceLister:   nsDefaultInformers.Core().V1().Services().Lister(),
+		endpointLister:  nsDefaultInformers.Core().V1().Endpoints().Lister(),
 		authLister:      configInformers.Config().V1().Authentications().Lister(),
-		configMapLister: kubeInformersNamespaced.Core().V1().ConfigMaps().Lister(),
+		configMapLister: nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
 		routeLister:     routeInformer.Lister(),
 		operatorClient:  operatorClient,
 	}
 
-	return factory.New().ResyncEvery(30*time.Second).WithInformers(
-		kubeInformersNamespaced.Core().V1().Services().Informer(),
-		kubeInformersNamespaced.Core().V1().Endpoints().Informer(),
+	return factory.New().WithInformers(
+		nsDefaultInformers.Core().V1().Services().Informer(),
+		nsDefaultInformers.Core().V1().Endpoints().Informer(),
 		configInformers.Config().V1().Authentications().Informer(),
+		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
-	).WithSync(c.sync).ToController("WellKnownReadyController", recorder.WithComponentSuffix("wellknown-ready-controller"))
+	).
+		ResyncEvery(30*time.Second).
+		WithSync(c.sync).
+		WithSyncDegradedOnError(operatorClient).
+		ToController("WellKnownReadyController", recorder.WithComponentSuffix("wellknown-ready-controller"))
 }
 
 func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
-	foundConditions := []operatorv1.OperatorCondition{}
+	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
+	if err != nil {
+		return err
+	}
 
-	authConfig, configConditions := common.GetAuthConfig(c.authLister, "WellKnownAuthConfig")
-	foundConditions = append(foundConditions, configConditions...)
-
-	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "WellKnownRoute")
-	foundConditions = append(foundConditions, routeConditions...)
-
-	if authConfig != nil && route != nil {
-		// TODO: refactor this to return conditions
-		spec, _, _, err := c.operatorClient.GetOperatorState()
-		if err != nil {
-			return err
-		}
-		if err := c.isWellknownEndpointsReady(spec, authConfig, route); err != nil {
-			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-				Type:    "WellKnownProgressing",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "NotReady",
-				Message: fmt.Sprintf("The well-known endpoint is not yet avaiable: %s", err.Error()),
-			})
-			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-				Type:    "WellKnownAvailable",
-				Status:  operatorv1.ConditionFalse,
-				Reason:  "NotReady",
-				Message: fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()),
-			})
-		}
-	} else {
-		// if the prereqs aren't present we don't have well-known correct
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+	authConfig, err := c.authLister.Get("cluster")
+	if err != nil {
+		return err
+	}
+	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
+	if apierrors.IsNotFound(err) {
+		if _, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
 			Status:  operatorv1.ConditionFalse,
 			Reason:  "PrereqsNotReady",
-			Message: "THe well-known endpoint prereqs are not yet available",
-		})
+			Message: err.Error(),
+		})); updateErr != nil {
+			utilruntime.HandleError(updateErr)
+			// fall through to the generic error handling for degraded and requeue
+		}
+	}
+	if err != nil {
+		return err
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+	if err := c.isWellknownEndpointsReady(operatorSpec, operatorStatus, authConfig, route); err != nil {
+		_, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+			Type:    "WellKnownAvailable",
+			Status:  operatorv1.ConditionFalse,
+			Reason:  "NotReady",
+			Message: fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()),
+		}))
+		if updateErr != nil {
+			utilruntime.HandleError(updateErr)
+			// fall through to the generic error handling for degraded and requeue
+		}
+		return err
+	}
+
+	_, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+		Type:   "WellKnownAvailable",
+		Status: operatorv1.ConditionTrue,
+		Reason: "AsExpected",
+	}))
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, authConfig *configv1.Authentication, route *routev1.Route) error {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, route *routev1.Route) error {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
 	// the operator manages the metadata if specifically requested and by default
@@ -165,6 +178,12 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 	// acceptable for the kube-apiserver to do during a rollout.  However, because we are not allowed to merge code that ensures
 	// a stable kube-apiserver and because rewriting client tests like e2e-cmd is impractical, we are left trying to enforce
 	// this by delaying our availability because it's a backdoor into slowing down the test suite start time to gain stability.
+	alreadyTrueOnce := v1helpers.IsOperatorConditionTrue(status.Conditions, "WellKnownAvailable")
+	if alreadyTrueOnce {
+		// if we've already been true once, then we have confirmed matching well-known metadata, so CI no longer needs this protection.
+		// this also prevents flapping after one success when the kube-apiserver rolls out again
+		return nil
+	}
 	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec); len(ips) < expectedMinNumber {
 		return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
 	}
