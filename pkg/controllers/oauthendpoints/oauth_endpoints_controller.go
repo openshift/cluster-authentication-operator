@@ -47,7 +47,7 @@ func NewOAuthRouteCheckController(
 	}
 
 	return endpointaccessible.NewEndpointAccessibleController(
-		"OAuthRouteCheck",
+		"OAuthRoute",
 		operatorClient, endpointListFunc, getTLSConfigFunc, []factory.Informer{routeInformer, secretInformer, ingressInformer}, recorder)
 }
 
@@ -72,7 +72,7 @@ func NewOAuthServiceCheckController(
 	}
 
 	return endpointaccessible.NewEndpointAccessibleController(
-		"OAuthServiceCheck",
+		"OAuthService",
 		operatorClient, endpointsListFunc, getTLSConfigFunc, []factory.Informer{serviceInformer, secretInformer}, recorder)
 }
 
@@ -98,7 +98,7 @@ func NewOAuthServiceEndpointsCheckController(
 	}
 
 	return endpointaccessible.NewEndpointAccessibleController(
-		"OAuthServiceEndpointsCheck",
+		"OAuth",
 		operatorClient, endpointsListFn, getTLSConfigFunc, []factory.Informer{endpointsInformer, secretInformer}, recorder)
 }
 
