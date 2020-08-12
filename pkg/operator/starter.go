@@ -376,18 +376,23 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		routeInformersNamespaced.Route().V1().Routes(),
+		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 
 	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,
 	)
 
 	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
 		controllerContext.EventRecorder,
 	)

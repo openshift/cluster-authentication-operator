@@ -19,10 +19,12 @@ import (
 type endpointAccessibleController struct {
 	operatorClient         v1helpers.OperatorClient
 	endpointListFn         EndpointListFunc
+	getTLSConfigFn         EndpointTLSConfigFunc
 	availableConditionName string
 }
 
 type EndpointListFunc func() ([]string, error)
+type EndpointTLSConfigFunc func() (*tls.Config, error)
 
 // NewEndpointAccessibleController returns a controller that checks if the endpoints
 // listed by endpointListFn are reachable
@@ -30,12 +32,14 @@ func NewEndpointAccessibleController(
 	name string,
 	operatorClient v1helpers.OperatorClient,
 	endpointListFn EndpointListFunc,
+	getTLSConfigFn EndpointTLSConfigFunc,
 	triggers []factory.Informer,
 	recorder events.Recorder,
 ) factory.Controller {
 	c := &endpointAccessibleController{
 		operatorClient:         operatorClient,
 		endpointListFn:         endpointListFn,
+		getTLSConfigFn:         getTLSConfigFn,
 		availableConditionName: name + "EndpointAccessibleControllerAvailable",
 	}
 
@@ -54,6 +58,10 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		return err
 	}
 
+	client, err := c.buildTLSClient()
+	if err != nil {
+		return err
+	}
 	// check all the endpoints in parallel.  This matters for pods.
 	errCh := make(chan error, len(endpoints))
 	wg := sync.WaitGroup{}
@@ -70,17 +78,6 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second) // avoid waiting forever
 			defer cancel()
 			req.WithContext(reqCtx)
-
-			// we don't really care  if anyone lies to us. We aren't sending important data.
-			client := &http.Client{
-				Timeout: 5 * time.Second,
-				Transport: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-				},
-			}
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -128,4 +125,24 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	}
 
 	return utilerrors.NewAggregate(errors)
+}
+
+func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	if c.getTLSConfigFn != nil {
+		tlsConfig, err := c.getTLSConfigFn()
+		if err != nil {
+			return nil, err
+		}
+		transport.TLSClientConfig = tlsConfig
+	}
+	return &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: transport,
+	}, nil
 }
