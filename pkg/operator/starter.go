@@ -359,6 +359,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		routeInformersNamespaced.Route().V1().Routes(),
 		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 

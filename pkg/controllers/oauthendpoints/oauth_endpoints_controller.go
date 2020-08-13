@@ -28,6 +28,7 @@ func NewOAuthRouteCheckController(
 	secretInformerForNamespaces corev1informers.SecretInformer,
 	routeInformerNamespaces routev1informers.RouteInformer,
 	ingressInformerAllNamespaces configv1informers.IngressInformer,
+	systemCABundle []byte,
 	recorder events.Recorder,
 ) factory.Controller {
 	secretLister := secretInformerForNamespaces.Lister()
@@ -42,7 +43,7 @@ func NewOAuthRouteCheckController(
 	}
 
 	getTLSConfigFunc := func() (*tls.Config, error) {
-		return getOAuthRouteTLSConfig(secretLister, ingressLister, recorder)
+		return getOAuthRouteTLSConfig(secretLister, ingressLister, systemCABundle, recorder)
 	}
 
 	return endpointaccessible.NewEndpointAccessibleController(
@@ -156,7 +157,7 @@ func listOAuthRoutes(routeLister routev1listers.RouteLister, recorder events.Rec
 	return toHealthzURL(results), nil
 }
 
-func getOAuthRouteTLSConfig(secretLister corev1listers.SecretLister, ingressLister configv1lister.IngressLister, recorder events.Recorder) (*tls.Config, error) {
+func getOAuthRouteTLSConfig(secretLister corev1listers.SecretLister, ingressLister configv1lister.IngressLister, systemCABundle []byte, recorder events.Recorder) (*tls.Config, error) {
 	ingress, err := ingressLister.Get("cluster")
 	if err != nil {
 		recorder.Warningf("OAuthRouteSecret", "failed to get ingress config: %v", err)
@@ -182,6 +183,13 @@ func getOAuthRouteTLSConfig(secretLister corev1listers.SecretLister, ingressList
 	if ok := rootCAs.AppendCertsFromPEM(routerSecret.Data[ingress.Spec.Domain]); !ok {
 		klog.Infof("failed to parse router certs for domain %s", ingress.Spec.Domain)
 		return nil, nil
+	}
+
+	if len(systemCABundle) > 0 {
+		if ok := rootCAs.AppendCertsFromPEM(systemCABundle); !ok {
+			klog.Infof("failed to parse system ca bundle")
+			return nil, nil
+		}
 	}
 
 	return &tls.Config{
