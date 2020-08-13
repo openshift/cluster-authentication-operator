@@ -7,6 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -29,7 +31,9 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/apiservices"
 	"github.com/openshift/cluster-authentication-operator/pkg/controller/ingressstate"
+	"github.com/openshift/cluster-authentication-operator/pkg/controller/oauthapiserverpruner"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator2/routercerts"
@@ -68,13 +72,21 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		return err
 	}
 
+	apiregistrationv1Client, err := apiregistrationclient.NewForConfig(controllerContext.ProtoKubeConfig)
+	if err != nil {
+		return err
+	}
+
 	kubeInformersNamespaced := v1helpers.NewKubeInformersForNamespaces(kubeClient,
 		"openshift-authentication",
 		"kube-system",
+		"", // an informer for non-namespaced resources
 	)
 
+	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationv1Client, 10*time.Minute)
+
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
+	authOperatorInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
 		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
 	)
 
@@ -95,7 +107,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	)
 
 	operatorClient := &OperatorClient{
-		authOperatorConfigInformers,
+		authOperatorInformers,
 		authOperatorClient.OperatorV1(),
 	}
 
@@ -200,6 +212,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 			// As of 4.4, this will appear as a configObserver error
 			"FailedRouterSecret",
+
+			// Added by CAO in 4.6, we need to clean up on a downgrade
+			"APIServicesAvailable",
+			"APIServerStaticResourcesDegraded",
+			"APIServerDeploymentAvailable",
+			"APIServerDeploymentDegraded",
+			"APIServerDeploymentProgressing",
+			"APIServerWorkloadDegraded",
 		},
 		operatorClient,
 		controllerContext.EventRecorder,
@@ -226,6 +246,23 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		"openshift-authentication",
 		controllerContext.EventRecorder)
 
+	unmanageOAuthAPIController := apiservices.NewUnmanageAPIServicesController(
+		"UnmanageOAuthAPIController",
+		authOperatorClient.OperatorV1(),
+		authOperatorInformers,
+		controllerContext.EventRecorder,
+	)
+
+	oauthAPIServerCleanerController := oauthapiserverpruner.NewOAuthAPIServerPrunerController(
+		"OAuthAPIServerPruner",
+		[]string{"v1.oauth.openshift.io", "v1.user.openshift.io"},
+		kubeClient.CoreV1(),
+		kubeInformersNamespaced,
+		authOperatorInformers,
+		apiregistrationInformers.Apiregistration().V1().APIServices(),
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -234,10 +271,11 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		Start(stopCh <-chan struct{})
 	}{
 		kubeInformersNamespaced,
-		authOperatorConfigInformers,
+		authOperatorInformers,
 		routeInformersNamespaced,
 		configInformers,
 		resourceSyncerInformers,
+		apiregistrationInformers,
 	} {
 		informer.Start(ctx.Done())
 	}
@@ -251,9 +289,11 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		configOverridesController,
 		logLevelController,
 		managementStateController,
+		unmanageOAuthAPIController,
 		routerCertsController,
 		staleConditions,
 		staticResourceController,
+		oauthAPIServerCleanerController,
 	} {
 		go controller.Run(ctx, 1)
 	}
