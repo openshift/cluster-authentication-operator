@@ -43,12 +43,12 @@ import (
 // These conditions are operated and defaulted by this controller.
 // Any new condition used by this controller sync() loop should be listed here.
 var knownConditionNames = sets.NewString(
+	"OAuthServerDeploymentAvailable",
 	"OAuthServerDeploymentDegraded",
+	"OAuthServerDeploymentProgressing",
+	"OAuthServerIngressConfigDegraded",
 	"OAuthServerProxyDegraded",
 	"OAuthServerRouteDegraded",
-	"OAuthServerIngressConfigDegraded",
-	"OAuthServerDeploymentProgressing",
-	"OAuthServerAvailable",
 )
 
 type deploymentController struct {
@@ -183,6 +183,33 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 				}
 			}
 
+		}
+	}
+
+	// no matter what, check and set available.
+	deployment, err := c.deployments.Deployments("openshift-authentication").Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	if err != nil {
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:    "OAuthServerDeploymentDegraded",
+			Status:  operatorv1.ConditionTrue,
+			Reason:  "DeploymentAvailableReplicasCheckFailed",
+			Message: err.Error(),
+		})
+	} else {
+		if deployment.Status.AvailableReplicas > 0 {
+			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+				Type:    "OAuthServerDeploymentAvailable",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "AsExpected",
+				Message: fmt.Sprintf("availableReplicas==%d", deployment.Status.AvailableReplicas),
+			})
+		} else {
+			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+				Type:    "OAuthServerDeploymentAvailable",
+				Status:  operatorv1.ConditionFalse,
+				Reason:  "NoReplicas",
+				Message: "availableReplicas==0",
+			})
 		}
 	}
 

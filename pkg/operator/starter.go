@@ -108,6 +108,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(
 		kubeClient,
+		"default",
 		"openshift-authentication",
 		"openshift-config",
 		"openshift-config-managed",
@@ -239,9 +240,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"IdentityProviderConfigDegraded",
 
 			"WellKnownEndpointDegraded",
+			"WellKnownRouteDegraded",
+			"WellKnownAuthConfigDegraded",
+			"WellKnownProgressing",
 			"OperatorSyncDegraded",
 			"RouteHealthDegraded",
 			"RouteStatusDegraded",
+			"OAuthServerAvailable",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
@@ -290,7 +295,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder)
 
 	wellKnownReadyController := readiness.NewWellKnownReadyController(
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced.Route().V1().Routes(),
 		operatorCtx.operatorClient,
