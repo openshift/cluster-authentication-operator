@@ -71,13 +71,14 @@ func (ImageRegistryConfigRoute) SwaggerDoc() map[string]string {
 }
 
 var map_ImageRegistryConfigStorage = map[string]string{
-	"":         "ImageRegistryConfigStorage describes how the storage should be configured for the image registry.",
-	"emptyDir": "emptyDir represents ephemeral storage on the pod's host node. WARNING: this storage cannot be used with more than 1 replica and is not suitable for production use. When the pod is removed from a node for any reason, the data in the emptyDir is deleted forever.",
-	"s3":       "s3 represents configuration that uses Amazon Simple Storage Service.",
-	"gcs":      "gcs represents configuration that uses Google Cloud Storage.",
-	"swift":    "swift represents configuration that uses OpenStack Object Storage.",
-	"pvc":      "pvc represents configuration that uses a PersistentVolumeClaim.",
-	"azure":    "azure represents configuration that uses Azure Blob Storage.",
+	"":                "ImageRegistryConfigStorage describes how the storage should be configured for the image registry.",
+	"emptyDir":        "emptyDir represents ephemeral storage on the pod's host node. WARNING: this storage cannot be used with more than 1 replica and is not suitable for production use. When the pod is removed from a node for any reason, the data in the emptyDir is deleted forever.",
+	"s3":              "s3 represents configuration that uses Amazon Simple Storage Service.",
+	"gcs":             "gcs represents configuration that uses Google Cloud Storage.",
+	"swift":           "swift represents configuration that uses OpenStack Object Storage.",
+	"pvc":             "pvc represents configuration that uses a PersistentVolumeClaim.",
+	"azure":           "azure represents configuration that uses Azure Blob Storage.",
+	"managementState": "managementState indicates if the operator manages the underlying storage unit. If Managed the operator will remove the storage when this operator gets Removed.",
 }
 
 func (ImageRegistryConfigStorage) SwaggerDoc() map[string]string {
@@ -193,7 +194,7 @@ func (ImageRegistrySpec) SwaggerDoc() map[string]string {
 
 var map_ImageRegistryStatus = map[string]string{
 	"":               "ImageRegistryStatus reports image registry operational status.",
-	"storageManaged": "storageManaged is a boolean which denotes whether or not we created the registry storage medium (such as an S3 bucket).",
+	"storageManaged": "storageManaged is deprecated, please refer to Storage.managementState",
 	"storage":        "storage indicates the current applied storage configuration of the registry.",
 }
 
@@ -218,18 +219,19 @@ func (ImagePrunerList) SwaggerDoc() map[string]string {
 }
 
 var map_ImagePrunerSpec = map[string]string{
-	"":                           "ImagePrunerSpec defines the specs for the running image pruner.",
-	"schedule":                   "schedule specifies when to execute the job using standard cronjob syntax: https://wikipedia.org/wiki/Cron. Defaults to `0 0 * * *`.",
-	"suspend":                    "suspend specifies whether or not to suspend subsequent executions of this cronjob. Defaults to false.",
-	"keepTagRevisions":           "keepTagRevisions specifies the number of image revisions for a tag in an image stream that will be preserved. Defaults to 3.",
-	"keepYoungerThan":            "keepYoungerThan specifies the minimum age in nanoseconds of an image and its referrers for it to be considered a candidate for pruning. DEPRECATED: This field is deprecated in favor of keepYoungerThanDuration. If both are set, this field is ignored and keepYoungerThanDuration takes precedence.",
-	"keepYoungerThanDuration":    "keepYoungerThanDuration specifies the minimum age of an image and its referrers for it to be considered a candidate for pruning. Defaults to 60m (60 minutes).",
-	"resources":                  "resources defines the resource requests and limits for the image pruner pod.",
-	"affinity":                   "affinity is a group of node affinity scheduling rules for the image pruner pod.",
-	"nodeSelector":               "nodeSelector defines the node selection constraints for the image pruner pod.",
-	"tolerations":                "tolerations defines the node tolerations for the image pruner pod.",
-	"successfulJobsHistoryLimit": "successfulJobsHistoryLimit specifies how many successful image pruner jobs to retain. Defaults to 3 if not set.",
-	"failedJobsHistoryLimit":     "failedJobsHistoryLimit specifies how many failed image pruner jobs to retain. Defaults to 3 if not set.",
+	"":                             "ImagePrunerSpec defines the specs for the running image pruner.",
+	"schedule":                     "schedule specifies when to execute the job using standard cronjob syntax: https://wikipedia.org/wiki/Cron. Defaults to `0 0 * * *`.",
+	"suspend":                      "suspend specifies whether or not to suspend subsequent executions of this cronjob. Defaults to false.",
+	"keepTagRevisions":             "keepTagRevisions specifies the number of image revisions for a tag in an image stream that will be preserved. Defaults to 3.",
+	"keepYoungerThan":              "keepYoungerThan specifies the minimum age in nanoseconds of an image and its referrers for it to be considered a candidate for pruning. DEPRECATED: This field is deprecated in favor of keepYoungerThanDuration. If both are set, this field is ignored and keepYoungerThanDuration takes precedence.",
+	"keepYoungerThanDuration":      "keepYoungerThanDuration specifies the minimum age of an image and its referrers for it to be considered a candidate for pruning. Defaults to 60m (60 minutes).",
+	"resources":                    "resources defines the resource requests and limits for the image pruner pod.",
+	"affinity":                     "affinity is a group of node affinity scheduling rules for the image pruner pod.",
+	"nodeSelector":                 "nodeSelector defines the node selection constraints for the image pruner pod.",
+	"tolerations":                  "tolerations defines the node tolerations for the image pruner pod.",
+	"successfulJobsHistoryLimit":   "successfulJobsHistoryLimit specifies how many successful image pruner jobs to retain. Defaults to 3 if not set.",
+	"failedJobsHistoryLimit":       "failedJobsHistoryLimit specifies how many failed image pruner jobs to retain. Defaults to 3 if not set.",
+	"ignoreInvalidImageReferences": "ignoreInvalidImageReferences indicates whether the pruner can ignore errors while parsing image references.",
 }
 
 func (ImagePrunerSpec) SwaggerDoc() map[string]string {

@@ -105,7 +105,7 @@ github.com/modern-go/concurrent
 github.com/modern-go/reflect2
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 github.com/munnerz/goautoneg
-# github.com/openshift/api v0.0.0-20200723134351-89de68875e7c
+# github.com/openshift/api v0.0.0-20200824145854-a7f2798b4b7c
 github.com/openshift/api
 github.com/openshift/api/apps
 github.com/openshift/api/apps/v1
@@ -115,6 +115,8 @@ github.com/openshift/api/build
 github.com/openshift/api/build/v1
 github.com/openshift/api/config
 github.com/openshift/api/config/v1
+github.com/openshift/api/helm
+github.com/openshift/api/helm/v1beta1
 github.com/openshift/api/image
 github.com/openshift/api/image/docker10
 github.com/openshift/api/image/dockerpre012
@@ -156,7 +158,7 @@ github.com/openshift/api/user
 github.com/openshift/api/user/v1
 # github.com/openshift/apiserver-library-go v0.0.0-20200521171520-a7bc13e3e650
 github.com/openshift/apiserver-library-go/pkg/configflags
-# github.com/openshift/build-machinery-go v0.0.0-20200713135615-1f43d26dccc7
+# github.com/openshift/build-machinery-go v0.0.0-20200819073603-48aa266c95f7
 github.com/openshift/build-machinery-go
 github.com/openshift/build-machinery-go/make
 github.com/openshift/build-machinery-go/make/lib
