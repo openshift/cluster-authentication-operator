@@ -4,6 +4,8 @@ kind: ServiceMonitor
 metadata:
   name: authentication-operator
   namespace: openshift-authentication-operator
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 spec:
   endpoints:
   - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
@@ -30,6 +32,8 @@ kind: ServiceMonitor
 metadata:
   name: oauth-openshift
   namespace: openshift-authentication
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 spec:
   endpoints:
   - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
