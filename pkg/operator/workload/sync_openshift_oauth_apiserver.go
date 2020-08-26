@@ -20,7 +20,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
-	"github.com/openshift/library-go/pkg/operator/status"
 	"k8s.io/klog"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -58,7 +57,6 @@ type OAuthAPIServerWorkload struct {
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
 	eventRecorder             events.Recorder
-	versionRecorder           status.VersionGetter
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -71,7 +69,6 @@ func NewOAuthAPIServerWorkload(
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
 	eventRecorder events.Recorder,
-	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
 		operatorClient:            operatorClient,
@@ -82,7 +79,6 @@ func NewOAuthAPIServerWorkload(
 		operatorImagePullSpec:     operatorImagePullSpec,
 		kubeClient:                kubeClient,
 		eventRecorder:             eventRecorder,
-		versionRecorder:           versionRecorder,
 	}
 }
 
