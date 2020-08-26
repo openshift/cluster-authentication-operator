@@ -348,8 +348,14 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		// this may fail route-health checks in proxy environments
 		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
 	}
+
+	targetNsInformers := v1helpers.NewKubeInformersForNamespaces(
+		operatorCtx.kubeClient,
+		"openshift-authentication",
+		"openshift-oauth-apiserver",
+	)
 	targetVersionController := targetversion.NewTargetVersionController(
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		targetNsInformers,
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced.Route().V1().Routes(),
 		oauthClient.OauthV1().OAuthClients(),
@@ -385,6 +391,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		routeInformersNamespaced.Start,
 		kubeSystemNamespaceInformers.Start,
 		openshiftAuthenticationInformers.Start,
+		targetNsInformers.Start,
 	)
 
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,

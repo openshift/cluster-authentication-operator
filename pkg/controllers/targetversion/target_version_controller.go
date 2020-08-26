@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/informers"
 	appsv1lister "k8s.io/client-go/listers/apps/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 
@@ -47,14 +46,19 @@ var knownConditionNames = sets.NewString(
 	"OAuthVersionDeploymentDegraded",
 	"OAuthVersionDeploymentProgressing",
 	"OAuthVersionDeploymentAvailable",
+
+	"OAuthVersionAPIDeploymentDegraded",
+	"OAuthVersionAPIDeploymentProgressing",
+	"OAuthVersionAPIDeploymentAvailable",
 )
 
 type targetVersionController struct {
-	operatorClient   v1helpers.OperatorClient
-	ingressLister    configv1lister.IngressLister
-	routeLister      routev1lister.RouteLister
-	secretLister     corev1lister.SecretLister
-	deploymentLister appsv1lister.DeploymentLister
+	operatorClient      v1helpers.OperatorClient
+	ingressLister       configv1lister.IngressLister
+	routeLister         routev1lister.RouteLister
+	secretLister        corev1lister.SecretLister
+	deploymentLister    appsv1lister.DeploymentLister
+	apiDeploymentLister appsv1lister.DeploymentLister
 
 	oauthClientClient oauthclient.OAuthClientInterface
 	versionGetter     status.VersionGetter
@@ -62,7 +66,7 @@ type targetVersionController struct {
 }
 
 func NewTargetVersionController(
-	kubeInformersNamespaced informers.SharedInformerFactory,
+	kubeInformersNamespaced v1helpers.KubeInformersForNamespaces,
 	configInformers configinformer.SharedInformerFactory,
 	routeInformer routeinformer.RouteInformer,
 	oauthClient oauthclient.OAuthClientInterface,
@@ -71,21 +75,26 @@ func NewTargetVersionController(
 	systemCABundle []byte,
 	recorder events.Recorder,
 ) factory.Controller {
+	apiserverInformers := kubeInformersNamespaced.InformersFor("openshift-oauth-apiserver")
+	oauthserverInformers := kubeInformersNamespaced.InformersFor("openshift-authentication")
+
 	c := &targetVersionController{
-		deploymentLister:  kubeInformersNamespaced.Apps().V1().Deployments().Lister(),
-		secretLister:      kubeInformersNamespaced.Core().V1().Secrets().Lister(),
-		ingressLister:     configInformers.Config().V1().Ingresses().Lister(),
-		routeLister:       routeInformer.Lister(),
-		oauthClientClient: oauthClient,
-		versionGetter:     versionGetter,
+		deploymentLister:    oauthserverInformers.Apps().V1().Deployments().Lister(),
+		apiDeploymentLister: apiserverInformers.Apps().V1().Deployments().Lister(),
+		secretLister:        oauthserverInformers.Core().V1().Secrets().Lister(),
+		ingressLister:       configInformers.Config().V1().Ingresses().Lister(),
+		routeLister:         routeInformer.Lister(),
+		oauthClientClient:   oauthClient,
+		versionGetter:       versionGetter,
 
 		operatorClient: operatorClient,
 		systemCABundle: systemCABundle,
 	}
 
 	return factory.New().ResyncEvery(30*time.Second).WithInformers(
-		kubeInformersNamespaced.Core().V1().Secrets().Informer(),
-		kubeInformersNamespaced.Apps().V1().Deployments().Informer(),
+		oauthserverInformers.Core().V1().Secrets().Informer(),
+		oauthserverInformers.Apps().V1().Deployments().Informer(),
+		apiserverInformers.Apps().V1().Deployments().Informer(),
 		configInformers.Config().V1().Ingresses().Informer(),
 		routeInformer.Informer(),
 	).WithSync(c.sync).ToController("TargetVersion", recorder.WithComponentSuffix("target-version-controller"))
@@ -103,18 +112,31 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 	routeSecret, routeSecretConditions := c.getRouteSecret()
 	foundConditions = append(foundConditions, routeSecretConditions...)
 
-	deployment, deploymentConditions := c.getDeployment()
+	oauthServerDeployment, deploymentConditions := c.getOAuthServerDeployment()
+	foundConditions = append(foundConditions, deploymentConditions...)
+
+	apiDeployment, deploymentConditions := c.getOAuthAPIDeployment()
 	foundConditions = append(foundConditions, deploymentConditions...)
 
 	if len(foundConditions) == 0 {
 		foundConditions = append(foundConditions, common.CheckRouteHealthy(route, routeSecret, c.systemCABundle, ingressConfig, "OAuthVersionRoute")...)
 	}
 
-	if deployment != nil {
-		foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthVersionDeployment")...)
+	if oauthServerDeployment != nil {
+		foundConditions = append(foundConditions, common.CheckDeploymentReady(oauthServerDeployment, "OAuthVersionDeployment")...)
 	} else {
 		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
 			Type:   "OAuthVersionDeploymentAvailable",
+			Status: operatorv1.ConditionFalse,
+			Reason: "MissingDeployment",
+		})
+	}
+
+	if apiDeployment != nil {
+		foundConditions = append(foundConditions, common.CheckDeploymentReady(apiDeployment, "OAuthVersionAPIDeployment")...)
+	} else {
+		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
+			Type:   "OAuthVersionAPIDeploymentAvailable",
 			Status: operatorv1.ConditionFalse,
 			Reason: "MissingDeployment",
 		})
@@ -126,6 +148,7 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 	if len(foundConditions) == 0 {
 		c.setVersion("operator", operatorVersion)
 		c.setVersion("oauth-openshift", operandVersion)
+		// the version for "oauth-apiserver" is set in its workload controller
 	}
 
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
@@ -144,7 +167,7 @@ func (c *targetVersionController) getRouteSecret() (*corev1.Secret, []operatorv1
 	return routerSecret, nil
 }
 
-func (c *targetVersionController) getDeployment() (*appsv1.Deployment, []operatorv1.OperatorCondition) {
+func (c *targetVersionController) getOAuthServerDeployment() (*appsv1.Deployment, []operatorv1.OperatorCondition) {
 	deployment, err := c.deploymentLister.Deployments("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return nil, []operatorv1.OperatorCondition{{
@@ -152,6 +175,19 @@ func (c *targetVersionController) getDeployment() (*appsv1.Deployment, []operato
 			Status:  operatorv1.ConditionTrue,
 			Reason:  "GetFailed",
 			Message: fmt.Sprintf("Unable to get OAuth server deployment: %v", err),
+		}}
+	}
+	return deployment, nil
+}
+
+func (c *targetVersionController) getOAuthAPIDeployment() (*appsv1.Deployment, []operatorv1.OperatorCondition) {
+	deployment, err := c.apiDeploymentLister.Deployments("openshift-oauth-apiserver").Get("apiserver")
+	if err != nil {
+		return nil, []operatorv1.OperatorCondition{{
+			Type:    "OAuthVersionAPIDeploymentDegraded",
+			Status:  operatorv1.ConditionTrue,
+			Reason:  "GetFailed",
+			Message: fmt.Sprintf("Unable to get OAuth API server deployment: %v", err),
 		}}
 	}
 	return deployment, nil
