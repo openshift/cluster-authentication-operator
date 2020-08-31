@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/informers"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -169,15 +170,19 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 
 			// check the deployment state, only record changed when the deployment is considered ready.
 			foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthServerDeployment")...)
-			if len(foundConditions) == 0 {
-				// make sure we record the changes to the deployment
-				// if this fail, lets resync, this should not fail
-				operatorConfigCopy := operatorConfig.DeepCopy()
-				resourcemerge.SetDeploymentGeneration(&operatorConfigCopy.Status.Generations, deployment)
-				operatorConfigCopy.Status.ObservedGeneration = operatorConfig.Generation
-				operatorConfigCopy.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
+			if len(foundConditions) == 0 && (operatorConfig.Status.ObservedGeneration != operatorConfig.Generation || operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas) {
+				if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					operatorConfig, _ := c.getAuthConfig(ctx)
 
-				if _, err := c.auth.Authentications().UpdateStatus(ctx, operatorConfigCopy, metav1.UpdateOptions{}); err != nil {
+					// make sure we record the changes to the deployment
+					// if this fail, lets resync, this should not fail
+					resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
+					operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
+					operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
+
+					_, err := c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
+					return err
+				}); err != nil {
 					syncContext.Recorder().Warningf("AuthenticationUpdateStatusFailed", "Failed to update authentication operator status: %v", err)
 					return err
 				}
