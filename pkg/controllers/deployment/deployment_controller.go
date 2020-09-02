@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -159,6 +160,7 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		if expectedDeployment != nil {
 			deployment, _, err := resourceapply.ApplyDeployment(c.deployments, syncContext.Recorder(), expectedDeployment,
 				resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations))
+
 			if err != nil {
 				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
 					Type:    "OAuthServerDeploymentDegraded",
@@ -166,25 +168,13 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 					Reason:  "ApplyFailed",
 					Message: fmt.Sprintf("Applying deployment of integrated OAuth server failed: %v", err),
 				})
-			}
-
-			// check the deployment state, only record changed when the deployment is considered ready.
-			foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthServerDeployment")...)
-			if len(foundConditions) == 0 && (operatorConfig.Status.ObservedGeneration != operatorConfig.Generation || operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas) {
-				if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					operatorConfig, _ := c.getAuthConfig(ctx)
-
-					// make sure we record the changes to the deployment
-					// if this fail, lets resync, this should not fail
-					resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
-					operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
-					operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
-
-					_, err := c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
-					return err
-				}); err != nil {
-					syncContext.Recorder().Warningf("AuthenticationUpdateStatusFailed", "Failed to update authentication operator status: %v", err)
-					return err
+			} else {
+				// check the deployment state, only record changed when the deployment is considered ready.
+				foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthServerDeployment")...)
+				if len(foundConditions) == 0 {
+					if err := c.updateOperatorDeploymentInfo(ctx, syncContext, operatorConfig, deployment); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -360,5 +350,35 @@ func (c *deploymentController) ensureBootstrappedOAuthClients(ctx context.Contex
 		}}
 	}
 
+	return nil
+}
+
+// updateOperatorDeploymentInfo updates the operator's Status .ReadyReplicas, .Generation and the
+// .Generetions field with data about the oauth-server deployment
+func (c *deploymentController) updateOperatorDeploymentInfo(
+	ctx context.Context,
+	syncContext factory.SyncContext,
+	operatorConfig *operatorv1.Authentication,
+	deployment *appsv1.Deployment,
+) error {
+	operatorStatusOutdated := operatorConfig.Status.ObservedGeneration != operatorConfig.Generation || operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas
+
+	if operatorStatusOutdated {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			operatorConfig, _ := c.getAuthConfig(ctx)
+
+			// make sure we record the changes to the deployment
+			// if this fail, lets resync, this should not fail
+			resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
+			operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
+			operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
+
+			_, err := c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
+			return err
+		}); err != nil {
+			syncContext.Recorder().Warningf("AuthenticationUpdateStatusFailed", "Failed to update authentication operator status: %v", err)
+			return err
+		}
+	}
 	return nil
 }
