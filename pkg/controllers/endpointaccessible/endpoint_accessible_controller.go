@@ -103,7 +103,7 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	}
 
 	// if at least one endpoint responded, we are available
-	if len(errors) < len(endpoints) {
+	if len(endpoints) > 0 && len(errors) < len(endpoints) {
 		if _, _, err := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:   c.availableConditionName,
 			Status: operatorv1.ConditionTrue,
@@ -113,6 +113,10 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 			errors = append(errors, err)
 		}
 	} else {
+		// in case there are no endpoints returned, go available=false
+		if len(endpoints) == 0 {
+			errors = append(errors, fmt.Errorf("Failed to get oauth-openshift enpoints"))
+		}
 		if _, _, err := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    c.availableConditionName,
 			Status:  operatorv1.ConditionFalse,
