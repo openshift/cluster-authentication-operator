@@ -8,25 +8,25 @@ require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
 	github.com/kubernetes-sigs/kube-storage-version-migrator v0.0.0-20191127225502-51849bc15f17
-	github.com/openshift/api v0.0.0-20200723134351-89de68875e7c
+	github.com/openshift/api v0.0.0-20200827090112-c05698d102cf
 	github.com/openshift/apiserver-library-go v0.0.0-20200521171520-a7bc13e3e650
-	github.com/openshift/build-machinery-go v0.0.0-20200713135615-1f43d26dccc7
-	github.com/openshift/client-go v0.0.0-20200722173614-5a1b0aaeff15
-	github.com/openshift/library-go v0.0.0-20200804191358-a2f5b6a8ef01
+	github.com/openshift/build-machinery-go v0.0.0-20200819073603-48aa266c95f7
+	github.com/openshift/client-go v0.0.0-20200827190008-3062137373b5
+	github.com/openshift/library-go v0.0.0-20200902171820-35f48b6ef30c
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
-	go.etcd.io/etcd v0.5.0-alpha.5.0.20200716221620-18dfb9cca345
+	go.etcd.io/etcd v0.5.0-alpha.5.0.20200819165624-17cef6e3e9d5
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.3.0
-	k8s.io/api v0.19.0-rc.2
-	k8s.io/apimachinery v0.19.0-rc.2
-	k8s.io/apiserver v0.19.0-rc.2
-	k8s.io/client-go v0.19.0-rc.2
-	k8s.io/component-base v0.19.0-rc.2
+	k8s.io/api v0.19.0
+	k8s.io/apimachinery v0.19.0
+	k8s.io/apiserver v0.19.0
+	k8s.io/client-go v0.19.0
+	k8s.io/component-base v0.19.0
 	k8s.io/klog v1.0.0
-	k8s.io/kube-aggregator v0.19.0-rc.2
-	k8s.io/utils v0.0.0-20200720150651-0bdb4ca86cbc
+	k8s.io/kube-aggregator v0.19.0
+	k8s.io/utils v0.0.0-20200729134348-d5654de09c73
 )
 
 replace (
