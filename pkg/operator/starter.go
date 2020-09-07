@@ -200,7 +200,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	// add syncing for router certs for all cluster ingresses
 	if err := operatorCtx.resourceSyncController.SyncSecret(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-router-certs"},
-		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "router-certs"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "router-certs", Provider: "ingress-operator"},
 	); err != nil {
 		return err
 	}
