@@ -201,7 +201,7 @@ github.com/openshift/client-go/route/informers/externalversions/internalinterfac
 github.com/openshift/client-go/route/informers/externalversions/route
 github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
-# github.com/openshift/library-go v0.0.0-20200902171820-35f48b6ef30c
+# github.com/openshift/library-go v0.0.0-20200907120738-ea57b121ba1a
 github.com/openshift/library-go/pkg/assets
 github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator
 github.com/openshift/library-go/pkg/config/client
