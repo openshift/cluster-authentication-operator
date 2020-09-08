@@ -29,16 +29,18 @@ import (
 )
 
 func TestValidateRouterCertificates(t *testing.T) {
+	defaultIngressCACerts := newCertificateAuthorityCertificate(nil)
+	defaultIngressCertCM := newIngressConfigMap(string(withPEM(withExistingRootCA(defaultIngressCACerts))([]byte{})))
 
 	fakeSystemRootCA := newCertificateAuthorityCertificate(nil)
 	fakeSystemCertPool := x509.NewCertPool()
 	fakeSystemCertPool.AddCert(fakeSystemRootCA.Certificate)
 
-	var err error
 	testCases := []struct {
 		name           string
 		ingress        *configv1.Ingress
 		secret         *corev1.Secret
+		cm             *corev1.ConfigMap
 		systemCertPool func() (*x509.CertPool, error)
 		expectedStatus operatorv1.ConditionStatus
 		expectedReason string
@@ -52,7 +54,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 				withPEM(
 					withServer("*.example.com",
 						withCA(
-							withCA(),
+							withExistingRootCA(defaultIngressCACerts),
 						),
 					),
 				),
@@ -125,6 +127,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 					withMissingRootCA,
 				),
 			)),
+			cm:             newIngressConfigMap(string(withPEM(withCA(withCA()), withMissingRootCA)([]byte{}))),
 			systemCertPool: func() (*x509.CertPool, error) { return x509.NewCertPool(), nil },
 		},
 		{
@@ -133,7 +136,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 			secret: newSecret("router-certs", "target", withData("example.com",
 				withPEM(
 					withCA(
-						withCA(),
+						withExistingRootCA(defaultIngressCACerts),
 					),
 				),
 			)),
@@ -149,7 +152,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 				withPEM(
 					withServer("*.example.org",
 						withCA(
-							withCA(),
+							withExistingRootCA(defaultIngressCACerts),
 						),
 					),
 				),
@@ -164,7 +167,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 				withPEM(
 					withServer("*.example.com",
 						withCA(
-							withCA(),
+							withExistingRootCA(defaultIngressCACerts),
 						),
 					),
 					withMissingIntermediateCA,
@@ -189,10 +192,21 @@ func TestValidateRouterCertificates(t *testing.T) {
 			if tc.systemCertPool == nil {
 				tc.systemCertPool = x509.SystemCertPool
 			}
+
+			var err error
+			configMapsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			if tc.cm != nil {
+				err = configMapsIndexer.Add(tc.cm)
+			} else {
+				err = configMapsIndexer.Add(defaultIngressCertCM)
+			}
+			require.NoError(t, err)
+
 			controller := routerCertsDomainValidationController{
 				operatorClient:  operatorClient,
 				ingressLister:   configv1listers.NewIngressLister(ingresses),
 				secretLister:    corev1listers.NewSecretLister(secrets),
+				configMapLister: corev1listers.NewConfigMapLister(configMapsIndexer),
 				targetNamespace: "target",
 				secretName:      "router-certs",
 				routeName:       "test-route",
@@ -223,6 +237,16 @@ func newIngress(name string, options ...func(*configv1.Ingress)) *configv1.Ingre
 func withDomain(host string) func(*configv1.Ingress) {
 	return func(ingress *configv1.Ingress) {
 		ingress.Spec.Domain = host
+	}
+}
+
+func newIngressConfigMap(data string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-ingress-cert",
+			Namespace: "openshift-config-managed",
+		},
+		Data: map[string]string{"ca-bundle.crt": data},
 	}
 }
 

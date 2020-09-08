@@ -281,6 +281,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
 		openshiftAuthenticationInformers.Core().V1().Secrets(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"oauth-openshift",

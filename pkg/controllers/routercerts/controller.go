@@ -32,6 +32,7 @@ type routerCertsDomainValidationController struct {
 	operatorClient  v1helpers.OperatorClient
 	ingressLister   configv1listers.IngressLister
 	secretLister    corev1listers.SecretLister
+	configMapLister corev1listers.ConfigMapLister
 	targetNamespace string
 	secretName      string
 	routeName       string
@@ -44,6 +45,7 @@ func NewRouterCertsDomainValidationController(
 	eventRecorder events.Recorder,
 	ingressInformer configv1informers.IngressInformer,
 	secretInformer corev1informers.SecretInformer,
+	configMapInformer corev1informers.ConfigMapInformer,
 	targetNamespace string,
 	secretName string,
 	routeName string,
@@ -52,6 +54,7 @@ func NewRouterCertsDomainValidationController(
 		operatorClient:  operatorClient,
 		ingressLister:   ingressInformer.Lister(),
 		secretLister:    secretInformer.Lister(),
+		configMapLister: configMapInformer.Lister(),
 		targetNamespace: targetNamespace,
 		secretName:      secretName,
 		routeName:       routeName,
@@ -59,7 +62,11 @@ func NewRouterCertsDomainValidationController(
 	}
 
 	return factory.New().
-		WithInformers(operatorClient.Informer(), ingressInformer.Informer(), secretInformer.Informer()).
+		WithInformers(
+			operatorClient.Informer(),
+			ingressInformer.Informer(),
+			secretInformer.Informer(),
+			configMapInformer.Informer()).
 		WithSync(controller.sync).
 		ResyncEvery(30*time.Second).
 		ToController("RouterCertsDomainValidationController", eventRecorder)
@@ -113,8 +120,23 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates() ope
 		return newRouterCertsDegradedf("MalformedRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: certificates could not be parsed: %v", c.secretName, ingressDomain, c.targetNamespace, err)
 	}
 
+	// get default router CA cert cm
+	cm, err := c.configMapLister.ConfigMaps("openshift-config-managed").Get("default-ingress-cert")
+	if err != nil {
+		return newRouterCertsDegradedf("NoDefaultIngressCAConfigMap", "failed to get configMap openshift-config-managed/default-ingress-cert: %v", err)
+	}
+
+	ingressCABundlePEM, ok := cm.Data["ca-bundle.crt"]
+	if !ok {
+		return newRouterCertsDegraded("MissingIngressCACerts", "configMap/default-ingress-cert.data[ca-bundle.crt] -n openshift-config-managed: empty")
+	}
+
+	ingressCACerts, err := crypto.CertsFromPEM([]byte(ingressCABundlePEM))
+	if err != nil {
+		return newRouterCertsDegradedf("MalformedIngressCACertsPem", "configMap/default-ingress-cert.data[ca-bundle.crt] -n openshift-config-managed: certificates could not be parsed: %v", err)
+	}
+
 	// categorize certificates
-	var serverCerts []*x509.Certificate
 	verifyOptions := x509.VerifyOptions{}
 	verifyOptions.DNSName = c.routeName + "." + ingressDomain
 	verifyOptions.Intermediates = x509.NewCertPool()
@@ -123,23 +145,13 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates() ope
 		klog.Infof("system cert pool not available: %v", err)
 		verifyOptions.Roots = x509.NewCertPool()
 	}
-	for _, certificate := range certificates {
-		switch {
-		case certificate.IsCA && bytes.Equal(certificate.RawSubject, certificate.RawIssuer):
-			klog.V(4).Infof("using CA %s as root", certificate.Subject.String())
-			verifyOptions.Roots.AddCert(certificate)
-		case certificate.IsCA:
-			klog.V(4).Infof("using CA %s as intermediate", certificate.Subject.String())
-			verifyOptions.Intermediates.AddCert(certificate)
-		default:
-			serverCerts = append(serverCerts, certificate)
-		}
+	// ignore the server cert from the default cert bundle
+	populateVerifyOptionsFromCertSlice(&verifyOptions, ingressCACerts)
+	if len(verifyOptions.Roots.Subjects()) == 0 { // the CA certs can also appear in the secret, but by default we should also trust the default ingress CA bundle for the default routes
+		return newRouterCertsDegradedf("NoRootCARouterCerts", "configMap/default-ingress-cert.data[ca-bundle.crt] -n openshift-config-managed: no root CA certificates found in the CM or system")
 	}
 
-	if len(verifyOptions.Roots.Subjects()) == 0 {
-		return newRouterCertsDegradedf("NoRootCARouterCerts", "secret/%v.spec.data[%v] -n %v: no root CA certificates found in secret or system", c.secretName, ingressDomain, c.targetNamespace)
-	}
-
+	serverCerts := populateVerifyOptionsFromCertSlice(&verifyOptions, certificates)
 	if len(serverCerts) == 0 {
 		return newRouterCertsDegradedf("NoServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: no server certificates found", c.secretName, ingressDomain, c.targetNamespace)
 	}
@@ -183,4 +195,22 @@ func verifyWithAnyCertificate(serverCerts []*x509.Certificate, options x509.Veri
 	}
 	// no certificate was able to verify dns name, return last error
 	return err
+}
+
+func populateVerifyOptionsFromCertSlice(opts *x509.VerifyOptions, certs []*x509.Certificate) []*x509.Certificate {
+	serverCerts := []*x509.Certificate{}
+	for _, certificate := range certs {
+		switch {
+		case certificate.IsCA && bytes.Equal(certificate.RawSubject, certificate.RawIssuer):
+			klog.V(4).Infof("using CA %s as root", certificate.Subject.String())
+			opts.Roots.AddCert(certificate)
+		case certificate.IsCA:
+			klog.V(4).Infof("using CA %s as intermediate", certificate.Subject.String())
+			opts.Intermediates.AddCert(certificate)
+		default:
+			serverCerts = append(serverCerts, certificate)
+		}
+	}
+
+	return serverCerts
 }
