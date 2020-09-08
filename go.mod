@@ -12,7 +12,7 @@ require (
 	github.com/openshift/apiserver-library-go v0.0.0-20200521171520-a7bc13e3e650
 	github.com/openshift/build-machinery-go v0.0.0-20200819073603-48aa266c95f7
 	github.com/openshift/client-go v0.0.0-20200827190008-3062137373b5
-	github.com/openshift/library-go v0.0.0-20200902171820-35f48b6ef30c
+	github.com/openshift/library-go v0.0.0-20200907120738-ea57b121ba1a
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
@@ -52,4 +52,5 @@ replace (
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.19.0-rc.2
 	k8s.io/metrics => k8s.io/metrics v0.19.0-rc.2
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.19.0-rc.2
+	vbom.ml/util => github.com/fvbommel/util v0.0.0-20180919145318-efcd4e0f9787
 )
