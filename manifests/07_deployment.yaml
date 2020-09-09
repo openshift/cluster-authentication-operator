@@ -6,7 +6,7 @@ metadata:
   labels:
     app: authentication-operator
   annotations:
-    config.openshift.io/inject-proxy: operator
+    config.openshift.io/inject-proxy: authentication-operator
     exclude.release.openshift.io/internal-openshift-hosted: "true"
 spec:
   replicas: 1
