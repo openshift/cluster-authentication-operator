@@ -185,7 +185,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 		return nil
 	}
 	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec); len(ips) < expectedMinNumber {
-		return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
+		return fmt.Errorf("need at least %d kube-apiservers, got %d (see kube-apiserver operator for more information)", expectedMinNumber, len(ips))
 	}
 
 	return nil
