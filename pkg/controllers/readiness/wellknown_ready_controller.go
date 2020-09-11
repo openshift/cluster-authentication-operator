@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +26,9 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1lister "k8s.io/client-go/listers/core/v1"
@@ -162,7 +165,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 
 	ips, err := c.getAPIServerIPs()
 	if err != nil {
-		return fmt.Errorf("failed to get API server IPs: %v", err)
+		return fmt.Errorf("failed to get API server IPs: %v (check kube-apiserver that it deploys correctly)", err)
 	}
 
 	for _, ip := range ips {
@@ -192,6 +195,11 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 }
 
 func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) error {
+	expectedMetadata, err := c.getOAuthMetadata()
+	if err != nil {
+		return fmt.Errorf("failed to get oauth metadata from openshift-config-managed/oauth-openshift ConfigMap: %w (check authentication operator, it is supposed to create this)", err)
+	}
+
 	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
@@ -201,33 +209,54 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
-		return fmt.Errorf("failed to GET well-known %s: %v", wellKnown, err)
+		return fmt.Errorf("failed to GET kube-apiserver oauth endpoint %s: %w%s", wellKnown, err, wellKnownRoundtripErrorHint(err))
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("got '%s' status while trying to GET the OAuth well-known %s endpoint data", resp.Status, wellKnown)
+	switch resp.StatusCode {
+	case 200:
+		// success
+	case http.StatusNotFound:
+		return fmt.Errorf("kube-apiserver oauth endpoint %s is not yet served and authentication operator keeps waiting (check kube-apiserver operator, and check that instances roll out successfully, which can take several minutes per instance)", wellKnown)
+	default:
+		return fmt.Errorf("kube-apiserver oauth endpoint %s replied with unexpected status: %s (check kube-apiserver logs if this error persists)", wellKnown, resp.Status)
 	}
 
 	var receivedValues map[string]interface{}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read well-known %s body: %v", wellKnown, err)
+		return fmt.Errorf("failed to read %s body: %v (check kube-apiserver logs if this error persists)", wellKnown, err)
 	}
 	if err := json.Unmarshal(body, &receivedValues); err != nil {
-		return fmt.Errorf("failed to marshall well-known %s JSON: %v", wellKnown, err)
-	}
-
-	expectedMetadata, err := c.getOAuthMetadata()
-	if err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal %s JSON: %v (check kube-apiserver logs if this error persists)", wellKnown, err)
 	}
 
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return fmt.Errorf("the value returned by the well-known %s endpoint does not match expectations", wellKnown)
+		return fmt.Errorf("the %s endpoint returns different oauth metadata than is stored in openshift-config-managed/oauth-openshift ConfigMap (check kube-apiserver operator that instances roll out, which happens when oauth metadata changes)", wellKnown)
 	}
 
 	return nil
+}
+
+func wellKnownRoundtripErrorHint(err error) string {
+	switch {
+	case isConnectionRefusedError(err) || netutil.IsConnectionRefused(err):
+		return " (kube-apiserver is probably not running on that node, killed before graceful termination or crash-looping)"
+	case netutil.IsNoRoutesError(err):
+		return " (check node networking, the SDN might have stale routing information for pod IPs on that node)"
+	case netutil.IsConnectionReset(err), netutil.IsProbableEOF(err), netutil.IsConnectionReset(err):
+		return " (check cluster networking, it might be temporarily unstable)"
+	case errors.IsServerTimeout(err), errors.IsTooManyRequests(err):
+		return " (check kube-apiserver on that node, it might be under too heavy load)"
+	case strings.Contains(err.Error(), ":53"):
+		return " (check DNS on that node)"
+	default:
+		return ""
+	}
+}
+
+func isConnectionRefusedError(err error) bool {
+	return strings.Contains(err.Error(), "connection refused")
 }
 
 func (c *wellKnownReadyController) getOAuthMetadata() (map[string]interface{}, error) {
