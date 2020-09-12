@@ -422,7 +422,11 @@ func checkOIDCPasswordGrantFlow(
 	respJSON := json.NewDecoder(resp.Body)
 	respMap := map[string]interface{}{}
 	if err = respJSON.Decode(&respMap); err != nil {
-		return false, fmt.Errorf("failed to JSON-decode the response from the OIDC server's token endpoint (%s): %v", tokenURL, err)
+		// only log the error, some OIDCs ignore/don't implement the Accept header
+		// and respond with HTML in case they don't support password credential grants at all
+		klog.Errorf("failed to JSON-decode the response from the OIDC server's token endpoint (%s): %v", tokenURL, err)
+		oidcPasswordChecks[secret.ResourceVersion] = false
+		return false, nil
 	}
 
 	if errVal, ok := respMap["error"]; ok {
