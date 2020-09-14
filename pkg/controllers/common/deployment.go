@@ -32,7 +32,7 @@ func DeploymentPodsStatus(deployment *appsv1.Deployment, podClient corelistersv1
 					c.State.Terminated.Reason, c.State.Terminated.Message))
 			}
 			if c.RestartCount > 0 {
-				containerStates = append(containerStates, fmt.Sprintf("container %q restarted %dx times", c.RestartCount, c.Name))
+				containerStates = append(containerStates, fmt.Sprintf("container %q restarted %dx times", c.Name, c.RestartCount))
 			}
 		}
 		podConditions := []string{
@@ -46,7 +46,7 @@ func DeploymentPodsStatus(deployment *appsv1.Deployment, podClient corelistersv1
 	return deploymentPodsStates, nil
 }
 
-func CheckDeploymentReady(deployment *appsv1.Deployment, conditionPrefix string) []operatorv1.OperatorCondition {
+func CheckDeploymentReady(deployment *appsv1.Deployment, podLister corelistersv1.PodLister, conditionPrefix string) []operatorv1.OperatorCondition {
 	if deployment.DeletionTimestamp != nil {
 		return []operatorv1.OperatorCondition{
 			{
@@ -65,12 +65,16 @@ func CheckDeploymentReady(deployment *appsv1.Deployment, conditionPrefix string)
 	}
 
 	if deployment.Status.AvailableReplicas > 0 && deployment.Status.UpdatedReplicas != deployment.Status.Replicas {
+		deploymentPodsDetails, err := DeploymentPodsStatus(deployment, podLister)
+		if err != nil {
+			deploymentPodsDetails = []string{fmt.Sprintf("error retrieving deployment pods details: %v", err)}
+		}
 		return []operatorv1.OperatorCondition{
 			{
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "ReplicasNotReady",
-				Message: fmt.Sprintf("Waiting for all OAuth server replicas to be ready (%d not ready)", deployment.Status.Replicas-deployment.Status.UpdatedReplicas),
+				Message: fmt.Sprintf("Waiting for all OAuth server replicas to be ready (%d not ready), %s", deployment.Status.Replicas-deployment.Status.UpdatedReplicas, strings.Join(deploymentPodsDetails, ",")),
 			},
 			{
 				Type:    conditionPrefix + "Available",
@@ -93,12 +97,16 @@ func CheckDeploymentReady(deployment *appsv1.Deployment, conditionPrefix string)
 	}
 
 	if deployment.Status.UpdatedReplicas != deployment.Status.Replicas || deployment.Status.UnavailableReplicas > 0 {
+		deploymentPodsDetails, err := DeploymentPodsStatus(deployment, podLister)
+		if err != nil {
+			deploymentPodsDetails = []string{fmt.Sprintf("error retrieving deployment pods details: %v", err)}
+		}
 		return []operatorv1.OperatorCondition{
 			{
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "ReplicasNotAvailable",
-				Message: fmt.Sprintf("Waiting for %d replicas of OAuth server to be available", deployment.Status.UnavailableReplicas),
+				Message: fmt.Sprintf("Waiting for %d replicas of OAuth server to be available (%s)", deployment.Status.UnavailableReplicas, strings.Join(deploymentPodsDetails, ",")),
 			},
 		}
 	}
