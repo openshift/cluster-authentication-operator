@@ -54,6 +54,7 @@ type targetVersionController struct {
 	ingressLister    configv1lister.IngressLister
 	routeLister      routev1lister.RouteLister
 	secretLister     corev1lister.SecretLister
+	podLister        corev1lister.PodLister
 	deploymentLister appsv1lister.DeploymentLister
 
 	oauthClientClient oauthclient.OAuthClientInterface
@@ -74,6 +75,7 @@ func NewTargetVersionController(
 	c := &targetVersionController{
 		deploymentLister:  kubeInformersNamespaced.Apps().V1().Deployments().Lister(),
 		secretLister:      kubeInformersNamespaced.Core().V1().Secrets().Lister(),
+		podLister:         kubeInformersNamespaced.Core().V1().Pods().Lister(),
 		ingressLister:     configInformers.Config().V1().Ingresses().Lister(),
 		routeLister:       routeInformer.Lister(),
 		oauthClientClient: oauthClient,
@@ -84,6 +86,7 @@ func NewTargetVersionController(
 	}
 
 	return factory.New().ResyncEvery(30*time.Second).WithInformers(
+		kubeInformersNamespaced.Core().V1().Pods().Informer(),
 		kubeInformersNamespaced.Core().V1().Secrets().Informer(),
 		kubeInformersNamespaced.Apps().V1().Deployments().Informer(),
 		configInformers.Config().V1().Ingresses().Informer(),
@@ -111,7 +114,7 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 	}
 
 	if deployment != nil {
-		foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthVersionDeployment")...)
+		foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, c.podLister, "OAuthVersionDeployment")...)
 	} else {
 		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
 			Type:   "OAuthVersionDeploymentAvailable",
