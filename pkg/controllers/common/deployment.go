@@ -2,11 +2,49 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 )
+
+// DeploymentPodsStatus return detailed information about deployment pods and the containers
+// TODO: Move this to library-go
+func DeploymentPodsStatus(deployment *appsv1.Deployment, podClient corelistersv1.PodLister) ([]string, error) {
+	deploymentPods, err := podClient.Pods(deployment.Namespace).List(labels.SelectorFromSet(deployment.Spec.Template.Labels))
+	if err != nil {
+		return nil, err
+	}
+	deploymentPodsStates := []string{}
+	for i := range deploymentPods {
+		containerStates := []string{}
+		for _, c := range append(deploymentPods[i].Status.ContainerStatuses, deploymentPods[i].Status.InitContainerStatuses...) {
+			switch {
+			case c.State.Running != nil:
+				containerStates = append(containerStates, fmt.Sprintf("container %q is running since %s", c.Name, c.State.Running.StartedAt))
+			case c.State.Waiting != nil:
+				containerStates = append(containerStates, fmt.Sprintf("container %q is waiting: %s - %s", c.Name, c.State.Waiting.Reason, c.State.Waiting.Message))
+			case c.State.Terminated != nil:
+				containerStates = append(containerStates, fmt.Sprintf("container %q is terminated (recv: %d, exit: %d): %s - %s", c.Name, c.State.Terminated.Signal, c.State.Terminated.ExitCode,
+					c.State.Terminated.Reason, c.State.Terminated.Message))
+			}
+			if c.RestartCount > 0 {
+				containerStates = append(containerStates, fmt.Sprintf("container %q restarted %dx times", c.RestartCount, c.Name))
+			}
+		}
+		podConditions := []string{
+			fmt.Sprintf("phase=%s", deploymentPods[i].Status.Phase),
+		}
+		for _, c := range deploymentPods[i].Status.Conditions {
+			podConditions = append(podConditions, fmt.Sprintf("%s=%s (%s#%s)", c.Type, c.Status, c.Reason, c.Message))
+		}
+		deploymentPodsStates = append(deploymentPodsStates, fmt.Sprintf("pod %q is %s (%s)", deploymentPods[i].Name, strings.Join(podConditions, ","), strings.Join(containerStates, ",")))
+	}
+	return deploymentPodsStates, nil
+}
 
 func CheckDeploymentReady(deployment *appsv1.Deployment, conditionPrefix string) []operatorv1.OperatorCondition {
 	if deployment.DeletionTimestamp != nil {
