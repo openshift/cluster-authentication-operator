@@ -7,12 +7,11 @@ require (
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
-	github.com/kubernetes-sigs/kube-storage-version-migrator v0.0.0-20191127225502-51849bc15f17
 	github.com/openshift/api v0.0.0-20200827090112-c05698d102cf
 	github.com/openshift/apiserver-library-go v0.0.0-20200521171520-a7bc13e3e650
 	github.com/openshift/build-machinery-go v0.0.0-20200819073603-48aa266c95f7
 	github.com/openshift/client-go v0.0.0-20200827190008-3062137373b5
-	github.com/openshift/library-go v0.0.0-20200908182125-bdfa309a0a1d
+	github.com/openshift/library-go v0.0.0-20200915114203-ee518dab897a
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
@@ -27,10 +26,10 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/kube-aggregator v0.19.0
 	k8s.io/utils v0.0.0-20200729134348-d5654de09c73
+	sigs.k8s.io/kube-storage-version-migrator v0.0.3
 )
 
 replace (
-	github.com/kubernetes-sigs/kube-storage-version-migrator => github.com/openshift/kubernetes-kube-storage-version-migrator v0.0.3-0.20200312103335-32e07ea4f8ca
 	k8s.io/api => k8s.io/api v0.19.0-rc.2
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.19.0-rc.2
 	k8s.io/apimachinery => k8s.io/apimachinery v0.19.0-rc.2
