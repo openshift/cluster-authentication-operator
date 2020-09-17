@@ -43,6 +43,7 @@ GO_TEST_PACKAGES :=./pkg/... ./cmd/...
 #   make test-e2e
 test-e2e: GO_TEST_PACKAGES :=./test/e2e/...
 test-e2e: GO_TEST_FLAGS += -v
+test-e2e: GO_TEST_FLAGS += -count 1
 test-e2e: test-unit
 .PHONY: test-e2e
 
