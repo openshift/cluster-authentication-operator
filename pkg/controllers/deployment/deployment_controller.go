@@ -62,6 +62,7 @@ type deploymentController struct {
 
 	configMapLister corev1listers.ConfigMapLister
 	secretLister    corev1listers.SecretLister
+	podsLister      corev1listers.PodLister
 	routeLister     routev1lister.RouteLister
 	ingressLister   configv1listers.IngressLister
 	proxyLister     configv1listers.ProxyLister
@@ -82,6 +83,7 @@ func NewDeploymentController(kubeInformersForTargetNamespace informers.SharedInf
 		configMapLister:         kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
 		secretLister:            kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		routeLister:             routeInformer.Route().V1().Routes().Lister(),
+		podsLister:              kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
 		ingressLister:           configInformers.Config().V1().Ingresses().Lister(),
 		proxyLister:             configInformers.Config().V1().Proxies().Lister(),
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
@@ -95,6 +97,7 @@ func NewDeploymentController(kubeInformersForTargetNamespace informers.SharedInf
 	}
 
 	return factory.New().WithInformers(
+		kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
@@ -170,7 +173,7 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 				})
 			} else {
 				// check the deployment state, only record changed when the deployment is considered ready.
-				foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, "OAuthServerDeployment")...)
+				foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, c.podsLister, "OAuthServerDeployment")...)
 				if len(foundConditions) == 0 {
 					if err := c.updateOperatorDeploymentInfo(ctx, syncContext, operatorConfig, deployment); err != nil {
 						return err

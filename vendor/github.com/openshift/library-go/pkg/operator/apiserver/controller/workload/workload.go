@@ -4,15 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
-
-	operatorv1 "github.com/openshift/api/operator/v1"
-	openshiftconfigclientv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
-	clusteroperatorv1helpers "github.com/openshift/library-go/pkg/config/clusteroperator/v1helpers"
-	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
-	"github.com/openshift/library-go/pkg/operator/status"
-	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +21,15 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
+	operatorv1 "github.com/openshift/api/operator/v1"
+	openshiftconfigclientv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
+	"github.com/openshift/library-go/pkg/apps/deployment"
+	clusteroperatorv1helpers "github.com/openshift/library-go/pkg/config/clusteroperator/v1helpers"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"github.com/openshift/library-go/pkg/operator/status"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 const (
@@ -56,6 +58,8 @@ type Controller struct {
 	// operandNamePrefix is used to set the version for an operand via versionRecorder.SetVersion method
 	operandNamePrefix string
 
+	podsLister corev1listers.PodLister
+
 	operatorClient               v1helpers.OperatorClient
 	kubeClient                   kubernetes.Interface
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface
@@ -78,6 +82,7 @@ type Controller struct {
 func NewController(name, operatorNamespace, targetNamespace, targetOperandVersion, operandNamePrefix, conditionsPrefix string,
 	operatorClient v1helpers.OperatorClient,
 	kubeClient kubernetes.Interface,
+	podLister corev1listers.PodLister,
 	delegate Delegate,
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface,
 	eventRecorder events.Recorder,
@@ -91,6 +96,7 @@ func NewController(name, operatorNamespace, targetNamespace, targetOperandVersio
 		conditionsPrefix:             conditionsPrefix,
 		operatorClient:               operatorClient,
 		kubeClient:                   kubeClient,
+		podsLister:                   podLister,
 		delegate:                     delegate,
 		openshiftClusterConfigClient: openshiftClusterConfigClient,
 		eventRecorder:                eventRecorder.WithComponentSuffix("workload-controller"),
@@ -361,7 +367,12 @@ func (c *Controller) updateOperatorStatus(workload *appsv1.Deployment, operatorC
 		numNonAvailablePods := desiredReplicas - workload.Status.AvailableReplicas
 		deploymentDegradedCondition.Status = operatorv1.ConditionTrue
 		deploymentDegradedCondition.Reason = "UnavailablePod"
-		deploymentDegradedCondition.Message = fmt.Sprintf("%v of %v requested instances are unavailable for %s.%s", numNonAvailablePods, desiredReplicas, workload.Name, c.targetNamespace)
+		podContainersStatus, err := deployment.PodContainersStatus(workload, c.podsLister)
+		if err != nil {
+			podContainersStatus = []string{fmt.Sprintf("failed to get pod containers details: %v", err)}
+		}
+		deploymentDegradedCondition.Message = fmt.Sprintf("%v of %v requested instances are unavailable for %s.%s (%s)", numNonAvailablePods, desiredReplicas, workload.Name, c.targetNamespace,
+			strings.Join(podContainersStatus, ", "))
 	} else {
 		deploymentDegradedCondition.Status = operatorv1.ConditionFalse
 		deploymentDegradedCondition.Reason = "AsExpected"

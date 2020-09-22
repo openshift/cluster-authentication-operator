@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
@@ -158,7 +157,11 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorCtx.operatorClient, controllerContext.EventRecorder)
 	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorCtx.operatorClient, controllerContext.EventRecorder)
 
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, kubeInformersForNamespaces.Start, authOperatorConfigInformers.Start, operatorCtx.operatorConfigInformer.Start)
+	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
+		kubeInformersForNamespaces.Start,
+		authOperatorConfigInformers.Start,
+		operatorCtx.operatorConfigInformer.Start,
+	)
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, resourceSyncer.Run, configOverridesController.Run, logLevelController.Run)
 
 	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
@@ -186,8 +189,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	openshiftAuthenticationInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication")
 	kubeSystemNamespaceInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("kube-system")
-
-	kubeInformers := informers.NewSharedInformerFactory(operatorCtx.kubeClient, 10*time.Minute)
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
 		routeinformer.WithNamespace("openshift-authentication"),
@@ -368,7 +369,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
-		kubeInformers.Core().V1().Nodes(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
 
 	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
@@ -396,7 +397,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
 		routeInformersNamespaced.Start,
 		kubeSystemNamespaceInformers.Start,
-		kubeInformers.Start,
 		openshiftAuthenticationInformers.Start,
 	)
 
