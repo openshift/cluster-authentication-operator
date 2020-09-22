@@ -604,12 +604,25 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		return err
 	}
 
+	// TODO(4.7): switch over to secure access-token logging by default and delete old non-sha256 tokens
+	auditPolicyPathGetterWithAccessTokenLogs := func(profile string) (string, error) {
+		operatorConfig, err := operatorCtx.operatorConfigInformer.Config().V1().APIServers().Lister().Get("cluster")
+		if err != nil {
+			return "", err
+		}
+
+		if operatorConfig.Annotations["oauth-apiserver.openshift.io/secure-token-storage"] == "true" {
+			return auditPolicyPathGetter("secure-oauth-storage-" + profile)
+		}
+		return auditPolicyPathGetter(profile)
+	}
+
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
-		auditPolicyPathGetter,
+		auditPolicyPathGetterWithAccessTokenLogs,
 		controllerContext.EventRecorder,
 	)
 
