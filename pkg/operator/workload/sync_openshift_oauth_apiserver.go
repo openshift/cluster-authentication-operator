@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	"github.com/openshift/apiserver-library-go/pkg/configflags"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
@@ -136,7 +136,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 
 	// log level verbosity is taken from the spec always
 	operatorCfg.APIServerArguments["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
-	operandFlags := configflags.ToFlagSlice(operatorCfg.APIServerArguments)
+	operandFlags := toFlagSlice(operatorCfg.APIServerArguments)
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -325,4 +325,21 @@ func maybeQuote(s string) string {
 	}
 
 	return s
+}
+
+// taken from apiserver-library-go so that we don't pull k/k dep to this repo
+func toFlagSlice(args map[string][]string) []string {
+	var keys []string
+	for key := range args {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var flags []string
+	for _, key := range keys {
+		for _, token := range args[key] {
+			flags = append(flags, fmt.Sprintf("--%s=%v", key, token))
+		}
+	}
+	return flags
 }
