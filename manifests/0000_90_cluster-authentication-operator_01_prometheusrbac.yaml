@@ -4,6 +4,8 @@ kind: Role
 metadata:
   name: prometheus-k8s
   namespace: openshift-authentication-operator
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 rules:
 - apiGroups:
   - ""
@@ -22,6 +24,8 @@ kind: Role
 metadata:
   name: prometheus-k8s
   namespace: openshift-authentication
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 rules:
 - apiGroups:
   - ""
@@ -40,6 +44,8 @@ kind: RoleBinding
 metadata:
   name: prometheus-k8s
   namespace: openshift-authentication-operator
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -55,6 +61,8 @@ kind: RoleBinding
 metadata:
   name: prometheus-k8s
   namespace: openshift-authentication
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
