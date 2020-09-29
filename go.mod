@@ -7,10 +7,10 @@ require (
 	github.com/getsentry/raven-go v0.2.1-0.20190513200303-c977f96e1095 // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
-	github.com/openshift/api master 
-	github.com/openshift/build-machinery-go master
-	github.com/openshift/client-go master
-	github.com/openshift/library-go master 
+	github.com/openshift/api v0.0.0-20200930075302-db52bc4ef99f
+	github.com/openshift/build-machinery-go v0.0.0-20200917070002-f171684f77ab
+	github.com/openshift/client-go v0.0.0-20200929181438-91d71ef2122c
+	github.com/openshift/library-go v0.0.0-20200930190915-f7cb85f605db
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.4.0
