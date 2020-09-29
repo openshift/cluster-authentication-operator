@@ -6,7 +6,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"

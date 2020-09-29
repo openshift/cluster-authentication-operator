@@ -18,7 +18,7 @@ import (
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	oauthv1 "github.com/openshift/api/oauth/v1"

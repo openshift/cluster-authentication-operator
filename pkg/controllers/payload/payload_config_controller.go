@@ -20,7 +20,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"

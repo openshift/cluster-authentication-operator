@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 
 	operatorlistersv1 "github.com/openshift/client-go/operator/listers/operator/v1"
