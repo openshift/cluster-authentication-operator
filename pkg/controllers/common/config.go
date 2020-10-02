@@ -3,7 +3,7 @@ package common
 import (
 	"bytes"
 	"encoding/json"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
