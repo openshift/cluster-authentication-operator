@@ -1,0 +1,89 @@
+apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+kind: FlowSchema
+metadata:
+  name: openshift-oauth-apiserver-sar
+spec:
+  distinguisherMethod:
+    type: ByUser
+  matchingPrecedence: 600
+  priorityLevelConfiguration:
+    name: openshift-aggregated-api-delegated-auth
+  rules:
+  - resourceRules:
+    - apiGroups:
+      - authorization.k8s.io
+      clusterScope: true
+      namespaces:
+      - '*'
+      resources:
+      - subjectaccessreviews
+      verbs:
+      - '*'
+    - apiGroups:
+      - authentication.k8s.io
+      clusterScope: true
+      namespaces:
+      - '*'
+      resources:
+      - tokenreviews
+      verbs:
+      - '*'
+    subjects:
+    - kind: ServiceAccount
+      serviceAccount:
+        name: oauth-apiserver-sa
+        namespace: openshift-oauth-apiserver
+---
+apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+kind: FlowSchema
+metadata:
+  name: openshift-oauth-apiserver
+spec:
+  distinguisherMethod:
+    type: ByUser
+  matchingPrecedence: 1000
+  priorityLevelConfiguration:
+    name: workload-high
+  rules:
+  - resourceRules:
+    - apiGroups:
+      - '*'
+      clusterScope: true
+      namespaces:
+      - '*'
+      resources:
+      - '*'
+      verbs:
+      - '*'
+    subjects:
+    - kind: ServiceAccount
+      serviceAccount:
+        name: oauth-apiserver-sa
+        namespace: openshift-oauth-apiserver
+---
+apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+kind: FlowSchema
+metadata:
+  name: openshift-authentication-operator
+spec:
+  distinguisherMethod:
+    type: ByUser
+  matchingPrecedence: 2000
+  priorityLevelConfiguration:
+    name: openshift-control-plane-operators
+  rules:
+  - resourceRules:
+    - apiGroups:
+      - '*'
+      clusterScope: true
+      namespaces:
+      - '*'
+      resources:
+      - '*'
+      verbs:
+      - '*'
+    subjects:
+    - kind: ServiceAccount
+      serviceAccount:
+        name: authentication-operator
+        namespace: openshift-authentication-operator
