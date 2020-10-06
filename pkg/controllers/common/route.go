@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
@@ -16,16 +15,13 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 func CheckRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, systemCABundle []byte, ingress *configv1.Ingress, conditionPrefix string) []operatorv1.OperatorCondition {
-	if !RouteHasCanonicalHost(route, route.Spec.Host) {
-		msg := spew.Sdump(route.Status.Ingress)
-		if len(route.Status.Ingress) == 0 {
-			msg = "route status ingress is empty"
-		}
+	if _, _, err := routeapihelpers.IngressURI(route, route.Spec.Host); err != nil {
 		return []operatorv1.OperatorCondition{
 			{
 				Type:    conditionPrefix + "Progressing",
@@ -37,7 +33,7 @@ func CheckRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, system
 				Type:    conditionPrefix + "Available",
 				Status:  operatorv1.ConditionFalse,
 				Reason:  "RouteNotReady",
-				Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", route.Spec.Host, msg),
+				Message: err.Error(),
 			},
 		}
 	}
@@ -146,20 +142,6 @@ func GetOAuthServerRoute(routeLister routev1lister.RouteLister, conditionPrefix 
 		}
 	}
 	return route, nil
-}
-
-func RouteHasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
-	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != canonicalHost {
-			continue
-		}
-		for _, condition := range ingress.Conditions {
-			if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func routerSecretToCA(route *routev1.Route, routerSecret *corev1.Secret, ingress *configv1.Ingress) []byte {
