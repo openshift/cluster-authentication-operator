@@ -196,7 +196,7 @@ github.com/openshift/client-go/route/informers/externalversions/internalinterfac
 github.com/openshift/client-go/route/informers/externalversions/route
 github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
-# github.com/openshift/library-go v0.0.0-20200930190915-f7cb85f605db
+# github.com/openshift/library-go v0.0.0-20201006230840-f360b9835cc8
 ## explicit
 github.com/openshift/library-go/pkg/apps/deployment
 github.com/openshift/library-go/pkg/assets
@@ -253,6 +253,7 @@ github.com/openshift/library-go/pkg/operator/staticresourcecontroller
 github.com/openshift/library-go/pkg/operator/status
 github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller
 github.com/openshift/library-go/pkg/operator/v1helpers
+github.com/openshift/library-go/pkg/route/routeapihelpers
 github.com/openshift/library-go/pkg/serviceability
 github.com/openshift/library-go/test/library
 github.com/openshift/library-go/test/library/encryption

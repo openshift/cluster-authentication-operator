@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +36,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
@@ -236,17 +236,13 @@ func (c *deploymentController) getCanonicalRoute(ingressConfigDomain string) (*r
 	}
 
 	expectedHost := "oauth-openshift." + ingressConfigDomain
-	if !common.RouteHasCanonicalHost(route, expectedHost) {
-		msg := spew.Sdump(route.Status.Ingress)
-		if len(route.Status.Ingress) == 0 {
-			msg = "route status ingress is empty"
-		}
+	if _, _, err := routeapihelpers.IngressURI(route, expectedHost); err != nil {
 		return nil, []operatorv1.OperatorCondition{
 			{
 				Type:    "OAuthServerRouteDegraded",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "InvalidCanonicalHost",
-				Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedHost, msg),
+				Message: err.Error(),
 			},
 		}
 	}

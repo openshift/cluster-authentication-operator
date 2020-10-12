@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -25,13 +24,13 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
 // knownConditionNames lists all condition types used by this controller.
@@ -163,17 +162,13 @@ func (c *metadataController) handleRoute(ctx context.Context, ingress *configv1.
 		}
 	}
 
-	if ok := common.RouteHasCanonicalHost(route, expectedRoute.Spec.Host); !ok {
-		msg := spew.Sdump(route.Status.Ingress)
-		if len(route.Status.Ingress) == 0 {
-			msg = "route status ingress is empty"
-		}
+	if _, _, err := routeapihelpers.IngressURI(route, expectedRoute.Spec.Host); err != nil {
 		// be careful not to print route.spec as it many contain secrets
 		return []operatorv1.OperatorCondition{{
 			Type:    "RouteDegraded",
 			Status:  operatorv1.ConditionTrue,
 			Reason:  "InvalidCanonicalHost",
-			Message: fmt.Sprintf("Route is not available at canonical host %s: %+v", expectedRoute.Spec.Host, msg),
+			Message: err.Error(),
 		}}
 	}
 

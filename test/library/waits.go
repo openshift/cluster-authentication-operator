@@ -13,11 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	configv1 "github.com/openshift/api/config/v1"
-	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	"github.com/openshift/library-go/pkg/config/clusteroperator/v1helpers"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
 func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
@@ -89,16 +89,13 @@ func WaitForRouteAdmitted(t *testing.T, client routev1client.RouteV1Interface, n
 			t.Logf("route.Get(%s/%s) error: %v", ns, name, err)
 			return false, nil
 		}
-		for _, i := range route.Status.Ingress {
-			for _, c := range i.Conditions {
-				if c.Type == routev1.RouteAdmitted && c.Status == "True" {
-					admittedURL = i.Host
-					return true, nil
-				}
-			}
+		if _, ingress, err := routeapihelpers.IngressURI(route, ""); err != nil {
+			t.Log(err)
+			return false, nil
+		} else {
+			admittedURL = ingress.Host
 		}
-
-		return false, nil
+		return true, nil
 	})
 
 	return admittedURL, err
