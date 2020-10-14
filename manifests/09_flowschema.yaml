@@ -5,9 +5,9 @@ metadata:
 spec:
   distinguisherMethod:
     type: ByUser
-  matchingPrecedence: 600
+  matchingPrecedence: 2
   priorityLevelConfiguration:
-    name: openshift-aggregated-api-delegated-auth
+    name: exempt
   rules:
   - resourceRules:
     - apiGroups:
