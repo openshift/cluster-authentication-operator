@@ -360,7 +360,9 @@ func (c *deploymentController) updateOperatorDeploymentInfo(
 	operatorConfig *operatorv1.Authentication,
 	deployment *appsv1.Deployment,
 ) error {
-	operatorStatusOutdated := operatorConfig.Status.ObservedGeneration != operatorConfig.Generation || operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas
+	operatorStatusOutdated := operatorConfig.Status.ObservedGeneration != operatorConfig.Generation ||
+		operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas ||
+		resourcemerge.ExpectedDeploymentGeneration(deployment, operatorConfig.Status.Generations) != deployment.Generation
 
 	if operatorStatusOutdated {
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
