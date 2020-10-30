@@ -51,7 +51,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
@@ -366,12 +365,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
-	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
-		operatorCtx.operatorClient,
-		controllerContext.EventRecorder,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
-	)
-
 	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
 		routeInformersNamespaced.Route().V1().Routes(),
@@ -415,7 +408,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		authRouteCheckController.Run,
 		authServiceCheckController.Run,
 		authServiceEndpointCheckController.Run,
-		workersAvailableController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)
