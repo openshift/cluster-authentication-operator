@@ -98,7 +98,7 @@ func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx fact
 			Type:   "ReadyIngressNodesAvailable",
 			Status: operatorv1.ConditionFalse,
 			Reason: "NoReadyIngressNodes",
-			Message: fmt.Sprintf("Authentication requires functional ingress which requires at least one schedulable and ready node. Got %d worker nodes and %d master nodes (none are schedulable or ready for ingress pods).",
+			Message: fmt.Sprintf("Authentication require functional ingress which requires at least one schedulable and ready node. Got %d worker nodes and %d master nodes (none are schedulable or ready for ingress pods).",
 				len(workers), len(masters)),
 		})
 	}
