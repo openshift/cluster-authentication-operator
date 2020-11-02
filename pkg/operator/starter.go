@@ -81,6 +81,7 @@ type operatorContext struct {
 
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces
 	operatorConfigInformer     configinformer.SharedInformerFactory
+	operatorInformer           authopinformer.SharedInformerFactory
 
 	resourceSyncController *resourcesynccontroller.ResourceSyncController
 
@@ -145,6 +146,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
 	operatorCtx.resourceSyncController = resourceSyncer
 	operatorCtx.operatorClient = operatorClient
+	operatorCtx.operatorInformer = authOperatorConfigInformers
 	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
 	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
@@ -368,6 +370,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
 		operatorCtx.operatorClient,
+		operatorCtx.operatorInformer.Operator().V1().IngressControllers(),
 		controllerContext.EventRecorder,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
