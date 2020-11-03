@@ -131,7 +131,7 @@ spec:
           terminationMessagePolicy: FallbackToLogsOnError
           image: ${IMAGE}
           imagePullPolicy: IfNotPresent
-          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver']
+          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver && touch /var/log/oauth-apiserver/audit.log && chmod 0600 /var/log/oauth-apiserver/*']
           securityContext:
             privileged: true
           volumeMounts:
