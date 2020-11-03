@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
-	corev1informers "k8s.io/client-go/informers/core/v1"
-	corev1listers "k8s.io/client-go/listers/core/v1"
-
 	operatorv1 "github.com/openshift/api/operator/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
+	corev1informers "k8s.io/client-go/informers/core/v1"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 )
 
 var knownConditionNames = sets.NewString(
@@ -25,22 +28,26 @@ var knownConditionNames = sets.NewString(
 // ingressNodesAvailableController validates that router certs match the ingress domain
 type ingressNodesAvailableController struct {
 	operatorClient v1helpers.OperatorClient
+	ingressLister  operatorv1listers.IngressControllerLister
 	nodeLister     corev1listers.NodeLister
 }
 
 func NewIngressNodesAvailableController(
 	operatorClient v1helpers.OperatorClient,
+	ingressControllerInformer operatorv1informers.IngressControllerInformer,
 	eventRecorder events.Recorder,
 	nodeInformer corev1informers.NodeInformer,
 ) factory.Controller {
 	controller := &ingressNodesAvailableController{
 		operatorClient: operatorClient,
+		ingressLister:  ingressControllerInformer.Lister(),
 		nodeLister:     nodeInformer.Lister(),
 	}
 
 	return factory.New().
 		WithInformers(
 			operatorClient.Informer(),
+			ingressControllerInformer.Informer(),
 			nodeInformer.Informer(),
 		).
 		WithSync(controller.sync).
@@ -93,15 +100,54 @@ func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx fact
 		}
 	}
 
+	// and finally, check to see if the ingress operator has a node placement policy set that overrides the node selector
+	numCustomIngressTargets, err := c.numberOfCustomIngressTargets(ctx, syncCtx)
+	if err != nil {
+		return err
+	}
+	workloadReadyNodes += numCustomIngressTargets
+
 	if workloadReadyNodes == 0 {
 		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
 			Type:   "ReadyIngressNodesAvailable",
 			Status: operatorv1.ConditionFalse,
 			Reason: "NoReadyIngressNodes",
-			Message: fmt.Sprintf("Authentication requires functional ingress which requires at least one schedulable and ready node. Got %d worker nodes and %d master nodes (none are schedulable or ready for ingress pods).",
-				len(workers), len(masters)),
+			Message: fmt.Sprintf(
+				"Authentication requires functional ingress which requires at least one schedulable and ready node. Got %d worker nodes, %d master nodes, %d custom target nodes (none are schedulable or ready for ingress pods).",
+				len(workers),
+				len(masters),
+				numCustomIngressTargets,
+			),
 		})
 	}
 
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+}
+
+func (c *ingressNodesAvailableController) numberOfCustomIngressTargets(ctx context.Context, syncCtx factory.SyncContext) (int, error) {
+	ingressControllerConfig, err := c.ingressLister.IngressControllers("openshift-ingress-operator").Get("default")
+	switch {
+	case errors.IsNotFound(err):
+		// do nothing, we have no worker nodes and it should fail the condition
+		return 0, nil
+	case err != nil:
+		return 0, err // return and retry
+	default:
+		// more computation to do
+	}
+
+	// let's check to see if we have special node placement
+	if ingressControllerConfig.Spec.NodePlacement == nil || ingressControllerConfig.Spec.NodePlacement.NodeSelector == nil {
+		return 0, nil
+	}
+	nodeSelector, err := metav1.LabelSelectorAsMap(ingressControllerConfig.Spec.NodePlacement.NodeSelector)
+	if err != nil {
+		return 0, nil // if the node selector doesn't parse properly, then we know that we have zero nodes matching
+	}
+
+	ingressTargets, err := c.nodeLister.List(labels.SelectorFromSet(nodeSelector))
+	if err != nil {
+		return 0, err // return and retry
+	}
+	return len(ingressTargets), nil
 }
