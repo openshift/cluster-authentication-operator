@@ -24,8 +24,8 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	authopclient "github.com/openshift/client-go/operator/clientset/versioned"
-	authopinformer "github.com/openshift/client-go/operator/informers/externalversions"
+	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
+	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
@@ -81,7 +81,7 @@ type operatorContext struct {
 
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces
 	operatorConfigInformer     configinformer.SharedInformerFactory
-	operatorInformer           authopinformer.SharedInformerFactory
+	operatorInformer           operatorinformer.SharedInformerFactory
 
 	resourceSyncController *resourcesynccontroller.ResourceSyncController
 
@@ -103,7 +103,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		return err
 	}
 
-	authOperatorClient, err := authopclient.NewForConfig(controllerContext.KubeConfig)
+	authOperatorClient, err := operatorclient.NewForConfig(controllerContext.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -122,12 +122,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	authOperatorConfigInformers := authopinformer.NewSharedInformerFactoryWithOptions(authOperatorClient, time.Second*30,
-		authopinformer.WithTweakListOptions(singleNameListOptions("cluster")),
-	)
+	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(authOperatorClient, time.Second*30)
 
 	operatorClient := &OperatorClient{
-		authOperatorConfigInformers,
+		operatorConfigInformers,
 		authOperatorClient.OperatorV1(),
 	}
 
@@ -146,7 +144,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
 	operatorCtx.resourceSyncController = resourceSyncer
 	operatorCtx.operatorClient = operatorClient
-	operatorCtx.operatorInformer = authOperatorConfigInformers
+	operatorCtx.operatorInformer = operatorConfigInformers
 	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
 	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
@@ -161,7 +159,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
 		kubeInformersForNamespaces.Start,
-		authOperatorConfigInformers.Start,
+		operatorConfigInformers.Start,
 		operatorCtx.operatorConfigInformer.Start,
 	)
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, resourceSyncer.Run, configOverridesController.Run, logLevelController.Run)
