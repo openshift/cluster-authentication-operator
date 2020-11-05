@@ -22,7 +22,7 @@ import (
 )
 
 var knownConditionNames = sets.NewString(
-	"ReadyIngressNodesAvailable",
+	"ReadyIngressNodesDegraded",
 )
 
 // ingressNodesAvailableController validates that router certs match the ingress domain
@@ -109,7 +109,7 @@ func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx fact
 
 	if workloadReadyNodes == 0 {
 		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:   "ReadyIngressNodesAvailable",
+			Type:   "ReadyIngressNodesDegraded",
 			Status: operatorv1.ConditionFalse,
 			Reason: "NoReadyIngressNodes",
 			Message: fmt.Sprintf(
