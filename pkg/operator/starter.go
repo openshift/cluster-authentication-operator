@@ -253,6 +253,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"RouteHealthDegraded",
 			"RouteStatusDegraded",
 			"OAuthServerAvailable",
+			"ReadyIngressNodesAvailable",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
