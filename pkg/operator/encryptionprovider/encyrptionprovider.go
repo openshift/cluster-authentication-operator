@@ -40,11 +40,16 @@ func New(
 // EncryptedGRs returns resources that need to be encrypted
 // Note: the list can change depending on the existence and attached annotations of encryption-config-openshift-oauth-apiserver in openshift-config-managed namespace as described in https://github.com/openshift/enhancements/blob/master/enhancements/etcd/etcd-encryption-for-separate-oauth-apis.md
 //
-// case 1 encryption off or the secret was annotated - return an empty list of EncryptedGRs
-// case 2 otherwise return the authoritative list of EncryptedGRs
+// case 1 encryption off OR the encryption-config-openshift-oauth-apiserver doesn't have "encryption.apiserver.operator.openshift.io/managed-by" annotation
+//        - we will the authoritative list of EncryptedGRs
+//        - at the time of this writhing that list contains:
+//			{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"}
+//			{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"}
 //
-// TODO:
-// - change the code in 4.7 to return a static list (the authoritative list)
+// case 2 otherwise (the encryption config doesn't have the annotation) return an empty list of EncryptedGRs - that means that OAS-O is still in charge of the encryption config
+//
+// TODO in 4.8
+// this encryption provided won't be needed and can be removed
 func (p *encryptionProvider) EncryptedGRs() []schema.GroupResource {
 	inCharge, err := p.isOAuthEncryptionConfigManagedByThisOperator()
 	if err != nil || !inCharge {
@@ -59,12 +64,13 @@ func (p *encryptionProvider) ShouldRunEncryptionControllers() (bool, error) {
 	return p.isOAuthEncryptionConfigManagedByThisOperator()
 }
 
-// isOAuthEncryptionConfigManagedByThisOperator determines whether this operator is in charge of encryption-config-openshift-oauth-apiserver
+// isOAuthEncryptionConfigManagedByThisOperator determines whether this operator is in charge of encryption-config-openshift-oauth-apiserver in openshift-config-managed namespace
 //
-// case 1 encryption off or the secret was annotated - OAS-O is in charge
-// case 2 otherwise this operator will manage its own encryption configuration
-// TODO:
-// - change the case 1 in 4.7 so that CAO manages its own encryption config when encryption is off
+// case 1 encryption off OR the encryption config doesn't have "encryption.apiserver.operator.openshift.io/managed-by" annotation - this operator is in charge
+// case 2 the encryption config have the annotation - OAS-O is still in charge
+//
+// TODO in 4.8
+// this encryption provider won't be needed and can be removed
 func (p *encryptionProvider) isOAuthEncryptionConfigManagedByThisOperator() (bool, error) {
 	oauthAPIServerEncryptionCfgName := fmt.Sprintf("%s-%s", encryptionconfig.EncryptionConfSecretName, p.targetNamespace)
 	oauthAPIServerEncryptionCfg, err := p.secretLister.Get(oauthAPIServerEncryptionCfgName)
@@ -74,10 +80,10 @@ func (p *encryptionProvider) isOAuthEncryptionConfigManagedByThisOperator() (boo
 		// - we suppress the error so that the encryption controllers:
 		//    1. don't report Degraded when encryption is off
 		//    2. don't requeue when encryption is off
-		return false, nil // case 1 - OAS-O in charge
+		return true, nil // case 1 - we are in charge
 	}
 	if _, exist := oauthAPIServerEncryptionCfg.Annotations[p.encryptionCfgAnnotationKey]; exist {
-		return false, nil // case 1 - OAS-O in charge
+		return false, nil // case 2 - OAS-O is in charge
 	}
-	return true, nil // case 2 - taking over
+	return true, nil // case 1 - taking over
 }

@@ -30,11 +30,14 @@ func TestEncryptionProvider(t *testing.T) {
 		expectedShouldRunEncryptionCtrl bool
 	}{
 		{
+			// this will be default in 4.7
 			name:                            "encryption off, default GRs returned",
 			defaultEncryptedGRs:             defaultGRs,
-			expectedShouldRunEncryptionCtrl: false,
+			expectedEncryptedGRs:            defaultGRs,
+			expectedShouldRunEncryptionCtrl: true,
 		},
 		{
+			// it means that encryption was on in 4.7 or the cluster was updated from 4.6 and the annotation was removed
 			name: "encryption on, secret without the annotation, default GRs returned",
 			initialSecrets: []*corev1.Secret{
 				func() *corev1.Secret {
@@ -48,6 +51,7 @@ func TestEncryptionProvider(t *testing.T) {
 			expectedShouldRunEncryptionCtrl: true,
 		},
 		{
+			// it means that encryption was on in 4.6 and migration hasn't finished yet
 			name:                            "encryption on, secret with the annotation, reduced GRs returned",
 			initialSecrets:                  []*corev1.Secret{defaultSecret("openshift-apiserver", encryptionCfgAnnotationKey)},
 			defaultEncryptedGRs:             defaultGRs,
