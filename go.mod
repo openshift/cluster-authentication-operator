@@ -16,6 +16,7 @@ require (
 	github.com/stretchr/testify v1.4.0
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200819165624-17cef6e3e9d5
 	go.uber.org/multierr v1.1.1-0.20180122172545-ddea229ff1df // indirect
+	golang.org/x/net v0.0.0-20200707034311-ab3426394381
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.3.0
 	k8s.io/api v0.19.2
