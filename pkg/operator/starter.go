@@ -60,7 +60,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/apiservices"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionprovider"
@@ -533,46 +532,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		v1helpers.CachedSecretGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 	).WithAPIServiceController(
 		"openshift-apiserver",
-		(&apiservices.WithChangeEvent{
-			APIServicesToManage: apiservices.NewAPIServicesToManage(
-				operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Lister(),
-				func() []*apiregistrationv1.APIService {
-					var apiServiceGroupVersions = []schema.GroupVersion{
-						// these are all the apigroups we manage
-						{Group: "oauth.openshift.io", Version: "v1"},
-						{Group: "user.openshift.io", Version: "v1"},
-					}
-
-					ret := []*apiregistrationv1.APIService{}
-					for _, apiServiceGroupVersion := range apiServiceGroupVersions {
-						obj := &apiregistrationv1.APIService{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: apiServiceGroupVersion.Version + "." + apiServiceGroupVersion.Group,
-								Annotations: map[string]string{
-									"service.alpha.openshift.io/inject-cabundle":   "true",
-									"authentication.operator.openshift.io/managed": "true",
-								},
-							},
-							Spec: apiregistrationv1.APIServiceSpec{
-								Group:   apiServiceGroupVersion.Group,
-								Version: apiServiceGroupVersion.Version,
-								Service: &apiregistrationv1.ServiceReference{
-									Namespace: "openshift-oauth-apiserver",
-									Name:      "api",
-									Port:      utilpointer.Int32Ptr(443),
-								},
-								GroupPriorityMinimum: 9900,
-								VersionPriority:      15,
-							},
-						}
-						ret = append(ret, obj)
-					}
-
-					return ret
-				}(),
-			),
-			EventRecorder: eventRecorder,
-		}).GetAPIServicesToManage,
+		func() ([]*apiregistrationv1.APIService, error) { return apiServices(), nil },
 		apiregistrationInformers,
 		apiregistrationv1Client.ApiregistrationV1(),
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
@@ -606,13 +566,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		return err
 	}
 
-	manageOAuthAPIController := apiservices.NewManageAPIServicesController(
-		"MangeOAuthAPIController",
-		deployer,
-		operatorCtx.operatorClient.Client,
-		operatorCtx.operatorClient.Informers,
-		eventRecorder)
-
 	auditPolicyPathGetter, err := libgoassets.NewAuditPolicyPathGetter("/var/run/configmaps/audit")
 	if err != nil {
 		return err
@@ -642,7 +595,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
 		configObserver.Run,
-		manageOAuthAPIController.Run,
 		func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) },
 	)
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, apiregistrationInformers.Start, migrationInformer.Start)
@@ -653,4 +605,39 @@ func singleNameListOptions(name string) func(opts *metav1.ListOptions) {
 	return func(opts *metav1.ListOptions) {
 		opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 	}
+}
+
+func apiServices() []*apiregistrationv1.APIService {
+	var apiServiceGroupVersions = []schema.GroupVersion{
+		// these are all the apigroups we manage
+		{Group: "oauth.openshift.io", Version: "v1"},
+		{Group: "user.openshift.io", Version: "v1"},
+	}
+
+	ret := []*apiregistrationv1.APIService{}
+	for _, apiServiceGroupVersion := range apiServiceGroupVersions {
+		obj := &apiregistrationv1.APIService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: apiServiceGroupVersion.Version + "." + apiServiceGroupVersion.Group,
+				Annotations: map[string]string{
+					"service.alpha.openshift.io/inject-cabundle":   "true",
+					"authentication.operator.openshift.io/managed": "true",
+				},
+			},
+			Spec: apiregistrationv1.APIServiceSpec{
+				Group:   apiServiceGroupVersion.Group,
+				Version: apiServiceGroupVersion.Version,
+				Service: &apiregistrationv1.ServiceReference{
+					Namespace: "openshift-oauth-apiserver",
+					Name:      "api",
+					Port:      utilpointer.Int32Ptr(443),
+				},
+				GroupPriorityMinimum: 9900,
+				VersionPriority:      15,
+			},
+		}
+		ret = append(ret, obj)
+	}
+
+	return ret
 }
