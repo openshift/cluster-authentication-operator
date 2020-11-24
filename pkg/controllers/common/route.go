@@ -69,7 +69,7 @@ func CheckRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, system
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "WaitingForRoute",
-				Message: fmt.Sprintf("Making HTTP request to %q not successfull yet", "https://"+route.Spec.Host+"/healthz"),
+				Message: fmt.Sprintf("Making HTTP request to %q not successful yet", "https://"+route.Spec.Host+"/healthz"),
 			},
 			{
 				Type:    conditionPrefix + "Available",
@@ -87,7 +87,7 @@ func CheckRouteHealthy(route *routev1.Route, routerSecret *corev1.Secret, system
 				Type:    conditionPrefix + "Progressing",
 				Status:  operatorv1.ConditionTrue,
 				Reason:  "WaitingForRoute",
-				Message: fmt.Sprintf("Request to %q not successfull yet", "https://"+route.Spec.Host+"/healthz"),
+				Message: fmt.Sprintf("Request to %q not successful yet", "https://"+route.Spec.Host+"/healthz"),
 			},
 			{
 				Type:    conditionPrefix + "Available",
