@@ -1,7 +1,6 @@
 package payload
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,7 +11,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -212,7 +210,7 @@ func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.A
 		}
 	}
 
-	observedConfig, err := grabPrefixedConfig(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	observedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{
@@ -224,7 +222,19 @@ func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.A
 		}
 	}
 
-	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, operatorConfig.Spec.UnsupportedConfigOverrides.Raw)
+	unsupportedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Spec.UnsupportedConfigOverrides.Raw, configobservation.OAuthServerConfigPrefix)
+	if err != nil {
+		return []operatorv1.OperatorCondition{
+			{
+				Type:    "OAuthConfigDegraded",
+				Status:  operatorv1.ConditionTrue,
+				Reason:  "GetOAuthServerUnsupportedConfigFailed",
+				Message: fmt.Sprintf("Unable to get oauth-server configuration: %v", err),
+			},
+		}
+	}
+
+	completeConfigBytes, err := resourcemerge.MergePrunedProcessConfig(&osinv1.OsinServerConfig{}, nil, cliConfigBytes, observedConfig, unsupportedConfig)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{
@@ -251,26 +261,6 @@ func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.A
 	}
 
 	return nil
-}
-
-// grabPrefixedConfig returns the configuration from the operator's observedConfig field
-// in the subtree given by the prefix
-func grabPrefixedConfig(observedBytes []byte, prefix ...string) ([]byte, error) {
-	if len(prefix) == 0 {
-		return observedBytes, nil
-	}
-
-	prefixedConfig := map[string]interface{}{}
-	if err := json.NewDecoder(bytes.NewBuffer(observedBytes)).Decode(&prefixedConfig); err != nil {
-		klog.V(4).Infof("decode of existing config failed with error: %v", err)
-	}
-
-	actualConfig, _, err := unstructured.NestedFieldCopy(prefixedConfig, prefix...)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(actualConfig)
 }
 
 func getCliConfigMap(completeConfigBytes []byte) *corev1.ConfigMap {
