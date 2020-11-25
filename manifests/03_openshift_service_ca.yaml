@@ -4,6 +4,7 @@ metadata:
   name: service-ca-bundle
   namespace: openshift-authentication-operator
   annotations:
+    include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     service.beta.openshift.io/inject-cabundle: "true"
 data: {}

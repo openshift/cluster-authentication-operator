@@ -5,6 +5,7 @@ metadata:
   name: authentication-operator
   namespace: openshift-authentication-operator
   annotations:
+    include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
 spec:
   endpoints:
@@ -33,6 +34,7 @@ metadata:
   name: oauth-openshift
   namespace: openshift-authentication
   annotations:
+    include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
 spec:
   endpoints:
@@ -60,6 +62,7 @@ metadata:
   name: openshift-oauth-apiserver
   namespace: openshift-oauth-apiserver
   annotations:
+    include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
 spec:
   endpoints:
