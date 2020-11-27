@@ -1,5 +1,7 @@
 // Code generated for package assets by go-bindata DO NOT EDIT. (@generated)
 // sources:
+// bindata/oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml
+// bindata/oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml
 // bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
 // bindata/oauth-apiserver/deploy.yaml
 // bindata/oauth-apiserver/ns.yaml
@@ -63,6 +65,68 @@ func (fi bindataFileInfo) IsDir() bool {
 // Sys return file is sys mode
 func (fi bindataFileInfo) Sys() interface{} {
 	return nil
+}
+
+var _oauthApiserverRbacUseroauthaccesstokens_bindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:openshift:useroauthaccesstoken-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:useroauthaccesstoken-manager
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated:oauth
+`)
+
+func oauthApiserverRbacUseroauthaccesstokens_bindingYamlBytes() ([]byte, error) {
+	return _oauthApiserverRbacUseroauthaccesstokens_bindingYaml, nil
+}
+
+func oauthApiserverRbacUseroauthaccesstokens_bindingYaml() (*asset, error) {
+	bytes, err := oauthApiserverRbacUseroauthaccesstokens_bindingYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  name: system:openshift:useroauthaccesstoken-manager
+rules:
+- apiGroups:
+  - oauth.openshift.io
+  resources:
+  - useroauthaccesstokens
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+`)
+
+func oauthApiserverRbacUseroauthaccesstokens_clusterroleYamlBytes() ([]byte, error) {
+	return _oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml, nil
+}
+
+func oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml() (*asset, error) {
+	bytes, err := oauthApiserverRbacUseroauthaccesstokens_clusterroleYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
 }
 
 var _oauthApiserverApiserverClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
@@ -741,18 +805,20 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
-	"oauth-apiserver/apiserver-clusterrolebinding.yaml":      oauthApiserverApiserverClusterrolebindingYaml,
-	"oauth-apiserver/deploy.yaml":                            oauthApiserverDeployYaml,
-	"oauth-apiserver/ns.yaml":                                oauthApiserverNsYaml,
-	"oauth-apiserver/sa.yaml":                                oauthApiserverSaYaml,
-	"oauth-apiserver/svc.yaml":                               oauthApiserverSvcYaml,
-	"oauth-openshift/authentication-clusterrolebinding.yaml": oauthOpenshiftAuthenticationClusterrolebindingYaml,
-	"oauth-openshift/branding-secret.yaml":                   oauthOpenshiftBrandingSecretYaml,
-	"oauth-openshift/cabundle.yaml":                          oauthOpenshiftCabundleYaml,
-	"oauth-openshift/deployment.yaml":                        oauthOpenshiftDeploymentYaml,
-	"oauth-openshift/ns.yaml":                                oauthOpenshiftNsYaml,
-	"oauth-openshift/oauth-service.yaml":                     oauthOpenshiftOauthServiceYaml,
-	"oauth-openshift/serviceaccount.yaml":                    oauthOpenshiftServiceaccountYaml,
+	"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml":     oauthApiserverRbacUseroauthaccesstokens_bindingYaml,
+	"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml": oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml,
+	"oauth-apiserver/apiserver-clusterrolebinding.yaml":           oauthApiserverApiserverClusterrolebindingYaml,
+	"oauth-apiserver/deploy.yaml":                                 oauthApiserverDeployYaml,
+	"oauth-apiserver/ns.yaml":                                     oauthApiserverNsYaml,
+	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
+	"oauth-apiserver/svc.yaml":                                    oauthApiserverSvcYaml,
+	"oauth-openshift/authentication-clusterrolebinding.yaml":      oauthOpenshiftAuthenticationClusterrolebindingYaml,
+	"oauth-openshift/branding-secret.yaml":                        oauthOpenshiftBrandingSecretYaml,
+	"oauth-openshift/cabundle.yaml":                               oauthOpenshiftCabundleYaml,
+	"oauth-openshift/deployment.yaml":                             oauthOpenshiftDeploymentYaml,
+	"oauth-openshift/ns.yaml":                                     oauthOpenshiftNsYaml,
+	"oauth-openshift/oauth-service.yaml":                          oauthOpenshiftOauthServiceYaml,
+	"oauth-openshift/serviceaccount.yaml":                         oauthOpenshiftServiceaccountYaml,
 }
 
 // AssetDir returns the file names below a certain
@@ -797,6 +863,10 @@ type bintree struct {
 
 var _bintree = &bintree{nil, map[string]*bintree{
 	"oauth-apiserver": {nil, map[string]*bintree{
+		"RBAC": {nil, map[string]*bintree{
+			"useroauthaccesstokens_binding.yaml":     {oauthApiserverRbacUseroauthaccesstokens_bindingYaml, map[string]*bintree{}},
+			"useroauthaccesstokens_clusterrole.yaml": {oauthApiserverRbacUseroauthaccesstokens_clusterroleYaml, map[string]*bintree{}},
+		}},
 		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
 		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
 		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
