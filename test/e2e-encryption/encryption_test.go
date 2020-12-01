@@ -2,6 +2,7 @@ package e2eencryption
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,27 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	configv1 "github.com/openshift/api/config/v1"
 	oauthapiv1 "github.com/openshift/api/oauth/v1"
+	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	library "github.com/openshift/library-go/test/library/encryption"
 )
 
 var DefaultTargetGRs = []schema.GroupResource{
 	{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
 	{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
-	// TODO: remove route in 4.7, in 4.6 OAS-O is managing the encryption configuration for CAO
-	{Group: "route.openshift.io", Resource: "routes"},
 }
 
 func TestEncryptionTypeIdentity(t *testing.T) {
 	library.TestEncryptionTypeIdentity(t, library.BasicScenario{
-		Namespace: "openshift-config-managed",
-		// TODO: update the LabelSelector in 4.7, in 4.6 OAS-O is managing the encryption configuration for CAO
-		// LabelSelector:                "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver"
-		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-apiserver",
+		Namespace:                       "openshift-config-managed",
+		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
@@ -40,10 +39,8 @@ func TestEncryptionTypeIdentity(t *testing.T) {
 
 func TestEncryptionTypeUnset(t *testing.T) {
 	library.TestEncryptionTypeUnset(t, library.BasicScenario{
-		Namespace: "openshift-config-managed",
-		// TODO: update the LabelSelector in 4.7, in 4.6 OAS-O is managing the encryption configuration for CAO
-		// LabelSelector:                "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver"
-		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-apiserver",
+		Namespace:                       "openshift-config-managed",
+		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
@@ -55,10 +52,8 @@ func TestEncryptionTypeUnset(t *testing.T) {
 func TestEncryptionTurnOnAndOff(t *testing.T) {
 	library.TestEncryptionTurnOnAndOff(t, library.OnOffScenario{
 		BasicScenario: library.BasicScenario{
-			Namespace: "openshift-config-managed",
-			// TODO: update the LabelSelector in 4.7, in 4.6 OAS-O is managing the encryption configuration for CAO
-			// LabelSelector:                "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver"
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-apiserver",
+			Namespace:                       "openshift-config-managed",
+			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
@@ -81,10 +76,8 @@ func TestEncryptionRotation(t *testing.T) {
 	ctx := context.TODO()
 	library.TestEncryptionRotation(t, library.RotationScenario{
 		BasicScenario: library.BasicScenario{
-			Namespace: "openshift-config-managed",
-			// TODO: update the LabelSelector in 4.7, in 4.6 OAS-O is managing the encryption configuration for CAO
-			// LabelSelector:                "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver"
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-apiserver",
+			Namespace:                       "openshift-config-managed",
+			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
@@ -97,14 +90,33 @@ func TestEncryptionRotation(t *testing.T) {
 		GetRawResourceFunc: func(t testing.TB, clientSet library.ClientSet, _ string) string {
 			return GetRawTokenOfLife(t, clientSet)
 		},
-		UnsupportedConfigFunc: func(raw []byte) error {
+		UnsupportedConfigFunc: func(rawUnsupportedEncryptionCfg []byte) error {
 			cs := GetClients(t)
-			apiServerOperator, err := cs.OperatorClient.Get(ctx, "cluster", metav1.GetOptions{})
+			authOperator, err := cs.OperatorClient.Get(ctx, "cluster", metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
-			apiServerOperator.Spec.UnsupportedConfigOverrides.Raw = raw
-			_, err = cs.OperatorClient.Update(ctx, apiServerOperator, metav1.UpdateOptions{})
+
+			unsupportedConfigAsMap := map[string]interface{}{}
+			if len(authOperator.Spec.UnsupportedConfigOverrides.Raw) > 0 {
+				if err := json.Unmarshal(authOperator.Spec.UnsupportedConfigOverrides.Raw, &unsupportedConfigAsMap); err != nil {
+					return err
+				}
+			}
+			unsupportedEncryptionConfigAsMap := map[string]interface{}{}
+			if err := json.Unmarshal(rawUnsupportedEncryptionCfg, &unsupportedEncryptionConfigAsMap); err != nil {
+				return err
+			}
+			if err := unstructured.SetNestedMap(unsupportedConfigAsMap, unsupportedEncryptionConfigAsMap, oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix); err != nil {
+				return err
+			}
+			rawUnsupportedCfg, err := json.Marshal(unsupportedConfigAsMap)
+			if err != nil {
+				return err
+			}
+			authOperator.Spec.UnsupportedConfigOverrides.Raw = rawUnsupportedCfg
+
+			_, err = cs.OperatorClient.Update(ctx, authOperator, metav1.UpdateOptions{})
 			return err
 		},
 	})
