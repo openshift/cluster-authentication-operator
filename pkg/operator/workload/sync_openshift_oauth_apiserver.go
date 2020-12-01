@@ -15,6 +15,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobserver "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
@@ -93,6 +94,10 @@ func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
 		return false, err
 	}
 
+	return c.preconditionFulfilledInternal(authOperator)
+}
+
+func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *operatorv1.Authentication) (bool, error) {
 	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
 	if err != nil {
 		return false, err
@@ -101,6 +106,12 @@ func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
 	if len(operatorCfg.APIServerArguments) == 0 {
 		klog.Info("Waiting for observed configuration to be available")
 		return false, errors.New("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
+	}
+
+	// specifying etcd servers list is mandatory, without it the pods will be crashlooping, so wait for it.
+	if storageServers := operatorCfg.APIServerArguments[libgoetcd.StorageConfigURLsKey]; len(storageServers) == 0 {
+		klog.Infof("Waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
+		return false, errors.New(fmt.Sprintf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey))
 	}
 	return true, nil
 }
