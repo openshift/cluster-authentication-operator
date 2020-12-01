@@ -8,6 +8,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 rules:
 - apiGroups:
   - ""
@@ -30,6 +31,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 rules:
 - apiGroups:
   - ""
@@ -52,6 +54,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 rules:
 - apiGroups:
   - ""
@@ -74,6 +77,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -93,6 +97,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -112,6 +117,7 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

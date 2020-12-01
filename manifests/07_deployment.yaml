@@ -10,6 +10,7 @@ metadata:
     include.release.openshift.io/single-node-developer: "true"
     config.openshift.io/inject-proxy: authentication-operator
     exclude.release.openshift.io/internal-openshift-hosted: "true"
+    include.release.openshift.io/single-node-production-edge: "true"
 spec:
   replicas: 1
   selector:
