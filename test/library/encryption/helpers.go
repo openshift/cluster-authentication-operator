@@ -1,4 +1,4 @@
-package e2eencryption
+package encryption
 
 import (
 	"context"

@@ -4,26 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	configv1 "github.com/openshift/api/config/v1"
-	oauthapiv1 "github.com/openshift/api/oauth/v1"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
 )
-
-var DefaultTargetGRs = []schema.GroupResource{
-	{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
-	{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
-}
 
 func TestEncryptionTypeIdentity(t *testing.T) {
 	library.TestEncryptionTypeIdentity(t, library.BasicScenario{
@@ -32,8 +22,8 @@ func TestEncryptionTypeIdentity(t *testing.T) {
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       DefaultTargetGRs,
-		AssertFunc:                      assertTokens,
+		TargetGRs:                       operatorencryption.DefaultTargetGRs,
+		AssertFunc:                      operatorencryption.AssertTokens,
 	})
 }
 
@@ -44,8 +34,8 @@ func TestEncryptionTypeUnset(t *testing.T) {
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       DefaultTargetGRs,
-		AssertFunc:                      assertTokens,
+		TargetGRs:                       operatorencryption.DefaultTargetGRs,
+		AssertFunc:                      operatorencryption.AssertTokens,
 	})
 }
 
@@ -57,15 +47,15 @@ func TestEncryptionTurnOnAndOff(t *testing.T) {
 			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       DefaultTargetGRs,
-			AssertFunc:                      assertTokens,
+			TargetGRs:                       operatorencryption.DefaultTargetGRs,
+			AssertFunc:                      operatorencryption.AssertTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return CreateAndStoreTokenOfLife(context.TODO(), t, GetClients(t))
+			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
 		},
-		AssertResourceEncryptedFunc:    assertTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: assertTokenOfLifeNotEncrypted,
-		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return TokenOfLife(t) },
+		AssertResourceEncryptedFunc:    operatorencryption.AssertTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
+		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
 	})
 }
@@ -81,17 +71,17 @@ func TestEncryptionRotation(t *testing.T) {
 			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       DefaultTargetGRs,
-			AssertFunc:                      assertTokens,
+			TargetGRs:                       operatorencryption.DefaultTargetGRs,
+			AssertFunc:                      operatorencryption.AssertTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, _ string) runtime.Object {
-			return CreateAndStoreTokenOfLife(ctx, t, GetClients(t))
+			return operatorencryption.CreateAndStoreTokenOfLife(ctx, t, operatorencryption.GetClients(t))
 		},
 		GetRawResourceFunc: func(t testing.TB, clientSet library.ClientSet, _ string) string {
-			return GetRawTokenOfLife(t, clientSet)
+			return operatorencryption.GetRawTokenOfLife(t, clientSet)
 		},
 		UnsupportedConfigFunc: func(rawUnsupportedEncryptionCfg []byte) error {
-			cs := GetClients(t)
+			cs := operatorencryption.GetClients(t)
 			authOperator, err := cs.OperatorClient.Get(ctx, "cluster", metav1.GetOptions{})
 			if err != nil {
 				return err
@@ -120,43 +110,4 @@ func TestEncryptionRotation(t *testing.T) {
 			return err
 		},
 	})
-}
-
-func assertTokens(t testing.TB, clientSet library.ClientSet, expectedMode configv1.EncryptionType, namespace, labelSelector string) {
-	t.Helper()
-	assertAccessTokens(t, clientSet.Etcd, string(expectedMode))
-	assertAuthTokens(t, clientSet.Etcd, string(expectedMode))
-	library.AssertLastMigratedKey(t, clientSet.Kube, DefaultTargetGRs, namespace, labelSelector)
-}
-
-func assertAccessTokens(t testing.TB, etcdClient library.EtcdClient, expectedMode string) {
-	t.Logf("Checking if all OauthAccessTokens where encrypted/decrypted for %q mode", expectedMode)
-	totalAccessTokens, err := library.VerifyResources(t, etcdClient, "/openshift.io/oauth/accesstokens/", expectedMode, true)
-	t.Logf("Verified %d OauthAccessTokens", totalAccessTokens)
-	require.NoError(t, err)
-}
-
-func assertAuthTokens(t testing.TB, etcdClient library.EtcdClient, expectedMode string) {
-	t.Logf("Checking if all OAuthAuthorizeTokens where encrypted/decrypted for %q mode", expectedMode)
-	totalAuthTokens, err := library.VerifyResources(t, etcdClient, "/openshift.io/oauth/authorizetokens/", expectedMode, true)
-	t.Logf("Verified %d OAuthAuthorizeTokens", totalAuthTokens)
-	require.NoError(t, err)
-}
-
-func assertTokenOfLifeEncrypted(t testing.TB, clientSet library.ClientSet, rawTokenOfLife runtime.Object) {
-	t.Helper()
-	tokenOfLife := rawTokenOfLife.(*oauthapiv1.OAuthAccessToken)
-	rawTokenValue := GetRawTokenOfLife(t, clientSet)
-	if strings.Contains(rawTokenValue, tokenOfLife.RefreshToken) {
-		t.Errorf("access token not encrypted, token received from etcd have %q (plain text), raw content in etcd is %s", tokenOfLife.RefreshToken, rawTokenValue)
-	}
-}
-
-func assertTokenOfLifeNotEncrypted(t testing.TB, clientSet library.ClientSet, rawTokenOfLife runtime.Object) {
-	t.Helper()
-	tokenOfLife := rawTokenOfLife.(*oauthapiv1.OAuthAccessToken)
-	rawTokenValue := GetRawTokenOfLife(t, clientSet)
-	if !strings.Contains(rawTokenValue, tokenOfLife.RefreshToken) {
-		t.Errorf("access token received from etcd doesnt have %q (plain text), raw content in etcd is %s", tokenOfLife.RefreshToken, rawTokenValue)
-	}
 }
