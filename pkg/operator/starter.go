@@ -548,6 +548,8 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.configClient.ConfigV1().APIServers(),
 		operatorCtx.operatorConfigInformer.Config().V1().APIServers(),
 		operatorCtx.kubeInformersForNamespaces,
+	).WithUnsupportedConfigPrefixForEncryptionControllers(
+		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
 		"openshift-oauth-apiserver",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),

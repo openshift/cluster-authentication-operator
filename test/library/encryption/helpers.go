@@ -1,4 +1,4 @@
-package e2eencryption
+package encryption
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 )
 
 type ClientSet struct {
-	OperatorClient operatorv1client.OpenShiftAPIServerInterface
+	OperatorClient operatorv1client.AuthenticationInterface
 	TokenClient    oauthclient.OAuthAccessTokensGetter
 }
 
@@ -36,7 +36,7 @@ func GetClientsFor(t testing.TB, kubeConfig *rest.Config) ClientSet {
 	oc, err := oauthclient.NewForConfig(kubeConfig)
 	require.NoError(t, err)
 
-	return ClientSet{OperatorClient: operatorClient.OpenShiftAPIServers(), TokenClient: oc}
+	return ClientSet{OperatorClient: operatorClient.Authentications(), TokenClient: oc}
 }
 
 func GetClients(t testing.TB) ClientSet {
