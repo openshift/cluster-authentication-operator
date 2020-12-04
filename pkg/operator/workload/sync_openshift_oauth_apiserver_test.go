@@ -194,6 +194,98 @@ func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
 	}
 }
 
+var withETCDServerListJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "etcd-servers": [
+        "https://10.0.131.191:2379",
+        "https://10.0.159.206:2379"
+      ]
+    }
+  }
+}
+`
+
+var withDummytJSON = `
+{
+  "oauthAPIServer": {
+    "apiServerArguments": {
+      "dummy-key": [
+        "https://10.0.131.191:2379",
+        "https://10.0.159.206:2379"
+      ]
+    }
+  }
+}
+`
+
+func TestPreconditionFulfilled(t *testing.T) {
+	scenarios := []struct {
+		name            string
+		operator        *operatorv1.Authentication
+		expectError     bool
+		preconditionMet bool
+	}{
+		// scenario 1
+		{
+			name: "mandatory etcd-servers is specified",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig: runtime.RawExtension{Raw: []byte(withETCDServerListJSON)},
+				}},
+			},
+			preconditionMet: true,
+		},
+
+		// scenario 2
+		{
+			name: "empty APIServerArgs",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
+				}},
+			},
+			expectError: true,
+		},
+
+		// scenario 3
+		{
+			name: "no mandatory etcd-servers is specified",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig: runtime.RawExtension{Raw: []byte(withDummytJSON)},
+				}},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			// test data
+			eventRecorder := events.NewInMemoryRecorder("")
+			target := &OAuthAPIServerWorkload{
+				eventRecorder: eventRecorder,
+			}
+
+			// act
+			actualPreconditions, err := target.preconditionFulfilledInternal(scenario.operator)
+
+			// validate
+			if err != nil && !scenario.expectError {
+				t.Fatalf("unexpected error returned %v", err)
+			}
+			if err == nil && scenario.expectError {
+				t.Fatal("expected an error")
+			}
+			if scenario.preconditionMet != actualPreconditions {
+				t.Fatalf("unexpected precondtions = %v, expected = %v", actualPreconditions, scenario.preconditionMet)
+			}
+		})
+	}
+}
+
 func validateActionsVerbs(actualActions []clientgotesting.Action, expectedActions []string) error {
 	if len(actualActions) != len(expectedActions) {
 		return fmt.Errorf("expected to get %d actions but got %d\nexpected=%v \n got=%v", len(expectedActions), len(actualActions), expectedActions, actionStrings(actualActions))
