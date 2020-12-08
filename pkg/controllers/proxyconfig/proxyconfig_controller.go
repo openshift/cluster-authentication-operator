@@ -12,7 +12,6 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	corev1informers "k8s.io/client-go/informers/core/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
@@ -26,43 +25,44 @@ import (
 
 // proxyConfigChecker reports bad proxy configurations.
 type proxyConfigChecker struct {
-	caPool               *x509.CertPool
-	routeLister          v1.RouteLister
-	configMapLister      corev1lister.ConfigMapLister
-	routeName            string
-	routeNamespace       string
-	caConfigmapName      string
-	caConfigmapNamespace string
-	resourceVersion      string
+	routeLister     v1.RouteLister
+	configMapLister corev1lister.ConfigMapLister
+	routeName       string
+	routeNamespace  string
+	caConfigMaps    map[string][]string // ns -> []configmapNames
 }
 
 func NewProxyConfigChecker(
 	routeInformer routeinformer.RouteInformer,
-	configMapInformer corev1informers.ConfigMapInformer,
+	configMapInformers v1helpers.KubeInformersForNamespaces,
 	routeNamespace string,
 	routeName string,
-	caConfigmapNamespace string,
-	caConfigmapName string,
+	caConfigMaps map[string][]string,
 	recorder events.Recorder,
 	operatorClient v1helpers.OperatorClient) factory.Controller {
 	p := proxyConfigChecker{
-		routeLister:          routeInformer.Lister(),
-		configMapLister:      configMapInformer.Lister(),
-		routeName:            routeName,
-		routeNamespace:       routeNamespace,
-		caConfigmapName:      caConfigmapName,
-		caConfigmapNamespace: caConfigmapNamespace,
+		routeLister:     routeInformer.Lister(),
+		configMapLister: configMapInformers.ConfigMapLister(),
+		routeName:       routeName,
+		routeNamespace:  routeNamespace,
+		caConfigMaps:    caConfigMaps,
 	}
 
-	return factory.New().
+	c := factory.New().
 		WithSync(p.sync).
 		WithInformers(
 			routeInformer.Informer(),
-			configMapInformer.Informer(),
 		).
-		ResyncEvery(5*time.Minute).
-		WithSyncDegradedOnError(operatorClient).
-		ToController("ProxyConfigController", recorder.WithComponentSuffix("proxy-config-controller"))
+		ResyncEvery(5 * time.Minute).
+		WithSyncDegradedOnError(operatorClient)
+
+	for ns := range caConfigMaps {
+		c.WithInformers(
+			configMapInformers.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
+		)
+	}
+
+	return c.ToController("ProxyConfigController", recorder.WithComponentSuffix("proxy-config-controller"))
 }
 
 // sync attempts to connect to route using configured proxy settings and reports any error.
@@ -141,21 +141,26 @@ func (p *proxyConfigChecker) createHTTPClients() (*http.Client, *http.Client, er
 
 // getCACerts retrieves the CA bundle in openshift cluster
 func (p *proxyConfigChecker) getCACerts() (*x509.CertPool, error) {
-	caConfigmap, err := p.configMapLister.ConfigMaps(p.caConfigmapNamespace).Get(p.caConfigmapName)
-	if err != nil {
-		return nil, err
-	}
+	caPool := x509.NewCertPool()
 
-	if caConfigmap.ResourceVersion != p.resourceVersion {
-		caPool := x509.NewCertPool()
-		if ok := caPool.AppendCertsFromPEM([]byte(caConfigmap.Data["ca-bundle.crt"])); !ok {
-			return nil, fmt.Errorf("unable to append system trust ca bundle")
+	for ns, configMaps := range p.caConfigMaps {
+		for _, cmName := range configMaps {
+			caCM, err := p.configMapLister.ConfigMaps(ns).Get(cmName)
+			if err != nil {
+				return nil, err
+			}
+
+			// In case this causes performance issues, consider caching the trusted
+			// certs pool.
+			// At the time of writing this comment, this should only happen once
+			// every 5 minutes and the trusted-ca CM contains around 130 certs.
+			if ok := caPool.AppendCertsFromPEM([]byte(caCM.Data["ca-bundle.crt"])); !ok {
+				return nil, fmt.Errorf("unable to append system trust ca bundle")
+			}
 		}
-		p.caPool = caPool
-		p.resourceVersion = caConfigmap.ResourceVersion
 	}
 
-	return p.caPool, nil
+	return caPool, nil
 }
 
 // isEndpointReachable returns nil if the given endpoint can be reached using the given client
