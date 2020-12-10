@@ -393,11 +393,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	proxyConfigController := proxyconfig.NewProxyConfigChecker(
 		routeInformersNamespaced.Route().V1().Routes(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication-operator").Core().V1().ConfigMaps(),
+		operatorCtx.kubeInformersForNamespaces,
 		"openshift-authentication",
 		"oauth-openshift",
-		"openshift-authentication-operator",
-		"trusted-ca-bundle",
+		map[string][]string{
+			"openshift-authentication-operator": {"trusted-ca-bundle"},
+			"openshift-config-managed":          {"default-ingress-cert"},
+		},
 		controllerContext.EventRecorder,
 		operatorCtx.operatorClient,
 	)
