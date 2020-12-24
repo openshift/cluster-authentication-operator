@@ -49,12 +49,13 @@ func init() {
 }
 
 type wellKnownReadyController struct {
-	serviceLister   corev1lister.ServiceLister
-	endpointLister  corev1lister.EndpointsLister
-	operatorClient  v1helpers.OperatorClient
-	authLister      configv1lister.AuthenticationLister
-	configMapLister corev1lister.ConfigMapLister
-	routeLister     routev1lister.RouteLister
+	serviceLister        corev1lister.ServiceLister
+	endpointLister       corev1lister.EndpointsLister
+	operatorClient       v1helpers.OperatorClient
+	authLister           configv1lister.AuthenticationLister
+	configMapLister      corev1lister.ConfigMapLister
+	routeLister          routev1lister.RouteLister
+	infrastructureLister configv1lister.InfrastructureLister
 }
 
 // knownConditionNames lists all condition types used by this controller.
@@ -71,18 +72,20 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 	nsDefaultInformers := kubeInformers.InformersFor("default")
 
 	c := &wellKnownReadyController{
-		serviceLister:   nsDefaultInformers.Core().V1().Services().Lister(),
-		endpointLister:  nsDefaultInformers.Core().V1().Endpoints().Lister(),
-		authLister:      configInformers.Config().V1().Authentications().Lister(),
-		configMapLister: nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
-		routeLister:     routeInformer.Lister(),
-		operatorClient:  operatorClient,
+		serviceLister:        nsDefaultInformers.Core().V1().Services().Lister(),
+		endpointLister:       nsDefaultInformers.Core().V1().Endpoints().Lister(),
+		authLister:           configInformers.Config().V1().Authentications().Lister(),
+		infrastructureLister: configInformers.Config().V1().Infrastructures().Lister(),
+		configMapLister:      nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
+		routeLister:          routeInformer.Lister(),
+		operatorClient:       operatorClient,
 	}
 
 	return factory.New().WithInformers(
 		nsDefaultInformers.Core().V1().Services().Informer(),
 		nsDefaultInformers.Core().V1().Endpoints().Informer(),
 		configInformers.Config().V1().Authentications().Informer(),
+		configInformers.Config().V1().Infrastructures().Informer(),
 		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 	).
@@ -102,6 +105,10 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	if err != nil {
 		return err
 	}
+	infraConfig, err := c.infrastructureLister.Get("cluster")
+	if err != nil {
+		return err
+	}
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if apierrors.IsNotFound(err) {
 		if _, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
@@ -118,7 +125,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		return err
 	}
 
-	if err := c.isWellknownEndpointsReady(operatorSpec, operatorStatus, authConfig, route); err != nil {
+	if err := c.isWellknownEndpointsReady(operatorSpec, operatorStatus, authConfig, route, infraConfig); err != nil {
 		_, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
 			Status:  operatorv1.ConditionFalse,
@@ -143,7 +150,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	return nil
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, route *routev1.Route) error {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, route *routev1.Route, infraConfig *configv1.Infrastructure) error {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
 	// the operator manages the metadata if specifically requested and by default
@@ -187,7 +194,8 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 		// this also prevents flapping after one success when the kube-apiserver rolls out again
 		return nil
 	}
-	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec); len(ips) < expectedMinNumber {
+
+	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec, infraConfig.Status.ControlPlaneTopology); len(ips) < expectedMinNumber {
 		return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
 	}
 
