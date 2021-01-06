@@ -1,4 +1,4 @@
-apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+apiVersion: flowcontrol.apiserver.k8s.io/v1beta1
 kind: FlowSchema
 metadata:
   name: openshift-oauth-apiserver-sar
@@ -38,7 +38,7 @@ spec:
         name: oauth-apiserver-sa
         namespace: openshift-oauth-apiserver
 ---
-apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+apiVersion: flowcontrol.apiserver.k8s.io/v1beta1
 kind: FlowSchema
 metadata:
   name: openshift-oauth-apiserver
@@ -69,7 +69,7 @@ spec:
         name: oauth-apiserver-sa
         namespace: openshift-oauth-apiserver
 ---
-apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+apiVersion: flowcontrol.apiserver.k8s.io/v1beta1
 kind: FlowSchema
 metadata:
   name: openshift-authentication-operator
@@ -100,7 +100,7 @@ spec:
         name: authentication-operator
         namespace: openshift-authentication-operator
 ---
-apiVersion: flowcontrol.apiserver.k8s.io/v1alpha1
+apiVersion: flowcontrol.apiserver.k8s.io/v1beta1
 kind: FlowSchema
 metadata:
   name: openshift-oauth-server
