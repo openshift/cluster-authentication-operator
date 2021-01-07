@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "91d9904f3a2d6336f1ed47ff7002e0dc76a47d26f6f7c35255cc0a57780882e0"
+    operator.openshift.io/spec-hash: "3a074512f4925dec1d0f36239f7141df0da9d123f76ed90e2b6e6af988c756a6"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -110,7 +110,10 @@ spec:
             - "chmod 0700 /var/log/oauth-apiserver && touch /var/log/oauth-apiserver/audit.log && chmod 0600 /var/log/oauth-apiserver/*"
           imagePullPolicy: IfNotPresent
           name: fix-audit-permissions
-          resources: {}
+          resources:
+            requests:
+              cpu: 15m
+              memory: 50Mi
           securityContext:
             privileged: true
           terminationMessagePolicy: FallbackToLogsOnError
