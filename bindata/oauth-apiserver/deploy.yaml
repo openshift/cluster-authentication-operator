@@ -39,6 +39,10 @@ spec:
           command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver && touch /var/log/oauth-apiserver/audit.log && chmod 0600 /var/log/oauth-apiserver/*']
           securityContext:
             privileged: true
+          resources:
+            requests:
+              cpu: 15m
+              memory: 50Mi
           volumeMounts:
             - mountPath: /var/log/oauth-apiserver
               name: audit-dir
