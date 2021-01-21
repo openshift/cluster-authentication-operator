@@ -49,7 +49,7 @@ metadata:
   name: prometheus-k8s
   namespace: openshift-oauth-apiserver
   annotations:
-    include.release.openshift.io/ibm-cloud-managed: "true"
+    exclude.release.openshift.io/internal-openshift-hosted: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
 rules:
@@ -109,7 +109,7 @@ metadata:
   name: prometheus-k8s
   namespace: openshift-oauth-apiserver
   annotations:
-    include.release.openshift.io/ibm-cloud-managed: "true"
+    exclude.release.openshift.io/internal-openshift-hosted: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     include.release.openshift.io/single-node-developer: "true"
 roleRef:
