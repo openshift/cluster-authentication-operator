@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
@@ -97,7 +96,7 @@ func (p *proxyConfigChecker) sync(ctx context.Context, _ factory.SyncContext) er
 func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string, clientWithProxy, clientWithoutProxy *http.Client) error {
 	withProxyErr := isEndpointReachable(ctx, endpointURL.String(), clientWithProxy)
 	withoutProxyErr := isEndpointReachable(ctx, endpointURL.String(), clientWithoutProxy)
-	noProxyMatchesEndpoint := strings.Contains(noProxy, endpointURL.Hostname())
+	noProxyMatchesEndpoint := parseNoProxy(noProxy).matches(canonicalAddr(endpointURL))
 
 	if noProxyMatchesEndpoint && withoutProxyErr != nil {
 		if withProxyErr == nil {

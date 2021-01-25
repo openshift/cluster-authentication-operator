@@ -151,7 +151,7 @@ func Test_proxyFunc(t *testing.T) {
 }
 
 func Test_checkProxyConfig(t *testing.T) {
-	endpoint := "https://testing.com:443"
+	endpoint := "https://proxy.testing.com:443"
 	endpointURL, err := url.Parse(endpoint)
 	if err != nil {
 		t.Fatal(err)
@@ -177,23 +177,29 @@ func Test_checkProxyConfig(t *testing.T) {
 		},
 		{
 			name:               "good proxy config with endpoint matching noProxy",
-			noProxy:            endpoint,
+			noProxy:            "proxy.testing.com",
+			clientWithProxy:    badHTTPClient,
+			clientWithoutProxy: goodHTTPClient,
+		},
+		{
+			name:               "good proxy config with endpoint matching domain in noProxy",
+			noProxy:            "testing.com",
 			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: goodHTTPClient,
 		},
 		{
 			name:               "endpoint matching noProxy is unreachable with/without proxy",
-			noProxy:            endpoint,
+			noProxy:            "testing.com",
 			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: badHTTPClient,
-			wantErr:            fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, endpoint, endpoint, endpoint),
+			wantErr:            fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, "testing.com", endpoint, endpoint),
 		},
 		{
 			name:               "endpoint matching noProxy is reachable with proxy",
-			noProxy:            endpoint,
+			noProxy:            "proxy.testing.com",
 			clientWithProxy:    goodHTTPClient,
 			clientWithoutProxy: badHTTPClient,
-			wantErr:            fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %q returned 404", endpoint, endpoint, endpoint),
+			wantErr:            fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %q returned 404", endpoint, "proxy.testing.com", endpoint),
 		},
 		{
 			name:               "endpoint not matching noProxy is reachable without proxy",
