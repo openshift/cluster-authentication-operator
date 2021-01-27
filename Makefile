@@ -47,6 +47,13 @@ test-e2e: GO_TEST_FLAGS += -count 1
 test-e2e: test-unit
 .PHONY: test-e2e
 
+run-e2e-test: GO_TEST_PACKAGES :=./test/e2e/...
+run-e2e-test: GO_TEST_FLAGS += -run
+run-e2e-test: GO_TEST_FLAGS += ^${WHAT}$$
+run-e2e-test: GO_TEST_PACKAGES += -count 1
+run-e2e-test: test-unit
+.PHONY: run-e2e-test
+
 # these are extremely slow serial e2e encryption tests that modify the cluster's global state
 test-e2e-encryption: GO_TEST_PACKAGES :=./test/e2e-encryption/...
 test-e2e-encryption: GO_TEST_FLAGS += -v
