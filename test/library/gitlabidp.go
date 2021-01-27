@@ -2,7 +2,6 @@ package library
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -15,11 +14,9 @@ import (
 	"gopkg.in/square/go-jose.v2/json"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	configv1 "github.com/openshift/api/config/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 
@@ -46,6 +43,8 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 			// configure password for GitLab root user
 			{Name: "GITLAB_OMNIBUS_CONFIG", Value: "gitlab_rails['initial_root_password']='password';"},
 		},
+		80,
+		443,
 		[]corev1.Volume{
 			{
 				Name: "configdir",
@@ -82,6 +81,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 				"memory": resource.MustParse("1500Mi"),
 			},
 		},
+		false,
 	)
 	cleanups = []func(){cleanup}
 
@@ -115,66 +115,10 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 	appID := app["application_id"].(string)
 	appSecret := app["secret"].(string)
 
-	_, err = kubeClients.CoreV1().Secrets("openshift-config").Create(context.TODO(),
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   "gitlab-secret",
-				Labels: CAOE2ETestLabels(),
-			},
-			Data: map[string][]byte{
-				"clientSecret": []byte(appSecret),
-			},
-		},
-		metav1.CreateOptions{},
-	)
-	require.NoError(t, err, "failed to create gitlab client secret")
-	cleanups = append(cleanups, func() {
-		if err := kubeClients.CoreV1().Secrets("openshift-config").Delete(context.TODO(), "gitlab-secret", metav1.DeleteOptions{}); err != nil {
-			t.Logf("cleanup failed for secret 'openshift-config/%s'", "gitlab-secret")
-		}
-	})
-
-	// configure the default ingress CA as the CA for the IdP in the openshift-config NS
-	cleanups = append(cleanups, SyncDefaultIngressCAToConfig(t, kubeClients.CoreV1(), "gitlab-ca"))
-
-	oauth, err := configclients.OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
+	idpCleanups, err := addOIDCIDentityProvider(t, kubeClients, configclients, appID, appSecret, openshiftIDPName, gitlabURL)
 	require.NoError(t, err)
 
-	oauthCopy := oauth.DeepCopy()
-	oauthCopy.Spec.IdentityProviders = append(
-		oauth.Spec.IdentityProviders,
-		configv1.IdentityProvider{
-			Name:          openshiftIDPName,
-			MappingMethod: configv1.MappingMethodClaim,
-			IdentityProviderConfig: configv1.IdentityProviderConfig{
-				Type: configv1.IdentityProviderTypeOpenID,
-				OpenID: &configv1.OpenIDIdentityProvider{
-					ClientID: appID,
-					ClientSecret: configv1.SecretNameReference{
-						Name: "gitlab-secret",
-					},
-					ExtraScopes: []string{"profile", "email"},
-					Issuer:      gitlabURL,
-					CA: configv1.ConfigMapNameReference{
-						Name: "gitlab-ca",
-					},
-				},
-			},
-		})
-
-	_, err = configclients.OAuths().Update(context.TODO(), oauthCopy, metav1.UpdateOptions{})
-	require.NoError(t, err, "failed to add gitlab as OIDC provider")
-	cleanups = append(cleanups, func() {
-		CleanIDPConfigByName(t, configclients.OAuths(), openshiftIDPName)
-	})
-
-	err = WaitForClusterOperatorProgressing(t, configclients, "authentication")
-	require.NoError(t, err, "authentication operator never became progressing")
-
-	err = WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configclients, "authentication")
-	require.NoError(t, err, "failed to wait for the authentication operator to become available")
-
-	return gitlabURL, openshiftIDPName, cleanups
+	return gitlabURL, openshiftIDPName, append(cleanups, idpCleanups...)
 }
 
 type gitlabClient struct {

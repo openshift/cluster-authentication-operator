@@ -20,6 +20,18 @@ import (
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
+func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.ConfigV1Interface, name string) error {
+	if err := WaitForClusterOperatorProgressing(t, configClient, name); err != nil {
+		return fmt.Errorf("authentication operator never became progressing: %v", err)
+	}
+
+	if err := WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, name); err != nil {
+		return fmt.Errorf("failed to wait for the authentication operator to become available: %v", err)
+	}
+
+	return nil
+}
+
 func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatus(t, client, name, configv1.ConditionTrue, configv1.ConditionFalse, configv1.ConditionFalse, "")
 }
