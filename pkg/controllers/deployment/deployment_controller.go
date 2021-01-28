@@ -366,7 +366,10 @@ func (c *deploymentController) updateOperatorDeploymentInfo(
 
 	if operatorStatusOutdated {
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			operatorConfig, _ := c.getAuthConfig(ctx)
+			operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
 
 			// make sure we record the changes to the deployment
 			// if this fail, lets resync, this should not fail
@@ -374,7 +377,7 @@ func (c *deploymentController) updateOperatorDeploymentInfo(
 			operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
 			operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
 
-			_, err := c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
+			_, err = c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
 			return err
 		}); err != nil {
 			syncContext.Recorder().Warningf("AuthenticationUpdateStatusFailed", "Failed to update authentication operator status: %v", err)
