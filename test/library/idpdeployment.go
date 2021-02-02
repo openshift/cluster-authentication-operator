@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -13,10 +14,13 @@ import (
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/kubernetes"
 
+	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 )
+
+const servingSecretName = "serving-secret"
 
 func boolptr(b bool) *bool {
 	return &b
@@ -28,9 +32,11 @@ func deployPod(
 	routeClient routev1client.RouteV1Interface,
 	name, image string,
 	env []corev1.EnvVar,
+	httpPort, httpsPort int32,
 	volumes []corev1.Volume,
 	volumeMounts []corev1.VolumeMount,
 	resources corev1.ResourceRequirements,
+	useTLS bool,
 ) (namespace, host string, cleanup func()) {
 	testContext := context.TODO()
 
@@ -63,7 +69,7 @@ func deployPod(
 		}
 	}()
 
-	pod := podTemplate(name, image)
+	pod := podTemplate(name, image, httpPort, httpsPort)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
@@ -71,10 +77,10 @@ func deployPod(
 	_, err = clients.CoreV1().Pods(namespace).Create(testContext, pod, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(), metav1.CreateOptions{})
+	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(httpPort, httpsPort), metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	route, err := routeClient.Routes(namespace).Create(testContext, routeTemplate(), metav1.CreateOptions{})
+	route, err := routeClient.Routes(namespace).Create(testContext, routeTemplate(useTLS), metav1.CreateOptions{})
 	require.NoError(t, err)
 
 	host, err = WaitForRouteAdmitted(t, routeClient, route.Name, route.Namespace)
@@ -83,7 +89,7 @@ func deployPod(
 	return
 }
 
-func podTemplate(name, image string) *corev1.Pod {
+func podTemplate(name, image string, httpPort, httpsPort int32) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -101,10 +107,10 @@ func podTemplate(name, image string) *corev1.Pod {
 					},
 					Ports: []corev1.ContainerPort{
 						{
-							ContainerPort: 443,
+							ContainerPort: httpsPort,
 						},
 						{
-							ContainerPort: 80,
+							ContainerPort: httpPort,
 						},
 					},
 				},
@@ -112,11 +118,15 @@ func podTemplate(name, image string) *corev1.Pod {
 		},
 	}
 }
-func svcTemplate() *corev1.Service {
+
+func svcTemplate(httpPort, httpsPort int32) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "pod-svc",
 			Labels: CAOE2ETestLabels(),
+			Annotations: map[string]string{
+				"service.beta.openshift.io/serving-cert-secret-name": servingSecretName,
+			},
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
@@ -125,19 +135,19 @@ func svcTemplate() *corev1.Service {
 			Ports: []corev1.ServicePort{
 				{
 					Name: "https",
-					Port: 443,
+					Port: httpsPort,
 				},
 				{
 					Name: "http",
-					Port: 80,
+					Port: httpPort,
 				},
 			},
 		},
 	}
 }
 
-func routeTemplate() *routev1.Route {
-	return &routev1.Route{
+func routeTemplate(useTLS bool) *routev1.Route {
+	r := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-route",
 		},
@@ -155,6 +165,15 @@ func routeTemplate() *routev1.Route {
 			},
 		},
 	}
+
+	if useTLS {
+		r.Spec.TLS.Termination = routev1.TLSTerminationReencrypt
+		r.Spec.Port = &routev1.RoutePort{
+			TargetPort: intstr.FromString("https"),
+		}
+	}
+
+	return r
 }
 
 func CleanIDPConfigByName(t *testing.T, configClient configv1client.OAuthInterface, idpName string) {
@@ -206,4 +225,85 @@ func CAOE2ETestLabels() map[string]string {
 	return map[string]string{
 		"e2e-test": "openshift-authentication-operator",
 	}
+}
+
+func addOIDCIDentityProvider(t *testing.T, kubeClients *kubernetes.Clientset, configClient *configv1client.ConfigV1Client, clientID, clientSecret, idpName, idpURL string) ([]func(), error) {
+	var cleanups []func()
+
+	secretName := idpName + "-secret"
+	_, err := kubeClients.CoreV1().Secrets("openshift-config").Create(context.TODO(),
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   secretName,
+				Labels: CAOE2ETestLabels(),
+			},
+			Data: map[string][]byte{
+				"clientSecret": []byte(clientSecret),
+			},
+		},
+		metav1.CreateOptions{},
+	)
+	if err != nil {
+		return cleanups, fmt.Errorf("failed to create keycloak client secret: %v", err)
+	}
+	cleanups = append(cleanups, func() {
+		if err := kubeClients.CoreV1().Secrets("openshift-config").Delete(context.TODO(), secretName, metav1.DeleteOptions{}); err != nil {
+			t.Logf("cleanup failed for secret 'openshift-config/%s'", secretName)
+		}
+	})
+
+	caCMName := idpName + "-ca"
+	// configure the default ingress CA as the CA for the IdP in the openshift-config NS
+	cleanups = append(cleanups, SyncDefaultIngressCAToConfig(t, kubeClients.CoreV1(), caCMName))
+
+	idpClean, err := addIdentityProvider(t, kubeClients, configClient,
+		&configv1.IdentityProvider{
+			Name:          idpName,
+			MappingMethod: configv1.MappingMethodClaim,
+			IdentityProviderConfig: configv1.IdentityProviderConfig{
+				Type: configv1.IdentityProviderTypeOpenID,
+				OpenID: &configv1.OpenIDIdentityProvider{
+					ClientID: clientID,
+					ClientSecret: configv1.SecretNameReference{
+						Name: secretName,
+					},
+					ExtraScopes: []string{"profile", "email"},
+					Issuer:      idpURL,
+					CA: configv1.ConfigMapNameReference{
+						Name: caCMName,
+					},
+				},
+			},
+		})
+
+	cleanups = append(cleanups, idpClean...)
+	return cleanups, err
+
+}
+
+func addIdentityProvider(t *testing.T, kubeClients *kubernetes.Clientset, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
+	cleanups := []func(){}
+
+	oauth, err := configClient.OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
+	if err != nil {
+		return cleanups, err
+	}
+
+	oauthCopy := oauth.DeepCopy()
+	oauthCopy.Spec.IdentityProviders = append(oauth.Spec.IdentityProviders, *idp)
+
+	_, err = configClient.OAuths().Update(context.TODO(), oauthCopy, metav1.UpdateOptions{})
+	if err != nil {
+		return cleanups, fmt.Errorf("failed to add an identity provider: %v", err)
+	}
+
+	cleanups = append(cleanups, func() {
+		CleanIDPConfigByName(t, configClient.OAuths(), idp.Name)
+	})
+
+	if err := WaitForOperatorToPickUpChanges(t, configClient, "authentication"); err != nil {
+		return cleanups, err
+	}
+
+	return cleanups, err
 }

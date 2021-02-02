@@ -20,6 +20,18 @@ import (
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
+func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.ConfigV1Interface, name string) error {
+	if err := WaitForClusterOperatorProgressing(t, configClient, name); err != nil {
+		return fmt.Errorf("authentication operator never became progressing: %v", err)
+	}
+
+	if err := WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, name); err != nil {
+		return fmt.Errorf("failed to wait for the authentication operator to become available: %v", err)
+	}
+
+	return nil
+}
+
 func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatus(t, client, name, configv1.ConditionTrue, configv1.ConditionFalse, configv1.ConditionFalse, "")
 }
@@ -45,6 +57,10 @@ func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1In
 		}
 		conditions := clusterOperator.Status.Conditions
 		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, conditionsStatusString(conditions))
+		degradedCondition := v1helpers.FindStatusCondition(conditions, configv1.OperatorDegraded)
+		if degradedCondition.Status == configv1.ConditionTrue {
+			t.Logf("clusteroperators.config.openshift.io/%v: degraded is true!: %s:%s", name, degradedCondition.Reason, degradedCondition.Message)
+		}
 		availableStatusIsMatch, progressingStatusIsMatch, degradedStatusIsMatch, upgradableStatusIsMatch := true, true, true, true
 		if available != "" {
 			availableStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorAvailable, available)
