@@ -3,6 +3,7 @@ package readiness
 import (
 	"bytes"
 	"encoding/json"
+	configv1 "github.com/openshift/api/config/v1"
 	"strconv"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -54,9 +55,11 @@ func isUnsupportedUnsafeAuthentication(spec *operatorv1.OperatorSpec) (bool, err
 	}
 }
 
-func getExpectedMinimumNumberOfMasters(spec *operatorv1.OperatorSpec) int {
+func getExpectedMinimumNumberOfMasters(spec *operatorv1.OperatorSpec, topologyMode configv1.TopologyMode) int {
 	allowAnyNumber, err := isUnsupportedUnsafeAuthentication(spec)
 	switch {
+	case topologyMode == configv1.SingleReplicaTopologyMode:
+		return 1
 	case err != nil:
 		utilruntime.HandleError(err)
 		return 3
