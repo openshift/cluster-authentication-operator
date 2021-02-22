@@ -488,7 +488,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		operatorCtx.kubeClient,
-		eventRecorder,
 		operatorCtx.versionRecorder)
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
