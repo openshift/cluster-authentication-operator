@@ -193,7 +193,7 @@ github.com/openshift/client-go/route/informers/externalversions/internalinterfac
 github.com/openshift/client-go/route/informers/externalversions/route
 github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
-# github.com/openshift/library-go v0.0.0-20210105160312-42fe32ec6e0f
+# github.com/openshift/library-go v0.0.0-20210105160312-42fe32ec6e0f => github.com/stlaz/library-go v0.0.0-20210222135633-923e0974c87e
 ## explicit
 github.com/openshift/library-go/pkg/apps/deployment
 github.com/openshift/library-go/pkg/assets
@@ -985,3 +985,4 @@ sigs.k8s.io/structured-merge-diff/v4/typed
 sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.2.0
 sigs.k8s.io/yaml
+# github.com/openshift/library-go => github.com/stlaz/library-go v0.0.0-20210222135633-923e0974c87e
