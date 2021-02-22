@@ -107,11 +107,10 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
-				eventRecorder:             eventRecorder,
 				kubeClient:                fakeKubeClient,
 			}
 
-			actualDeployment, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations)
+			actualDeployment, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,10 +266,7 @@ func TestPreconditionFulfilled(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			// test data
-			eventRecorder := events.NewInMemoryRecorder("")
-			target := &OAuthAPIServerWorkload{
-				eventRecorder: eventRecorder,
-			}
+			target := &OAuthAPIServerWorkload{}
 
 			// act
 			actualPreconditions, err := target.preconditionFulfilledInternal(scenario.operator)
