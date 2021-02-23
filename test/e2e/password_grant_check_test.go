@@ -20,6 +20,8 @@ import (
 )
 
 func TestGitLabAsOIDCPasswordGrantCheck(t *testing.T) {
+	// FIXME:
+	t.Skip("13.9.0 seems to have broken the root login used in this test")
 	kubeConfig := test.NewClientConfigForTest(t)
 
 	kubeClients, err := kubernetes.NewForConfig(kubeConfig)
