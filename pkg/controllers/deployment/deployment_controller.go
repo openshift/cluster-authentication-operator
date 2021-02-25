@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -41,35 +42,72 @@ import (
 
 var _ workload.Delegate = &oauthServerDeploymentSyncer{}
 
-func NewOAuthServerWorkloadController(
-	kubeClient kubernetes.Interface,
-	oauthClientClient oauthv1client.OAuthClientInterface,
-	operatorClient v1helpers.OperatorClient,
-	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
+// nodeCountFunction a function to return count of nodes
+type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
 
+// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+// one pod of a given replicaset from landing on a node.
+type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
+
+type oauthServerDeploymentSyncer struct {
+	operatorClient v1helpers.OperatorClient
+
+	// countNodes a function to return count of nodes on which the workload will be installed
+	countNodes nodeCountFunc
+	// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+	// one pod of a given replicaset from landing on a node.
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc
+
+	deployments       appsv1client.DeploymentsGetter
+	oauthClientClient oauthv1client.OAuthClientInterface
+	auth              operatorv1client.AuthenticationsGetter
+
+	configMapLister corev1listers.ConfigMapLister
+	secretLister    corev1listers.SecretLister
+	podsLister      corev1listers.PodLister
+	routeLister     routev1lister.RouteLister
+	ingressLister   configv1listers.IngressLister
+	proxyLister     configv1listers.ProxyLister
+
+	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
+	bootstrapUserChangeRollOut bool
+}
+
+func NewOAuthServerWorkloadController(
+	operatorClient v1helpers.OperatorClient,
+	countNodes nodeCountFunc,
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc,
+	kubeClient kubernetes.Interface,
+	nodeInformer coreinformers.NodeInformer,
+	oauthClientClient oauthv1client.OAuthClientInterface,
+	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
 	routeInformer routeinformer.SharedInformerFactory,
 	configInformers configinformer.SharedInformerFactory,
 	authOperatorGetter operatorv1client.AuthenticationsGetter,
 	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
-
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
-
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
 	oauthDeploymentSyncer := &oauthServerDeploymentSyncer{
-		operatorClient:          operatorClient,
-		oauthClientClient:       oauthClientClient,
-		deployments:             kubeClient.AppsV1(),
-		auth:                    authOperatorGetter,
-		configMapLister:         kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
-		secretLister:            kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		routeLister:             routeInformer.Route().V1().Routes().Lister(),
-		podsLister:              kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		ingressLister:           configInformers.Config().V1().Ingresses().Lister(),
-		proxyLister:             configInformers.Config().V1().Proxies().Lister(),
+		operatorClient: operatorClient,
+
+		countNodes:                countNodes,
+		ensureAtMostOnePodPerNode: ensureAtMostOnePodPerNode,
+
+		oauthClientClient: oauthClientClient,
+		deployments:       kubeClient.AppsV1(),
+		auth:              authOperatorGetter,
+
+		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
+		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		routeLister:     routeInformer.Route().V1().Routes().Lister(),
+		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
+		ingressLister:   configInformers.Config().V1().Ingresses().Lister(),
+		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
+
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
 
@@ -93,6 +131,7 @@ func NewOAuthServerWorkloadController(
 		[]factory.Informer{
 			configInformers.Config().V1().Ingresses().Informer(),
 			configInformers.Config().V1().Proxies().Informer(),
+			nodeInformer.Informer(),
 		},
 		[]factory.Informer{
 			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
@@ -107,59 +146,6 @@ func NewOAuthServerWorkloadController(
 		eventsRecorder,
 		versionRecorder,
 	)
-}
-
-type oauthServerDeploymentSyncer struct {
-	operatorClient v1helpers.OperatorClient
-
-	deployments       appsv1client.DeploymentsGetter
-	oauthClientClient oauthv1client.OAuthClientInterface
-	auth              operatorv1client.AuthenticationsGetter
-
-	configMapLister corev1listers.ConfigMapLister
-	secretLister    corev1listers.SecretLister
-	podsLister      corev1listers.PodLister
-	routeLister     routev1lister.RouteLister
-	ingressLister   configv1listers.IngressLister
-	proxyLister     configv1listers.ProxyLister
-
-	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
-	bootstrapUserChangeRollOut bool
-}
-
-func NewOAuthServerDeploymentSyncer(
-	kubeInformersForTargetNamespace informers.SharedInformerFactory,
-	routeInformer routeinformer.SharedInformerFactory,
-	configInformers configinformer.SharedInformerFactory,
-	operatorClient v1helpers.OperatorClient,
-	authOperatorGetter operatorv1client.AuthenticationsGetter,
-	oauthClientClient oauthv1client.OAuthClientInterface,
-	deploymentsGetter appsv1client.DeploymentsGetter,
-	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
-	recorder events.Recorder,
-) *oauthServerDeploymentSyncer {
-	c := &oauthServerDeploymentSyncer{
-		operatorClient:          operatorClient,
-		oauthClientClient:       oauthClientClient,
-		deployments:             deploymentsGetter,
-		auth:                    authOperatorGetter,
-		configMapLister:         kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
-		secretLister:            kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		routeLister:             routeInformer.Route().V1().Routes().Lister(),
-		podsLister:              kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		ingressLister:           configInformers.Config().V1().Ingresses().Lister(),
-		proxyLister:             configInformers.Config().V1().Proxies().Lister(),
-		bootstrapUserDataGetter: bootstrapUserDataGetter,
-	}
-
-	if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
-		klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
-		c.bootstrapUserChangeRollOut = true
-	} else {
-		c.bootstrapUserChangeRollOut = userExists
-	}
-
-	return c
 }
 
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
@@ -227,6 +213,18 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
+
+	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
+	if err != nil {
+		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
+	}
+
+	// Set the replica count to the number of master nodes.
+	masterNodeCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
+	if err != nil {
+		return nil, false, append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
+	}
+	expectedDeployment.Spec.Replicas = masterNodeCount
 
 	deployment, _, err := resourceapply.ApplyDeployment(c.deployments,
 		syncContext.Recorder(),

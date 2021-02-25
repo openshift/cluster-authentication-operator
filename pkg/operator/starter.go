@@ -336,9 +336,12 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	deploymentController := deployment.NewOAuthServerWorkloadController(
-		operatorCtx.kubeClient,
-		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.operatorClient,
+		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		workloadcontroller.EnsureAtMostOnePodPerNode,
+		operatorCtx.kubeClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		routeInformersNamespaced,
 		operatorCtx.operatorConfigInformer,
