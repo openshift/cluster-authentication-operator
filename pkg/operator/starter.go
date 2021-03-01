@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,7 +65,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
@@ -142,8 +142,21 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	versionRecorder := status.NewVersionGetter()
+	clusterOperator, err := configClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+	// perform version changes to the version getter prior to tying it up in the status controller
+	// via change-notification channel so that it only updates operator version in status once
+	// either of the workloads synces
+	for _, version := range clusterOperator.Status.Versions {
+		versionRecorder.SetVersion(version.Name, version.Version)
+	}
+	versionRecorder.SetVersion("operator", os.Getenv("OPERATOR_IMAGE_VERSION"))
+
 	operatorCtx := &operatorContext{}
-	operatorCtx.versionRecorder = status.NewVersionGetter()
+	operatorCtx.versionRecorder = versionRecorder
 	operatorCtx.kubeClient = kubeClient
 	operatorCtx.configClient = configClient
 	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
@@ -243,17 +256,21 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
-			"OAuthVersionIngressConfigDegraded",
-			"OAuthVersionRouteDegraded",
-			"OAuthVersionRouteProgressing",
-			"OAuthVersionRouteAvailable",
-			"OAuthVersionRouteSecretDegraded",
+			// condition types removed in 4.8
 			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
 			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
 			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
 			"OAuthServerIngressConfigDegraded",
 			"OAuthServerProxyDegraded",
 			"OAuthServerRouteDegraded",
+			"OAuthVersionDeploymentAvailable",
+			"OAuthVersionDeploymentProgressing",
+			"OAuthVersionDeploymentDegraded",
+			"OAuthVersionRouteDegraded",
+			"OAuthVersionRouteProgressing",
+			"OAuthVersionRouteAvailable",
+			"OAuthVersionRouteSecretDegraded",
+			"OAuthVersionIngressConfigDegraded",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
@@ -363,14 +380,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 	)
 
-	targetVersionController := targetversion.NewTargetVersionController(
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		oauthClient.OauthV1().OAuthClients(),
-		operatorCtx.operatorClient,
-		operatorCtx.versionRecorder,
-		controllerContext.EventRecorder,
-	)
-
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
 		operatorCtx.operatorClient,
 		operatorCtx.operatorInformer.Operator().V1().IngressControllers(),
@@ -440,7 +449,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		routerCertsController.Run,
 		serviceCAController.Run,
 		staticResourceController.Run,
-		targetVersionController.Run,
 		wellKnownReadyController.Run,
 		authRouteCheckController.Run,
 		authServiceCheckController.Run,
