@@ -26,6 +26,7 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
+	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -56,6 +57,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientscontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
@@ -198,6 +200,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
 	)
 
+	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
+
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "oauth-openshift"},
@@ -335,15 +339,22 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
+	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
+		operatorCtx.operatorClient,
+		oauthClient.OauthV1().OAuthClients(),
+		oauthInformers,
+		routeInformersNamespaced,
+		operatorCtx.operatorConfigInformer,
+		controllerContext.EventRecorder,
+	)
+
 	deploymentController := deployment.NewOAuthServerWorkloadController(
 		operatorCtx.operatorClient,
 		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		operatorCtx.kubeClient,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
-		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
-		routeInformersNamespaced,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.operatorClient.Client,
 		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
@@ -412,6 +423,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	management.SetOperatorNotRemovable()
 
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
+		oauthInformers.Start,
 		routeInformersNamespaced.Start,
 		kubeSystemNamespaceInformers.Start,
 		openshiftAuthenticationInformers.Start,
@@ -423,6 +435,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		deploymentController.Run,
 		managementStateController.Run,
 		metadataController.Run,
+		oauthClientsController.Run,
 		payloadConfigController.Run,
 		routerCertsController.Run,
 		serviceCAController.Run,
