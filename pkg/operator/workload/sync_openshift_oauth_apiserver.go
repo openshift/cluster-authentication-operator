@@ -240,6 +240,7 @@ func getStructuredConfigWithDefaultValues(authOperatorSpec operatorv1.OperatorSp
 
 	defaultAPIServerArguments := map[string][]string{
 		"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
+		"api-audiences":     {"https://kubernetes.default.svc"},
 	}
 
 	for defArgName, defArgValue := range defaultAPIServerArguments {

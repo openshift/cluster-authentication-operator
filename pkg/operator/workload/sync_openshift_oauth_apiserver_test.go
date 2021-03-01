@@ -147,6 +147,7 @@ var withDefaultsProvidedAPIServerArgsJSON = `
 {
   "oauthAPIServer": {
     "apiServerArguments": {
+      "api-audiences": "https://now.something.different",
       "audit-policy-file": "/var/run/configmaps/audit/writerequestbodies.yaml"
     }
   }
@@ -165,6 +166,7 @@ func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
 				ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
 			},
 			expectedAPIServerArguments: map[string][]string{
+				"api-audiences":     {"https://kubernetes.default.svc"},
 				"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
 			},
 		},
@@ -175,6 +177,7 @@ func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
 				ObservedConfig: runtime.RawExtension{Raw: []byte(withDefaultsProvidedAPIServerArgsJSON)},
 			},
 			expectedAPIServerArguments: map[string][]string{
+				"api-audiences":     {"https://now.something.different"},
 				"audit-policy-file": {"/var/run/configmaps/audit/writerequestbodies.yaml"},
 			},
 		},
