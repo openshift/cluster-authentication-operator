@@ -34,6 +34,7 @@ import (
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
@@ -62,7 +63,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionprovider"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/revisionclient"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 )
@@ -469,16 +469,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	migrationClient := kubemigratorclient.NewForConfigOrDie(controllerContext.KubeConfig)
 	migrationInformer := migrationv1alpha1informer.NewSharedInformerFactory(migrationClient, time.Minute*30)
 	migrator := migrators.NewKubeStorageVersionMigrator(migrationClient, migrationInformer.Migration().V1alpha1(), operatorCtx.kubeClient.Discovery())
-	encryptionProvider := encryptionprovider.New(
-		"openshift-oauth-apiserver",
-		"openshift-config-managed",
-		"encryption.apiserver.operator.openshift.io/managed-by",
-		[]schema.GroupResource{
-			{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
-			{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
-		},
-		operatorCtx.kubeInformersForNamespaces,
-	)
 
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		operatorCtx.operatorClient.Client,
@@ -543,7 +533,10 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.kubeClient,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
-		encryptionProvider,
+		encryption.StaticEncryptionProvider{
+			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
+			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
+		},
 		deployer,
 		migrator,
 		operatorCtx.kubeClient.CoreV1(),
