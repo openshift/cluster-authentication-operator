@@ -88,7 +88,6 @@ func (c *targetVersionController) sync(ctx context.Context, syncContext factory.
 	// We achieved desired state
 	if len(foundConditions) == 0 {
 		c.setVersion("operator", operatorVersion)
-		c.setVersion("oauth-openshift", operandVersion)
 	}
 
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
