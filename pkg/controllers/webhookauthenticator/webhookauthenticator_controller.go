@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,7 +157,7 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 
 	replacer := strings.NewReplacer(
 		"${CA_DATA}", base64.StdEncoding.EncodeToString(caBundle),
-		"${APISERVER_IP}", svc.Spec.ClusterIP,
+		"${APISERVER_IP}", net.JoinHostPort(svc.Spec.ClusterIP, strconv.Itoa(int(svc.Spec.Ports[0].Port))),
 		"${AUTHENTICATOR_TOKEN}", string(token),
 	)
 
