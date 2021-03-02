@@ -616,7 +616,11 @@ metadata:
   labels:
     app: oauth-openshift
 spec:
-  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: oauth-openshift
