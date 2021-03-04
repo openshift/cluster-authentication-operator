@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "8cd028ac0830a64f052c69de498a9e13569ac9af1187f370b740f8e027473c3c"
+    operator.openshift.io/spec-hash: "8574cd9920e00499424fe22faff8cca9041d965728c4394af903be22238a5929"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -80,6 +80,7 @@ spec:
               memory: 200Mi
           securityContext:
             privileged: true
+            allowPrivilegeEscalation: true
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             -
@@ -117,6 +118,7 @@ spec:
               memory: 50Mi
           securityContext:
             privileged: true
+            allowPrivilegeEscalation: true
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             -
