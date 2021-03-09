@@ -62,6 +62,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhooksremover"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionprovider"
@@ -406,6 +407,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.operatorClient,
 	)
 
+	webhooksRemover := webhooksremover.NewWebhooksRemoverController(
+		operatorCtx.operatorClient,
+		operatorCtx.configClient.ConfigV1().Authentications(),
+		operatorCtx.operatorConfigInformer,
+		controllerContext.EventRecorder,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -431,6 +439,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		authRouteCheckController.Run,
 		authServiceCheckController.Run,
 		authServiceEndpointCheckController.Run,
+		webhooksRemover.Run,
 		workersAvailableController.Run,
 		proxyConfigController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
