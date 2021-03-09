@@ -3,7 +3,6 @@ package workload
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -103,13 +102,13 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *ope
 
 	if len(operatorCfg.APIServerArguments) == 0 {
 		klog.Info("Waiting for observed configuration to be available")
-		return false, errors.New("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
+		return false, fmt.Errorf("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
 	}
 
 	// specifying etcd servers list is mandatory, without it the pods will be crashlooping, so wait for it.
 	if storageServers := operatorCfg.APIServerArguments[libgoetcd.StorageConfigURLsKey]; len(storageServers) == 0 {
 		klog.Infof("Waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
-		return false, errors.New(fmt.Sprintf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey))
+		return false, fmt.Errorf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
 	}
 	return true, nil
 }
