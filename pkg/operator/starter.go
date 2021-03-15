@@ -527,9 +527,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		[]string{
 			"oauth-apiserver/ns.yaml",
 			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-			"oauth-apiserver/authenticator-sa.yaml",
-			"oauth-apiserver/authenticator-clusterrole.yaml",
-			"oauth-apiserver/authenticator-clusterrolebinding.yaml",
 			"oauth-apiserver/svc.yaml",
 			"oauth-apiserver/sa.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
