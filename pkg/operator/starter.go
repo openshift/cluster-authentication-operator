@@ -366,7 +366,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
 		routeInformersNamespaced.Route().V1().Routes(),
 		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
 		systemCABundle,
@@ -375,15 +376,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		operatorCtx.operatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		controllerContext.EventRecorder,
 	)
 
 	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		operatorCtx.operatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		controllerContext.EventRecorder,
 	)
 
