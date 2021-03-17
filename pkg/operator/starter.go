@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -356,10 +358,10 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
-	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+
+	systemCABundle, err := loadSystemCACertBundle()
 	if err != nil {
-		// this may fail route-health checks in proxy environments
-		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+		return err
 	}
 
 	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
@@ -647,4 +649,28 @@ func apiServices() []*apiregistrationv1.APIService {
 	}
 
 	return ret
+}
+
+// loadSystemCACertBundle loads the CA bundle from a well-known Red Hat distribution
+// location.
+// The resulting bundle is either constructed from the contents of the file or
+// nil if it fails to load. It is to be used for controllers that generally require a
+// cert bundle and not necessary the system trust store contents.
+func loadSystemCACertBundle() ([]byte, error) {
+	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		// this may fail route-health checks in proxy environments
+		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+		return nil, nil // trust noone
+	}
+
+	// test that the cert pool actually contains certs
+	certPool := x509.NewCertPool()
+	if ok := certPool.AppendCertsFromPEM(systemCABundle); !ok {
+		return nil, fmt.Errorf("no PEM certificates found in the system trust store (/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem)")
+	}
+
+	// we can't return the *x509.CertPool object since the controllers are likely
+	// to be appending certs to it, but that object offers no way to be deep-copied
+	return systemCABundle, nil
 }
