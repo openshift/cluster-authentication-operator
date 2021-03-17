@@ -9,6 +9,11 @@ import (
 
 	"k8s.io/klog/v2"
 
+	corev1 "k8s.io/api/core/v1"
+	corev1informers "k8s.io/client-go/informers/core/v1"
+	corev1listers "k8s.io/client-go/listers/core/v1"
+
+	routev1 "github.com/openshift/api/route/v1"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	routev1informers "github.com/openshift/client-go/route/informers/externalversions/route/v1"
@@ -18,9 +23,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/libs/endpointaccessible"
-
-	corev1informers "k8s.io/client-go/informers/core/v1"
-	corev1listers "k8s.io/client-go/listers/core/v1"
 )
 
 // NewOAuthRouteCheckController returns a controller that checks the health of authentication route.
@@ -145,7 +147,12 @@ func listOAuthRoutes(routeLister routev1listers.RouteLister) ([]string, error) {
 	}
 	for _, ingress := range route.Status.Ingress {
 		if len(ingress.Host) > 0 {
-			results = append(results, ingress.Host)
+			for _, condition := range ingress.Conditions {
+				if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
+					results = append(results, ingress.Host)
+					break
+				}
+			}
 		}
 	}
 	if len(results) == 0 {
