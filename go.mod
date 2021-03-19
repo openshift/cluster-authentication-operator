@@ -29,3 +29,5 @@ require (
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 	sigs.k8s.io/kube-storage-version-migrator v0.0.3
 )
+
+replace github.com/openshift/library-go => /Users/lszaszki/go/src/github.com/openshift/library-go
