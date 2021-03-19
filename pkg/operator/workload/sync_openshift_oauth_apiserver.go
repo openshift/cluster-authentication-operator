@@ -22,6 +22,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/openshift/library-go/pkg/controller/factory"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -79,7 +80,7 @@ func NewOAuthAPIServerWorkload(
 }
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
-func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
+func (c *OAuthAPIServerWorkload) PreconditionFulfilled(_ context.Context) (bool, error) {
 	authOperator, err := c.operatorClient.Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
 	if err != nil {
 		return false, err
@@ -108,7 +109,7 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *ope
 }
 
 // Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
+func (c *OAuthAPIServerWorkload) Sync(_ context.Context, _ factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	ctx := context.TODO()
 	errs := []error{}
 
