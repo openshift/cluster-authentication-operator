@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -22,22 +21,14 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
-	"k8s.io/klog/v2"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 )
-
-// shellEscapePattern determines if a string should be enclosed in single quotes
-// so that it can safely be passed to shell command line.
-var shellEscapePattern *regexp.Regexp
-
-func init() {
-	shellEscapePattern = regexp.MustCompile(`[^\w@%+=:,./-]`)
-}
 
 // nodeCountFunction a function to return count of nodes
 type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
@@ -147,7 +138,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 
 	// log level verbosity is taken from the spec always
 	operatorCfg.APIServerArguments["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
-	operandFlags := toFlagSlice(operatorCfg.APIServerArguments)
+	operandFlags := v1helpers.ToFlagSlice(operatorCfg.APIServerArguments)
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -282,31 +273,12 @@ func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPISer
 		return nil, err
 	}
 
-	cfg := &oAuthAPIServerConfig{}
-	cfg.APIServerArguments = map[string][]string{}
-	for argName, argRawValue := range cfgUnstructured.APIServerArguments {
-		var argsSlice []string
-		var found bool
-		var err error
-
-		argsSlice, found, err = unstructured.NestedStringSlice(cfgUnstructured.APIServerArguments, argName)
-		if !found || err != nil {
-			str, found, err := unstructured.NestedString(cfgUnstructured.APIServerArguments, argName)
-			if !found || err != nil {
-				return nil, fmt.Errorf("unable to create OAuthConfig, incorrect value %v under %v key, expected []string or string", argRawValue, argName)
-			}
-			argsSlice = append(argsSlice, str)
-		}
-
-		escapedArgsSlice := make([]string, len(argsSlice))
-		for index, str := range argsSlice {
-			escapedArgsSlice[index] = maybeQuote(str)
-		}
-
-		cfg.APIServerArguments[argName] = escapedArgsSlice
+	shellEscapedArgs, err := v1helpers.ToShellEscapedArguments(cfgUnstructured.APIServerArguments)
+	if err != nil {
+		return nil, err
 	}
 
-	return cfg, nil
+	return &oAuthAPIServerConfig{APIServerArguments: shellEscapedArgs}, nil
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {
@@ -322,36 +294,4 @@ func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	default:
 		return "2"
 	}
-}
-
-// maybeQuote returns a shell-escaped version of the string s. The returned value
-// is a string that can safely be used as one token in a shell command line.
-//
-// note: this method was copied from https://github.com/alessio/shellescape/blob/0d13ae33b78a20a5d91c54ca7e216e1b75aaedef/shellescape.go#L30
-func maybeQuote(s string) string {
-	if len(s) == 0 {
-		return "''"
-	}
-	if shellEscapePattern.MatchString(s) {
-		return "'" + strings.Replace(s, "'", "'\"'\"'", -1) + "'"
-	}
-
-	return s
-}
-
-// taken from apiserver-library-go so that we don't pull k/k dep to this repo
-func toFlagSlice(args map[string][]string) []string {
-	var keys []string
-	for key := range args {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	var flags []string
-	for _, key := range keys {
-		for _, token := range args[key] {
-			flags = append(flags, fmt.Sprintf("--%s=%v", key, token))
-		}
-	}
-	return flags
 }
