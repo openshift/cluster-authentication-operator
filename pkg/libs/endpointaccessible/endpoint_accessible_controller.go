@@ -8,12 +8,13 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 type endpointAccessibleController struct {
@@ -36,6 +37,8 @@ func NewEndpointAccessibleController(
 	triggers []factory.Informer,
 	recorder events.Recorder,
 ) factory.Controller {
+	controllerName := name + "EndpointAccessibleController"
+
 	c := &endpointAccessibleController{
 		operatorClient:         operatorClient,
 		endpointListFn:         endpointListFn,
@@ -49,12 +52,24 @@ func NewEndpointAccessibleController(
 		WithSync(c.sync).
 		ResyncEvery(30*time.Second).
 		WithSyncDegradedOnError(operatorClient).
-		ToController(name+"EndpointAccessibleController", recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
+		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }
 
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	endpoints, err := c.endpointListFn()
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, _, statusErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(
+				operatorv1.OperatorCondition{
+					Type:    c.availableConditionName,
+					Status:  operatorv1.ConditionFalse,
+					Reason:  "ResourceNotFound",
+					Message: err.Error(),
+				}))
+
+			return statusErr
+		}
+
 		return err
 	}
 
