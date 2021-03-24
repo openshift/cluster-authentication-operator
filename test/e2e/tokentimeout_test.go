@@ -12,17 +12,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+
 	oauthapi "github.com/openshift/api/oauth/v1"
 	userapi "github.com/openshift/api/user/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	userclient "github.com/openshift/client-go/user/clientset/versioned/typed/user/v1"
-	test "github.com/openshift/cluster-kube-apiserver-operator/test/library"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
+	test "github.com/openshift/cluster-authentication-operator/test/library"
 )
 
 const (
@@ -30,10 +31,7 @@ const (
 )
 
 func TestTokenInactivityTimeout(t *testing.T) {
-	// this test should be moved to the authentication operator
-	t.Skip("currently broken since the authenticator now resides in oauth-apiserver but the timeout is not being configured by anything")
-	kubeConfig, err := test.NewClientConfigForTest()
-	require.NoError(t, err)
+	kubeConfig := test.NewClientConfigForTest(t)
 
 	userClient := userclient.NewForConfigOrDie(kubeConfig)
 	oauthClientClient := oauthclient.NewForConfigOrDie(kubeConfig)
@@ -105,14 +103,15 @@ func TestTokenInactivityTimeout(t *testing.T) {
 		checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
 	})
 
-	// increase the wait time so that KAS instances all are rolled out
-	test.WaitPollTimeout = 20 * time.Minute
-
 	// With only OAuth config timeout.
 	t.Run("with-inactivity-timeout", func(t *testing.T) {
 		updateOAuthConfigInactivityTimeout(t, configClient, &metav1.Duration{Duration: time.Duration(configInactivityTimeout) * time.Second})
-		test.WaitForKubeAPIServerStartProgressing(t, configClient)
-		test.WaitForKubeAPIServerClusterOperatorAvailableNotProgressingNotDegraded(t, configClient)
+
+		err := test.WaitForClusterOperatorProgressing(t, configClient, "authentication")
+		require.NoError(t, err, "authentication operator never became progressing")
+
+		err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
+		require.NoError(t, err)
 		checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testInactivityTimeoutScenarios)
 	})
 
@@ -124,8 +123,11 @@ func TestTokenInactivityTimeout(t *testing.T) {
 	// No OAuthClient timeout and no OAuth config timeout.
 	t.Run("unset-inactivity-timeout-client-timeout", func(t *testing.T) {
 		updateOAuthConfigInactivityTimeout(t, configClient, nil)
-		test.WaitForKubeAPIServerStartProgressing(t, configClient)
-		test.WaitForKubeAPIServerClusterOperatorAvailableNotProgressingNotDegraded(t, configClient)
+
+		err := test.WaitForClusterOperatorProgressing(t, configClient, "authentication")
+		require.NoError(t, err, "authentication operator never became progressing")
+		err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
+		require.NoError(t, err)
 		checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
 	})
 

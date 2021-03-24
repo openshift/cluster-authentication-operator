@@ -12,6 +12,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
 )
 
 const (
@@ -32,6 +34,7 @@ func NewConfigObserverController(
 
 		// for cors and tls observers
 		configInformer.Config().V1().APIServers().Informer().HasSynced,
+		configInformer.Config().V1().OAuths().Informer().HasSynced,
 
 		// for etcd observer
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer().HasSynced,
@@ -46,6 +49,7 @@ func NewConfigObserverController(
 
 		// for cors and tls observers
 		configInformer.Config().V1().APIServers().Informer(),
+		configInformer.Config().V1().OAuths().Informer(),
 
 		// for etcd observer
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer(),
@@ -59,6 +63,7 @@ func NewConfigObserverController(
 	for _, o := range []configobserver.ObserveConfigFunc{
 		apiserver.ObserveAdditionalCORSAllowedOriginsToArguments,
 		apiserver.ObserveTLSSecurityProfileToArguments,
+		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
 		apiserver.NewAuditObserver(auditPolicypathGetter),
@@ -74,6 +79,7 @@ func NewConfigObserverController(
 			APIServerLister_:   configInformer.Config().V1().APIServers().Lister(),
 			ConfigMapLister_:   kubeInformersForNamespaces.ConfigMapLister(),
 			EndpointsLister_:   kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Lister(),
+			OAuthLister_:       configInformer.Config().V1().OAuths().Lister(),
 			SecretLister_:      kubeInformersForNamespaces.SecretLister(),
 			ResourceSync:       resourceSyncer,
 			PreRunCachesSynced: preRunCacheSynced,
