@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -51,10 +53,10 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/endpointaccessible"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
@@ -237,23 +239,14 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
-			// in 4.1.0 this was accidentally in the list.  This can be removed in 4.3.
-			"Degraded",
-
-			// As of 4.4, this will appear as a configObserver error
-			"FailedRouterSecret",
-
-			// As of 4.6, this will appear as a configObserver error
-			"IdentityProviderConfigDegraded",
-
-			"WellKnownEndpointDegraded",
-			"WellKnownRouteDegraded",
-			"WellKnownAuthConfigDegraded",
-			"WellKnownProgressing",
-			"OperatorSyncDegraded",
-			"RouteHealthDegraded",
-			"RouteStatusDegraded",
-			"OAuthServerAvailable",
+			"OAuthVersionIngressConfigDegraded",
+			"OAuthVersionRouteDegraded",
+			"OAuthVersionRouteProgressing",
+			"OAuthVersionRouteAvailable",
+			"OAuthVersionRouteSecretDegraded",
+			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
+			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
+			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
@@ -351,19 +344,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
-	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
-	if err != nil {
-		// this may fail route-health checks in proxy environments
-		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
-	}
 	targetVersionController := targetversion.NewTargetVersionController(
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced.Route().V1().Routes(),
 		oauthClient.OauthV1().OAuthClients(),
 		operatorCtx.operatorClient,
 		operatorCtx.versionRecorder,
-		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 
@@ -374,21 +359,30 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
 
-	authRouteCheckController := endpointaccessible.NewOAuthRouteCheckController(
+	systemCABundle, err := loadSystemCACertBundle()
+	if err != nil {
+		return err
+	}
+
+	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
 		operatorCtx.operatorClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
 		routeInformersNamespaced.Route().V1().Routes(),
+		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		systemCABundle,
 		controllerContext.EventRecorder,
 	)
 
-	authServiceCheckController := endpointaccessible.NewOAuthServiceCheckController(
+	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		operatorCtx.operatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		controllerContext.EventRecorder,
 	)
 
-	authServiceEndpointCheckController := endpointaccessible.NewOAuthServiceEndpointsCheckController(
+	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		operatorCtx.operatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		controllerContext.EventRecorder,
 	)
 
@@ -654,4 +648,28 @@ func apiServices() []*apiregistrationv1.APIService {
 	}
 
 	return ret
+}
+
+// loadSystemCACertBundle loads the CA bundle from a well-known Red Hat distribution
+// location.
+// The resulting bundle is either constructed from the contents of the file or
+// nil if it fails to load. It is to be used for controllers that generally require a
+// cert bundle and not necessary the system trust store contents.
+func loadSystemCACertBundle() ([]byte, error) {
+	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		// this may fail route-health checks in proxy environments
+		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+		return nil, nil // trust noone
+	}
+
+	// test that the cert pool actually contains certs
+	certPool := x509.NewCertPool()
+	if ok := certPool.AppendCertsFromPEM(systemCABundle); !ok {
+		return nil, fmt.Errorf("no PEM certificates found in the system trust store (/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem)")
+	}
+
+	// we can't return the *x509.CertPool object since the controllers are likely
+	// to be appending certs to it, but that object offers no way to be deep-copied
+	return systemCABundle, nil
 }

@@ -8,22 +8,24 @@ import (
 	"sync"
 	"time"
 
-	operatorv1 "github.com/openshift/api/operator/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 type endpointAccessibleController struct {
 	operatorClient         v1helpers.OperatorClient
 	endpointListFn         EndpointListFunc
+	getTLSConfigFn         EndpointTLSConfigFunc
 	availableConditionName string
 }
 
 type EndpointListFunc func() ([]string, error)
+type EndpointTLSConfigFunc func() (*tls.Config, error)
 
 // NewEndpointAccessibleController returns a controller that checks if the endpoints
 // listed by endpointListFn are reachable
@@ -31,12 +33,16 @@ func NewEndpointAccessibleController(
 	name string,
 	operatorClient v1helpers.OperatorClient,
 	endpointListFn EndpointListFunc,
+	getTLSConfigFn EndpointTLSConfigFunc,
 	triggers []factory.Informer,
 	recorder events.Recorder,
 ) factory.Controller {
+	controllerName := name + "EndpointAccessibleController"
+
 	c := &endpointAccessibleController{
 		operatorClient:         operatorClient,
 		endpointListFn:         endpointListFn,
+		getTLSConfigFn:         getTLSConfigFn,
 		availableConditionName: name + "EndpointAccessibleControllerAvailable",
 	}
 
@@ -46,15 +52,31 @@ func NewEndpointAccessibleController(
 		WithSync(c.sync).
 		ResyncEvery(30*time.Second).
 		WithSyncDegradedOnError(operatorClient).
-		ToController(name+"EndpointAccessibleController", recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
+		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }
 
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	endpoints, err := c.endpointListFn()
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, _, statusErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(
+				operatorv1.OperatorCondition{
+					Type:    c.availableConditionName,
+					Status:  operatorv1.ConditionFalse,
+					Reason:  "ResourceNotFound",
+					Message: err.Error(),
+				}))
+
+			return statusErr
+		}
+
 		return err
 	}
 
+	client, err := c.buildTLSClient()
+	if err != nil {
+		return err
+	}
 	// check all the endpoints in parallel.  This matters for pods.
 	errCh := make(chan error, len(endpoints))
 	wg := sync.WaitGroup{}
@@ -72,22 +94,12 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 			defer cancel()
 			req.WithContext(reqCtx)
 
-			// we don't really care  if anyone lies to us. We aren't sending important data.
-			client := &http.Client{
-				Timeout: 5 * time.Second,
-				Transport: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-				},
-			}
-
 			resp, err := client.Do(req)
 			if err != nil {
 				errCh <- err
 				return
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode > 299 || resp.StatusCode < 200 {
 				errCh <- fmt.Errorf("%q returned %q", endpoint, resp.Status)
@@ -131,10 +143,22 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	return utilerrors.NewAggregate(errors)
 }
 
-func toHealthzURL(urls []string) []string {
-	var res []string
-	for _, url := range urls {
-		res = append(res, "https://"+url+"/healthz")
+func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
 	}
-	return res
+	if c.getTLSConfigFn != nil {
+		tlsConfig, err := c.getTLSConfigFn()
+		if err != nil {
+			return nil, err
+		}
+		transport.TLSClientConfig = tlsConfig
+	}
+	return &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: transport,
+	}, nil
 }

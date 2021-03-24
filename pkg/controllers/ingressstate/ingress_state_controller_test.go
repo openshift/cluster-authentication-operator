@@ -2,7 +2,6 @@ package ingressstate
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,20 +88,6 @@ func TestCheckAddresses(t *testing.T) {
 		unhealthyPods      []string
 		conditionCount     int
 	}{
-		"Healthy with 1 unhealthy endpoint": {
-			addresses: []corev1.EndpointAddress{
-				{IP: "127.0.0.1"},
-			},
-			unhealthyEndpoints: []string{"127.0.0.1"},
-		},
-		"Degraded with 2 unhealthy endpoints": {
-			addresses: []corev1.EndpointAddress{
-				{IP: "127.0.0.1"},
-				{IP: "127.0.0.2"},
-			},
-			unhealthyEndpoints: []string{"127.0.0.1", "127.0.0.2"},
-			conditionCount:     1,
-		},
 		"Healthy with 1 unhealthy pod": {
 			addresses: []corev1.EndpointAddress{
 				{
@@ -112,7 +97,8 @@ func TestCheckAddresses(t *testing.T) {
 					},
 				},
 			},
-			unhealthyPods: []string{"foo"},
+			unhealthyPods:  []string{"foo"},
+			conditionCount: 1,
 		},
 		"Degraded with 2 unhealthy pods": {
 			addresses: []corev1.EndpointAddress{
@@ -135,7 +121,6 @@ func TestCheckAddresses(t *testing.T) {
 	}
 	for testName, tc := range testCases {
 		t.Run(testName, func(t *testing.T) {
-			unhealthyEndpoints := sets.NewString(tc.unhealthyEndpoints...)
 			unhealthyPods := sets.NewString(tc.unhealthyPods...)
 			conditions := checkAddresses(
 				context.TODO(),
@@ -143,12 +128,6 @@ func TestCheckAddresses(t *testing.T) {
 				func(_ context.Context, reference *corev1.ObjectReference) []string {
 					if unhealthyPods.Has(reference.Name) {
 						return []string{"unhealthy"}
-					}
-					return nil
-				},
-				func(endpointIP string) error {
-					if unhealthyEndpoints.Has(endpointIP) {
-						return fmt.Errorf("unhealthy")
 					}
 					return nil
 				},

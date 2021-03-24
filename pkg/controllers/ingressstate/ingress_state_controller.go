@@ -2,17 +2,11 @@ package ingressstate
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-	"io/ioutil"
-	"net"
-	"net/http"
 	"strings"
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -22,6 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 const (
@@ -92,13 +88,7 @@ func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncC
 	}
 	readyAddresses := subset != nil
 	if readyAddresses {
-		serviceCA, err := loadServiceCA()
-		if err != nil {
-			return err
-		}
-		degradedConditions = checkAddresses(context.TODO(), subset.Addresses, c.checkPodStatus, func(endpointIP string) error {
-			return checkEndpointHealthz(endpointIP, serviceCA)
-		})
+		degradedConditions = checkAddresses(context.TODO(), subset.Addresses, c.checkPodStatus)
 	} else {
 		// With no ready addresses to check, the subset condition is the only one to report.
 		degradedConditions = []operatorv1.OperatorCondition{*subsetCondition}
@@ -131,51 +121,6 @@ func unhealthyPodMessages(pod *corev1.Pod) []string {
 	}
 
 	return result
-}
-
-// loadServiceCA reads the service ca bundle from disk to a cert pool.
-// TODO(marun) Consider caching the bundle or using a file observer.
-func loadServiceCA() (*x509.CertPool, error) {
-	bundlePath := "/var/run/configmaps/service-ca-bundle/service-ca.crt"
-	bundlePEM, err := ioutil.ReadFile(bundlePath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading service ca bundle: %v", err)
-	}
-	roots := x509.NewCertPool()
-	ok := roots.AppendCertsFromPEM(bundlePEM)
-	if !ok {
-		return nil, fmt.Errorf("no certificates could be parsed from the service ca bundle")
-	}
-	return roots, nil
-}
-
-// checkEndpointHealthz will check the health of given https://endpointIP:6443/healthz
-func checkEndpointHealthz(endpointIP string, rootCAs *x509.CertPool) error {
-	client := http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: rootCAs,
-				// Specify a host name allowed by the serving cert of the
-				// endpoints to ensure that TLS validates succesfully. The
-				// serving cert the endpoint uses does not include IP SANs
-				// so accessing the endpoint via IP would otherwise result
-				// in validation failure.
-				ServerName: "oauth-openshift.openshift-authentication.svc",
-			},
-		},
-	}
-	url := fmt.Sprintf("https://%s/healthz", net.JoinHostPort(endpointIP, "6443"))
-	response, err := client.Get(url)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		respBody, _ := ioutil.ReadAll(response.Body)
-		return fmt.Errorf("status:%q, body: %q", response.Status, respBody)
-	}
-	return nil
 }
 
 // subsetWithReadyAddresses returns either a subset or a condition from the
@@ -214,19 +159,13 @@ func subsetWithReadyAddresses(endpoints *corev1.Endpoints) (*corev1.EndpointSubs
 // Providing these helper functions as arguments to checkAddresses supports
 // substituting them in testing.
 type checkPodFunc func(ctx context.Context, reference *corev1.ObjectReference) []string
-type checkEndpointsFunc func(endpointIP string) error
 
-// checkAddresses checks that the provided endpoint addresses are reachable,
-// that their associated pods are healthy, and returns the appropriate operator
-// conditions if that is not the case.
-func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, checkPod checkPodFunc, checkEndpoints checkEndpointsFunc) []operatorv1.OperatorCondition {
-	unhealthyAddresses := []string{}
+// checkAddresses checks that the provided endpoint's associated pods are healthy,
+// and returns the appropriate operator conditions if that is not the case.
+func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, checkPod checkPodFunc) []operatorv1.OperatorCondition {
 	podMessages := map[string][]string{}
 	unhealthyPodCount := 0
 	for _, address := range addresses {
-		if err := checkEndpoints(address.IP); err != nil {
-			unhealthyAddresses = append(unhealthyAddresses, fmt.Sprintf("%s:%v", address.IP, err))
-		}
 		if address.TargetRef != nil && address.TargetRef.Kind == "Pod" {
 			podName := address.TargetRef.Name
 			if _, alreadyChecked := podMessages[podName]; alreadyChecked {
@@ -243,14 +182,7 @@ func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, che
 
 	conditions := []operatorv1.OperatorCondition{}
 
-	// Tolerate a single unhealthy endpoint to allow for termination during upgrade
-	if len(unhealthyAddresses) > 1 {
-		msg := fmt.Sprintf("Unhealthy addresses found: %s", strings.Join(unhealthyAddresses, ","))
-		conditions = append(conditions, *endpointsDegraded("UnhealthyAddresses", msg))
-	}
-
-	// Tolerate a single unhealthy pod to allow for termination during upgrade
-	if unhealthyPodCount > 1 {
+	if unhealthyPodCount > 0 {
 		unhealthyMessages := []string{}
 		for _, messages := range podMessages {
 			unhealthyMessages = append(unhealthyMessages, messages...)
