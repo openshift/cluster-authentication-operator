@@ -22,6 +22,8 @@ import (
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1client "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
+	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
+	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -30,6 +32,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
 var _ workload.Delegate = &oauthServerDeploymentSyncer{}
@@ -57,6 +60,7 @@ type oauthServerDeploymentSyncer struct {
 	secretLister    corev1listers.SecretLister
 	podsLister      corev1listers.PodLister
 	proxyLister     configv1listers.ProxyLister
+	routeLister     routev1listers.RouteLister
 
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
@@ -70,6 +74,7 @@ func NewOAuthServerWorkloadController(
 	nodeInformer coreinformers.NodeInformer,
 	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
 	configInformers configinformer.SharedInformerFactory,
+	routeInformersForTargetNamespace routeinformers.SharedInformerFactory,
 	authOperatorGetter operatorv1client.AuthenticationsGetter,
 	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
 	eventsRecorder events.Recorder,
@@ -91,6 +96,7 @@ func NewOAuthServerWorkloadController(
 		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
 		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
+		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
 
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
@@ -123,6 +129,7 @@ func NewOAuthServerWorkloadController(
 			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Namespaces().Informer(),
+			routeInformersForTargetNamespace.Route().V1().Routes().Informer(),
 		},
 		oauthDeploymentSyncer,
 		openshiftClusterConfigClient,
@@ -132,6 +139,15 @@ func NewOAuthServerWorkloadController(
 }
 
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
+	if err != nil {
+		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)
+	}
+
+	if _, _, err := routeapihelpers.IngressURI(route, ""); err != nil {
+		return false, fmt.Errorf("waiting for the oauth-openshift route to contain an admitted ingress: %w", err)
+	}
+
 	return true, nil
 }
 
