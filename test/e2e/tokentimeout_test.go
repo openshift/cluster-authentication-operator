@@ -95,8 +95,8 @@ func TestTokenInactivityTimeout(t *testing.T) {
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout.Name, "token with out timeout should work")
 	}
 
-	configInactivityTimeout := int32(600)
-	oauthClientTimeout := int32(300)
+	configInactivityTimeout := int32(420) // 420 is the minimum possible timeout + 2min to distinguish it from oauth client timeouts
+	oauthClientTimeout := int32(300)      // 300 is the minimum possible timeout
 
 	// No OAuthClient timeout and no OAuth config timeout.
 	t.Run("without-inactivity-timeout", func(t *testing.T) {
