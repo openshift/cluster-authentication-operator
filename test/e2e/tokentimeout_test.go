@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 
 	oauthapi "github.com/openshift/api/oauth/v1"
 	userapi "github.com/openshift/api/user/v1"
@@ -109,9 +110,11 @@ func TestTokenInactivityTimeout(t *testing.T) {
 
 		err := test.WaitForClusterOperatorProgressing(t, configClient, "authentication")
 		require.NoError(t, err, "authentication operator never became progressing")
-
 		err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
 		require.NoError(t, err)
+		client := kubernetes.NewForConfigOrDie(kubeConfig)
+		waitOAuthServerReplicasReady(t, client)
+
 		checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testInactivityTimeoutScenarios)
 	})
 
@@ -128,6 +131,9 @@ func TestTokenInactivityTimeout(t *testing.T) {
 		require.NoError(t, err, "authentication operator never became progressing")
 		err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
 		require.NoError(t, err)
+		client := kubernetes.NewForConfigOrDie(kubeConfig)
+		waitOAuthServerReplicasReady(t, client)
+
 		checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
 	})
 
@@ -298,4 +304,24 @@ func createOAuthClient(t *testing.T, oauthClientClient *oauthclient.OauthV1Clien
 			t.Logf("%v", err)
 		}
 	}
+}
+
+func waitOAuthServerReplicasReady(t *testing.T, kubeClient kubernetes.Interface) {
+	t.Logf("waiting all oauth-apiserver replicas to be updated and ready")
+
+	err := wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
+		deployment, err := kubeClient.AppsV1().Deployments("openshift-oauth-apiserver").Get(context.Background(), "apiserver", metav1.GetOptions{})
+		if err != nil {
+			t.Logf("failed to retrieve oauth-apiserver's deployment: %v", err)
+			return false, nil
+		}
+
+		var requestedReplicas int32 = 1
+		if specReplicas := deployment.Spec.Replicas; specReplicas != nil {
+			requestedReplicas = *specReplicas
+		}
+		return requestedReplicas == deployment.Status.ReadyReplicas && deployment.Status.UpdatedReplicas == requestedReplicas, nil
+	})
+	require.NoError(t, err)
+
 }
