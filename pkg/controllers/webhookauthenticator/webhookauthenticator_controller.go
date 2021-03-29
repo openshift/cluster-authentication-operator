@@ -67,7 +67,7 @@ func NewWebhookAuthenticatorController(
 		kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		configInformer.Config().V1().Authentications().Informer(),
-	).ResyncEvery(30*time.Second).
+	).ResyncEvery(time.Minute).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController("WebhookAuthenticatorController", recorder.WithComponentSuffix("webhook-authenticator-controller"))

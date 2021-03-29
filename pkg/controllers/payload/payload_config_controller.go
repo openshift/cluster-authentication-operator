@@ -84,7 +84,7 @@ func NewPayloadConfigController(kubeInformersForTargetNamespace informers.Shared
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 		operatorClient.Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
+	).ResyncEvery(time.Minute).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
 }
 
 func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {

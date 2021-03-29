@@ -61,7 +61,7 @@ func NewTargetVersionController(
 		operatorClient: operatorClient,
 	}
 
-	return factory.New().ResyncEvery(30*time.Second).WithInformers(
+	return factory.New().ResyncEvery(time.Minute).WithInformers(
 		kubeInformersNamespaced.Apps().V1().Deployments().Informer(),
 		kubeInformersNamespaced.Core().V1().Pods().Informer(),
 	).WithSync(c.sync).ToController("TargetVersion", recorder.WithComponentSuffix("target-version-controller"))

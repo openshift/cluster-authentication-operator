@@ -68,7 +68,7 @@ func NewRouterCertsDomainValidationController(
 			secretInformer.Informer(),
 			configMapInformer.Informer()).
 		WithSync(controller.sync).
-		ResyncEvery(30*time.Second).
+		ResyncEvery(time.Minute).
 		ToController("RouterCertsDomainValidationController", eventRecorder)
 }
 

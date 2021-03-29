@@ -50,7 +50,7 @@ func NewEndpointAccessibleController(
 		WithInformers(triggers...).
 		WithInformers(operatorClient.Informer()).
 		WithSync(c.sync).
-		ResyncEvery(30*time.Second).
+		ResyncEvery(time.Minute).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }

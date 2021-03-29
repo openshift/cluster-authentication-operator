@@ -89,7 +89,7 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 	).
-		ResyncEvery(30*time.Second).
+		ResyncEvery(time.Minute).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController("WellKnownReadyController", recorder.WithComponentSuffix("wellknown-ready-controller"))

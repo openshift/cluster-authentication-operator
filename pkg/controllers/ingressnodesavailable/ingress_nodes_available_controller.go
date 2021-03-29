@@ -51,7 +51,7 @@ func NewIngressNodesAvailableController(
 			nodeInformer.Informer(),
 		).
 		WithSync(controller.sync).
-		ResyncEvery(1*time.Minute).
+		ResyncEvery(time.Minute).
 		ToController("IngressNodesAvailableController", eventRecorder)
 }
 
