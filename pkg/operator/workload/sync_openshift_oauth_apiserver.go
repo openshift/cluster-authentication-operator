@@ -27,7 +27,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -155,27 +154,14 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 		"${REVISION}", strconv.Itoa(int(authOperator.Status.OAuthAPIServer.LatestAvailableRevision)),
 	)
 
-	excludedReferences := sets.NewString("${FLAGS}")
 	tmpl = []byte(r.Replace(string(tmpl)))
-	re := regexp.MustCompile("\\$\\{[^}]*}")
-	if match := re.Find(tmpl); len(match) > 0 && !excludedReferences.Has(string(match)) {
-		return nil, fmt.Errorf("invalid template reference %q", string(match))
-	}
-
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
 
-	// use the following routine for things that would require special formatting/padding (yaml)
-	r = strings.NewReplacer(
-		"${FLAGS}", strings.Join(operandFlags, " \\\n"),
-	)
+	// append the arguments to the oauth-apiserver container
 	for containerIndex, container := range required.Spec.Template.Spec.Containers {
-		for argIndex, arg := range container.Args {
-			required.Spec.Template.Spec.Containers[containerIndex].Args[argIndex] = r.Replace(arg)
-		}
-	}
-	for initContainerIndex, initContainer := range required.Spec.Template.Spec.InitContainers {
-		for argIndex, arg := range initContainer.Args {
-			required.Spec.Template.Spec.InitContainers[initContainerIndex].Args[argIndex] = r.Replace(arg)
+		if container.Name == "oauth-apiserver" {
+			containerPtr := &required.Spec.Template.Spec.Containers[containerIndex]
+			containerPtr.Args = append(containerPtr.Args, operandFlags...)
 		}
 	}
 
