@@ -15,6 +15,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobserver "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -88,8 +89,8 @@ func NewOAuthAPIServerWorkload(
 }
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
-func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
-	authOperator, err := c.operatorClient.Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
+func (c *OAuthAPIServerWorkload) PreconditionFulfilled(ctx context.Context) (bool, error) {
+	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -117,8 +118,7 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *ope
 }
 
 // Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
-	ctx := context.TODO()
+func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, _ factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}
 
 	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
