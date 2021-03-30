@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "0155b7ef3a6af0aeb538a94741635e4b90c4b7ebdf1b90ee9baba16599c2813a"
+    operator.openshift.io/spec-hash: "cabcad5486ba4d89079410e4ce1957f04c0598a4ba7c106f9482e674c2c1cd21"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -87,6 +87,15 @@ spec:
             requests:
               cpu: 150m
               memory: 200Mi
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           securityContext:
             privileged: true
           terminationMessagePolicy: FallbackToLogsOnError

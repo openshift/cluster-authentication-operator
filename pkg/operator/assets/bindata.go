@@ -353,6 +353,15 @@ spec:
           requests:
             memory: 200Mi
             cpu: 150m
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
         # we need to set this to privileged to be able to write audit to /var/log/oauth-apiserver
         securityContext:
           privileged: true
