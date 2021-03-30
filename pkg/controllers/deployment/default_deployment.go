@@ -25,8 +25,12 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
-func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyConfig *configv1.Proxy,
-	bootstrapUserExists bool, resourceVersions ...string) (*appsv1.Deployment, []operatorv1.OperatorCondition) {
+func getOAuthServerDeployment(
+	operatorConfig *operatorv1.Authentication,
+	proxyConfig *configv1.Proxy,
+	bootstrapUserExists bool,
+	resourceVersions ...string,
+) (*appsv1.Deployment, error) {
 	// load deployment
 	deployment := resourceread.ReadDeploymentV1OrDie(assets.MustAsset("oauth-openshift/deployment.yaml"))
 
@@ -69,27 +73,13 @@ func getOAuthServerDeployment(operatorConfig *operatorv1.Authentication, proxyCo
 
 	idpSyncData, err := getSyncDataFromOperatorConfig(&operatorConfig.Spec.ObservedConfig)
 	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetIDPDataFailed",
-				Message: fmt.Sprintf("Unable to get IDP sync data: %v", err),
-			},
-		}
+		return nil, fmt.Errorf("Unable to get IDP sync data: %v", err)
 	}
 
 	// mount more secrets and config maps
 	v, m, err := idpSyncData.ToVolumesAndMounts()
 	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "IDPDataToVolumesFailed",
-				Message: fmt.Sprintf("Unable to transform observed IDP sync data to volumes and mounts: %v", err),
-			},
-		}
+		return nil, fmt.Errorf("Unable to transform observed IDP sync data to volumes and mounts: %v", err)
 	}
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)

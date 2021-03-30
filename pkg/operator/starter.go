@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,6 +27,7 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
+	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -56,13 +58,13 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientscontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/targetversion"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
@@ -140,8 +142,21 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		controllerContext.EventRecorder,
 	)
 
+	versionRecorder := status.NewVersionGetter()
+	clusterOperator, err := configClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+	// perform version changes to the version getter prior to tying it up in the status controller
+	// via change-notification channel so that it only updates operator version in status once
+	// either of the workloads synces
+	for _, version := range clusterOperator.Status.Versions {
+		versionRecorder.SetVersion(version.Name, version.Version)
+	}
+	versionRecorder.SetVersion("operator", os.Getenv("OPERATOR_IMAGE_VERSION"))
+
 	operatorCtx := &operatorContext{}
-	operatorCtx.versionRecorder = status.NewVersionGetter()
+	operatorCtx.versionRecorder = versionRecorder
 	operatorCtx.kubeClient = kubeClient
 	operatorCtx.configClient = configClient
 	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
@@ -198,6 +213,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
 	)
 
+	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
+
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "oauth-openshift"},
@@ -239,14 +256,21 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
-			"OAuthVersionIngressConfigDegraded",
+			// condition types removed in 4.8
+			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
+			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
+			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
+			"OAuthServerIngressConfigDegraded",
+			"OAuthServerProxyDegraded",
+			"OAuthServerRouteDegraded",
+			"OAuthVersionDeploymentAvailable",
+			"OAuthVersionDeploymentProgressing",
+			"OAuthVersionDeploymentDegraded",
 			"OAuthVersionRouteDegraded",
 			"OAuthVersionRouteProgressing",
 			"OAuthVersionRouteAvailable",
 			"OAuthVersionRouteSecretDegraded",
-			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
+			"OAuthVersionIngressConfigDegraded",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
@@ -332,24 +356,29 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
-	deploymentController := deployment.NewDeploymentController(
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
+		operatorCtx.operatorClient,
+		oauthClient.OauthV1().OAuthClients(),
+		oauthInformers,
 		routeInformersNamespaced,
 		operatorCtx.operatorConfigInformer,
-		operatorCtx.operatorClient,
-		operatorCtx.operatorClient.Client,
-		oauthClient.OauthV1().OAuthClients(),
-		operatorCtx.kubeClient.AppsV1(),
-		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
 		controllerContext.EventRecorder,
 	)
 
-	targetVersionController := targetversion.NewTargetVersionController(
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		oauthClient.OauthV1().OAuthClients(),
+	deploymentController := deployment.NewOAuthServerWorkloadController(
 		operatorCtx.operatorClient,
-		operatorCtx.versionRecorder,
+		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		workloadcontroller.EnsureAtMostOnePodPerNode,
+		operatorCtx.kubeClient,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		operatorCtx.configClient.ConfigV1().ClusterOperators(),
+		operatorCtx.operatorConfigInformer,
+		routeInformersNamespaced,
+		operatorCtx.operatorClient.Client,
+		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
 		controllerContext.EventRecorder,
+		operatorCtx.versionRecorder,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
@@ -404,6 +433,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	management.SetOperatorNotRemovable()
 
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
+		oauthInformers.Start,
 		routeInformersNamespaced.Start,
 		kubeSystemNamespaceInformers.Start,
 		openshiftAuthenticationInformers.Start,
@@ -415,11 +445,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		deploymentController.Run,
 		managementStateController.Run,
 		metadataController.Run,
+		oauthClientsController.Run,
 		payloadConfigController.Run,
 		routerCertsController.Run,
 		serviceCAController.Run,
 		staticResourceController.Run,
-		targetVersionController.Run,
 		wellKnownReadyController.Run,
 		authRouteCheckController.Run,
 		authServiceCheckController.Run,
@@ -473,7 +503,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		operatorCtx.kubeClient,
-		eventRecorder,
 		operatorCtx.versionRecorder)
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(

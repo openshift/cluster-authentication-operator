@@ -3,7 +3,6 @@ package workload
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobserver "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -22,13 +22,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
-	"k8s.io/klog/v2"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 )
 
 // shellEscapePattern determines if a string should be enclosed in single quotes
@@ -58,7 +58,6 @@ type OAuthAPIServerWorkload struct {
 	targetImagePullSpec       string
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
-	eventRecorder             events.Recorder
 	versionRecorder           status.VersionGetter
 }
 
@@ -71,7 +70,6 @@ func NewOAuthAPIServerWorkload(
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
-	eventRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
@@ -82,14 +80,13 @@ func NewOAuthAPIServerWorkload(
 		targetImagePullSpec:       targetImagePullSpec,
 		operatorImagePullSpec:     operatorImagePullSpec,
 		kubeClient:                kubeClient,
-		eventRecorder:             eventRecorder,
 		versionRecorder:           versionRecorder,
 	}
 }
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
-func (c *OAuthAPIServerWorkload) PreconditionFulfilled() (bool, error) {
-	authOperator, err := c.operatorClient.Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
+func (c *OAuthAPIServerWorkload) PreconditionFulfilled(ctx context.Context) (bool, error) {
+	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return false, err
 	}
@@ -105,20 +102,19 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *ope
 
 	if len(operatorCfg.APIServerArguments) == 0 {
 		klog.Info("Waiting for observed configuration to be available")
-		return false, errors.New("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
+		return false, fmt.Errorf("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
 	}
 
 	// specifying etcd servers list is mandatory, without it the pods will be crashlooping, so wait for it.
 	if storageServers := operatorCfg.APIServerArguments[libgoetcd.StorageConfigURLsKey]; len(storageServers) == 0 {
 		klog.Infof("Waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
-		return false, errors.New(fmt.Sprintf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey))
+		return false, fmt.Errorf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
 	}
 	return true, nil
 }
 
 // Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
-	ctx := context.TODO()
+func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}
 
 	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
@@ -127,14 +123,14 @@ func (c *OAuthAPIServerWorkload) Sync() (*appsv1.Deployment, bool, []error) {
 		return nil, false, errs
 	}
 
-	actualDeployment, err := c.syncDeployment(authOperator, authOperator.Status.Generations)
+	actualDeployment, err := c.syncDeployment(authOperator, authOperator.Status.Generations, syncCtx.Recorder())
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
 	return actualDeployment, true, errs
 }
 
-func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus) (*appsv1.Deployment, error) {
+func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
 	tmpl, err := assets.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
@@ -222,7 +218,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 	}
 	required.Spec.Replicas = masterNodeCount
 
-	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), c.eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
+	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
 	return deployment, err
 }
 

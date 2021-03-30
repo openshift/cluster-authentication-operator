@@ -2,130 +2,166 @@ package deployment
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
-	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
-	oauthv1 "github.com/openshift/api/oauth/v1"
-	operatorv1 "github.com/openshift/api/operator/v1"
-	routev1 "github.com/openshift/api/route/v1"
+	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
-	oauthv1client "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	operatorv1client "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
-	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
-	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
+	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
-	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
+	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
-// knownConditionNames lists all condition types used by this controller.
-// These conditions are operated and defaulted by this controller.
-// Any new condition used by this controller sync() loop should be listed here.
-var knownConditionNames = sets.NewString(
-	"OAuthServerDeploymentAvailable",
-	"OAuthServerDeploymentDegraded",
-	"OAuthServerDeploymentProgressing",
-	"OAuthServerIngressConfigDegraded",
-	"OAuthServerProxyDegraded",
-	"OAuthServerRouteDegraded",
-)
+var _ workload.Delegate = &oauthServerDeploymentSyncer{}
 
-type deploymentController struct {
+// nodeCountFunction a function to return count of nodes
+type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
+
+// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+// one pod of a given replicaset from landing on a node.
+type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
+
+type oauthServerDeploymentSyncer struct {
 	operatorClient v1helpers.OperatorClient
 
-	deployments       appsv1client.DeploymentsGetter
-	oauthClientClient oauthv1client.OAuthClientInterface
-	auth              operatorv1client.AuthenticationsGetter
+	// countNodes a function to return count of nodes on which the workload will be installed
+	countNodes nodeCountFunc
+	// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
+	// one pod of a given replicaset from landing on a node.
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc
+
+	deployments appsv1client.DeploymentsGetter
+	auth        operatorv1client.AuthenticationsGetter
 
 	configMapLister corev1listers.ConfigMapLister
 	secretLister    corev1listers.SecretLister
 	podsLister      corev1listers.PodLister
-	routeLister     routev1lister.RouteLister
-	ingressLister   configv1listers.IngressLister
 	proxyLister     configv1listers.ProxyLister
+	routeLister     routev1listers.RouteLister
 
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
 }
 
-func NewDeploymentController(kubeInformersForTargetNamespace informers.SharedInformerFactory, routeInformer routeinformer.SharedInformerFactory, configInformers configinformer.SharedInformerFactory,
-	operatorClient v1helpers.OperatorClient, auth operatorv1client.AuthenticationsGetter, oauthClientClient oauthv1client.OAuthClientInterface, deployments appsv1client.DeploymentsGetter,
+func NewOAuthServerWorkloadController(
+	operatorClient v1helpers.OperatorClient,
+	countNodes nodeCountFunc,
+	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc,
+	kubeClient kubernetes.Interface,
+	nodeInformer coreinformers.NodeInformer,
+	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
+	configInformers configinformer.SharedInformerFactory,
+	routeInformersForTargetNamespace routeinformers.SharedInformerFactory,
+	authOperatorGetter operatorv1client.AuthenticationsGetter,
 	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
-	recorder events.Recorder) factory.Controller {
-	c := &deploymentController{
-		operatorClient:          operatorClient,
-		oauthClientClient:       oauthClientClient,
-		deployments:             deployments,
-		auth:                    auth,
-		configMapLister:         kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
-		secretLister:            kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		routeLister:             routeInformer.Route().V1().Routes().Lister(),
-		podsLister:              kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		ingressLister:           configInformers.Config().V1().Ingresses().Lister(),
-		proxyLister:             configInformers.Config().V1().Proxies().Lister(),
+	eventsRecorder events.Recorder,
+	versionRecorder status.VersionGetter,
+	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+) factory.Controller {
+	targetNS := "openshift-authentication"
+
+	oauthDeploymentSyncer := &oauthServerDeploymentSyncer{
+		operatorClient: operatorClient,
+
+		countNodes:                countNodes,
+		ensureAtMostOnePodPerNode: ensureAtMostOnePodPerNode,
+
+		deployments: kubeClient.AppsV1(),
+		auth:        authOperatorGetter,
+
+		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
+		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
+		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
+		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
+
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
 
-	if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
+	if userExists, err := oauthDeploymentSyncer.bootstrapUserDataGetter.IsEnabled(); err != nil {
 		klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
-		c.bootstrapUserChangeRollOut = true
+		oauthDeploymentSyncer.bootstrapUserChangeRollOut = true
 	} else {
-		c.bootstrapUserChangeRollOut = userExists
+		oauthDeploymentSyncer.bootstrapUserChangeRollOut = userExists
 	}
 
-	return factory.New().WithInformers(
-		kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
-		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
-		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
-		kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
-		routeInformer.Route().V1().Routes().Informer(),
-		configInformers.Config().V1().Authentications().Informer(),
-		configInformers.Config().V1().Proxies().Informer(),
-		configInformers.Config().V1().Ingresses().Informer(),
-		operatorClient.Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("Deployment", recorder.WithComponentSuffix("deployment-controller"))
+	return workload.NewController(
+		"OAuthServer",
+		"cluster-authentication-operator",
+		targetNS,
+		os.Getenv("OPERAND_OAUTH_SERVER_IMAGE_VERSION"),
+		"",
+		"OAuthServer",
+		operatorClient,
+		kubeClient,
+		kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
+		[]factory.Informer{
+			configInformers.Config().V1().Ingresses().Informer(),
+			configInformers.Config().V1().Proxies().Informer(),
+			nodeInformer.Informer(),
+		},
+		[]factory.Informer{
+			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Namespaces().Informer(),
+			routeInformersForTargetNamespace.Route().V1().Routes().Informer(),
+		},
+		oauthDeploymentSyncer,
+		openshiftClusterConfigClient,
+		eventsRecorder,
+		versionRecorder,
+	)
 }
 
-func (c *deploymentController) sync(ctx context.Context, syncContext factory.SyncContext) error {
-	foundConditions := []operatorv1.OperatorCondition{}
+func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
+	if err != nil {
+		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)
+	}
 
-	operatorConfig, authConfigConditions := c.getAuthConfig(ctx)
-	foundConditions = append(foundConditions, authConfigConditions...)
+	if _, _, err := routeapihelpers.IngressURI(route, ""); err != nil {
+		return false, fmt.Errorf("waiting for the oauth-openshift route to contain an admitted ingress: %w", err)
+	}
 
-	ingress, ingressConditions := common.GetIngressConfig(c.ingressLister, "OAuthServerIngressConfig")
-	foundConditions = append(foundConditions, ingressConditions...)
+	return true, nil
+}
 
-	route, routeConditions := c.getCanonicalRoute(ingress.Spec.Domain)
-	foundConditions = append(foundConditions, routeConditions...)
+func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
+	errs := []error{}
 
-	proxyConfig, proxyConditions := c.getProxyConfig()
-	foundConditions = append(foundConditions, proxyConditions...)
+	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, false, append(errs, err)
+	}
 
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, c.ensureBootstrappedOAuthClients(ctx, "https://"+route.Spec.Host)...)
+	proxyConfig, err := c.getProxyConfig()
+	if err != nil {
+		return nil, false, append(errs, err)
 	}
 
 	// resourceVersions serves to store versions of config resources so that we
@@ -140,8 +176,10 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
 	}
 
-	configResourceVersions, configResourceVersionsConditions := c.getConfigResourceVersions()
-	foundConditions = append(foundConditions, configResourceVersionsConditions...)
+	configResourceVersions, err := c.getConfigResourceVersions()
+	if err != nil {
+		return nil, false, append(errs, err)
+	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
 
@@ -155,128 +193,54 @@ func (c *deploymentController) sync(ctx context.Context, syncContext factory.Syn
 		}
 	}
 
-	if len(foundConditions) == 0 {
-		// deployment, have RV of all resources
-		expectedDeployment, deploymentConditions := getOAuthServerDeployment(operatorConfig, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
-		foundConditions = append(foundConditions, deploymentConditions...)
-
-		if expectedDeployment != nil {
-			deployment, _, err := resourceapply.ApplyDeployment(c.deployments, syncContext.Recorder(), expectedDeployment,
-				resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations))
-
-			if err != nil {
-				foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-					Type:    "OAuthServerDeploymentDegraded",
-					Status:  operatorv1.ConditionTrue,
-					Reason:  "ApplyFailed",
-					Message: fmt.Sprintf("Applying deployment of integrated OAuth server failed: %v", err),
-				})
-			} else {
-				// check the deployment state, only record changed when the deployment is considered ready.
-				foundConditions = append(foundConditions, common.CheckDeploymentReady(deployment, c.podsLister, "OAuthServerDeployment")...)
-				if len(foundConditions) == 0 {
-					if err := c.updateOperatorDeploymentInfo(ctx, syncContext, operatorConfig, deployment); err != nil {
-						return err
-					}
-				}
-			}
-
-		}
-	}
-
-	// no matter what, check and set available.
-	deployment, err := c.deployments.Deployments("openshift-authentication").Get(ctx, "oauth-openshift", metav1.GetOptions{})
+	// deployment, have RV of all resources
+	expectedDeployment, err := getOAuthServerDeployment(operatorConfig, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
-		foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-			Type:    "OAuthServerDeploymentDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "DeploymentAvailableReplicasCheckFailed",
-			Message: err.Error(),
-		})
-	} else {
-		if deployment.Status.AvailableReplicas > 0 {
-			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-				Type:    "OAuthServerDeploymentAvailable",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "AsExpected",
-				Message: fmt.Sprintf("availableReplicas==%d", deployment.Status.AvailableReplicas),
-			})
-		} else {
-			foundConditions = append(foundConditions, operatorv1.OperatorCondition{
-				Type:    "OAuthServerDeploymentAvailable",
-				Status:  operatorv1.ConditionFalse,
-				Reason:  "NoReplicas",
-				Message: "availableReplicas==0",
-			})
-		}
+		return nil, false, append(errs, err)
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
-}
-
-func (c *deploymentController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
-	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
 	if err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerDeploymentDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "GetFailed",
-				Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
-			},
-		}
+		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
 	}
-	return operatorConfig, nil
+
+	// Set the replica count to the number of master nodes.
+	masterNodeCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
+	if err != nil {
+		return nil, false, append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
+	}
+	expectedDeployment.Spec.Replicas = masterNodeCount
+
+	deployment, _, err := resourceapply.ApplyDeployment(c.deployments,
+		syncContext.Recorder(),
+		expectedDeployment,
+		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
+	)
+	if err != nil {
+		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
+	}
+
+	return deployment, true, errs
 }
 
-func (c *deploymentController) getCanonicalRoute(ingressConfigDomain string) (*routev1.Route, []operatorv1.OperatorCondition) {
-	route, routeConditions := common.GetOAuthServerRoute(c.routeLister, "OAuthServerRoute")
-	if len(routeConditions) > 0 {
-		return nil, routeConditions
-	}
-
-	expectedHost := "oauth-openshift." + ingressConfigDomain
-	if _, _, err := routeapihelpers.IngressURI(route, expectedHost); err != nil {
-		return nil, []operatorv1.OperatorCondition{
-			{
-				Type:    "OAuthServerRouteDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "InvalidCanonicalHost",
-				Message: err.Error(),
-			},
-		}
-	}
-	return route, nil
-}
-
-func (c *deploymentController) getProxyConfig() (*configv1.Proxy, []operatorv1.OperatorCondition) {
+func (c *oauthServerDeploymentSyncer) getProxyConfig() (*configv1.Proxy, error) {
 	proxyConfig, err := c.proxyLister.Get("cluster")
-	if err != nil && !errors.IsNotFound(err) {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerProxyDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "GetFailed",
-			Message: fmt.Sprintf("Unable to get cluster proxy configuration: %v", err),
-		}}
-	}
 	if err != nil {
-		klog.V(4).Infof("No proxy configuration found, defaulting to empty")
-		return &configv1.Proxy{}, nil
+		if errors.IsNotFound(err) {
+			klog.V(4).Infof("No proxy configuration found, defaulting to empty")
+			return &configv1.Proxy{}, nil
+		}
+		return nil, fmt.Errorf("unable to get cluster proxy configuration: %v", err)
 	}
 	return proxyConfig, nil
 }
 
-func (c *deploymentController) getConfigResourceVersions() ([]string, []operatorv1.OperatorCondition) {
+func (c *oauthServerDeploymentSyncer) getConfigResourceVersions() ([]string, error) {
 	var configRVs []string
 
 	configMaps, err := c.configMapLister.ConfigMaps("openshift-authentication").List(labels.Everything())
 	if err != nil {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerDeploymentDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "ListFailed",
-			Message: fmt.Sprintf("Unable to list configmaps in %q namespace: %v", "openshift-authentication", err),
-		}}
+		return nil, fmt.Errorf("unable to list configmaps in %q namespace: %v", "openshift-authentication", err)
 	}
 	for _, cm := range configMaps {
 		if strings.HasPrefix(cm.Name, "v4-0-config-") {
@@ -287,12 +251,7 @@ func (c *deploymentController) getConfigResourceVersions() ([]string, []operator
 
 	secrets, err := c.secretLister.Secrets("openshift-authentication").List(labels.Everything())
 	if err != nil {
-		return nil, []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerDeploymentDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "ListFailed",
-			Message: fmt.Sprintf("Unable to list secrets in %q namespace: %v", "openshift-authentication", err),
-		}}
+		return nil, fmt.Errorf("unable to list secrets in %q namespace: %v", "openshift-authentication", err)
 	}
 	for _, secret := range secrets {
 		if strings.HasPrefix(secret.Name, "v4-0-config-") {
@@ -302,87 +261,4 @@ func (c *deploymentController) getConfigResourceVersions() ([]string, []operator
 	}
 
 	return configRVs, nil
-}
-
-func randomBits(bits int) []byte {
-	size := bits / 8
-	if bits%8 != 0 {
-		size++
-	}
-	b := make([]byte, size)
-	if _, err := rand.Read(b); err != nil {
-		panic(err) // rand should never fail
-	}
-	return b
-}
-
-func (c *deploymentController) ensureBootstrappedOAuthClients(ctx context.Context, masterPublicURL string) []operatorv1.OperatorCondition {
-	browserClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
-		Secret:                base64.RawURLEncoding.EncodeToString(randomBits(256)),
-		RespondWithChallenges: false,
-		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenDisplayURL(masterPublicURL)},
-		GrantMethod:           oauthv1.GrantHandlerAuto,
-	}
-	if err := ensureOAuthClient(ctx, c.oauthClientClient, browserClient); err != nil {
-		return []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerDeploymentDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "GetFailed",
-			Message: fmt.Sprintf("Unable to get %q bootstrapped OAuth client: %v", browserClient.Name, err),
-		}}
-	}
-
-	cliClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-challenging-client"},
-		Secret:                "",
-		RespondWithChallenges: true,
-		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},
-		GrantMethod:           oauthv1.GrantHandlerAuto,
-	}
-	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliClient); err != nil {
-		return []operatorv1.OperatorCondition{{
-			Type:    "OAuthServerDeploymentDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "GetFailed",
-			Message: fmt.Sprintf("Unable to get %q bootstrapped CLI OAuth client: %v", browserClient.Name, err),
-		}}
-	}
-
-	return nil
-}
-
-// updateOperatorDeploymentInfo updates the operator's Status .ReadyReplicas, .Generation and the
-// .Generetions field with data about the oauth-server deployment
-func (c *deploymentController) updateOperatorDeploymentInfo(
-	ctx context.Context,
-	syncContext factory.SyncContext,
-	operatorConfig *operatorv1.Authentication,
-	deployment *appsv1.Deployment,
-) error {
-	operatorStatusOutdated := operatorConfig.Status.ObservedGeneration != operatorConfig.Generation ||
-		operatorConfig.Status.ReadyReplicas != deployment.Status.UpdatedReplicas ||
-		resourcemerge.ExpectedDeploymentGeneration(deployment, operatorConfig.Status.Generations) != deployment.Generation
-
-	if operatorStatusOutdated {
-		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-
-			// make sure we record the changes to the deployment
-			// if this fail, lets resync, this should not fail
-			resourcemerge.SetDeploymentGeneration(&operatorConfig.Status.Generations, deployment)
-			operatorConfig.Status.ObservedGeneration = operatorConfig.Generation
-			operatorConfig.Status.ReadyReplicas = deployment.Status.UpdatedReplicas
-
-			_, err = c.auth.Authentications().UpdateStatus(ctx, operatorConfig, metav1.UpdateOptions{})
-			return err
-		}); err != nil {
-			syncContext.Recorder().Warningf("AuthenticationUpdateStatusFailed", "Failed to update authentication operator status: %v", err)
-			return err
-		}
-	}
-	return nil
 }
