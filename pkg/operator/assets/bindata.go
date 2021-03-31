@@ -286,16 +286,6 @@ metadata:
     apiserver: "true"
 # The number of replicas will be set in code to the number of master nodes.
 spec:
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      # To ensure that only one pod at a time writes to the node's
-      # audit log, require the update strategy to proceed a node at a
-      # time. Only when a master node has its existing
-      # oauth-apiserver pod stopped will a new one be allowed to
-      # start.
-      maxUnavailable: 1
-      maxSurge: 0
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
