@@ -58,12 +58,15 @@ spec:
               echo "Copying system trust bundle"
               cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
             fi
+            echo -b "Rotating audit logs in /var/log/oauth-apiserver"
+            test -f /var/log/oauth-apiserver/audit.log && mv /var/log/oauth-apiserver/audit{,-$(date '+%Y-%m-%dT%H-%M-%S.%3N')}.log
+            echo
             exec oauth-apiserver start \
               --secure-port=8443 \
               --audit-log-path=/var/log/oauth-apiserver/audit.log \
               --audit-log-format=json \
               --audit-log-maxsize=100 \
-              --audit-log-maxbackup=10 \
+              --audit-log-maxage=3 \
               --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
