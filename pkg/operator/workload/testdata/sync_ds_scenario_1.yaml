@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "8cd028ac0830a64f052c69de498a9e13569ac9af1187f370b740f8e027473c3c"
+    operator.openshift.io/spec-hash: "ad30c07fc0d64b5914b83c364aba4bd14e487e265fb149e2b0bf9939707e5134"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -48,7 +48,7 @@ spec:
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
-                --shutdown-delay-duration=3s \
+                --shutdown-delay-duration=10s \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
                 --api-audiences=https://kubernetes.default.svc \
