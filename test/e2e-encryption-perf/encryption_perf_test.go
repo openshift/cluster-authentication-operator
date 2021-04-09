@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
 
 	oauthapiv1 "github.com/openshift/api/oauth/v1"
@@ -72,9 +71,10 @@ func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 
 func createAccessTokenWrapper(ctx context.Context, tokenClient oauthclient.OAuthAccessTokensGetter) library.DBLoaderFuncType {
 	return func(_ kubernetes.Interface, namespace string, errorCollector func(error), statsCollector func(string)) error {
+		_, tokenNameHash := operatorlibrary.GenerateOAuthTokenPair()
 		token := &oauthapiv1.OAuthAccessToken{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: fmt.Sprintf("encryption-token-%v", rand.String(18)),
+				Name: tokenNameHash,
 			},
 			RefreshToken: "I have no special talents. I am only passionately curious",
 			UserName:     "kube:admin",

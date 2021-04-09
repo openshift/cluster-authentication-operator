@@ -62,7 +62,7 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 func CreateAndStoreTokenOfLife(ctx context.Context, t testing.TB, cs ClientSet) runtime.Object {
 	t.Helper()
 	{
-		oldTokenOfLife, err := cs.TokenClient.OAuthAccessTokens().Get(ctx, "token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa", metav1.GetOptions{})
+		oldTokenOfLife, err := cs.TokenClient.OAuthAccessTokens().Get(ctx, "sha256~token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa", metav1.GetOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			t.Errorf("Failed to check if the route already exists, due to %v", err)
 		}
@@ -74,7 +74,7 @@ func CreateAndStoreTokenOfLife(ctx context.Context, t testing.TB, cs ClientSet) 
 			}
 		}
 	}
-	t.Logf("Creating %q at cluster scope level", "token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa")
+	t.Logf("Creating %q at cluster scope level", "sha256~token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa")
 	rawTokenOfLife := TokenOfLife(t)
 	tokenOfLife, err := cs.TokenClient.OAuthAccessTokens().Create(ctx, rawTokenOfLife.(*oauthapiv1.OAuthAccessToken), metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func GetRawTokenOfLife(t testing.TB, clientSet library.ClientSet) string {
 	timeout, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	tokenOfLifeEtcdPrefix := fmt.Sprintf("/openshift.io/oauth/accesstokens/%s", "token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa")
+	tokenOfLifeEtcdPrefix := fmt.Sprintf("/openshift.io/oauth/accesstokens/%s", "sha256~token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa")
 	resp, err := clientSet.Etcd.Get(timeout, tokenOfLifeEtcdPrefix, clientv3.WithPrefix())
 	require.NoError(t, err)
 
@@ -101,7 +101,7 @@ func TokenOfLife(t testing.TB) runtime.Object {
 	t.Helper()
 	return &oauthapiv1.OAuthAccessToken{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa",
+			Name: "sha256~token-aaaaaaaa-of-aaaaaaaa-life-aaaaaaaa",
 		},
 		RefreshToken: "I have no special talents. I am only passionately curious",
 		UserName:     "kube:admin",

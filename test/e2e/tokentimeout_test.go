@@ -63,14 +63,14 @@ func TestTokenInactivityTimeout(t *testing.T) {
 	// This checks that
 	// 1. Token with timeout does not work after it times out
 	// 2. Token without timeout works at anytime
-	testTokenTimeouts := func(t *testing.T, tokenWithTimeout, tokenWithoutTimeout *oauthapi.OAuthAccessToken, timeout time.Duration) {
+	testTokenTimeouts := func(t *testing.T, tokenWithTimeout, tokenWithoutTimeout string, timeout time.Duration) {
 		req, err := http.NewRequest(http.MethodGet, kubeConfig.Host+"/apis/user.openshift.io/v1/users/~", &bytes.Buffer{})
 		require.NoError(t, err)
 
 		time.Sleep(timeout + 10*time.Second)
 
-		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout.Name, "accessing token after it timed out should not work")
-		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout.Name, "token with out timeout should work")
+		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 	}
 
 	// This checks that
@@ -78,22 +78,22 @@ func TestTokenInactivityTimeout(t *testing.T) {
 	// 2. Token with timeout works anytime before it times out
 	// 3. Token with timeout does not work after it times out
 	// 4. Token without timeout works at anytime
-	testInactivityTimeoutScenarios := func(t *testing.T, tokenWithTimeout, tokenWithoutTimeout *oauthapi.OAuthAccessToken, timeout time.Duration) {
+	testInactivityTimeoutScenarios := func(t *testing.T, tokenWithTimeout, tokenWithoutTimeout string, timeout time.Duration) {
 		req, err := http.NewRequest(http.MethodGet, kubeConfig.Host+"/apis/user.openshift.io/v1/users/~", &bytes.Buffer{})
 		require.NoError(t, err)
 
-		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout.Name, "accessing token before it timed out should work")
-		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout.Name, "token with out timeout should work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
 		time.Sleep(120 * time.Second)
 
-		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout.Name, "accessing token before it timed out should work")
-		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout.Name, "token with out timeout should work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
 		time.Sleep(timeout + 10*time.Second)
 
-		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout.Name, "accessing token after it timed out should not work")
-		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout.Name, "token with out timeout should work")
+		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
+		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 	}
 
 	configInactivityTimeout := int32(420) // 420 is the minimum possible timeout + 2min to distinguish it from oauth client timeouts
@@ -143,7 +143,7 @@ func checkTokenAccess(t *testing.T,
 	userClient *userclient.UserV1Client,
 	oauthClientClient *oauthclient.OauthV1Client,
 	configInactivityTimeout int32, oauthClientTimeout *int32,
-	testAccess func(*testing.T, *oauthapi.OAuthAccessToken, *oauthapi.OAuthAccessToken, time.Duration)) {
+	testAccess func(*testing.T, string, string, time.Duration)) {
 	// Create the user, identity, oauthclient and oauthaccesstoken objects needed for authentication using Bearer tokens.
 	subTestNameHierarchy := strings.Split(t.Name(), "/")
 	prefix := subTestNameHierarchy[len(subTestNameHierarchy)-1] + "-"
@@ -163,9 +163,10 @@ func checkTokenAccess(t *testing.T,
 	cleanup = createOAuthClient(t, oauthClientClient, oauthClientName, redirectURIs, oauthClientTimeout)
 	defer cleanup()
 
+	tokenWithTimeoutClear, tokenWithTimeoutHash := test.GenerateOAuthTokenPair()
 	tokenWithTimeout := &oauthapi.OAuthAccessToken{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: prefix + "token-with-timeout",
+			Name: tokenWithTimeoutHash,
 		},
 		ClientName:               oauthClientName,
 		ExpiresIn:                defaultAccessTokenMaxAgeSeconds,
@@ -177,9 +178,10 @@ func checkTokenAccess(t *testing.T,
 		InactivityTimeoutSeconds: 60,
 	}
 
+	tokenWithoutTimeoutClear, tokenWithoutTimeoutHash := test.GenerateOAuthTokenPair()
 	tokenWithoutTimeout := &oauthapi.OAuthAccessToken{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: prefix + "token-without-timeout",
+			Name: tokenWithoutTimeoutHash,
 		},
 		ClientName:     oauthClientName,
 		ExpiresIn:      defaultAccessTokenMaxAgeSeconds,
@@ -205,7 +207,7 @@ func checkTokenAccess(t *testing.T,
 	if oauthClientTimeout != nil {
 		expectedInactivityTimeout = *oauthClientTimeout
 	}
-	testAccess(t, tokenWithTimeout, tokenWithoutTimeout, time.Duration(expectedInactivityTimeout)*time.Second)
+	testAccess(t, tokenWithTimeoutClear, tokenWithoutTimeoutClear, time.Duration(expectedInactivityTimeout)*time.Second)
 }
 
 func updateOAuthConfigInactivityTimeout(t *testing.T, client *configclient.ConfigV1Client, duration *metav1.Duration) {
