@@ -1,7 +1,10 @@
 package library
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	mathrand "math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,4 +24,15 @@ func NewClientConfigForTest(t *testing.T) *rest.Config {
 
 	require.NoError(t, err)
 	return config
+}
+
+// GenerateOAuthTokenPair returns two tokens to use with OpenShift OAuth-based authentication.
+// The first token is a private token meant to be used as a Bearer token to send
+// queries to the API, the second token is a hashed token meant to be stored in
+// the database.
+func GenerateOAuthTokenPair() (privToken, pubToken string) {
+	const sha256Prefix = "sha256~"
+	randomToken := fmt.Sprintf("nottoorandom%d", mathrand.Int())
+	hashed := sha256.Sum256([]byte(randomToken))
+	return sha256Prefix + string(randomToken), sha256Prefix + base64.RawURLEncoding.EncodeToString(hashed[:])
 }
