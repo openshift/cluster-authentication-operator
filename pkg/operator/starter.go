@@ -627,6 +627,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.configClient.ConfigV1().Authentications(),
 		operatorCtx.operatorClient.Client,
 		operatorCtx.operatorClient,
+		operatorCtx.versionRecorder,
 		eventRecorder,
 	)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/util/flowcontrol"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
@@ -22,6 +24,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
@@ -41,6 +44,9 @@ type webhookAuthenticatorController struct {
 
 	operatorConfigClient operatorconfigclient.AuthenticationsGetter
 	operatorClient       v1helpers.OperatorClient
+
+	apiServerVersionWaitEventsLimiter flowcontrol.RateLimiter
+	versionGetter                     status.VersionGetter
 }
 
 func NewWebhookAuthenticatorController(
@@ -51,16 +57,19 @@ func NewWebhookAuthenticatorController(
 	authentication configv1client.AuthenticationInterface,
 	operatorConfigClient operatorconfigclient.AuthenticationsGetter,
 	operatorClient v1helpers.OperatorClient,
+	versionGetter status.VersionGetter,
 	recorder events.Recorder,
 ) factory.Controller {
 	c := &webhookAuthenticatorController{
-		secrets:              secrets,
-		serviceAccounts:      serviceAccounts,
-		svcLister:            kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		saLister:             kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
-		authentication:       authentication,
-		operatorConfigClient: operatorConfigClient,
-		operatorClient:       operatorClient,
+		secrets:                           secrets,
+		serviceAccounts:                   serviceAccounts,
+		svcLister:                         kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		saLister:                          kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
+		authentication:                    authentication,
+		operatorConfigClient:              operatorConfigClient,
+		operatorClient:                    operatorClient,
+		apiServerVersionWaitEventsLimiter: flowcontrol.NewTokenBucketRateLimiter(0.0167, 1), // set it so that the event may only occur once per minute
+		versionGetter:                     versionGetter,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
@@ -74,6 +83,20 @@ func NewWebhookAuthenticatorController(
 }
 
 func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	// TODO: remove in 4.9; this is to ensure we don't configure webhook authenticators
+	// before the oauth-apiserver revision that's capable of handling it is ready
+	// during upgrade
+	versions := c.versionGetter.GetVersions()
+	if apiserverVersion, ok := versions["oauth-apiserver"]; ok {
+		// a previous version found means this could be an upgrade, unless the version is already current
+		if expectedVersion := os.Getenv("IMAGE_OAUTH_APISERVER"); apiserverVersion != expectedVersion {
+			if c.apiServerVersionWaitEventsLimiter.TryAccept() {
+				syncCtx.Recorder().Eventf("OAuthAPIServerWaitForLatest", "the oauth-apiserver hasn't reported it version to be %q yet, its current version is %q", expectedVersion, apiserverVersion)
+			}
+			return nil
+		}
+	}
+
 	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return err
