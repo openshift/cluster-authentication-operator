@@ -4,5 +4,6 @@ metadata:
   name: openshift-authentication
   annotations:
     openshift.io/node-selector: ""
+    workload.openshift.io/allowed: "management"
   labels:
     openshift.io/cluster-monitoring: "true"

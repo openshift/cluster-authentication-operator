@@ -20,6 +20,8 @@ spec:
       name: oauth-openshift
       labels:
         app: oauth-openshift
+      annotations:
+        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       terminationGracePeriodSeconds: 40
       serviceAccountName: oauth-openshift

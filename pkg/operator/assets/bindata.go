@@ -306,6 +306,8 @@ spec:
       labels:
         app: openshift-oauth-apiserver
         apiserver: "true"
+      annotations:
+        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       serviceAccountName: oauth-apiserver-sa
       priorityClassName: system-node-critical
@@ -455,6 +457,7 @@ kind: Namespace
 metadata:
   annotations:
     openshift.io/node-selector: ""
+    workload.openshift.io/allowed: "management"
   name: openshift-oauth-apiserver
   labels:
     openshift.io/cluster-monitoring: "true"
@@ -630,6 +633,8 @@ spec:
       name: oauth-openshift
       labels:
         app: oauth-openshift
+      annotations:
+        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       terminationGracePeriodSeconds: 40
       serviceAccountName: oauth-openshift
@@ -801,6 +806,7 @@ metadata:
   name: openshift-authentication
   annotations:
     openshift.io/node-selector: ""
+    workload.openshift.io/allowed: "management"
   labels:
     openshift.io/cluster-monitoring: "true"
 `)

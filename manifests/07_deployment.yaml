@@ -20,6 +20,8 @@ spec:
       name: authentication-operator
       labels:
         app: authentication-operator
+      annotations:
+        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       serviceAccountName: authentication-operator
       containers:
