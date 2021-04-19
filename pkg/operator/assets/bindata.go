@@ -307,7 +307,7 @@ spec:
         app: openshift-oauth-apiserver
         apiserver: "true"
       annotations:
-        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
+        target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       serviceAccountName: oauth-apiserver-sa
       priorityClassName: system-node-critical
@@ -634,7 +634,7 @@ spec:
       labels:
         app: oauth-openshift
       annotations:
-        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
+        target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       terminationGracePeriodSeconds: 40
       serviceAccountName: oauth-openshift
