@@ -89,9 +89,9 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 	versions := c.versionGetter.GetVersions()
 	if apiserverVersion, ok := versions["oauth-apiserver"]; ok {
 		// a previous version found means this could be an upgrade, unless the version is already current
-		if expectedVersion := os.Getenv("IMAGE_OAUTH_APISERVER"); apiserverVersion != expectedVersion {
+		if expectedVersion := os.Getenv("OPERATOR_IMAGE_VERSION"); apiserverVersion != expectedVersion {
 			if c.apiServerVersionWaitEventsLimiter.TryAccept() {
-				syncCtx.Recorder().Eventf("OAuthAPIServerWaitForLatest", "the oauth-apiserver hasn't reported it version to be %q yet, its current version is %q", expectedVersion, apiserverVersion)
+				syncCtx.Recorder().Eventf("OAuthAPIServerWaitForLatest", "the oauth-apiserver hasn't reported its version to be %q yet, its current version is %q", expectedVersion, apiserverVersion)
 			}
 			return nil
 		}
