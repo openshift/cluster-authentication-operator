@@ -24,6 +24,7 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
+	oauthinformer "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -54,6 +55,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oldtokensscraper"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
@@ -590,6 +592,14 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		return auditPolicyPathGetter(profile)
 	}
 
+	// protobuf can be used with non custom resources
+	oauthClient, err := oauthclient.NewForConfig(controllerContext.ProtoKubeConfig)
+	if err != nil {
+		return err
+	}
+
+	oauthInformers := oauthinformer.NewSharedInformerFactory(oauthClient, resync)
+
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces,
@@ -599,11 +609,19 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		controllerContext.EventRecorder,
 	)
 
+	oldTokensScraper := oldtokensscraper.NewOldTokensScraper(oauthInformers.Oauth().V1(), eventRecorder)
+
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
 		configObserver.Run,
+		oldTokensScraper.Run,
 		func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) },
 	)
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc, apiregistrationInformers.Start, migrationInformer.Start)
+	operatorCtx.informersToRunFunc = append(
+		operatorCtx.informersToRunFunc,
+		apiregistrationInformers.Start,
+		migrationInformer.Start,
+		oauthInformers.Start,
+	)
 	return nil
 }
 
