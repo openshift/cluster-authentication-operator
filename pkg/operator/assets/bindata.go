@@ -14,6 +14,7 @@
 // bindata/oauth-openshift/deployment.yaml
 // bindata/oauth-openshift/ns.yaml
 // bindata/oauth-openshift/oauth-service.yaml
+// bindata/oauth-openshift/route.yaml
 // bindata/oauth-openshift/serviceaccount.yaml
 package assets
 
@@ -779,6 +780,44 @@ func oauthOpenshiftOauthServiceYaml() (*asset, error) {
 	return a, nil
 }
 
+var _oauthOpenshiftRouteYaml = []byte(`# emulates server-side defaulting as in https://github.com/openshift/openshift-apiserver/blob/master/pkg/route/apis/route/configv1listers/defaults.go
+# TODO: replace with server-side apply
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: oauth-openshift
+  namespace: openshift-authentication
+  labels:
+    app: oauth-openshift
+spec:
+  host: ""
+  port:
+    targetPort: 6443
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: passthrough
+  to:
+    kind: Service
+    name: oauth-openshift
+    weight: 100
+  wildcardPolicy: None
+`)
+
+func oauthOpenshiftRouteYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftRouteYaml, nil
+}
+
+func oauthOpenshiftRouteYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftRouteYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/route.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 var _oauthOpenshiftServiceaccountYaml = []byte(`apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -869,6 +908,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-openshift/deployment.yaml":                             oauthOpenshiftDeploymentYaml,
 	"oauth-openshift/ns.yaml":                                     oauthOpenshiftNsYaml,
 	"oauth-openshift/oauth-service.yaml":                          oauthOpenshiftOauthServiceYaml,
+	"oauth-openshift/route.yaml":                                  oauthOpenshiftRouteYaml,
 	"oauth-openshift/serviceaccount.yaml":                         oauthOpenshiftServiceaccountYaml,
 }
 
@@ -932,6 +972,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"deployment.yaml":                        {oauthOpenshiftDeploymentYaml, map[string]*bintree{}},
 		"ns.yaml":                                {oauthOpenshiftNsYaml, map[string]*bintree{}},
 		"oauth-service.yaml":                     {oauthOpenshiftOauthServiceYaml, map[string]*bintree{}},
+		"route.yaml":                             {oauthOpenshiftRouteYaml, map[string]*bintree{}},
 		"serviceaccount.yaml":                    {oauthOpenshiftServiceaccountYaml, map[string]*bintree{}},
 	}},
 }}

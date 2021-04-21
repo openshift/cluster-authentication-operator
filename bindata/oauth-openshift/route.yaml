@@ -1,0 +1,21 @@
+# emulates server-side defaulting as in https://github.com/openshift/openshift-apiserver/blob/master/pkg/route/apis/route/configv1listers/defaults.go
+# TODO: replace with server-side apply
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: oauth-openshift
+  namespace: openshift-authentication
+  labels:
+    app: oauth-openshift
+spec:
+  host: ""
+  port:
+    targetPort: 6443
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: passthrough
+  to:
+    kind: Service
+    name: oauth-openshift
+    weight: 100
+  wildcardPolicy: None
