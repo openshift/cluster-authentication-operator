@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -21,6 +20,7 @@ import (
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -56,11 +56,11 @@ func NewOAuthClientsController(
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		WithFilteredEventsInformers(
-			namesFilter("openshift-browser-client", "openshift-challenging-client"),
+			common.NamesFilter("openshift-browser-client", "openshift-challenging-client"),
 			oauthInformers.Oauth().V1().OAuthClients().Informer(),
 		).
 		WithFilteredEventsInformers(
-			namesFilter("oauth-openshift"),
+			common.NamesFilter("oauth-openshift"),
 			routeInformers.Route().V1().Routes().Informer(),
 		).
 		WithInformers(ingressInformers.Config().V1().Ingresses().Informer()).
@@ -130,18 +130,6 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 	}
 
 	return nil
-}
-
-// TODO: this should be in library-go
-func namesFilter(names ...string) factory.EventFilterFunc {
-	nameSet := sets.NewString(names...)
-	return func(obj interface{}) bool {
-		metaObj, ok := obj.(metav1.ObjectMetaAccessor)
-		if !ok {
-			return false
-		}
-		return nameSet.Has(metaObj.GetObjectMeta().GetName())
-	}
 }
 
 func randomBits(bits int) []byte {

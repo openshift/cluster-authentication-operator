@@ -7,17 +7,21 @@ import (
 	"fmt"
 	"time"
 
-	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
-	corev1listers "k8s.io/client-go/listers/core/v1"
-
+	"k8s.io/apimachinery/pkg/util/sets"
 	corev1informers "k8s.io/client-go/informers/core/v1"
+	corev1clients "k8s.io/client-go/kubernetes/typed/core/v1"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/management"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -30,6 +34,7 @@ const (
 // routerCertsDomainValidationController validates that router certs match the ingress domain
 type routerCertsDomainValidationController struct {
 	operatorClient  v1helpers.OperatorClient
+	secretsClient   corev1clients.SecretsGetter
 	ingressLister   configv1listers.IngressLister
 	secretLister    corev1listers.SecretLister
 	configMapLister corev1listers.ConfigMapLister
@@ -42,9 +47,11 @@ type routerCertsDomainValidationController struct {
 
 func NewRouterCertsDomainValidationController(
 	operatorClient v1helpers.OperatorClient,
+	secretsClient corev1clients.SecretsGetter,
 	eventRecorder events.Recorder,
 	ingressInformer configv1informers.IngressInformer,
-	secretInformer corev1informers.SecretInformer,
+	targetNSsecretInformer corev1informers.SecretInformer,
+	machineConfigNSSecretInformer corev1informers.SecretInformer,
 	configMapInformer corev1informers.ConfigMapInformer,
 	targetNamespace string,
 	secretName string,
@@ -52,8 +59,9 @@ func NewRouterCertsDomainValidationController(
 ) factory.Controller {
 	controller := &routerCertsDomainValidationController{
 		operatorClient:  operatorClient,
+		secretsClient:   secretsClient,
 		ingressLister:   ingressInformer.Lister(),
-		secretLister:    secretInformer.Lister(),
+		secretLister:    targetNSsecretInformer.Lister(),
 		configMapLister: configMapInformer.Lister(),
 		targetNamespace: targetNamespace,
 		secretName:      secretName,
@@ -65,14 +73,19 @@ func NewRouterCertsDomainValidationController(
 		WithInformers(
 			operatorClient.Informer(),
 			ingressInformer.Informer(),
-			secretInformer.Informer(),
+			targetNSsecretInformer.Informer(),
 			configMapInformer.Informer()).
+		WithFilteredEventsInformers(
+			common.NamesFilter("router-certs"),
+			machineConfigNSSecretInformer.Informer(),
+		).
 		WithSync(controller.sync).
+		WithSyncDegradedOnError(operatorClient).
 		ResyncEvery(30*time.Second).
 		ToController("RouterCertsDomainValidationController", eventRecorder)
 }
 
-func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) (err error) {
 	spec, _, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return err
@@ -81,21 +94,36 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 		return nil
 	}
 
-	condition := c.validateRouterCertificates()
-	if _, _, err = v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(condition)); err != nil {
-		return err
-	}
+	// set the condition anywhere in sync() to update the controller's degraded condition
+	var condition operatorv1.OperatorCondition
+	defer func() {
+		_, _, err = v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(condition))
+	}()
 
-	return nil
-}
-
-func (c *routerCertsDomainValidationController) validateRouterCertificates() operatorv1.OperatorCondition {
 	// get ingress
 	ingress, err := c.ingressLister.Get("cluster")
 	if err != nil {
-		return newRouterCertsDegradedf("NoIngressConfig", "ingresses.config.openshift.io/cluster could not be retrieved: %v", err)
+		condition = newRouterCertsDegradedf("NoIngressConfig", "ingresses.config.openshift.io/cluster could not be retrieved: %v", err)
+		return nil
 	}
 
+	// add syncing for router certs for all cluster ingresses
+	if _, _, err := resourceapply.SyncPartialSecret(
+		c.secretsClient,
+		syncCtx.Recorder(),
+		"openshift-config-managed", "router-certs",
+		"openshift-authentication", "v4-0-config-system-router-certs",
+		sets.NewString(ingress.Spec.Domain),
+		nil,
+	); err != nil {
+		return err
+	}
+
+	condition = c.validateRouterCertificates(ingress)
+	return nil
+}
+
+func (c *routerCertsDomainValidationController) validateRouterCertificates(ingress *configv1.Ingress) operatorv1.OperatorCondition {
 	// get ingress domain
 	ingressDomain := ingress.Spec.Domain
 	if len(ingressDomain) == 0 {
