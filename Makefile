@@ -31,6 +31,8 @@ $(call build-image,ocp-cluster-authentication-operator,$(IMAGE_REGISTRY)/ocp/4.3
 # generate bindata targets
 $(call add-bindata,assets,./bindata/...,bindata,assets,pkg/operator/assets/bindata.go)
 
+$(call verify-golang-versions,Dockerfile.rhel7)
+
 clean:
 	$(RM) ./authentication-operator
 .PHONY: clean
