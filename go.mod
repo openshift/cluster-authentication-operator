@@ -4,7 +4,6 @@ go 1.15
 
 require (
 	github.com/davecgh/go-spew v1.1.1
-	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
 	github.com/openshift/api v0.0.0-20210331193751-3acddb19d360
