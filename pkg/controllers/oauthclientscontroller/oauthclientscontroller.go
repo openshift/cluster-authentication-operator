@@ -20,12 +20,14 @@ import (
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 )
 
 type oauthsClientsController struct {
@@ -72,8 +74,14 @@ func (c *oauthsClientsController) sync(ctx context.Context, syncCtx factory.Sync
 	if err != nil {
 		return err
 	}
+	ingressConfigCopy := ingress.DeepCopy()
 
-	routeHost, err := c.getCanonicalRouteHost(ingress.Spec.Domain)
+	hostname := common.GetCustomRouteHostname(ingressConfigCopy, customroute.OAuthComponentRouteNamespace, customroute.OAuthComponentRouteName)
+	if hostname == "" {
+		hostname = "oauth-openshift." + ingress.Spec.Domain
+	}
+
+	routeHost, err := c.getCanonicalRouteHost(hostname)
 	if err != nil {
 		return err
 	}
@@ -92,13 +100,12 @@ func (c *oauthsClientsController) getIngressConfig() (*configv1.Ingress, error) 
 	return ingress, nil
 }
 
-func (c *oauthsClientsController) getCanonicalRouteHost(ingressConfigDomain string) (string, error) {
+func (c *oauthsClientsController) getCanonicalRouteHost(expectedHost string) (string, error) {
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return "", err
 	}
 
-	expectedHost := "oauth-openshift." + ingressConfigDomain
 	routeHost, _, err := routeapihelpers.IngressURI(route, expectedHost)
 	if err != nil {
 		return "", err

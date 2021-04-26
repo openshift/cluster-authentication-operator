@@ -23,6 +23,7 @@ type Listers struct {
 	ConsoleLister        configlistersv1.ConsoleLister
 	InfrastructureLister configlistersv1.InfrastructureLister
 	OAuthLister_         configlistersv1.OAuthLister
+	IngressLister        configlistersv1.IngressLister
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced []cache.InformerSynced

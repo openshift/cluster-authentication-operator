@@ -43,6 +43,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 		name           string
 		ingress        *configv1.Ingress
 		secret         *corev1.Secret
+		customSecret   *corev1.Secret
 		cm             *corev1.ConfigMap
 		systemCertPool func() (*x509.CertPool, error)
 		expectedStatus operatorv1.ConditionStatus
@@ -53,22 +54,24 @@ func TestValidateRouterCertificates(t *testing.T) {
 			ingress:        newIngress("cluster", withDomain("example.com")),
 			expectedStatus: operatorv1.ConditionFalse,
 			expectedReason: "AsExpected",
-			secret: newSecret("router-certs", "target", withData("example.com",
-				withPEM(
-					withServer("*.example.com",
-						withCA(
-							withExistingRootCA(defaultIngressCACerts),
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication",
+				withData("example.com",
+					withPEM(
+						withServer("*.example.com",
+							withCA(
+								withExistingRootCA(defaultIngressCACerts),
+							),
 						),
 					),
 				),
-			)),
+			),
 		},
 		{
 			name:           "RootCAIsSystemCert",
 			ingress:        newIngress("cluster", withDomain("example.com")),
 			expectedStatus: operatorv1.ConditionFalse,
 			expectedReason: "AsExpected",
-			secret: newSecret("router-certs", "target", withData("example.com",
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com",
 				withPEM(
 					withServer("*.example.com",
 						withCA(
@@ -86,14 +89,14 @@ func TestValidateRouterCertificates(t *testing.T) {
 			name:           "NoIngressConfig",
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "NoIngressConfig",
-			secret:         newSecret("router-certs", "target"),
+			secret:         newSecret("v4-0-config-system-router-certs", "openshift-authentication"),
 		},
 		{
 			name:           "NoIngressDomain",
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "NoIngressDomain",
 			ingress:        newIngress("cluster"),
-			secret:         newSecret("router-certs", "target"),
+			secret:         newSecret("v4-0-config-system-router-certs", "openshift-authentication"),
 		},
 		{
 			name:           "NoRouterCertSecret",
@@ -106,12 +109,12 @@ func TestValidateRouterCertificates(t *testing.T) {
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "MissingRouterCertsPEM",
 			ingress:        newIngress("cluster", withDomain("example.com")),
-			secret:         newSecret("router-certs", "target"),
+			secret:         newSecret("v4-0-config-system-router-certs", "openshift-authentication"),
 		},
 		{
 			name:           "MalformedRouterCertsPEM",
 			ingress:        newIngress("cluster", withDomain("example.com")),
-			secret:         newSecret("router-certs", "target", withData("example.com")),
+			secret:         newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com")),
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "MissingRouterCertsPEM",
 		},
@@ -120,7 +123,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "NoRootCARouterCerts",
 			ingress:        newIngress("cluster", withDomain("example.com")),
-			secret: newSecret("router-certs", "target", withData("example.com",
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com",
 				withPEM(
 					withServer("*.example.com",
 						withCA(
@@ -136,7 +139,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 		{
 			name:    "NoServerCertRouterCerts",
 			ingress: newIngress("cluster", withDomain("example.com")),
-			secret: newSecret("router-certs", "target", withData("example.com",
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com",
 				withPEM(
 					withCA(
 						withExistingRootCA(defaultIngressCACerts),
@@ -151,7 +154,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 			ingress:        newIngress("cluster", withDomain("example.com")),
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "InvalidServerCertRouterCerts",
-			secret: newSecret("router-certs", "target", withData("example.com",
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com",
 				withPEM(
 					withServer("*.example.org",
 						withCA(
@@ -166,7 +169,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 			ingress:        newIngress("cluster", withDomain("example.com")),
 			expectedStatus: operatorv1.ConditionTrue,
 			expectedReason: "InvalidServerCertRouterCerts",
-			secret: newSecret("router-certs", "target", withData("example.com",
+			secret: newSecret("v4-0-config-system-router-certs", "openshift-authentication", withData("example.com",
 				withPEM(
 					withServer("*.example.com",
 						withCA(
@@ -176,6 +179,24 @@ func TestValidateRouterCertificates(t *testing.T) {
 					withMissingIntermediateCA,
 				),
 			)),
+		},
+		{
+			name:           "CustomSecretNoOp",
+			ingress:        newIngress("cluster", withDomain("example.com")),
+			expectedStatus: operatorv1.ConditionFalse,
+			expectedReason: "AsExpected",
+
+			customSecret: newSecret("v4-0-config-system-custom-router-certs", "openshift-authentication",
+				withData(corev1.TLSCertKey,
+					withPEM(
+						withServer("*.example.com",
+							withCA(
+								withExistingRootCA(defaultIngressCACerts),
+							),
+						),
+					),
+				),
+				withType(corev1.SecretTypeTLS)),
 		},
 	}
 
@@ -190,6 +211,10 @@ func TestValidateRouterCertificates(t *testing.T) {
 			secrets := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			if tc.secret != nil {
 				err := secrets.Add(tc.secret)
+				require.NoError(t, err)
+			}
+			if tc.customSecret != nil {
+				err := secrets.Add(tc.customSecret)
 				require.NoError(t, err)
 			}
 			if tc.systemCertPool == nil {
@@ -213,15 +238,16 @@ func TestValidateRouterCertificates(t *testing.T) {
 			}
 
 			controller := routerCertsDomainValidationController{
-				operatorClient:  operatorClient,
-				ingressLister:   configv1listers.NewIngressLister(ingresses),
-				secretLister:    corev1listers.NewSecretLister(secrets),
-				configMapLister: corev1listers.NewConfigMapLister(configMapsIndexer),
-				targetNamespace: "target",
-				secretName:      "router-certs",
-				routeName:       "test-route",
-				systemCertPool:  tc.systemCertPool,
-				secretsClient:   secretsClient.CoreV1(),
+				operatorClient:    operatorClient,
+				ingressLister:     configv1listers.NewIngressLister(ingresses),
+				secretLister:      corev1listers.NewSecretLister(secrets),
+				configMapLister:   corev1listers.NewConfigMapLister(configMapsIndexer),
+				secretNamespace:   "openshift-authentication",
+				defaultSecretName: "v4-0-config-system-router-certs",
+				customSecretName:  "v4-0-config-system-custom-router-certs",
+				routeName:         "test-route",
+				systemCertPool:    tc.systemCertPool,
+				secretsClient:     secretsClient.CoreV1(),
 			}
 			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder")))
 			require.NoError(t, err)
@@ -281,6 +307,12 @@ func withData(key string, options ...func([]byte) []byte) func(*corev1.Secret) {
 			secret.Data = make(map[string][]byte)
 		}
 		secret.Data[key] = data
+	}
+}
+
+func withType(secretType corev1.SecretType, options ...func(*corev1.Secret)) func(*corev1.Secret) {
+	return func(secret *corev1.Secret) {
+		secret.Type = secretType
 	}
 }
 
