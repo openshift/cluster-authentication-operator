@@ -63,14 +63,13 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		go func(endpoint string) {
 			defer wg.Done()
 
-			req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second) // avoid waiting forever
+			defer cancel()
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
 			if err != nil {
 				errCh <- err
 				return
 			}
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second) // avoid waiting forever
-			defer cancel()
-			req.WithContext(reqCtx)
 
 			// we don't really care  if anyone lies to us. We aren't sending important data.
 			client := &http.Client{
