@@ -87,6 +87,7 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 				errCh <- err
 				return
 			}
+			defer resp.Body.Close()
 
 			if resp.StatusCode > 299 || resp.StatusCode < 200 {
 				errCh <- fmt.Errorf("%q returned %q", endpoint, resp.Status)
