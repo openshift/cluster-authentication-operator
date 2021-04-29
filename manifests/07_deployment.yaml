@@ -21,7 +21,7 @@ spec:
       labels:
         app: authentication-operator
       annotations:
-        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
+        target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       serviceAccountName: authentication-operator
       containers:

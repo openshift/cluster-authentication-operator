@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "10646c8cfd2765b3d2ccbae9356a26126307aacbfbe2a8e947ce41bc01583e13"
+    operator.openshift.io/spec-hash: "184fec9ba339674f4104966f3ecd5639e637d0cdf49f50acc5270c8d432c58d0"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -31,7 +31,7 @@ spec:
         revision: '0'
       name: openshift-oauth-apiserver
       annotations:
-        workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
+        target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
     spec:
       containers:
         -
