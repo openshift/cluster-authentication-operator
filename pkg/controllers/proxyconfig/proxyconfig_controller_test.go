@@ -229,9 +229,9 @@ type workingHTTPRoundTripper struct{}
 type faultyHTTPRoundTripper struct{}
 
 func (s *workingHTTPRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: 200}, nil
+	return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
 }
 
 func (s *faultyHTTPRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: 404}, nil
+	return &http.Response{StatusCode: 404, Body: http.NoBody}, nil
 }
