@@ -164,18 +164,18 @@ func (p *proxyConfigChecker) getCACerts() (*x509.CertPool, error) {
 
 // isEndpointReachable returns nil if the given endpoint can be reached using the given client
 func isEndpointReachable(ctx context.Context, endpointURL string, client *http.Client) error {
-	req, err := http.NewRequest(http.MethodGet, endpointURL, nil)
+	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // avoid waiting forever
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpointURL, nil)
 	if err != nil {
 		return err
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // avoid waiting forever
-	defer cancel()
-	req.WithContext(reqCtx)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("%q returned %d", endpointURL, resp.StatusCode)
