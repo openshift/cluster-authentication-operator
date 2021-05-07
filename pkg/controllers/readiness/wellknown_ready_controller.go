@@ -21,6 +21,7 @@ import (
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -30,7 +31,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
@@ -58,12 +58,7 @@ type wellKnownReadyController struct {
 	infrastructureLister configv1lister.InfrastructureLister
 }
 
-// knownConditionNames lists all condition types used by this controller.
-// These conditions are operated and defaulted by this controller.
-// Any new condition used by this controller sync() loop should be listed here.
-var knownConditionNames = sets.NewString(
-	"WellKnownAvailable",
-)
+const controllerName = "WellKnownReadyController"
 
 func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
 	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
@@ -92,7 +87,7 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 		ResyncEvery(30*time.Second).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
-		ToController("WellKnownReadyController", recorder.WithComponentSuffix("wellknown-ready-controller"))
+		ToController(controllerName, recorder.WithComponentSuffix("wellknown-ready-controller"))
 }
 
 func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
@@ -109,44 +104,59 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	if err != nil {
 		return err
 	}
+
+	// the code below this point triggers status updates, unify status update handling in defer
+	statusUpdates := []v1helpers.UpdateStatusFunc{}
+	defer func() {
+		if _, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, statusUpdates...); updateErr != nil {
+			// fall through to the generic error handling for degraded and requeue
+			utilruntime.HandleError(updateErr)
+		}
+	}()
+
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if apierrors.IsNotFound(err) {
-		if _, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
 			Status:  operatorv1.ConditionFalse,
 			Reason:  "PrereqsNotReady",
 			Message: err.Error(),
-		})); updateErr != nil {
-			utilruntime.HandleError(updateErr)
-			// fall through to the generic error handling for degraded and requeue
-		}
+		}))
 	}
 	if err != nil {
 		return err
 	}
 
 	if err := c.isWellknownEndpointsReady(operatorSpec, operatorStatus, authConfig, route, infraConfig); err != nil {
-		_, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
 			Status:  operatorv1.ConditionFalse,
 			Reason:  "NotReady",
 			Message: fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()),
 		}))
-		if updateErr != nil {
-			utilruntime.HandleError(updateErr)
-			// fall through to the generic error handling for degraded and requeue
+
+		if progressingErr, ok := err.(*common.ControllerProgressingError); ok {
+			if progressingErr.IsDegraded(controllerName, operatorStatus) {
+				return progressingErr.Unwrap()
+			}
+			statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(progressingErr.ToCondition(controllerName)))
+			return nil
+		} else {
+			return err
 		}
-		return err
 	}
 
-	_, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-		Type:   "WellKnownAvailable",
-		Status: operatorv1.ConditionTrue,
-		Reason: "AsExpected",
-	}))
-	if updateErr != nil {
-		return updateErr
-	}
+	statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(
+		operatorv1.OperatorCondition{
+			Type:   common.ControllerProgressingConditionName(controllerName),
+			Status: operatorv1.ConditionFalse,
+		}),
+		v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
+			Type:   "WellKnownAvailable",
+			Status: operatorv1.ConditionTrue,
+			Reason: "AsExpected",
+		}),
+	)
 	return nil
 }
 
@@ -225,7 +235,7 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 	case 200:
 		// success
 	case http.StatusNotFound:
-		return fmt.Errorf("kube-apiserver oauth endpoint %s is not yet served and authentication operator keeps waiting (check kube-apiserver operator, and check that instances roll out successfully, which can take several minutes per instance)", wellKnown)
+		return common.NewControllerProgressingError("OAuthMetadataNotYetServed", fmt.Errorf("kube-apiserver oauth endpoint %s is not yet served and authentication operator keeps waiting (check kube-apiserver operator, and check that instances roll out successfully, which can take several minutes per instance)", wellKnown), 5*time.Minute)
 	default:
 		return fmt.Errorf("kube-apiserver oauth endpoint %s replied with unexpected status: %s (check kube-apiserver logs if this error persists)", wellKnown, resp.Status)
 	}
@@ -240,7 +250,7 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 	}
 
 	if !reflect.DeepEqual(expectedMetadata, receivedValues) {
-		return fmt.Errorf("the %s endpoint returns different oauth metadata than is stored in openshift-config-managed/oauth-openshift ConfigMap (check kube-apiserver operator that instances roll out, which happens when oauth metadata changes)", wellKnown)
+		return common.NewControllerProgressingError("OAuthMetadataDiffer", fmt.Errorf("the %s endpoint returns different oauth metadata than is stored in openshift-config-managed/oauth-openshift ConfigMap (check kube-apiserver operator that instances roll out, which happens when oauth metadata changes)", wellKnown), 5*time.Minute)
 	}
 
 	return nil
@@ -275,7 +285,7 @@ func (c *wellKnownReadyController) getOAuthMetadata() (map[string]interface{}, e
 
 	metadataJSON, ok := cm.Data["oauthMetadata"]
 	if !ok || len(metadataJSON) == 0 {
-		return nil, fmt.Errorf("the openshift-config-managed/oauth-openshift configMap is missing data in the 'oauthMetadata' key")
+		return nil, common.NewControllerProgressingError("NoOAuthMetadata", fmt.Errorf("the openshift-config-managed/oauth-openshift configMap is missing data in the 'oauthMetadata' key"), time.Minute)
 	}
 
 	var metadataStruct map[string]interface{}
