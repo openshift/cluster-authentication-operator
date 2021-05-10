@@ -38,8 +38,8 @@ spec:
           exec authentication-operator operator --config=/var/run/configmaps/config/operator-config.yaml --v=2 --terminate-on-files=/var/run/configmaps/trusted-ca-bundle/ca-bundle.crt
         resources:
           requests:
-            memory: 50Mi
-            cpu: 10m
+            memory: 200Mi
+            cpu: 20m
         securityContext:
           readOnlyRootFilesystem: false # because of the `cp` in args
         volumeMounts:
