@@ -25,8 +25,6 @@ github.com/emicklei/go-restful
 github.com/emicklei/go-restful/log
 # github.com/evanphx/json-patch v4.9.0+incompatible
 github.com/evanphx/json-patch
-# github.com/fsnotify/fsnotify v1.4.9
-## explicit
 # github.com/ghodss/yaml v1.0.0
 ## explicit
 github.com/ghodss/yaml
@@ -148,7 +146,7 @@ github.com/openshift/api/template
 github.com/openshift/api/template/v1
 github.com/openshift/api/user
 github.com/openshift/api/user/v1
-# github.com/openshift/build-machinery-go v0.0.0-20210209125900-0da259a2c359
+# github.com/openshift/build-machinery-go v0.0.0-20210423112049-9415d7ebd33e
 ## explicit
 github.com/openshift/build-machinery-go
 github.com/openshift/build-machinery-go/make
