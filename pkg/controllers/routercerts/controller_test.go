@@ -19,12 +19,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/mergepatch"
+	"k8s.io/client-go/kubernetes/fake"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -202,6 +205,13 @@ func TestValidateRouterCertificates(t *testing.T) {
 			}
 			require.NoError(t, err)
 
+			var secretsClient *fake.Clientset
+			if tc.secret != nil {
+				secretsClient = fake.NewSimpleClientset(tc.secret)
+			} else {
+				secretsClient = fake.NewSimpleClientset()
+			}
+
 			controller := routerCertsDomainValidationController{
 				operatorClient:  operatorClient,
 				ingressLister:   configv1listers.NewIngressLister(ingresses),
@@ -211,8 +221,9 @@ func TestValidateRouterCertificates(t *testing.T) {
 				secretName:      "router-certs",
 				routeName:       "test-route",
 				systemCertPool:  tc.systemCertPool,
+				secretsClient:   secretsClient.CoreV1(),
 			}
-			err = controller.sync(context.TODO(), nil)
+			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder")))
 			require.NoError(t, err)
 			_, s, _, _ := operatorClient.GetOperatorState()
 			require.Len(t, s.Conditions, 1)

@@ -223,14 +223,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		return err
 	}
 
-	// add syncing for router certs for all cluster ingresses
-	if err := operatorCtx.resourceSyncController.SyncSecret(
-		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-router-certs"},
-		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "router-certs", Provider: "ingress-operator"},
-	); err != nil {
-		return err
-	}
-
 	clusterOperatorStatus := status.NewClusterOperatorStatusController(
 		"authentication",
 		[]configv1.ObjectReference{
@@ -302,9 +294,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
 		operatorCtx.operatorClient,
+		operatorCtx.kubeClient.CoreV1(),
 		controllerContext.EventRecorder,
 		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
 		openshiftAuthenticationInformers.Core().V1().Secrets(),
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets(),
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
