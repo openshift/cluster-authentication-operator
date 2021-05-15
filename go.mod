@@ -19,13 +19,13 @@ require (
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.3.0
-	k8s.io/api v0.20.1
-	k8s.io/apimachinery v0.20.1
-	k8s.io/apiserver v0.20.1
-	k8s.io/client-go v0.20.1
-	k8s.io/component-base v0.20.1
+	k8s.io/api v0.20.6
+	k8s.io/apimachinery v0.20.6
+	k8s.io/apiserver v0.20.6
+	k8s.io/client-go v0.20.6
+	k8s.io/component-base v0.20.6
 	k8s.io/klog/v2 v2.4.0
-	k8s.io/kube-aggregator v0.20.1
+	k8s.io/kube-aggregator v0.20.6
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 	sigs.k8s.io/kube-storage-version-migrator v0.0.3
 )
