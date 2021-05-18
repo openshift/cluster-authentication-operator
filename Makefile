@@ -69,10 +69,17 @@ test-e2e-encryption: test-unit
 
 test-e2e-encryption-perf: GO_TEST_PACKAGES :=./test/e2e-encryption-perf/...
 test-e2e-encryption-perf: GO_TEST_FLAGS += -v
-test-e2e-encryption-perf: GO_TEST_FLAGS += -timeout 1h
+test-e2e-encryption-perf: GO_TEST_FLAGS += -timeout 2h
 test-e2e-encryption-perf: GO_TEST_FLAGS += -p 1
 test-e2e-encryption-perf: test-unit
 .PHONY: test-e2e-encryption-perf
+
+test-e2e-encryption-rotation: GO_TEST_PACKAGES :=./test/e2e-encryption-rotation/...
+test-e2e-encryption-rotation: GO_TEST_FLAGS += -v
+test-e2e-encryption-rotation: GO_TEST_FLAGS += -timeout 4h
+test-e2e-encryption-rotation: GO_TEST_FLAGS += -p 1
+test-e2e-encryption-rotation: test-unit
+.PHONY: test-e2e-encryption-rotation
 
 # Configure the 'telepresence' target
 # See vendor/github.com/openshift/build-machinery-go/scripts/run-telepresence.sh for usage and configuration details
