@@ -249,9 +249,9 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
 			// condition types removed in 4.8
-			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
+			"OAuthRouteCheckEndpointAccessibleControllerDegraded",
+			"OAuthServiceCheckEndpointAccessibleControllerDegraded",
+			"OAuthServiceEndpointsCheckEndpointAccessibleControllerDegraded",
 			"OAuthServerIngressConfigDegraded",
 			"OAuthServerProxyDegraded",
 			"OAuthServerRouteDegraded",
