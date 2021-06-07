@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -11,13 +12,16 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/flowcontrol"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
+	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
@@ -38,9 +42,10 @@ type webhookAuthenticatorController struct {
 	authentication  configv1client.AuthenticationInterface
 	serviceAccounts corev1client.ServiceAccountsGetter
 
-	saLister  corev1listers.ServiceAccountLister
-	svcLister corev1listers.ServiceLister
-	secrets   corev1client.SecretsGetter
+	saLister      corev1listers.ServiceAccountLister
+	svcLister     corev1listers.ServiceLister
+	secrets       corev1client.SecretsGetter
+	secretsLister corev1listers.SecretLister
 
 	operatorConfigClient operatorconfigclient.AuthenticationsGetter
 	operatorClient       v1helpers.OperatorClient
@@ -51,6 +56,7 @@ type webhookAuthenticatorController struct {
 
 func NewWebhookAuthenticatorController(
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	kubeInformersForOperatorNamespace informers.SharedInformerFactory,
 	configInformer configinformers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
 	serviceAccounts corev1client.ServiceAccountsGetter,
@@ -63,6 +69,7 @@ func NewWebhookAuthenticatorController(
 	c := &webhookAuthenticatorController{
 		secrets:                           secrets,
 		serviceAccounts:                   serviceAccounts,
+		secretsLister:                     kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		svcLister:                         kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
 		saLister:                          kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
 		authentication:                    authentication,
@@ -109,11 +116,11 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 
 	oauthAPIsvc, err := c.svcLister.Services("openshift-oauth-apiserver").Get("api")
 	if err != nil {
-		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/oauth-apiserver: %w", err)
+		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/api: %w", err)
 	}
 
-	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, syncCtx.Recorder())
-	if err != nil {
+	kubeConfigSecret, err := c.ensureKubeConfigSecret(oauthAPIsvc, syncCtx.Recorder())
+	if kubeConfigSecret == nil {
 		return err
 	}
 
@@ -133,44 +140,20 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 	return nil
 }
 
-// ensureKubeConfigSecret retrieves the token from a secret for the
-// openshift-oauth-apiserver/openshift-authenticator SA. It checks that the
-// "service-ca.crt" and "token" keys are present and creates a
-// openshift-config/webhook-authentication-integrated-oauth secret with a kubeconfig
-// pointing to the oauth-apiserver's tokenvalidation endpoint
-func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Context, svc *corev1.Service, recorder events.Recorder) (*corev1.Secret, error) {
-	sa, err := c.saLister.ServiceAccounts("openshift-oauth-apiserver").Get("openshift-authenticator")
-	if err != nil {
+// ensureKubeConfigSecret attempts to retrieve a certificate and a key from the
+// openshift-oauth-apiserver/openshift-authenticator-certs secret. It feeds these
+// credentials for client-cert auth to a kubeconfig pointing to the oauth-apiserver's
+// tokenvalidation endpoint so that it can then push this kubeconfig into
+// openshift-config/webhook-authentication-integrated-oauth secret
+func (c *webhookAuthenticatorController) ensureKubeConfigSecret(svc *corev1.Service, recorder events.Recorder) (*corev1.Secret, error) {
+	key, cert, err := c.getAuthenticatorCertKeyPair()
+	if key == nil || cert == nil {
 		return nil, err
 	}
 
-	if len(sa.Secrets) == 0 {
-		return nil, fmt.Errorf("SA openshift-authenticator does not have any tokens assigned")
-	}
-
-	var tokenSecretName string
-	for _, saSecret := range sa.Secrets {
-		if strings.Contains(saSecret.Name, "token") {
-			tokenSecretName = saSecret.Name
-		}
-	}
-
-	if len(tokenSecretName) == 0 {
-		return nil, fmt.Errorf("SA openshift-authenticator does not have any tokens assigned")
-	}
-
-	tokenSecret, err := c.secrets.Secrets("openshift-oauth-apiserver").Get(ctx, tokenSecretName, metav1.GetOptions{})
+	caBundle, err := ioutil.ReadFile("/var/run/configmaps/service-ca-bundle/service-ca.crt")
 	if err != nil {
-		return nil, err
-	}
-
-	caBundle, ok := tokenSecret.Data["service-ca.crt"]
-	if !ok {
-		return nil, fmt.Errorf("service-account token secret is missing the 'ca.crt' key")
-	}
-	token, ok := tokenSecret.Data["token"]
-	if !ok {
-		return nil, fmt.Errorf("service-account token secret is missing the 'token' key")
+		return nil, fmt.Errorf("failed to read service-ca crt bundle: %w", err)
 	}
 
 	kubeconfigBytes, err := assets.Asset("oauth-apiserver/authenticator-kubeconfig.yaml")
@@ -181,7 +164,8 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 	replacer := strings.NewReplacer(
 		"${CA_DATA}", base64.StdEncoding.EncodeToString(caBundle),
 		"${APISERVER_IP}", net.JoinHostPort(svc.Spec.ClusterIP, strconv.Itoa(int(svc.Spec.Ports[0].Port))),
-		"${AUTHENTICATOR_TOKEN}", string(token),
+		"${CLIENT_CERT}", base64.StdEncoding.EncodeToString(cert),
+		"${CLIENT_KEY}", base64.StdEncoding.EncodeToString(key),
 	)
 
 	kubeconfigComplete := replacer.Replace(string(kubeconfigBytes))
@@ -198,4 +182,63 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 
 	secret, _, err := resourceapply.ApplySecret(c.secrets, recorder, requiredSecret)
 	return secret, err
+}
+
+func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair() (key, cert []byte, err error) {
+	// waitingForCertKeyMsg lets us decide whether we should set progressing condition to true
+	// 1. nil: keep "progressing the same"
+	// 2. non-empty string: progress with the message in the string
+	// 3. empty string: stop progressing
+	var waitingForCertKeyMsg *string
+	defer func() {
+		if waitingForCertKeyMsg == nil {
+			return
+		}
+		cond := operatorv1.OperatorCondition{
+			Type:    "AuthenticatorCertKeyProgressing",
+			Status:  operatorv1.ConditionFalse,
+			Reason:  "AsExpected",
+			Message: "All is well",
+		}
+
+		if len(*waitingForCertKeyMsg) > 0 {
+			cond.Status = operatorv1.ConditionTrue
+			cond.Reason = "WaitingForCertKey"
+			cond.Message = *waitingForCertKeyMsg
+		}
+
+		if _, _, statusErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(cond)); statusErr != nil {
+			klog.Errorf("failed to update operator status: %v", statusErr)
+			err = statusErr
+		}
+	}()
+
+	certSecret, err := c.secretsLister.Secrets("openshift-oauth-apiserver").Get("openshift-authenticator-certs")
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			waitingForCertKeyMsg = pstr("waiting for the cert/key secret openshift-oauth-apiserver/openshift-authenticator-certs to appear")
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+
+	key, ok := certSecret.Data["tls.key"]
+	if !ok {
+		waitingForCertKeyMsg = pstr("the authenticator's client cert secret is missing the 'tls.key' key")
+		return nil, nil, nil
+	}
+
+	cert, ok = certSecret.Data["tls.crt"]
+	if !ok {
+		waitingForCertKeyMsg = pstr("the authenticator's client cert secret is missing the 'tls.crt' key")
+		return nil, nil, nil
+	}
+
+	// stop progressing on the cert/key secret
+	waitingForCertKeyMsg = pstr("")
+	return key, cert, nil
+}
+
+func pstr(s string) *string {
+	return &s
 }
