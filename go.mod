@@ -9,7 +9,7 @@ require (
 	github.com/openshift/api v0.0.0-20210521075222-e273a339932a
 	github.com/openshift/build-machinery-go v0.0.0-20210423112049-9415d7ebd33e
 	github.com/openshift/client-go v0.0.0-20210521082421-73d9475a9142
-	github.com/openshift/library-go v0.0.0-20210607141544-9e6f11931517
+	github.com/openshift/library-go v0.0.0-20210609085852-3ea492dfde03
 	github.com/spf13/cobra v1.1.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
@@ -26,7 +26,7 @@ require (
 	k8s.io/klog/v2 v2.8.0
 	k8s.io/kube-aggregator v0.21.1
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
-	sigs.k8s.io/kube-storage-version-migrator v0.0.3
+	sigs.k8s.io/kube-storage-version-migrator v0.0.4
 )
 
 // points to temporary-watch-reduction-patch-1.21 to pick up k/k/pull/101102 - please remove it once the pr merges and a new Z release is cut
