@@ -363,6 +363,18 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		controllerContext.EventRecorder,
 	)
 
+	auditPolicyController := auditpolicy.NewAuditPolicyController(
+		"kube-apiserver",
+		operatorclient.TargetNamespace,
+		"audit-policy",
+		configClient,
+		operatorClient,
+		kubeClient,
+		configInformers,
+		kubeInformersForNamespaces.InformersFor(operatorclient.TargetNamespace),
+		controllerContext.EventRecorder,
+	)
+
 	deploymentController := deployment.NewOAuthServerWorkloadController(
 		operatorCtx.operatorClient,
 		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
