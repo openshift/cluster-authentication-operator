@@ -118,7 +118,7 @@ func (c *payloadConfigController) getSessionSecret(ctx context.Context, recorder
 			}
 		}
 	}
-	if _, _, err := resourceapply.ApplySecret(c.secrets, recorder, secret); err != nil {
+	if _, _, err := resourceapply.ApplySecret(ctx, c.secrets, recorder, secret); err != nil {
 		return []operatorv1.OperatorCondition{
 			{
 				Type:    "OAuthSessionSecretDegraded",
@@ -146,14 +146,14 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 
 	// we need route and service to be not nil
 	if len(foundConditions) == 0 {
-		oauthConfigConditions := c.handleOAuthConfig(operatorConfig, route, service, syncContext.Recorder())
+		oauthConfigConditions := c.handleOAuthConfig(ctx, operatorConfig, route, service, syncContext.Recorder())
 		foundConditions = append(foundConditions, oauthConfigConditions...)
 	}
 
 	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
 }
 
-func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
+func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
 	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
@@ -248,7 +248,7 @@ func (c *payloadConfigController) handleOAuthConfig(operatorConfig *operatorv1.A
 
 	expectedCLIConfig := getCliConfigMap(completeConfigBytes)
 
-	_, _, err = resourceapply.ApplyConfigMap(c.configMaps, recorder, expectedCLIConfig)
+	_, _, err = resourceapply.ApplyConfigMap(ctx, c.configMaps, recorder, expectedCLIConfig)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{

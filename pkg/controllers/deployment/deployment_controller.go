@@ -211,7 +211,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 	expectedDeployment.Spec.Replicas = masterNodeCount
 
-	deployment, _, err := resourceapply.ApplyDeployment(c.deployments,
+	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
 		syncContext.Recorder(),
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),

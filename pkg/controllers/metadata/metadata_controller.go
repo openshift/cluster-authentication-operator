@@ -115,7 +115,7 @@ func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, r
 		}}
 	}
 	// make sure API server sees our metadata as soon as we've got a route with a host
-	if _, _, err := resourceapply.ApplyConfigMap(c.configMaps, recorder, getOAuthMetadataConfigMap(route.Status.Ingress[0].Host)); err != nil {
+	if _, _, err := resourceapply.ApplyConfigMap(ctx, c.configMaps, recorder, getOAuthMetadataConfigMap(route.Status.Ingress[0].Host)); err != nil {
 		return []operatorv1.OperatorCondition{{
 			Type:    "OAuthSystemMetadataDegraded",
 			Status:  operatorv1.ConditionTrue,

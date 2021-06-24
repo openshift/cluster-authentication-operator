@@ -1,6 +1,7 @@
 package workload
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -110,7 +111,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				kubeClient:                fakeKubeClient,
 			}
 
-			actualDeployment, err := target.syncDeployment(scenario.operator, scenario.operator.Status.Generations, eventRecorder)
+			actualDeployment, err := target.syncDeployment(context.TODO(), scenario.operator, scenario.operator.Status.Generations, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}

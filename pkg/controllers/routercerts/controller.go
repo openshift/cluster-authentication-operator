@@ -109,6 +109,7 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 
 	// add syncing for router certs for all cluster ingresses
 	if _, _, err := resourceapply.SyncPartialSecret(
+		ctx,
 		c.secretsClient,
 		syncCtx.Recorder(),
 		"openshift-config-managed", "router-certs",
