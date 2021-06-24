@@ -123,14 +123,14 @@ func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncC
 		return nil, false, errs
 	}
 
-	actualDeployment, err := c.syncDeployment(authOperator, authOperator.Status.Generations, syncCtx.Recorder())
+	actualDeployment, err := c.syncDeployment(ctx, authOperator, authOperator.Status.Generations, syncCtx.Recorder())
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
 	return actualDeployment, true, errs
 }
 
-func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
 	tmpl, err := assets.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(authOperator *operatorv1.Authent
 	}
 	required.Spec.Replicas = masterNodeCount
 
-	deployment, _, err := resourceapply.ApplyDeployment(c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
+	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
 	return deployment, err
 }
 

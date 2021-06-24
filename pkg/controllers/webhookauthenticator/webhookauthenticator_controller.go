@@ -119,7 +119,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/api: %w", err)
 	}
 
-	kubeConfigSecret, err := c.ensureKubeConfigSecret(oauthAPIsvc, syncCtx.Recorder())
+	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, syncCtx.Recorder())
 	if kubeConfigSecret == nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 // credentials for client-cert auth to a kubeconfig pointing to the oauth-apiserver's
 // tokenvalidation endpoint so that it can then push this kubeconfig into
 // openshift-config/webhook-authentication-integrated-oauth secret
-func (c *webhookAuthenticatorController) ensureKubeConfigSecret(svc *corev1.Service, recorder events.Recorder) (*corev1.Secret, error) {
+func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Context, svc *corev1.Service, recorder events.Recorder) (*corev1.Secret, error) {
 	key, cert, err := c.getAuthenticatorCertKeyPair()
 	if key == nil || cert == nil {
 		return nil, err
@@ -180,7 +180,7 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(svc *corev1.Serv
 		},
 	}
 
-	secret, _, err := resourceapply.ApplySecret(c.secrets, recorder, requiredSecret)
+	secret, _, err := resourceapply.ApplySecret(ctx, c.secrets, recorder, requiredSecret)
 	return secret, err
 }
 
