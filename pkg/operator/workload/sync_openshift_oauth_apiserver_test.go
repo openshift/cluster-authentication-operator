@@ -166,7 +166,6 @@ func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
 				ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
 			},
 			expectedAPIServerArguments: map[string][]string{
-				"api-audiences":     {"https://kubernetes.default.svc"},
 				"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
 			},
 		},
