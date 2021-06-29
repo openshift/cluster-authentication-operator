@@ -13,6 +13,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	observeauthentication "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/authentication"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
 )
 
@@ -32,8 +34,9 @@ func NewConfigObserverController(
 	preRunCacheSynced := []cache.InformerSynced{
 		operatorClient.Informer().HasSynced,
 
-		// for cors and tls observers
+		// for cors, audiences and tls observers
 		configInformer.Config().V1().APIServers().Informer().HasSynced,
+		configInformer.Config().V1().Authentications().Informer().HasSynced,
 		configInformer.Config().V1().OAuths().Informer().HasSynced,
 
 		// for etcd observer
@@ -47,8 +50,9 @@ func NewConfigObserverController(
 	informers := []factory.Informer{
 		operatorClient.Informer(),
 
-		// for cors and tls observers
+		// for cors, audiences and tls observers
 		configInformer.Config().V1().APIServers().Informer(),
+		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().OAuths().Informer(),
 
 		// for etcd observer
@@ -63,6 +67,7 @@ func NewConfigObserverController(
 	for _, o := range []configobserver.ObserveConfigFunc{
 		apiserver.ObserveAdditionalCORSAllowedOriginsToArguments,
 		apiserver.ObserveTLSSecurityProfileToArguments,
+		observeauthentication.ObserveAPIAudiences,
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
@@ -75,8 +80,9 @@ func NewConfigObserverController(
 	return configobserver.NewNestedConfigObserver(
 		operatorClient,
 		eventRecorder,
-		Listers{
+		configobservation.Listers{
 			APIServerLister_:   configInformer.Config().V1().APIServers().Lister(),
+			AuthConfigLister_:  configInformer.Config().V1().Authentications().Lister(),
 			ConfigMapLister_:   kubeInformersForNamespaces.ConfigMapLister(),
 			EndpointsLister_:   kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Lister(),
 			OAuthLister_:       configInformer.Config().V1().OAuths().Lister(),
