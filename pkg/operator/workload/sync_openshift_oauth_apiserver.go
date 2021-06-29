@@ -13,7 +13,7 @@ import (
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
-	oauthapiconfigobserver "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	configobservation "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -236,7 +236,6 @@ func getStructuredConfigWithDefaultValues(authOperatorSpec operatorv1.OperatorSp
 
 	defaultAPIServerArguments := map[string][]string{
 		"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
-		"api-audiences":     {"https://kubernetes.default.svc"},
 	}
 
 	for defArgName, defArgValue := range defaultAPIServerArguments {
@@ -250,12 +249,12 @@ func getStructuredConfigWithDefaultValues(authOperatorSpec operatorv1.OperatorSp
 
 // merged config is then encoded into oAuthAPIServerConfig struct
 func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
-	unstructuredCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw, oauthapiconfigobserver.OAuthAPIServerConfigPrefix)
+	unstructuredCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw, configobservation.OAuthAPIServerConfigPrefix)
 	if err != nil {
 		return nil, err
 	}
 
-	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw, oauthapiconfigobserver.OAuthAPIServerConfigPrefix)
+	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw, configobservation.OAuthAPIServerConfigPrefix)
 	if err != nil {
 		return nil, err
 	}

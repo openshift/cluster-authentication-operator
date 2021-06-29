@@ -71,7 +71,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
-	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
+	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/revisionclient"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 )

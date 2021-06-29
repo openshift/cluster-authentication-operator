@@ -17,11 +17,12 @@ var _ libgoetcd.ConfigMapLister = Listers{}
 var _ libgoetcd.EndpointsLister = Listers{}
 
 type Listers struct {
-	APIServerLister_ configlistersv1.APIServerLister
-	ConfigMapLister_ corelistersv1.ConfigMapLister
-	EndpointsLister_ corelistersv1.EndpointsLister
-	OAuthLister_     configlistersv1.OAuthLister
-	SecretLister_    corelistersv1.SecretLister
+	APIServerLister_  configlistersv1.APIServerLister
+	AuthConfigLister_ configlistersv1.AuthenticationLister
+	ConfigMapLister_  corelistersv1.ConfigMapLister
+	EndpointsLister_  corelistersv1.EndpointsLister
+	OAuthLister_      configlistersv1.OAuthLister
+	SecretLister_     corelistersv1.SecretLister
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced []cache.InformerSynced
@@ -54,4 +55,8 @@ func (l Listers) OAuthLister() configlistersv1.OAuthLister {
 
 func (l Listers) SecretLister() corelistersv1.SecretLister {
 	return l.SecretLister_
+}
+
+func (l Listers) AuthConfigLister() configlistersv1.AuthenticationLister {
+	return l.AuthConfigLister_
 }
