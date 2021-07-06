@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "457924646ced04a7c8a59f989420d9e9663e0518d6099a65826a82deae1e70f4"
+    operator.openshift.io/spec-hash: "4c2e7a106e6b17f78ddae41a238c4f6eb12e2b29eb4824b33af825de9e345c2a"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -47,14 +47,14 @@ spec:
                 --audit-log-format=json \
                 --audit-log-maxsize=100 \
                 --audit-log-maxbackup=10 \
+                --audit-policy-file=/var/run/configmaps/audit/policy.yaml \
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
                 --shutdown-delay-duration=10s \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
-                --audit-policy-file=/var/run/configmaps/audit/default.yaml \
-              --v=2
+                --v=2
           command:
             - /bin/bash
             - "-ec"

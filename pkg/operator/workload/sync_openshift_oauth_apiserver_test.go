@@ -143,59 +143,6 @@ var emptyAPIServerArgsJSON = `
 }
 `
 
-var withDefaultsProvidedAPIServerArgsJSON = `
-{
-  "oauthAPIServer": {
-    "apiServerArguments": {
-      "api-audiences": "https://now.something.different",
-      "audit-policy-file": "/var/run/configmaps/audit/writerequestbodies.yaml"
-    }
-  }
-}
-`
-
-func TestGetStructuredConfigWithDefaultValue(t *testing.T) {
-	scenarios := []struct {
-		name                       string
-		spec                       operatorv1.OperatorSpec
-		expectedAPIServerArguments map[string][]string
-	}{
-		{
-			name: "default values are assigned when not provided",
-			spec: operatorv1.OperatorSpec{
-				ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
-			},
-			expectedAPIServerArguments: map[string][]string{
-				"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
-			},
-		},
-
-		{
-			name: "default values are NOT assigned when provided",
-			spec: operatorv1.OperatorSpec{
-				ObservedConfig: runtime.RawExtension{Raw: []byte(withDefaultsProvidedAPIServerArgsJSON)},
-			},
-			expectedAPIServerArguments: map[string][]string{
-				"api-audiences":     {"https://now.something.different"},
-				"audit-policy-file": {"/var/run/configmaps/audit/writerequestbodies.yaml"},
-			},
-		},
-	}
-
-	for _, scenario := range scenarios {
-		t.Run(scenario.name, func(t *testing.T) {
-			serverConfig, err := getStructuredConfigWithDefaultValues(scenario.spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if !equality.Semantic.DeepEqual(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments) {
-				t.Errorf("mismatch: %s", diff.ObjectDiff(scenario.expectedAPIServerArguments, serverConfig.APIServerArguments))
-			}
-		})
-	}
-}
-
 var withETCDServerListJSON = `
 {
   "oauthAPIServer": {
