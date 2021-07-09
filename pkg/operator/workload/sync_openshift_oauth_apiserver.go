@@ -136,7 +136,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 		return nil, err
 	}
 
-	operatorCfg, err := getStructuredConfigWithDefaultValues(authOperator.Spec.OperatorSpec)
+	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 
 	// use the following routine for things that would require special formatting/padding (yaml)
 	r = strings.NewReplacer(
-		"${FLAGS}", strings.Join(operandFlags, " \\\n"),
+		"${FLAGS}", strings.Join(operandFlags, " \\\n  "),
 	)
 	for containerIndex, container := range required.Spec.Template.Spec.Containers {
 		for argIndex, arg := range container.Args {
@@ -226,25 +226,6 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 // note that this struct is unsupported in a sense that it's not exposed through API
 type oAuthAPIServerConfig struct {
 	APIServerArguments map[string][]string `json:"apiServerArguments"`
-}
-
-func getStructuredConfigWithDefaultValues(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
-	operatorCfg, err := getStructuredConfig(authOperatorSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	defaultAPIServerArguments := map[string][]string{
-		"audit-policy-file": {"/var/run/configmaps/audit/default.yaml"},
-	}
-
-	for defArgName, defArgValue := range defaultAPIServerArguments {
-		if _, ok := operatorCfg.APIServerArguments[defArgName]; !ok {
-			operatorCfg.APIServerArguments[defArgName] = defArgValue
-		}
-	}
-
-	return operatorCfg, nil
 }
 
 // merged config is then encoded into oAuthAPIServerConfig struct

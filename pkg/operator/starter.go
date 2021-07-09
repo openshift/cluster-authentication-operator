@@ -531,7 +531,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			"oauth-apiserver/sa.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
-			"audit-policies-cm.yaml",
 		},
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
@@ -579,6 +578,13 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeInformersForNamespaces,
+	).WithAuditPolicyController(
+		"openshift-oauth-apiserver",
+		"audit",
+		operatorCtx.operatorConfigInformer.Config().V1().APIServers().Lister(),
+		operatorCtx.operatorConfigInformer,
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		operatorCtx.kubeClient,
 	).
 		WithoutClusterOperatorStatusController().
 		WithoutLogLevelController().
@@ -589,17 +595,11 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		return err
 	}
 
-	auditPolicyPathGetter, err := libgoassets.NewAuditPolicyPathGetter("/var/run/configmaps/audit")
-	if err != nil {
-		return err
-	}
-
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
 		operatorCtx.operatorClient,
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
-		auditPolicyPathGetter,
 		controllerContext.EventRecorder,
 	)
 
