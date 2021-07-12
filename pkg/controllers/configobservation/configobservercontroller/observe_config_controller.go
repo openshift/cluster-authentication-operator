@@ -38,6 +38,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().Consoles().Informer().HasSynced,
 		configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 		configInformer.Config().V1().OAuths().Informer().HasSynced,
+		configInformer.Config().V1().Ingresses().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -46,6 +47,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().Consoles().Informer(),
 		configInformer.Config().V1().Infrastructures().Informer(),
 		configInformer.Config().V1().OAuths().Informer(),
+		configInformer.Config().V1().Ingresses().Informer(),
 	}
 
 	for _, ns := range interestingNamespaces {
@@ -82,6 +84,7 @@ func NewConfigObserver(
 		configobservation.Listers{
 			ConfigMapLister: kubeInformersForNamespaces.ConfigMapLister(),
 			SecretsLister:   kubeInformersForNamespaces.SecretLister(),
+			IngressLister:   configInformer.Config().V1().Ingresses().Lister(),
 
 			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
 			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),

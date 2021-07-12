@@ -13,18 +13,17 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
-	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 const (
@@ -33,14 +32,15 @@ const (
 
 // routerCertsDomainValidationController validates that router certs match the ingress domain
 type routerCertsDomainValidationController struct {
-	operatorClient  v1helpers.OperatorClient
-	secretsClient   corev1clients.SecretsGetter
-	ingressLister   configv1listers.IngressLister
-	secretLister    corev1listers.SecretLister
-	configMapLister corev1listers.ConfigMapLister
-	targetNamespace string
-	secretName      string
-	routeName       string
+	operatorClient    v1helpers.OperatorClient
+	secretsClient     corev1clients.SecretsGetter
+	ingressLister     configv1listers.IngressLister
+	secretLister      corev1listers.SecretLister
+	configMapLister   corev1listers.ConfigMapLister
+	secretNamespace   string
+	defaultSecretName string
+	customSecretName  string
+	routeName         string
 
 	systemCertPool func() (*x509.CertPool, error) // enables unit testing
 }
@@ -53,20 +53,22 @@ func NewRouterCertsDomainValidationController(
 	targetNSsecretInformer corev1informers.SecretInformer,
 	machineConfigNSSecretInformer corev1informers.SecretInformer,
 	configMapInformer corev1informers.ConfigMapInformer,
-	targetNamespace string,
-	secretName string,
+	secretNamespace string,
+	defaultSecretName string,
+	customSecretName string,
 	routeName string,
 ) factory.Controller {
 	controller := &routerCertsDomainValidationController{
-		operatorClient:  operatorClient,
-		secretsClient:   secretsClient,
-		ingressLister:   ingressInformer.Lister(),
-		secretLister:    targetNSsecretInformer.Lister(),
-		configMapLister: configMapInformer.Lister(),
-		targetNamespace: targetNamespace,
-		secretName:      secretName,
-		routeName:       routeName,
-		systemCertPool:  x509.SystemCertPool,
+		operatorClient:    operatorClient,
+		secretsClient:     secretsClient,
+		ingressLister:     ingressInformer.Lister(),
+		secretLister:      targetNSsecretInformer.Lister(),
+		configMapLister:   configMapInformer.Lister(),
+		secretNamespace:   secretNamespace,
+		defaultSecretName: defaultSecretName,
+		customSecretName:  customSecretName,
+		routeName:         routeName,
+		systemCertPool:    x509.SystemCertPool,
 	}
 
 	return factory.New().
@@ -120,11 +122,17 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 		return err
 	}
 
-	condition = c.validateRouterCertificates(ingress)
+	condition = c.validateRouterCertificates()
 	return nil
 }
 
-func (c *routerCertsDomainValidationController) validateRouterCertificates(ingress *configv1.Ingress) operatorv1.OperatorCondition {
+func (c *routerCertsDomainValidationController) validateRouterCertificates() operatorv1.OperatorCondition {
+	// get ingress
+	ingress, err := c.ingressLister.Get("cluster")
+	if err != nil {
+		return newRouterCertsDegradedf("NoIngressConfig", "ingresses.config.openshift.io/cluster could not be retrieved: %v", err)
+	}
+
 	// get ingress domain
 	ingressDomain := ingress.Spec.Domain
 	if len(ingressDomain) == 0 {
@@ -132,21 +140,30 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates(ingre
 	}
 
 	// get router certs secret
-	secret, err := c.secretLister.Secrets(c.targetNamespace).Get(c.secretName)
+	secret, err := common.GetActiveRouterSecret(c.secretLister, c.secretNamespace, c.defaultSecretName, c.customSecretName)
 	if err != nil {
-		return newRouterCertsDegradedf("NoRouterCertSecret", "secret/%v -n %v: could not be retrieved: %v", c.secretName, c.targetNamespace, err)
+		return newRouterCertsDegradedf("NoRouterCertSecret", "neither the custom secret/%v -n %v or default secret/%v -n %v could be retrieved: %v", c.defaultSecretName, c.secretNamespace, c.customSecretName, c.secretNamespace, err)
+	}
+
+	// Perform a no-op if non-default secret is in use
+	if secret.GetName() != "v4-0-config-system-router-certs" {
+		return operatorv1.OperatorCondition{
+			Type:   conditionRouterCertsDegradedType,
+			Status: operatorv1.ConditionFalse,
+			Reason: "AsExpected",
+		}
 	}
 
 	// cert data should exist
 	data := secret.Data[ingressDomain]
 	if len(data) == 0 {
-		return newRouterCertsDegradedf("MissingRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: not found", c.secretName, ingressDomain, c.targetNamespace)
+		return newRouterCertsDegradedf("MissingRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: not found", c.defaultSecretName, ingressDomain, c.secretNamespace)
 	}
 
 	// certificates should be parse-able
 	certificates, err := crypto.CertsFromPEM(data)
 	if err != nil {
-		return newRouterCertsDegradedf("MalformedRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: certificates could not be parsed: %v", c.secretName, ingressDomain, c.targetNamespace, err)
+		return newRouterCertsDegradedf("MalformedRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: certificates could not be parsed: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, err)
 	}
 
 	// get default router CA cert cm
@@ -182,12 +199,12 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates(ingre
 
 	serverCerts := populateVerifyOptionsFromCertSlice(&verifyOptions, certificates)
 	if len(serverCerts) == 0 {
-		return newRouterCertsDegradedf("NoServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: no server certificates found", c.secretName, ingressDomain, c.targetNamespace)
+		return newRouterCertsDegradedf("NoServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: no server certificates found", c.defaultSecretName, ingressDomain, c.secretNamespace)
 	}
 
 	// verify certificate chain
 	if err := verifyWithAnyCertificate(serverCerts, verifyOptions); err != nil {
-		return newRouterCertsDegradedf("InvalidServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: certificate could not validate route hostname %v: %v", c.secretName, ingressDomain, c.targetNamespace, verifyOptions.DNSName, err)
+		return newRouterCertsDegradedf("InvalidServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: certificate could not validate route hostname %v: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, verifyOptions.DNSName, err)
 	}
 
 	// we made it this far without a problem

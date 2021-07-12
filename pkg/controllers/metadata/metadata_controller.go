@@ -7,10 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -18,26 +15,23 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
-	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-	"github.com/openshift/library-go/pkg/route/routeapihelpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 // knownConditionNames lists all condition types used by this controller.
 // These conditions are operated and defaulted by this controller.
 // Any new condition used by this controller sync() loop should be listed here.
 var knownConditionNames = sets.NewString(
-	"RouteDegraded",
 	"IngressConfigDegraded",
 	"AuthConfigDegraded",
 	"OAuthSystemMetadataDegraded",
@@ -78,16 +72,7 @@ func NewMetadataController(kubeInformersForTargetNamespace informers.SharedInfor
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	foundConditions := []operatorv1.OperatorCondition{}
 
-	ingress, ingressConditions := common.GetIngressConfig(c.ingressLister, "IngressConfig")
-	foundConditions = append(foundConditions, ingressConditions...)
-
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, c.handleRoute(ctx, ingress)...)
-	}
-
-	if len(foundConditions) == 0 {
-		foundConditions = append(foundConditions, c.handleOAuthMetadataConfigMap(ctx, syncCtx.Recorder())...)
-	}
+	foundConditions = append(foundConditions, c.handleOAuthMetadataConfigMap(ctx, syncCtx.Recorder())...)
 
 	if len(foundConditions) == 0 {
 		foundConditions = append(foundConditions, c.handleAuthConfig(ctx)...)
@@ -123,64 +108,6 @@ func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, r
 			Message: fmt.Sprintf("The ingress config domain cannot be empty"),
 		}}
 	}
-	return nil
-}
-
-func (c *metadataController) handleRoute(ctx context.Context, ingress *configv1.Ingress) []operatorv1.OperatorCondition {
-	expectedRoute := getOauthRoute(ingress)
-
-	route, err := c.route.Get(ctx, "oauth-openshift", metav1.GetOptions{})
-	if errors.IsNotFound(err) {
-		route, err = c.route.Create(ctx, expectedRoute, metav1.CreateOptions{})
-	}
-	if err != nil {
-		return []operatorv1.OperatorCondition{{
-			Type:    "RouteDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "FailedCreate",
-			Message: fmt.Sprintf("Unable to get or create required route %s/%s: %v", expectedRoute.Namespace, expectedRoute.Name, err),
-		}}
-	}
-
-	// assume it is unsafe to mutate route in case we go to a shared informer in the future
-	existingCopy := route.DeepCopy()
-	modified := resourcemerge.BoolPtr(false)
-	resourcemerge.EnsureObjectMeta(modified, &existingCopy.ObjectMeta, expectedRoute.ObjectMeta)
-
-	// this guarantees that route.Spec.Host is set to the current canonical host
-	if *modified || !equality.Semantic.DeepEqual(existingCopy.Spec, expectedRoute.Spec) {
-		// be careful not to print route.spec as it many contain secrets
-		existingCopy.Spec = expectedRoute.Spec
-		route, err = c.route.Update(ctx, existingCopy, metav1.UpdateOptions{})
-		if err != nil {
-			return []operatorv1.OperatorCondition{{
-				Type:    "RouteDegraded",
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "FailedUpdate",
-				Message: fmt.Sprintf("Unable to update route %s/%s: %v", expectedRoute.Namespace, expectedRoute.Name, err),
-			}}
-		}
-	}
-
-	if _, _, err := routeapihelpers.IngressURI(route, expectedRoute.Spec.Host); err != nil {
-		// be careful not to print route.spec as it many contain secrets
-		return []operatorv1.OperatorCondition{{
-			Type:    "RouteDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "InvalidCanonicalHost",
-			Message: err.Error(),
-		}}
-	}
-
-	if _, err := c.secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-router-certs"); err != nil {
-		return []operatorv1.OperatorCondition{{
-			Type:    "RouteDegraded",
-			Status:  operatorv1.ConditionTrue,
-			Reason:  "SystemRouterCertsNotFound",
-			Message: fmt.Sprintf("Unable to get %q: %v", "v4-0-config-system-router-certs", err),
-		}}
-	}
-
 	return nil
 }
 
@@ -224,41 +151,6 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 		}}
 	}
 	return nil
-}
-
-func getOauthRoute(ingressConfig *configv1.Ingress) *routev1.Route {
-	// emulates server-side defaulting as in https://github.com/openshift/openshift-apiserver/blob/master/pkg/route/apis/route/configv1listers/defaults.go
-	// TODO: replace with server-side apply
-	var weightVal int32 = 100
-
-	return &routev1.Route{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "oauth-openshift",
-			Namespace: "openshift-authentication",
-			Labels: map[string]string{
-				"app": "oauth-openshift",
-			},
-			Annotations:     map[string]string{},
-			OwnerReferences: nil, // TODO
-		},
-		Spec: routev1.RouteSpec{
-			Host:      "oauth-openshift." + ingressConfig.Spec.Domain, // mimic the behavior of subdomain
-			Subdomain: "",                                             // TODO once subdomain is functional, remove reliance on ingress config and just set subdomain=targetName
-			To: routev1.RouteTargetReference{
-				Kind:   "Service",
-				Name:   "oauth-openshift",
-				Weight: &weightVal,
-			},
-			Port: &routev1.RoutePort{
-				TargetPort: intstr.FromInt(6443),
-			},
-			TLS: &routev1.TLSConfig{
-				Termination:                   routev1.TLSTerminationPassthrough,
-				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
-			},
-			WildcardPolicy: routev1.WildcardPolicyNone, // emulates server-side defaulting, see the link above
-		},
-	}
 }
 
 func getOAuthMetadata(host string) string {

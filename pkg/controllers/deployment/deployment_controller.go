@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -197,6 +198,22 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	expectedDeployment, err := getOAuthServerDeployment(operatorConfig, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
 		return nil, false, append(errs, err)
+	}
+
+	if _, err := c.secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-custom-router-certs"); err == nil {
+		expectedDeployment.Spec.Template.Spec.Volumes = append(expectedDeployment.Spec.Template.Spec.Volumes, corev1.Volume{
+			Name: "v4-0-config-system-custom-router-certs",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: "v4-0-config-system-custom-router-certs",
+				},
+			},
+		})
+		expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "v4-0-config-system-custom-router-certs",
+			ReadOnly:  true,
+			MountPath: "/var/config/system/secrets/v4-0-config-system-custom-router-certs",
+		})
 	}
 
 	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")

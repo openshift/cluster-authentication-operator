@@ -22,6 +22,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/libs/endpointaccessible"
 )
 
@@ -188,11 +189,15 @@ func getOAuthRouteTLSConfig(cmLister corev1listers.ConfigMapLister, secretLister
 		return nil, fmt.Errorf("ingress config domain cannot be empty")
 	}
 
-	routerSecret, err := secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-router-certs")
+	certBytes, _, _, err := common.GetActiveRouterCertKeyBytes(secretLister, ingress, "openshift-authentication", "v4-0-config-system-router-certs", "v4-0-config-system-custom-router-certs")
 	if err != nil {
 		return nil, err
 	}
+	if len(certBytes) == 0 {
+		klog.V(5).Infof("unable to find router certs")
+		return nil, nil
 
+	}
 	defaultRouterCAPEM, ok := defaultIngressCertCM.Data["ca-bundle.crt"]
 	if !ok {
 		return nil, fmt.Errorf("the openshift-config-managed/default-ingress-cert CM does not contain the \"ca-bundle.crt\" key")
@@ -204,15 +209,8 @@ func getOAuthRouteTLSConfig(cmLister corev1listers.ConfigMapLister, secretLister
 		return nil, nil
 	}
 
-	// find the domain that matches our route
-	routerCertKey, ok := routerSecret.Data[ingress.Spec.Domain]
-	if !ok {
-		klog.V(5).Infof("unable to find router certs for domain %s", ingress.Spec.Domain)
-		return nil, nil
-	}
-
-	if ok := rootCAs.AppendCertsFromPEM(routerCertKey); !ok {
-		klog.V(5).Infof("the router certs bundle did not contain any PEM certificates for domain %s", ingress.Spec.Domain)
+	if ok := rootCAs.AppendCertsFromPEM(certBytes); !ok {
+		klog.V(5).Infof("the router certs bundle did not contain any PEM certificates")
 		return nil, nil
 	}
 

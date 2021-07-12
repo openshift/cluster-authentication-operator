@@ -58,6 +58,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
+	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
@@ -307,6 +308,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"oauth-openshift",
+		"v4-0-config-system-custom-router-certs",
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
@@ -426,6 +428,21 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.operatorClient,
 	)
 
+	customRouteController := componentroutesecretsync.NewCustomRouteController(
+		componentroutesecretsync.OAuthComponentRouteNamespace,
+		componentroutesecretsync.OAuthComponentRouteName,
+		"openshift-authentication",
+		"v4-0-config-system-custom-router-certs",
+		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		operatorCtx.configClient.ConfigV1().Ingresses(),
+		routeInformersNamespaced.Route().V1().Routes(),
+		routeClient.RouteV1().Routes("openshift-authentication"),
+		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.operatorClient,
+		controllerContext.EventRecorder,
+		operatorCtx.resourceSyncController,
+	)
+
 	// TODO remove this controller once we support Removed
 	managementStateController := management.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
@@ -454,6 +471,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		authServiceEndpointCheckController.Run,
 		workersAvailableController.Run,
 		proxyConfigController.Run,
+		customRouteController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)

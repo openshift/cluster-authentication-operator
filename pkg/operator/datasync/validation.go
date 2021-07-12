@@ -15,7 +15,7 @@ import (
 
 var validators = map[string]func(data []byte) []error{
 	corev1.TLSCertKey:       validateClientCert,
-	corev1.TLSPrivateKeyKey: validatePrivateKey,
+	corev1.TLSPrivateKeyKey: ValidatePrivateKey,
 
 	corev1.ServiceAccountRootCAKey: validateCACerts,
 	configv1.ClientSecretKey:       noValidation,
@@ -78,7 +78,20 @@ func validateClientCert(pem []byte) []error {
 	return errs
 }
 
-func validatePrivateKey(pemKey []byte) []error {
+func ValidateServerCert(pem []byte) []error {
+	errs := []error{}
+
+	certs, certErrs := parseCerts(pem)
+	errs = append(errs, certErrs...)
+
+	if numCerts := len(certs); numCerts == 0 {
+		return append(errs, fmt.Errorf("expected at least one server certificate"))
+	}
+
+	return errs
+}
+
+func ValidatePrivateKey(pemKey []byte) []error {
 	if len(pemKey) == 0 {
 		return []error{fmt.Errorf("required private key is empty")}
 	}
