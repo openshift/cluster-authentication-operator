@@ -37,7 +37,6 @@ import (
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
-	libgoassets "github.com/openshift/library-go/pkg/operator/apiserver/audit"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -47,6 +46,7 @@ import (
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
+	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
@@ -444,7 +444,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	// TODO remove this controller once we support Removed
-	managementStateController := management.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
+	managementStateController := managementstatecontroller.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
 
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
@@ -541,7 +541,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
-		libgoassets.WithAuditPolicies("audit", "openshift-oauth-apiserver", assets.Asset),
+		assets.Asset,
 		[]string{
 			"oauth-apiserver/ns.yaml",
 			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
