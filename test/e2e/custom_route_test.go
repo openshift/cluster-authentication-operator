@@ -52,13 +52,14 @@ func TestCustomRouterCerts(t *testing.T) {
 	privateKey, err := keyutil.MarshalPrivateKeyToPEM(server.PrivateKey)
 	require.NoError(t, err)
 
+	customServerCertPEM := pem.EncodeToMemory(&pem.Block{Type: cert.CertificateBlockType, Bytes: server.Certificate.Raw})
 	secret, err := kubeClient.CoreV1().Secrets("openshift-config").Create(
 		context.TODO(),
 		&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: strings.ReplaceAll(strings.ToLower(t.Name()), "/", " ") + "-"},
 			Type:       corev1.SecretTypeTLS,
 			Data: map[string][]byte{
-				"tls.crt": pem.EncodeToMemory(&pem.Block{Type: cert.CertificateBlockType, Bytes: server.Certificate.Raw}),
+				"tls.crt": customServerCertPEM,
 				"tls.key": privateKey,
 			},
 		}, metav1.CreateOptions{})
@@ -69,6 +70,13 @@ func TestCustomRouterCerts(t *testing.T) {
 		err = kubeClient.CoreV1().Secrets(secret.Namespace).Delete(context.TODO(), secret.Name, metav1.DeleteOptions{})
 		require.NoError(t, err)
 	}()
+
+	// check that the trust-distribution works by publishing the server certificate
+	distributedServerCert, err := kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(context.Background(), "oauth-serving-cert", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	distributedServerCertPem := distributedServerCert.Data["ca-bundle.crt"]
+	require.NotZero(t, len(distributedServerCertPem))
 
 	// set a custom hostname without a secret
 	err = getAndUpdateComponentRoute(t, configClient, &configv1.ComponentRouteSpec{
@@ -108,12 +116,33 @@ func TestCustomRouterCerts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	waitForDistributedCert(t, kubeClient, customServerCertPEM)
+
 	err = checkRouteHostname(t, routeClient, "openshift-authentication", "oauth-openshift", fooHostname)
 	require.NoError(t, err)
 
 	// Check that the route is serving
 	err = pollForCustomServingCertificates(t, "https://"+fooHostname, server.Certificate)
 	require.NoError(t, err)
+}
+
+func waitForDistributedCert(t *testing.T, kubeClient kubernetes.Interface, expectedCertPem []byte) {
+	var currentCert string
+	err := wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {
+		// check that the trust-distribution works by publishing the server certificate
+		distributedServerCert, err := kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(context.Background(), "oauth-serving-cert", metav1.GetOptions{})
+		require.NoError(t, err)
+
+		if err != nil {
+			t.Logf("failed to retrieve the server cert for distributed trust: %v", err)
+			return false, nil
+		}
+
+		currentCert = distributedServerCert.Data["ca-bundle.crt"]
+		return strings.TrimSpace(currentCert) == strings.TrimSpace(string(expectedCertPem)), nil
+	})
+
+	require.NoError(t, err, "failed to wait for the distributed cert, current certificate is %s\n != %s", currentCert, expectedCertPem)
 }
 
 func pollForCustomServingCertificates(t *testing.T, hostname string, certificate *x509.Certificate) error {
@@ -135,7 +164,7 @@ func pollForCustomServingCertificates(t *testing.T, hostname string, certificate
 
 	reqCtx, cancel := context.WithTimeout(context.TODO(), 10*time.Second) // avoid waiting forever
 	defer cancel()
-	req.WithContext(reqCtx)
+	req = req.WithContext(reqCtx)
 
 	return wait.PollImmediate(time.Minute, 10*time.Minute, func() (bool, error) {
 		resp, err := httpClient.Do(req)
