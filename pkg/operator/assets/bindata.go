@@ -16,6 +16,8 @@
 // bindata/oauth-openshift/oauth-service.yaml
 // bindata/oauth-openshift/route.yaml
 // bindata/oauth-openshift/serviceaccount.yaml
+// bindata/oauth-openshift/trust_distribution_role.yaml
+// bindata/oauth-openshift/trust_distribution_rolebinding.yaml
 package assets
 
 import (
@@ -843,6 +845,69 @@ func oauthOpenshiftServiceaccountYaml() (*asset, error) {
 	return a, nil
 }
 
+var _oauthOpenshiftTrust_distribution_roleYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: system:openshift:oauth-servercert-trust
+  namespace: openshift-config-managed
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - oauth-serving-cert
+  verbs:
+  - get
+  - list
+  - watch
+`)
+
+func oauthOpenshiftTrust_distribution_roleYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftTrust_distribution_roleYaml, nil
+}
+
+func oauthOpenshiftTrust_distribution_roleYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftTrust_distribution_roleYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/trust_distribution_role.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthOpenshiftTrust_distribution_rolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: system:openshift:oauth-servercert-trust
+  namespace: openshift-config-managed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: system:openshift:oauth-servercert-trust
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+`)
+
+func oauthOpenshiftTrust_distribution_rolebindingYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftTrust_distribution_rolebindingYaml, nil
+}
+
+func oauthOpenshiftTrust_distribution_rolebindingYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftTrust_distribution_rolebindingYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/trust_distribution_rolebinding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 // Asset loads and returns the asset for the given name.
 // It returns an error if the asset could not be found or
 // could not be loaded.
@@ -911,6 +976,8 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-openshift/oauth-service.yaml":                          oauthOpenshiftOauthServiceYaml,
 	"oauth-openshift/route.yaml":                                  oauthOpenshiftRouteYaml,
 	"oauth-openshift/serviceaccount.yaml":                         oauthOpenshiftServiceaccountYaml,
+	"oauth-openshift/trust_distribution_role.yaml":                oauthOpenshiftTrust_distribution_roleYaml,
+	"oauth-openshift/trust_distribution_rolebinding.yaml":         oauthOpenshiftTrust_distribution_rolebindingYaml,
 }
 
 // AssetDir returns the file names below a certain
@@ -975,6 +1042,8 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"oauth-service.yaml":                     {oauthOpenshiftOauthServiceYaml, map[string]*bintree{}},
 		"route.yaml":                             {oauthOpenshiftRouteYaml, map[string]*bintree{}},
 		"serviceaccount.yaml":                    {oauthOpenshiftServiceaccountYaml, map[string]*bintree{}},
+		"trust_distribution_role.yaml":           {oauthOpenshiftTrust_distribution_roleYaml, map[string]*bintree{}},
+		"trust_distribution_rolebinding.yaml":    {oauthOpenshiftTrust_distribution_rolebindingYaml, map[string]*bintree{}},
 	}},
 }}
 
