@@ -162,11 +162,11 @@ func pollForCustomServingCertificates(t *testing.T, hostname string, certificate
 		return err
 	}
 
-	reqCtx, cancel := context.WithTimeout(context.TODO(), 10*time.Second) // avoid waiting forever
-	defer cancel()
-	req = req.WithContext(reqCtx)
+	return wait.PollImmediate(10*time.Second, 10*time.Minute, func() (bool, error) {
+		reqCtx, cancel := context.WithTimeout(context.TODO(), 10*time.Second) // avoid waiting forever
+		defer cancel()
+		req = req.WithContext(reqCtx)
 
-	return wait.PollImmediate(time.Minute, 10*time.Minute, func() (bool, error) {
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			t.Logf("failed to send a HTTP request to %s: %v", hostname, err)
