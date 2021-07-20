@@ -70,6 +70,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/trustdistribution"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
@@ -283,6 +284,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"oauth-openshift/branding-secret.yaml",
 			"oauth-openshift/serviceaccount.yaml",
 			"oauth-openshift/oauth-service.yaml",
+			"oauth-openshift/trust_distribution_role.yaml",
+			"oauth-openshift/trust_distribution_rolebinding.yaml",
 		},
 		resourceapply.NewKubeClientHolder(operatorCtx.kubeClient),
 		operatorCtx.operatorClient,
@@ -447,6 +450,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	managementStateController := managementstatecontroller.NewOperatorManagementStateController("authentication", operatorCtx.operatorClient, controllerContext.EventRecorder)
 	management.SetOperatorNotRemovable()
 
+	trustDistributionController := trustdistribution.NewTrustDistributionController(
+		operatorCtx.kubeClient.CoreV1(),
+		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		controllerContext.EventRecorder,
+	)
+
 	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
 		oauthInformers.Start,
 		routeInformersNamespaced.Start,
@@ -472,6 +482,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		workersAvailableController.Run,
 		proxyConfigController.Run,
 		customRouteController.Run,
+		trustDistributionController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)
