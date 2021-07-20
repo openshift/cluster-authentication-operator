@@ -169,7 +169,8 @@ func pollForCustomServingCertificates(t *testing.T, hostname string, certificate
 	return wait.PollImmediate(time.Minute, 10*time.Minute, func() (bool, error) {
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return false, err
+			t.Logf("failed to send a HTTP request to %s: %v", hostname, err)
+			return false, nil
 		}
 		defer resp.Body.Close()
 
