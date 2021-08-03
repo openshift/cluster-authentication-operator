@@ -254,8 +254,11 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		[]string{
 			// condition types removed in 4.8
 			"OAuthRouteCheckEndpointAccessibleControllerDegraded",
+			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
 			"OAuthServiceCheckEndpointAccessibleControllerDegraded",
+			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
 			"OAuthServiceEndpointsCheckEndpointAccessibleControllerDegraded",
+			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
 			"OAuthServerIngressConfigDegraded",
 			"OAuthServerProxyDegraded",
 			"OAuthServerRouteDegraded",
