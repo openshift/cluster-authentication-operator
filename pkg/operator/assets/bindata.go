@@ -239,6 +239,7 @@ spec:
           command: ['sh', '-c', 'chmod 0700 /var/log/oauth-apiserver && touch /var/log/oauth-apiserver/audit.log && chmod 0600 /var/log/oauth-apiserver/*']
           securityContext:
             privileged: true
+            runAsUser: 0
           resources:
             requests:
               cpu: 15m
@@ -279,6 +280,7 @@ spec:
         # we need to set this to privileged to be able to write audit to /var/log/oauth-apiserver
         securityContext:
           privileged: true
+          runAsUser: 0
         ports:
         - containerPort: 8443
         volumeMounts:
