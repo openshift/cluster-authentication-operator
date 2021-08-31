@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: oauth-apiserver-pdb
+  namespace: openshift-oauth-apiserver
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: openshift-oauth-apiserver
+      apiserver: "true"
