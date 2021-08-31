@@ -5,6 +5,7 @@
 // bindata/oauth-apiserver/apiserver-clusterrolebinding.yaml
 // bindata/oauth-apiserver/deploy.yaml
 // bindata/oauth-apiserver/ns.yaml
+// bindata/oauth-apiserver/oauth-apiserver-pdb.yaml
 // bindata/oauth-apiserver/sa.yaml
 // bindata/oauth-apiserver/svc.yaml
 // bindata/oauth-openshift/authentication-clusterrolebinding.yaml
@@ -352,6 +353,34 @@ func oauthApiserverNsYaml() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "oauth-apiserver/ns.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthApiserverOauthApiserverPdbYaml = []byte(`apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: oauth-apiserver-pdb
+  namespace: openshift-oauth-apiserver
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: openshift-oauth-apiserver
+      apiserver: "true"
+`)
+
+func oauthApiserverOauthApiserverPdbYamlBytes() ([]byte, error) {
+	return _oauthApiserverOauthApiserverPdbYaml, nil
+}
+
+func oauthApiserverOauthApiserverPdbYaml() (*asset, error) {
+	bytes, err := oauthApiserverOauthApiserverPdbYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/oauth-apiserver-pdb.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -814,6 +843,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/apiserver-clusterrolebinding.yaml":           oauthApiserverApiserverClusterrolebindingYaml,
 	"oauth-apiserver/deploy.yaml":                                 oauthApiserverDeployYaml,
 	"oauth-apiserver/ns.yaml":                                     oauthApiserverNsYaml,
+	"oauth-apiserver/oauth-apiserver-pdb.yaml":                    oauthApiserverOauthApiserverPdbYaml,
 	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
 	"oauth-apiserver/svc.yaml":                                    oauthApiserverSvcYaml,
 	"oauth-openshift/authentication-clusterrolebinding.yaml":      oauthOpenshiftAuthenticationClusterrolebindingYaml,
@@ -874,6 +904,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"apiserver-clusterrolebinding.yaml": {oauthApiserverApiserverClusterrolebindingYaml, map[string]*bintree{}},
 		"deploy.yaml":                       {oauthApiserverDeployYaml, map[string]*bintree{}},
 		"ns.yaml":                           {oauthApiserverNsYaml, map[string]*bintree{}},
+		"oauth-apiserver-pdb.yaml":          {oauthApiserverOauthApiserverPdbYaml, map[string]*bintree{}},
 		"sa.yaml":                           {oauthApiserverSaYaml, map[string]*bintree{}},
 		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
 	}},
