@@ -11,7 +11,6 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 )
 
 func ObserveRouterSecret(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, _ []error) {
@@ -68,7 +67,7 @@ func getObservedNamedCertificates(listers configobservation.Listers) ([]interfac
 	}
 
 	return []interface{}{namedCertificate(
-		common.GetCustomRouteHostname(ingress, customroute.OAuthComponentRouteNamespace, customroute.OAuthComponentRouteName),
+		common.GetCustomRouteHostname(ingress, "openshift-authentication", "oauth-openshift"),
 		"/var/config/system/secrets/v4-0-config-system-custom-router-certs/tls.crt",
 		"/var/config/system/secrets/v4-0-config-system-custom-router-certs/tls.key"),
 	}, nil
