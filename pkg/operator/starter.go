@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/openshift/library-go/pkg/operator/customroute"
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,7 +61,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
-	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
@@ -436,11 +436,15 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.operatorClient,
 	)
 
-	customRouteController := componentroutesecretsync.NewCustomRouteController(
-		componentroutesecretsync.OAuthComponentRouteNamespace,
-		componentroutesecretsync.OAuthComponentRouteName,
+	customRouteController := customroute.NewCustomRouteController(
+		"openshift-authentication",
+		"oauth-openshift",
 		"openshift-authentication",
 		"v4-0-config-system-custom-router-certs",
+		"pkg/operator/customroute/manifests/route.yaml",
+		[]configv1.ConsumingUser{
+			"system:serviceaccount:oauth-openshift:authentication-operator",
+		},
 		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
 		operatorCtx.configClient.ConfigV1().Ingresses(),
 		routeInformersNamespaced.Route().V1().Routes(),

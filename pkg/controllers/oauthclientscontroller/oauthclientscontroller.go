@@ -27,7 +27,6 @@ import (
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 )
 
 type oauthsClientsController struct {
@@ -76,7 +75,7 @@ func (c *oauthsClientsController) sync(ctx context.Context, syncCtx factory.Sync
 	}
 	ingressConfigCopy := ingress.DeepCopy()
 
-	hostname := common.GetCustomRouteHostname(ingressConfigCopy, customroute.OAuthComponentRouteNamespace, customroute.OAuthComponentRouteName)
+	hostname := common.GetCustomRouteHostname(ingressConfigCopy, "openshift-authentication", "oauth-openshift")
 	if hostname == "" {
 		hostname = "oauth-openshift." + ingress.Spec.Domain
 	}
