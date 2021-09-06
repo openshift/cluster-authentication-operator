@@ -665,7 +665,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 	)
 
-	authenticatorCertRequester := csr.NewClientCertificateController(
+	authenticatorCertRequester, err := csr.NewClientCertificateController(
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
 			SecretName:      "openshift-authenticator-certs",
@@ -685,6 +685,9 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 		"OpenShiftAuthenticatorCertRequester",
 	)
+	if err != nil {
+		return err
+	}
 
 	labelsReq, err := labels.NewRequirement("authentication.openshift.io/csr", selection.Equals, []string{"openshift-authenticator"})
 	if err != nil {
