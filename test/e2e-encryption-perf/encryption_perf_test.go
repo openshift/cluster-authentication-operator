@@ -15,9 +15,10 @@ import (
 	oauthapiv1 "github.com/openshift/api/oauth/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
+	library "github.com/openshift/library-go/test/library/encryption"
+
 	operatorlibrary "github.com/openshift/cluster-authentication-operator/test/library"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
-	library "github.com/openshift/library-go/test/library/encryption"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 )
 
 func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
+	tt.SkipNow()
 	ctx := context.TODO()
 	clientSet := getPerfClients(tt)
 	library.TestPerfEncryptionTypeAESCBC(tt, library.PerfScenario{

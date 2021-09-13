@@ -7,11 +7,13 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
-	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
+
+	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 )
 
 func TestEncryptionTypeIdentity(t *testing.T) {
+	t.SkipNow()
 	library.TestEncryptionTypeIdentity(t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
@@ -24,6 +26,7 @@ func TestEncryptionTypeIdentity(t *testing.T) {
 }
 
 func TestEncryptionTypeUnset(t *testing.T) {
+	t.SkipNow()
 	library.TestEncryptionTypeUnset(t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
@@ -36,6 +39,7 @@ func TestEncryptionTypeUnset(t *testing.T) {
 }
 
 func TestEncryptionTurnOnAndOff(t *testing.T) {
+	t.SkipNow()
 	library.TestEncryptionTurnOnAndOff(t, library.OnOffScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",

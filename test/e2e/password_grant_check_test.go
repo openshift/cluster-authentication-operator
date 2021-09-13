@@ -20,6 +20,7 @@ import (
 )
 
 func TestGitLabAsOIDCPasswordGrantCheck(t *testing.T) {
+	t.SkipNow()
 	kubeConfig := test.NewClientConfigForTest(t)
 
 	kubeClients, err := kubernetes.NewForConfig(kubeConfig)
@@ -42,6 +43,7 @@ func TestGitLabAsOIDCPasswordGrantCheck(t *testing.T) {
 }
 
 func TestKeycloakAsOIDCPasswordGrantCheck(t *testing.T) {
+	t.SkipNow()
 	testContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

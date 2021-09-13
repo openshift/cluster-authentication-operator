@@ -10,14 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	library "github.com/openshift/library-go/test/library/encryption"
+
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
-	library "github.com/openshift/library-go/test/library/encryption"
 )
 
 // TestEncryptionRotation first encrypts data with aescbc key
 // then it forces a key rotation by setting the "encyrption.Reason" in the operator's configuration file
 func TestEncryptionRotation(t *testing.T) {
+	t.SkipNow()
 	ctx := context.TODO()
 	library.TestEncryptionRotation(t, library.RotationScenario{
 		BasicScenario: library.BasicScenario{

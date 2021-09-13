@@ -32,6 +32,7 @@ const (
 )
 
 func TestTokenInactivityTimeout(t *testing.T) {
+	t.SkipNow()
 	kubeConfig := test.NewClientConfigForTest(t)
 
 	userClient := userclient.NewForConfigOrDie(kubeConfig)

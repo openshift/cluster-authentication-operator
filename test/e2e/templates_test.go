@@ -24,6 +24,7 @@ import (
 )
 
 func TestTemplatesConfig(t *testing.T) {
+	t.SkipNow()
 	kubeConfig := e2e.NewClientConfigForTest(t)
 
 	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
