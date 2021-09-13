@@ -6,6 +6,14 @@ import (
 	"net/url"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/util/retry"
+	"k8s.io/klog/v2"
+
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configsetterv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
@@ -14,19 +22,11 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/util/retry"
 
 	"github.com/openshift/library-go/pkg/certs"
 	"github.com/openshift/library-go/pkg/controller/factory"
-	assets "github.com/openshift/library-go/pkg/operator/customroute/bindata"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routecomponenthelpers"
@@ -51,7 +51,7 @@ func NewCustomRouteController(
 	componentRouteName string,
 	destSecretNamespace string,
 	destSecretName string,
-	targetRouteAssetFile string,
+	targetRoute *routev1.Route,
 	consumingUsers []configv1.ConsumingUser,
 	ingressInformer configinformers.IngressInformer,
 	ingressClient configsetterv1.IngressInterface,
@@ -71,7 +71,7 @@ func NewCustomRouteController(
 			Namespace: componentRouteNamespace,
 			Name:      componentRouteName,
 		},
-		targetRoute:    resourceread.ReadRouteV1OrDie(assets.MustAsset(targetRouteAssetFile)),
+		targetRoute:    targetRoute.DeepCopy(),
 		consumingUsers: consumingUsers,
 		ingressLister:  ingressInformer.Lister(),
 		ingressClient:  ingressClient,
@@ -103,25 +103,28 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 
 	ingressConfigCopy := ingressConfig.DeepCopy()
 
-	errors := c.syncResources(ctx, syncCtx, ingressConfigCopy)
-	return c.updateIngressConfigStatus(ctx, ingressConfigCopy, errors)
-}
-
-func (c *customRouteController) syncResources(ctx context.Context, syncCtx factory.SyncContext, ingressConfig *configv1.Ingress) []error {
-	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfig)
+	// configure the expected route
+	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfigCopy)
 	if errors != nil {
-		return errors
+		// log if there is an issue updating the ingressConfig resource
+		if updateIngressConfigErr := c.updateIngressConfigStatus(ctx, ingressConfigCopy, errors); updateIngressConfigErr != nil {
+			klog.Infof("Error updating ingress with custom route status: %v", err)
+		}
+		return fmt.Errorf("custom route configuration failed verification: %v", errors)
 	}
 
-	if _, _, err := resourceapply.ApplyRoute(ctx, c.routeClient, syncCtx.Recorder(), expectedRoute); err != nil {
-		return []error{err}
+	// create or modify the existing route
+	if _, _, err = resourceapply.ApplyRoute(ctx, c.routeClient, syncCtx.Recorder(), expectedRoute); err != nil {
+		return err
 	}
 
-	if err := c.syncSecret(secretName); err != nil {
-		return []error{err}
+	// update ingressConfig status
+	if err = c.updateIngressConfigStatus(ctx, ingressConfigCopy, nil); err != nil {
+		return err
 	}
 
-	return []error{}
+	// sync the secret
+	return c.syncSecret(secretName)
 }
 
 func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *configv1.Ingress) (*routev1.Route, string, []error) {
@@ -132,21 +135,21 @@ func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *config
 
 	// check if a user is overriding route defaults
 	if componentRoute := routecomponenthelpers.GetComponentRouteSpec(ingressConfig, route.ObjectMeta.Namespace, route.ObjectMeta.Name); componentRoute != nil {
-		var errs []error
+		var errors []error
 		// Check if the provided secret is valid
 		secretName = componentRoute.ServingCertKeyPairSecret.Name
 		if err := c.validateCustomTLSSecret(secretName); err != nil {
-			errs = append(errs, err)
+			errors = append(errors, err)
 		}
 
 		// Check if the provided hostname is valid
 		hostname := string(componentRoute.Hostname)
 		if _, err := url.Parse(hostname); err != nil {
-			errs = append(errs, err)
+			errors = append(errors, err)
 		}
 
-		if errs != nil {
-			return nil, "", errs
+		if errors != nil {
+			return nil, "", errors
 		}
 
 		route.Spec.Host = hostname
@@ -156,7 +159,7 @@ func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *config
 }
 
 func (c *customRouteController) validateCustomTLSSecret(secretName string) error {
-	if len(secretName) == 0 {
+	if secretName != "" {
 		secret, err := c.secretLister.Secrets("openshift-config").Get(secretName)
 		if err != nil {
 			return err
@@ -167,14 +170,14 @@ func (c *customRouteController) validateCustomTLSSecret(secretName string) error
 		if !ok {
 			errors = append(errors, fmt.Errorf("custom route secret must include key %s", corev1.TLSPrivateKeyKey))
 		} else {
-			errors = append(errors, certs.ValidatePrivateKeyFormat(privateKeyData)...)
+			errors = append(errors, certs.ValidatePrivateKey(privateKeyData)...)
 		}
 
 		certData, ok := secret.Data[corev1.TLSCertKey]
 		if !ok {
 			errors = append(errors, fmt.Errorf("custom route secret must include key %s", corev1.TLSCertKey))
 		} else {
-			errors = append(errors, certs.ValidateServerCertValidity(certData)...)
+			errors = append(errors, certs.ValidateServerCert(certData)...)
 		}
 
 		if len(errors) != 0 {
@@ -185,6 +188,8 @@ func (c *customRouteController) validateCustomTLSSecret(secretName string) error
 }
 
 func (c *customRouteController) updateIngressConfigStatus(ctx context.Context, ingressConfig *configv1.Ingress, customRouteErrors []error) error {
+	// update ingressConfig status
+	// TODO: consider using c.targetRoute. Nevertheless the downside is that we might have a stale reference?
 	route, err := c.routeLister.Routes(c.targetRoute.ObjectMeta.Namespace).Get(c.targetRoute.ObjectMeta.Name)
 	if err != nil {
 		return err

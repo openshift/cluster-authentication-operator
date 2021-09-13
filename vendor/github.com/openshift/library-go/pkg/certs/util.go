@@ -72,26 +72,35 @@ func CertificateBundleToString(bundle []*x509.Certificate) string {
 	return strings.Join(output, "\n")
 }
 
-// ValidatePrivateKeyFormat validates if a private key (in PEM format) is well formatted and its content is valid.
-func ValidatePrivateKeyFormat(pemKey []byte) []error {
+func ValidatePrivateKey(pemKey []byte) []error {
 	if len(pemKey) == 0 {
 		return []error{fmt.Errorf("required private key is empty")}
 	}
 	if _, err := keyutil.ParsePrivateKeyPEM(pemKey); err != nil {
 		return []error{fmt.Errorf("failed to parse the private key, %w", err)}
 	}
+	return []error{}
+}
+
+func ValidateServerCert(pem []byte) []error {
+	certs, errs := parseCerts(pem)
+	if len(errs) != 0 {
+		return errs
+	}
+	if len(certs) == 0 {
+		return []error{fmt.Errorf("expected at least one server certificate")}
+	}
 	return nil
 }
 
-// ValidateServerCertValidity validates if a specified certificate's date valid (e.g. if it's not expired).
-func ValidateServerCertValidity(pemCerts []byte) []error {
-	var certs []*x509.Certificate
+func parseCerts(pemCerts []byte) ([]*x509.Certificate, []error) {
+	certs := []*x509.Certificate{}
 
 	if len(pemCerts) == 0 {
-		return []error{fmt.Errorf("required certificate is empty")}
+		return certs, []error{fmt.Errorf("required certificate is empty")}
 	}
 
-	var errs []error
+	errs := []error{}
 	now := time.Now()
 
 	cert, rest := pem.Decode(pemCerts)
@@ -115,8 +124,5 @@ func ValidateServerCertValidity(pemCerts []byte) []error {
 		certs = append(certs, parsed)
 	}
 
-	if len(errs) != 0 {
-		return errs
-	}
-	return nil
+	return certs, errs
 }

@@ -12,11 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-const (
-	TLS_KEY_MODIFIED_MESSAGE = "TLS_KEY_MODIFIED"
-	TLS_KEY_MASKED_MESSAGE   = "TLS_KEY_MASKED"
-)
-
 // JSONPatchNoError generates a JSON patch between original and modified objects and return the JSON as a string.
 // Note:
 //
@@ -87,15 +82,12 @@ func JSONPatchRouteNoError(original, modified *routev1.Route) string {
 	safeModified := modified.DeepCopy()
 	safeOriginal := original.DeepCopy()
 
-	if safeOriginal.Spec.TLS != nil {
-		if safeModified.Spec.TLS != nil {
-			if safeOriginal.Spec.TLS.Key != safeModified.Spec.TLS.Key {
-				safeModified.Spec.TLS.Key = TLS_KEY_MODIFIED_MESSAGE
-			} else {
-				safeModified.Spec.TLS.Key = TLS_KEY_MASKED_MESSAGE
-			}
-		}
-		safeOriginal.Spec.TLS.Key = TLS_KEY_MASKED_MESSAGE
+	if safeOriginal.Spec.TLS.Key != "" {
+		safeOriginal.Spec.TLS.Key = "MASKED"
+	}
+
+	if safeModified.Spec.TLS.Key != "" {
+		safeModified.Spec.TLS.Key = "MASKED"
 	}
 
 	return JSONPatchNoError(safeOriginal, safeModified)
