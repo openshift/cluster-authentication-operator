@@ -152,7 +152,6 @@ func routeAvailablity(secretLister corev1listers.SecretLister, host string, ingr
 		},
 	}
 
-	// Make a request to the endpoint, expect a 403
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err

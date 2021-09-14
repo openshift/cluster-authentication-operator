@@ -25,8 +25,10 @@ import (
 
 	"github.com/openshift/library-go/pkg/certs"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	assets "github.com/openshift/library-go/pkg/operator/customroute/bindata"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routecomponenthelpers"
@@ -46,12 +48,13 @@ type customRouteController struct {
 	consumingUsers []configv1.ConsumingUser
 }
 
+
 func NewCustomRouteController(
 	componentRouteNamespace string,
 	componentRouteName string,
 	destSecretNamespace string,
 	destSecretName string,
-	targetRoute *routev1.Route,
+	targetRouteAssetFile string,
 	consumingUsers []configv1.ConsumingUser,
 	ingressInformer configinformers.IngressInformer,
 	ingressClient configsetterv1.IngressInterface,
@@ -71,7 +74,7 @@ func NewCustomRouteController(
 			Namespace: componentRouteNamespace,
 			Name:      componentRouteName,
 		},
-		targetRoute:    targetRoute.DeepCopy(),
+		targetRoute:    resourceread.ReadRouteV1OrDie(assets.MustAsset(targetRouteAssetFile)),
 		consumingUsers: consumingUsers,
 		ingressLister:  ingressInformer.Lister(),
 		ingressClient:  ingressClient,
