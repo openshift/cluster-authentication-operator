@@ -6,14 +6,6 @@ import (
 	"net/url"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/util/retry"
-	"k8s.io/klog/v2"
-
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configsetterv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
@@ -22,6 +14,12 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/openshift/library-go/pkg/certs"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -105,28 +103,25 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 
 	ingressConfigCopy := ingressConfig.DeepCopy()
 
-	// configure the expected route
-	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfigCopy)
+	errors := c.syncResources(ctx, syncCtx, ingressConfigCopy)
+	return c.updateIngressConfigStatus(ctx, ingressConfigCopy, errors)
+}
+
+func (c *customRouteController) syncResources(ctx context.Context, syncCtx factory.SyncContext, ingressConfig *configv1.Ingress) []error {
+	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfig)
 	if errors != nil {
-		// log if there is an issue updating the ingressConfig resource
-		if updateIngressConfigErr := c.updateIngressConfigStatus(ctx, ingressConfigCopy, errors); updateIngressConfigErr != nil {
-			klog.Infof("Error updating ingress with custom route status: %v", err)
-		}
-		return fmt.Errorf("custom route configuration failed verification: %v", errors)
+		return errors
 	}
 
-	// create or modify the existing route
-	if _, _, err = resourceapply.ApplyRoute(ctx, c.routeClient, syncCtx.Recorder(), expectedRoute); err != nil {
-		return err
+	if _, _, err := resourceapply.ApplyRoute(ctx, c.routeClient, syncCtx.Recorder(), expectedRoute); err != nil {
+		return []error{err}
 	}
 
-	// update ingressConfig status
-	if err = c.updateIngressConfigStatus(ctx, ingressConfigCopy, nil); err != nil {
-		return err
+	if err := c.syncSecret(secretName); err != nil {
+		return []error{err}
 	}
 
-	// sync the secret
-	return c.syncSecret(secretName)
+	return []error{}
 }
 
 func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *configv1.Ingress) (*routev1.Route, string, []error) {
