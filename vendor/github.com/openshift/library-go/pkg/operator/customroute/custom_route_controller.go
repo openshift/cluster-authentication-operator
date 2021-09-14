@@ -48,7 +48,6 @@ type customRouteController struct {
 	consumingUsers []configv1.ConsumingUser
 }
 
-
 func NewCustomRouteController(
 	componentRouteNamespace string,
 	componentRouteName string,
@@ -173,14 +172,14 @@ func (c *customRouteController) validateCustomTLSSecret(secretName string) error
 		if !ok {
 			errors = append(errors, fmt.Errorf("custom route secret must include key %s", corev1.TLSPrivateKeyKey))
 		} else {
-			errors = append(errors, certs.ValidatePrivateKey(privateKeyData)...)
+			errors = append(errors, certs.ValidatePrivateKeyFormat(privateKeyData)...)
 		}
 
 		certData, ok := secret.Data[corev1.TLSCertKey]
 		if !ok {
 			errors = append(errors, fmt.Errorf("custom route secret must include key %s", corev1.TLSCertKey))
 		} else {
-			errors = append(errors, certs.ValidateServerCert(certData)...)
+			errors = append(errors, certs.ValidateServerCertValidity(certData)...)
 		}
 
 		if len(errors) != 0 {
