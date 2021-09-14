@@ -137,21 +137,21 @@ func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *config
 
 	// check if a user is overriding route defaults
 	if componentRoute := routecomponenthelpers.GetComponentRouteSpec(ingressConfig, route.ObjectMeta.Namespace, route.ObjectMeta.Name); componentRoute != nil {
-		var errors []error
+		var errs []error
 		// Check if the provided secret is valid
 		secretName = componentRoute.ServingCertKeyPairSecret.Name
 		if err := c.validateCustomTLSSecret(secretName); err != nil {
-			errors = append(errors, err)
+			errs = append(errs, err)
 		}
 
 		// Check if the provided hostname is valid
 		hostname := string(componentRoute.Hostname)
 		if _, err := url.Parse(hostname); err != nil {
-			errors = append(errors, err)
+			errs = append(errs, err)
 		}
 
-		if errors != nil {
-			return nil, "", errors
+		if errs != nil {
+			return nil, "", errs
 		}
 
 		route.Spec.Host = hostname
@@ -161,7 +161,7 @@ func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *config
 }
 
 func (c *customRouteController) validateCustomTLSSecret(secretName string) error {
-	if secretName != "" {
+	if len(secretName) != 0 {
 		secret, err := c.secretLister.Secrets("openshift-config").Get(secretName)
 		if err != nil {
 			return err
@@ -190,8 +190,6 @@ func (c *customRouteController) validateCustomTLSSecret(secretName string) error
 }
 
 func (c *customRouteController) updateIngressConfigStatus(ctx context.Context, ingressConfig *configv1.Ingress, customRouteErrors []error) error {
-	// update ingressConfig status
-	// TODO: consider using c.targetRoute. Nevertheless the downside is that we might have a stale reference?
 	route, err := c.routeLister.Routes(c.targetRoute.ObjectMeta.Namespace).Get(c.targetRoute.ObjectMeta.Name)
 	if err != nil {
 		return err
