@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openshift/library-go/pkg/operator/customroute"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -441,7 +442,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"oauth-openshift",
 		"openshift-authentication",
 		"v4-0-config-system-custom-router-certs",
-		"pkg/operator/customroute/manifests/route.yaml",
+		resourceread.ReadRouteV1OrDie(assets.MustAsset("oauth-openshift/route.yaml")),
 		[]configv1.ConsumingUser{
 			"system:serviceaccount:oauth-openshift:authentication-operator",
 		},
