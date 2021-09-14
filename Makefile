@@ -10,6 +10,7 @@ include $(addprefix ./vendor/github.com/openshift/build-machinery-go/make/, \
 	targets/openshift/operator/telepresence.mk \
 )
 
+
 # Run core verification and all self contained tests.
 #
 # Example:
