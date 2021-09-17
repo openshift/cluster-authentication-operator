@@ -534,6 +534,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			"oauth-apiserver/sa.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 			"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+			"oauth-apiserver/oauth-apiserver-pdb.yaml",
 			libgoassets.AuditPoliciesConfigMapFileName,
 		},
 		operatorCtx.kubeInformersForNamespaces,
