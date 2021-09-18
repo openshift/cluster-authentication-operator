@@ -629,6 +629,7 @@ spec:
               protocol: TCP
           securityContext:
             readOnlyRootFilesystem: false # because of the ` + "`" + `cp` + "`" + ` in args
+            runAsUser: 0 # because /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is only writable by root
           volumeMounts:
             - name: v4-0-config-system-session
               readOnly: true
