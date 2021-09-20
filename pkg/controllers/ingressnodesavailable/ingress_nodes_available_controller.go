@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 )
@@ -51,7 +52,7 @@ func NewIngressNodesAvailableController(
 			nodeInformer.Informer(),
 		).
 		WithSync(controller.sync).
-		ResyncEvery(1*time.Minute).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("IngressNodesAvailableController", eventRecorder)
 }
 

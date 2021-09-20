@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -53,7 +54,7 @@ func NewServiceCAController(kubeInformersForTargetNamespace informers.SharedInfo
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("ServiceCAController", recorder.WithComponentSuffix("service-ca-controller"))
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("ServiceCAController", recorder.WithComponentSuffix("service-ca-controller"))
 }
 
 func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncContext) error {

@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
@@ -84,7 +85,7 @@ func NewPayloadConfigController(kubeInformersForTargetNamespace informers.Shared
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 		operatorClient.Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
 }
 
 func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -93,7 +94,7 @@ func NewCustomRouteController(
 		).
 		WithSyncDegradedOnError(operatorClient).
 		WithSync(controller.sync).
-		ResyncEvery(time.Minute).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("CustomRouteController", eventRecorder.WithComponentSuffix("custom-route-controller"))
 }
 

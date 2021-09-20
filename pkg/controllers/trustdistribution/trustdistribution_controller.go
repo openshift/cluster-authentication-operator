@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
@@ -47,6 +49,7 @@ func NewTrustDistributionController(
 			kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets().Informer(),
 		).
 		WithSync(c.sync).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("TrustDistributionController", eventsRecorder.WithComponentSuffix("trust-distribution"))
 }
 
