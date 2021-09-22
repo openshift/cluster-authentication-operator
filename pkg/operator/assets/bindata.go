@@ -385,6 +385,9 @@ metadata:
   name: openshift-oauth-apiserver
   labels:
     openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
 `)
 
 func oauthApiserverNsYamlBytes() ([]byte, error) {
