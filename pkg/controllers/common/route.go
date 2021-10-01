@@ -3,7 +3,6 @@ package common
 import (
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -33,18 +32,4 @@ func GetOAuthServerRoute(routeLister routev1lister.RouteLister, conditionPrefix 
 		}
 	}
 	return route, nil
-}
-
-func RouteHasCanonicalHost(route *routev1.Route, canonicalHost string) bool {
-	for _, ingress := range route.Status.Ingress {
-		if ingress.Host != canonicalHost {
-			continue
-		}
-		for _, condition := range ingress.Conditions {
-			if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-	}
-	return false
 }
