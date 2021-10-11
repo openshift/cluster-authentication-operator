@@ -102,6 +102,9 @@ spec:
             - name: v4-0-config-system-trusted-ca-bundle
               readOnly: true
               mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
+            - name: oauth-server-audit
+              readOnly: true
+              mountPath: /var/log/oauth-server
           readinessProbe:
             httpGet:
               path: /healthz
@@ -171,3 +174,5 @@ spec:
           configMap:
             name: v4-0-config-system-trusted-ca-bundle
             optional: true
+        - name: oauth-server-audit
+
