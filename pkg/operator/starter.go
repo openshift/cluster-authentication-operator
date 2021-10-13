@@ -231,29 +231,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		return err
 	}
 
-	clusterOperatorStatus := status.NewClusterOperatorStatusController(
-		"authentication",
-		[]configv1.ObjectReference{
-			{Group: operatorv1.GroupName, Resource: "authentications", Name: "cluster"},
-			{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
-			{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
-			{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
-			{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
-			{Resource: "services", Name: "oauth-openshift", Namespace: "openshift-authentication"},
-			{Resource: "namespaces", Name: "openshift-config"},
-			{Resource: "namespaces", Name: "openshift-config-managed"},
-			{Resource: "namespaces", Name: "openshift-authentication"},
-			{Resource: "namespaces", Name: "openshift-authentication-operator"},
-			{Resource: "namespaces", Name: "openshift-ingress"},
-			{Resource: "namespaces", Name: "openshift-oauth-apiserver"},
-		},
-		operatorCtx.configClient.ConfigV1(),
-		operatorCtx.operatorConfigInformer.Config().V1().ClusterOperators(),
-		operatorCtx.operatorClient,
-		operatorCtx.versionRecorder,
-		controllerContext.EventRecorder,
-	)
-
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
 			// condition types removed in 4.8
@@ -470,7 +447,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
-		clusterOperatorStatus.Run,
 		configObserver.Run,
 		deploymentController.Run,
 		managementStateController.Run,
@@ -539,6 +515,19 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.kubeClient,
 		operatorCtx.versionRecorder)
 
+	infra, err := operatorCtx.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil && errors.IsNotFound(err) {
+		klog.Warningf("unexpectedly no infrastructure resource found, assuming controlPlaneTopology HighlyAvailableTopologyMode: %v", err)
+	} else if err != nil {
+		return err
+	}
+	var statusControllerOptions []func(*status.StatusSyncer) *status.StatusSyncer
+	if infra == nil || infra.Status.ControlPlaneTopology == configv1.HighlyAvailableTopologyMode {
+		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("APIServer"))
+	}
+
+	const apiServerConditionsPrefix = "APIServer"
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		operatorCtx.operatorClient,
 		eventRecorder,
@@ -548,7 +537,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		"openshift-oauth-apiserver",
 		os.Getenv("OPERATOR_IMAGE_VERSION"),
 		"oauth",
-		"APIServer",
+		apiServerConditionsPrefix,
 		operatorCtx.kubeClient,
 		authAPIServerWorkload,
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
@@ -621,7 +610,27 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		operatorCtx.kubeClient,
 	).
-		WithoutClusterOperatorStatusController().
+		WithClusterOperatorStatusController(
+			"authentication",
+			[]configv1.ObjectReference{
+				{Group: operatorv1.GroupName, Resource: "authentications", Name: "cluster"},
+				{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
+				{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
+				{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
+				{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+				{Resource: "services", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+				{Resource: "namespaces", Name: "openshift-config"},
+				{Resource: "namespaces", Name: "openshift-config-managed"},
+				{Resource: "namespaces", Name: "openshift-authentication"},
+				{Resource: "namespaces", Name: "openshift-authentication-operator"},
+				{Resource: "namespaces", Name: "openshift-ingress"},
+				{Resource: "namespaces", Name: "openshift-oauth-apiserver"},
+			},
+			operatorCtx.configClient.ConfigV1(),
+			operatorCtx.operatorConfigInformer.Config().V1().ClusterOperators(),
+			operatorCtx.versionRecorder,
+			statusControllerOptions...,
+		).
 		WithoutLogLevelController().
 		WithoutConfigUpgradableController().
 		PrepareRun()
