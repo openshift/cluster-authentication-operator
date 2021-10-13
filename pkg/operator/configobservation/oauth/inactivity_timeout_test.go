@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -185,7 +186,7 @@ func TestObserveAccessTokenInactivityTimeout(t *testing.T) {
 				t.Errorf("Expected %d errors, got %d.", len(tt.errors), errs)
 			}
 			if !equality.Semantic.DeepEqual(tt.expected, got) {
-				t.Errorf("result does not match expected config: %s", diff.ObjectDiff(tt.expected, got))
+				t.Errorf("result does not match expected config: %s", cmp.Diff(tt.expected, got))
 			}
 		})
 	}
@@ -204,7 +205,7 @@ func TestObserveAccessTokenInactivityTimeout(t *testing.T) {
 	}
 
 	if !equality.Semantic.DeepEqual(got, existingConfig) {
-		t.Errorf("result does not match expected config: %s", diff.ObjectDiff(existingConfig, got))
+		t.Errorf("result does not match expected config: %s", cmp.Diff(existingConfig, got))
 	}
 
 }

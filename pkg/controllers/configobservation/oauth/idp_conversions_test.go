@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -234,7 +234,7 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 					"convertProviderConfigToIDPData() =\n got challenge: %v;\n got login %v;\n\n WANT\n\n want challenge: %v;\n want login %v;\n\n provider diff %s",
 					got.challenge, got.login,
 					tt.want.challenge, tt.want.login,
-					diff.ObjectDiff(got.provider, tt.want.provider),
+					cmp.Diff(got.provider, tt.want.provider),
 				)
 			}
 		})
