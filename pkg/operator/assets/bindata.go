@@ -617,6 +617,28 @@ spec:
           operator: Exists
           effect: NoExecute
           tolerationSeconds: 120
+      initContainers:
+        - name: fix-audit-permissions
+          terminationMessagePolicy: FallbackToLogsOnError
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-server && touch /var/log/oauth-server/audit.log && chmod 0600 /var/log/oauth-server/*']
+          args:
+            - exec oauth-server osinserver \
+              --audit-log-path=/var/log/oauth-server/audit.log \
+              --audit-log-format=json \
+              --audit-log-maxsize=100 \
+              --audit-log-maxbackup=10 \
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 15m
+              memory: 50Mi
+          volumeMounts:
+            - mountPath: /var/log/oauth-openshift
+              name: audit-dir
       containers:
         - name: oauth-openshift
           image: ${IMAGE}
@@ -670,6 +692,9 @@ spec:
             - name: v4-0-config-system-trusted-ca-bundle
               readOnly: true
               mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
+            - name: oauth-server-audit
+              readOnly: true
+              mountPath: /var/log/oauth-server
           readinessProbe:
             httpGet:
               path: /healthz
@@ -739,6 +764,8 @@ spec:
           configMap:
             name: v4-0-config-system-trusted-ca-bundle
             optional: true
+
+
 `)
 
 func oauthOpenshiftDeploymentYamlBytes() ([]byte, error) {
