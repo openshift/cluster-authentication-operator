@@ -13,7 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	certinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -620,14 +622,15 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 	)
 
-	authenticatorCertRequester := csr.NewClientCertificateController(
+	authenticatorCertRequester, err := csr.NewClientCertificateController(
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
 			SecretName:      "openshift-authenticator-certs",
 		},
 		csr.CSROption{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "system:openshift:openshift-authenticator",
+				GenerateName: "system:openshift:openshift-authenticator-",
+				Labels:       map[string]string{"authentication.openshift.io/csr": "openshift-authenticator"},
 			},
 			Subject:    &pkix.Name{CommonName: "system:serviceaccount:openshift-oauth-apiserver:openshift-authenticator"},
 			SignerName: certapiv1.KubeAPIServerClientSignerName,
@@ -639,13 +642,22 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 		"OpenShiftAuthenticatorCertRequester",
 	)
+	if err != nil {
+		return err
+	}
+
+	labelsReq, err := labels.NewRequirement("authentication.openshift.io/csr", selection.Equals, []string{"openshift-authenticator"})
+	if err != nil {
+		return err
+	}
+	labelSelector := labels.NewSelector().Add(*labelsReq)
 
 	webhookCertsApprover := csr.NewCSRApproverController(
 		"OpenShiftAuthenticator",
 		operatorCtx.operatorClient,
 		operatorCtx.kubeClient.CertificatesV1().CertificateSigningRequests(),
 		kubeInformers.Certificates().V1().CertificateSigningRequests(),
-		csr.NewNamesFilter("system:openshift:openshift-authenticator"),
+		csr.NewLabelFilter(labelSelector),
 		csr.NewServiceAccountApprover(
 			"openshift-authentication-operator",
 			"authentication-operator",
