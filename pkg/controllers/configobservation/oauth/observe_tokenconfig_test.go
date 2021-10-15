@@ -3,9 +3,10 @@ package oauth
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -123,7 +124,7 @@ func TestObserveTokenConfig(t *testing.T) {
 				t.Errorf("Expected 0 errors, got %v.", len(errs))
 			}
 			if !equality.Semantic.DeepEqual(tt.expected, got) {
-				t.Errorf("result does not match expected config: %s", diff.ObjectDiff(tt.expected, got))
+				t.Errorf("result does not match expected config: %s", cmp.Diff(tt.expected, got))
 			}
 		})
 	}

@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/events"
 
@@ -14,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	clientgotesting "k8s.io/client-go/testing"
@@ -127,7 +128,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				}
 
 				if !equality.Semantic.DeepEqual(actualDeployment, goldenDeployment) {
-					t.Errorf("created Deployment is different from the expected one (file) : %s", diff.ObjectDiff(actualDeployment, goldenDeployment))
+					t.Errorf("created Deployment is different from the expected one (file) : %s", cmp.Diff(actualDeployment, goldenDeployment))
 				}
 			}
 		})

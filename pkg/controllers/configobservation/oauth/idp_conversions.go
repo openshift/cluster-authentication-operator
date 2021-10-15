@@ -247,6 +247,11 @@ func convertProviderConfigToIDPData(
 			return nil, err
 		}
 
+		groupClaims := make([]string, len(openIDConfig.Claims.Groups))
+		for i, g := range openIDConfig.Claims.Groups {
+			groupClaims[i] = string(g)
+		}
+
 		data.provider = &osinv1.OpenIDIdentityProvider{
 			CA:                       syncData.AddIDPConfigMap(i, openIDConfig.CA, "ca", corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
@@ -260,6 +265,7 @@ func convertProviderConfigToIDPData(
 				PreferredUsername: openIDConfig.Claims.PreferredUsername,
 				Name:              openIDConfig.Claims.Name,
 				Email:             openIDConfig.Claims.Email,
+				Groups:            groupClaims,
 			},
 		}
 

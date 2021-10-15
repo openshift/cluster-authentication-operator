@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -211,7 +212,7 @@ func TestObserveIdentityProviders(t *testing.T) {
 			}
 
 			if !equality.Semantic.DeepEqual(tt.expected, got) {
-				t.Errorf("result does not match expected config: %s", diff.ObjectDiff(tt.expected, got))
+				t.Errorf("result does not match expected config: %s", cmp.Diff(tt.expected, got))
 			}
 			if !equality.Semantic.DeepEqual(tt.expectedSyncerData, syncerData) {
 				t.Errorf("expected syncer data:\n %#v\ngot:\n %v", tt.expectedSyncerData, syncerData)
