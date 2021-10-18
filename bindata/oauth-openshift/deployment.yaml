@@ -54,7 +54,7 @@ spec:
           terminationMessagePolicy: FallbackToLogsOnError
           image: ${IMAGE}
           imagePullPolicy: IfNotPresent
-          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-server && touch /var/log/oauth-server/audit.log && chmod 0600 /var/log/oauth-server/*']
+          command: ['sh', '-c', 'chmod 0700 /var/log/oauth-openshift && touch /var/log/oauth-openshift/audit.log && chmod 0600 /var/log/oauth-openshift/*']
           args:
             - exec oauth-server osinserver \
               --audit-log-path=/var/log/oauth-server/audit.log \
