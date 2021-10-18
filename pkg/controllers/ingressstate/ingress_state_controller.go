@@ -94,7 +94,7 @@ func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncC
 		degradedConditions = []operatorv1.OperatorCondition{*subsetCondition}
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, degradedConditionTypes, degradedConditions)
+	return common.UpdateControllerConditions(ctx, c.operatorClient, degradedConditionTypes, degradedConditions)
 }
 
 // unhealthyPodMessages returns a slice of messages intended to aid in the
