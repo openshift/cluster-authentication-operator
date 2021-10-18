@@ -36,8 +36,7 @@ func (c *OAuthAPIServerLatestRevision) GetLatestRevisionState() (*operatorv1.Ope
 }
 
 // UpdateLatestRevisionOperatorStatus updates the status with the given latestAvailableRevision and the by applying the given updateFuncs.
-func (c *OAuthAPIServerLatestRevision) UpdateLatestRevisionOperatorStatus(latestAvailableRevision int32, updateFuncs ...v1helpers.UpdateStatusFunc) (*operatorv1.OperatorStatus, bool, error) {
-	ctx := context.TODO() // needs support in library-go
+func (c *OAuthAPIServerLatestRevision) UpdateLatestRevisionOperatorStatus(ctx context.Context, latestAvailableRevision int32, updateFuncs ...v1helpers.UpdateStatusFunc) (*operatorv1.OperatorStatus, bool, error) {
 	updated := false
 	var updatedOperatorStatus *operatorv1.OperatorStatus
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {

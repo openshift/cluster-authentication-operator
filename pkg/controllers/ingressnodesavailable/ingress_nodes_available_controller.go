@@ -121,7 +121,7 @@ func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx fact
 		})
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func (c *ingressNodesAvailableController) numberOfCustomIngressTargets(ctx context.Context, syncCtx factory.SyncContext) (int, error) {

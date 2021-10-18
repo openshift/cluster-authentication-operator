@@ -78,7 +78,7 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 		foundConditions = append(foundConditions, c.handleAuthConfig(ctx)...)
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {

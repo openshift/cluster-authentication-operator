@@ -108,7 +108,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	// the code below this point triggers status updates, unify status update handling in defer
 	statusUpdates := []v1helpers.UpdateStatusFunc{}
 	defer func() {
-		if _, _, updateErr := v1helpers.UpdateStatus(c.operatorClient, statusUpdates...); updateErr != nil {
+		if _, _, updateErr := v1helpers.UpdateStatus(ctx, c.operatorClient, statusUpdates...); updateErr != nil {
 			// fall through to the generic error handling for degraded and requeue
 			utilruntime.HandleError(updateErr)
 		}
