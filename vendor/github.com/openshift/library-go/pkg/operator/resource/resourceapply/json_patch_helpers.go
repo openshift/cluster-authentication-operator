@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	patch "github.com/evanphx/json-patch"
+	routev1 "github.com/openshift/api/route/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -11,9 +12,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const (
+	tlsKeyModifiedMessage = "TLS_KEY_MODIFIED"
+	tlsKeyMaskedMessage   = "TLS_KEY_MASKED"
+)
+
 // JSONPatchNoError generates a JSON patch between original and modified objects and return the JSON as a string.
-// Note:
 //
+// Note:
 // In case of error, the returned string will contain the error messages.
 func JSONPatchNoError(original, modified runtime.Object) string {
 	if original == nil {
@@ -64,6 +70,36 @@ func JSONPatchSecretNoError(original, modified *corev1.Secret) string {
 		} else {
 			safeModified.Data[s] = []byte("OLD")
 		}
+	}
+
+	return JSONPatchNoError(safeOriginal, safeModified)
+}
+
+// JSONPatchRouteNoError generates a JSON patch between original and modified route and returns the JSON as a string
+// masking sensitive information (i.e. tls keys).
+//
+// Note:
+// In case of error, the returned string will contain the error messages.
+func JSONPatchRouteNoError(original, modified *routev1.Route) string {
+	if original == nil {
+		return "original object is nil"
+	}
+	if modified == nil {
+		return "modified object is nil"
+	}
+
+	safeModified := modified.DeepCopy()
+	safeOriginal := original.DeepCopy()
+
+	if safeOriginal.Spec.TLS != nil {
+		if safeModified.Spec.TLS != nil {
+			if safeOriginal.Spec.TLS.Key != safeModified.Spec.TLS.Key {
+				safeModified.Spec.TLS.Key = tlsKeyModifiedMessage
+			} else {
+				safeModified.Spec.TLS.Key = tlsKeyMaskedMessage
+			}
+		}
+		safeOriginal.Spec.TLS.Key = tlsKeyMaskedMessage
 	}
 
 	return JSONPatchNoError(safeOriginal, safeModified)
