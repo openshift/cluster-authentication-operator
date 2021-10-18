@@ -150,7 +150,7 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 		foundConditions = append(foundConditions, oauthConfigConditions...)
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {

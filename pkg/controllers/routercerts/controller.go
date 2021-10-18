@@ -99,7 +99,7 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 	// set the condition anywhere in sync() to update the controller's degraded condition
 	var condition operatorv1.OperatorCondition
 	defer func() {
-		_, _, err = v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(condition))
+		_, _, err = v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(condition))
 	}()
 
 	// get ingress

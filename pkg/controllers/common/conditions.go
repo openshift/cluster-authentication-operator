@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -77,7 +78,7 @@ func ControllerProgressingConditionName(controllerName string) string {
 	return controllerName + "Progressing"
 }
 
-func UpdateControllerConditions(operatorClient v1helpers.OperatorClient, allConditionNames sets.String, updatedConditions []operatorv1.OperatorCondition) error {
+func UpdateControllerConditions(ctx context.Context, operatorClient v1helpers.OperatorClient, allConditionNames sets.String, updatedConditions []operatorv1.OperatorCondition) error {
 	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
 
 	for _, conditionType := range allConditionNames.List() {
@@ -96,7 +97,7 @@ func UpdateControllerConditions(operatorClient v1helpers.OperatorClient, allCond
 		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(newCondition))
 	}
 
-	if _, _, err := v1helpers.UpdateStatus(operatorClient, updateConditionFuncs...); err != nil {
+	if _, _, err := v1helpers.UpdateStatus(ctx, operatorClient, updateConditionFuncs...); err != nil {
 		return err
 	}
 

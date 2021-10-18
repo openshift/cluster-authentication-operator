@@ -146,7 +146,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 // tokenvalidation endpoint so that it can then push this kubeconfig into
 // openshift-config/webhook-authentication-integrated-oauth secret
 func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Context, svc *corev1.Service, recorder events.Recorder) (*corev1.Secret, error) {
-	key, cert, err := c.getAuthenticatorCertKeyPair()
+	key, cert, err := c.getAuthenticatorCertKeyPair(ctx)
 	if key == nil || cert == nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 	return secret, err
 }
 
-func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair() (key, cert []byte, err error) {
+func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair(ctx context.Context) (key, cert []byte, err error) {
 	// waitingForCertKeyMsg lets us decide whether we should set progressing condition to true
 	// 1. nil: keep "progressing the same"
 	// 2. non-empty string: progress with the message in the string
@@ -207,7 +207,7 @@ func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair() (key, cer
 			cond.Message = *waitingForCertKeyMsg
 		}
 
-		if _, _, statusErr := v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(cond)); statusErr != nil {
+		if _, _, statusErr := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(cond)); statusErr != nil {
 			klog.Errorf("failed to update operator status: %v", statusErr)
 			err = statusErr
 		}

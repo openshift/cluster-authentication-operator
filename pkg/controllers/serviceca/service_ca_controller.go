@@ -70,7 +70,7 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 		foundConditions = append(foundConditions, serviceCAConditions...)
 	}
 
-	return common.UpdateControllerConditions(c.operatorClient, knownConditionNames, foundConditions)
+	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
 func getServiceCAConfig() *corev1.ConfigMap {
