@@ -523,7 +523,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	}
 	var statusControllerOptions []func(*status.StatusSyncer) *status.StatusSyncer
 	if infra == nil || infra.Status.ControlPlaneTopology == configv1.HighlyAvailableTopologyMode {
-		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("APIServer"))
+		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("(APIServer|OAuthServer)"))
 	}
 
 	const apiServerConditionsPrefix = "APIServer"
