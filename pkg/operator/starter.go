@@ -260,6 +260,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"OpenshiftAuthenticationStaticResources",
 		assets.Asset,
 		[]string{
+			"oauth-openshift/audit.yaml", // ensures that it will be there on start. static resource controller does that
 			"oauth-openshift/ns.yaml",
 			"oauth-openshift/authentication-clusterrolebinding.yaml",
 			"oauth-openshift/cabundle.yaml",

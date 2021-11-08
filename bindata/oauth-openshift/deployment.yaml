@@ -102,6 +102,11 @@ spec:
             - name: v4-0-config-system-trusted-ca-bundle
               readOnly: true
               mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
+            - name: auditconfig
+              readOnly: true
+              mountPath: /var/config/system/configmaps/auditconfig
+            - name: tmpauditlog
+              mountPath: /tmp/audit
           readinessProbe:
             httpGet:
               path: /healthz
@@ -137,6 +142,11 @@ spec:
               cpu: 10m
               memory: 50Mi
       volumes:
+        - name: tmpauditlog
+          emptyDir: {}
+        - name: auditconfig
+          configMap:
+            name: auditconfig
         - name: v4-0-config-system-session
           secret:
             secretName: v4-0-config-system-session

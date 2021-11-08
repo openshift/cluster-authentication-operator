@@ -172,7 +172,11 @@ func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operato
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
 			},
-			AuditConfig: configv1.AuditConfig{}, // TODO probably need this
+			AuditConfig: configv1.AuditConfig{
+				Enabled: true,
+				AuditFilePath: "/tmp/audit/audit.log",
+				PolicyFile: "/var/config/system/configmaps/auditconfig/audit.yaml",
+			}, // TODO probably need this
 			KubeClientConfig: configv1.KubeClientConfig{
 				KubeConfig: "", // this should use in cluster config
 				ConnectionOverrides: configv1.ClientConnectionOverrides{

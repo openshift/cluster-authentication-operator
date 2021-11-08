@@ -9,6 +9,7 @@
 // bindata/oauth-apiserver/oauth-apiserver-pdb.yaml
 // bindata/oauth-apiserver/sa.yaml
 // bindata/oauth-apiserver/svc.yaml
+// bindata/oauth-openshift/audit.yaml
 // bindata/oauth-openshift/authentication-clusterrolebinding.yaml
 // bindata/oauth-openshift/branding-secret.yaml
 // bindata/oauth-openshift/cabundle.yaml
@@ -488,6 +489,33 @@ func oauthApiserverSvcYaml() (*asset, error) {
 	return a, nil
 }
 
+var _oauthOpenshiftAuditYaml = []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auditconfig
+  namespace: openshift-authentication
+data:
+  audit.yaml: |
+    apiVersion: audit.k8s.io/v1
+    kind: Policy
+    - level: RequestResponse
+`)
+
+func oauthOpenshiftAuditYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftAuditYaml, nil
+}
+
+func oauthOpenshiftAuditYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftAuditYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/audit.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 var _oauthOpenshiftAuthenticationClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -670,6 +698,11 @@ spec:
             - name: v4-0-config-system-trusted-ca-bundle
               readOnly: true
               mountPath: /var/config/system/configmaps/v4-0-config-system-trusted-ca-bundle
+            - name: auditconfig
+              readOnly: true
+              mountPath: /var/config/system/configmaps/auditconfig
+            - name: tmpauditlog
+              mountPath: /tmp/audit
           readinessProbe:
             httpGet:
               path: /healthz
@@ -705,6 +738,11 @@ spec:
               cpu: 10m
               memory: 50Mi
       volumes:
+        - name: tmpauditlog
+          emptyDir: {}
+        - name: auditconfig
+          configMap:
+            name: auditconfig
         - name: v4-0-config-system-session
           secret:
             secretName: v4-0-config-system-session
@@ -1004,6 +1042,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/oauth-apiserver-pdb.yaml":                    oauthApiserverOauthApiserverPdbYaml,
 	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
 	"oauth-apiserver/svc.yaml":                                    oauthApiserverSvcYaml,
+	"oauth-openshift/audit.yaml":                                  oauthOpenshiftAuditYaml,
 	"oauth-openshift/authentication-clusterrolebinding.yaml":      oauthOpenshiftAuthenticationClusterrolebindingYaml,
 	"oauth-openshift/branding-secret.yaml":                        oauthOpenshiftBrandingSecretYaml,
 	"oauth-openshift/cabundle.yaml":                               oauthOpenshiftCabundleYaml,
@@ -1071,6 +1110,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
 	}},
 	"oauth-openshift": {nil, map[string]*bintree{
+		"audit.yaml":                             {oauthOpenshiftAuditYaml, map[string]*bintree{}},
 		"authentication-clusterrolebinding.yaml": {oauthOpenshiftAuthenticationClusterrolebindingYaml, map[string]*bintree{}},
 		"branding-secret.yaml":                   {oauthOpenshiftBrandingSecretYaml, map[string]*bintree{}},
 		"cabundle.yaml":                          {oauthOpenshiftCabundleYaml, map[string]*bintree{}},
