@@ -517,12 +517,12 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	infra, err := operatorCtx.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
-		klog.Warningf("unexpectedly no infrastructure resource found, assuming controlPlaneTopology HighlyAvailableTopologyMode: %v", err)
+		klog.Warningf("unexpectedly no infrastructure resource found, assuming non SingleReplicaTopologyMode controlPlaneTopology: %v", err)
 	} else if err != nil {
 		return err
 	}
 	var statusControllerOptions []func(*status.StatusSyncer) *status.StatusSyncer
-	if infra == nil || infra.Status.ControlPlaneTopology == configv1.HighlyAvailableTopologyMode {
+	if infra == nil || infra.Status.ControlPlaneTopology != configv1.SingleReplicaTopologyMode {
 		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("(APIServer|OAuthServer)"))
 	}
 
