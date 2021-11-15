@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +56,16 @@ func NewEndpointAccessibleController(
 		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }
 
+// humanizeError produce error message that makes more sense to humans/admins.
+func humanizeError(err error) error {
+	switch {
+	case strings.Contains(err.Error(), ":53: no such host"):
+		return fmt.Errorf("%v (this is likely result of malfunctioning DNS server)", err)
+	default:
+		return err
+	}
+}
+
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	endpoints, err := c.endpointListFn()
 	if err != nil {
@@ -89,13 +100,13 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 			defer cancel()
 			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
 			if err != nil {
-				errCh <- err
+				errCh <- humanizeError(err)
 				return
 			}
 
 			resp, err := client.Do(req)
 			if err != nil {
-				errCh <- err
+				errCh <- humanizeError(err)
 				return
 			}
 			defer resp.Body.Close()
