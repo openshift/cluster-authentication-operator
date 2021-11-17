@@ -488,6 +488,33 @@ func oauthApiserverSvcYaml() (*asset, error) {
 	return a, nil
 }
 
+var _oauthApiserverAuditYaml = []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auditconfig
+  namespace: o
+data:
+  audit.yaml: |
+    apiVersion: audit.k8s.io/v1
+    kind: Policy
+    - level: RequestResponse
+`)
+
+func oauthApiserverAuditYamlBytes() ([]byte, error) {
+	return _oauthApiserverAuditYaml, nil
+}
+
+func oauthApiserverAuditYaml() (*asset, error) {
+	bytes, err := oauthApiserverAuditYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-apiserver/audit.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 var _oauthOpenshiftAuthenticationClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -1004,6 +1031,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/oauth-apiserver-pdb.yaml":                    oauthApiserverOauthApiserverPdbYaml,
 	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
 	"oauth-apiserver/svc.yaml":                                    oauthApiserverSvcYaml,
+	"oauth-apiserver/audit.yaml":								   oauthApiserverAuditYaml,
 	"oauth-openshift/authentication-clusterrolebinding.yaml":      oauthOpenshiftAuthenticationClusterrolebindingYaml,
 	"oauth-openshift/branding-secret.yaml":                        oauthOpenshiftBrandingSecretYaml,
 	"oauth-openshift/cabundle.yaml":                               oauthOpenshiftCabundleYaml,
