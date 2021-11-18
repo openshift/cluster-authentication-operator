@@ -497,6 +497,7 @@ data:
   audit.yaml: |
     apiVersion: audit.k8s.io/v1
     kind: Policy
+    spec:
     - level: RequestResponse
 `)
 
@@ -669,6 +670,7 @@ spec:
               containerPort: 6443
               protocol: TCP
           securityContext:
+            privileged: true
             readOnlyRootFilesystem: false # because of the ` + "`" + `cp` + "`" + ` in args
             runAsUser: 0 # because /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is only writable by root
           volumeMounts:
