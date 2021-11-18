@@ -268,6 +268,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"oauth-openshift/oauth-service.yaml",
 			"oauth-openshift/trust_distribution_role.yaml",
 			"oauth-openshift/trust_distribution_rolebinding.yaml",
+			"oauth-openshift/audit.yaml",
 		},
 		resourceapply.NewKubeClientHolder(operatorCtx.kubeClient),
 		operatorCtx.operatorClient,
