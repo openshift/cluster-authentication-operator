@@ -11,6 +11,7 @@ import (
 	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
@@ -24,6 +25,14 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
+
+var defaultAuditLogging = strings.Join([]string{
+	"--audit-log-path=/var/log/oauth-server/audit.log",
+	"--audit-log-format=json",
+	"--audit-log-maxsize=100",
+	"--audit-log-maxbackup=10",
+	"--audit-policy-file=/var/run/configmaps/audit/audit.yaml",
+}, " ")
 
 func getOAuthServerDeployment(
 	operatorConfig *operatorv1.Authentication,
@@ -84,12 +93,54 @@ func getOAuthServerDeployment(
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
+	auditOpts, err := getAuditOptionsFromOpteratorConfig(&operatorConfig.Spec.ObservedConfig)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to get audit sync data: %w", err)
+	}
+
+	container.Args[0] = strings.Replace(
+		container.Args[0],
+		"${AUDIT_OPTS}",
+		strings.Join(auditOpts, " "),
+		1,
+	)
+
+	klog.Info("xxx deployment: %+v", deployment)
+
 	return deployment, nil
+}
+
+func getAuditOptionsFromOpteratorConfig(operatorConfig *runtime.RawExtension) ([]string, error) {
+	var configDeserialized map[string]interface{}
+	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
+		operatorConfig.Raw,
+		configobservation.OAuthServerConfigPrefix,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
+	}
+
+	if err := yaml.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
+	}
+
+	klog.Infof("xxx configDeserialized: %+v", configDeserialized)
+
+	args, _, err := unstructured.NestedStringSlice(configDeserialized, observeoauth.AuditOptionsPath...)
+	if err != nil {
+		klog.Infof("xxx ERR NestedStringSlice: %+v", err)
+		return nil, err
+	}
+
+	return args, nil
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
 	var configDeserialized map[string]interface{}
-	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
+		operatorConfig.Raw,
+		configobservation.OAuthServerConfigPrefix,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
 	}
