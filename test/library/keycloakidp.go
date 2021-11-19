@@ -42,6 +42,7 @@ func AddKeycloakIDP(
 			// configure password for GitLab root user
 			{Name: "KEYCLOAK_USER", Value: "admin"},
 			{Name: "KEYCLOAK_PASSWORD", Value: "password"},
+			{Name: "PROXY_ADDRESS_FORWARDING", Value: "true"},
 		},
 		8080,
 		8443,
