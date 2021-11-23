@@ -260,7 +260,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"OpenshiftAuthenticationStaticResources",
 		assets.Asset,
 		[]string{
-			"oauth-openshift/audit.yaml",
+			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
 			"oauth-openshift/authentication-clusterrolebinding.yaml",
 			"oauth-openshift/cabundle.yaml",
