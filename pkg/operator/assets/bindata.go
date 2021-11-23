@@ -497,7 +497,13 @@ data:
   audit.yaml: |
     apiVersion: audit.k8s.io/v1
     kind: Policy
-    spec:
+    rules:
+    - level: None
+      nonResourceURLs:
+      - "/healthz*"
+      - "/logs"
+      - "/metrics"
+      - "/version"
     - level: RequestResponse
 `)
 
@@ -659,7 +665,7 @@ spec:
               fi
               exec oauth-server osinserver \
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
-              --v=${LOG_LEVEL} \
+              --v=5 \
               --audit-log-path=/var/log/oauth-server/audit.log \
               --audit-log-format=json \
               --audit-log-maxsize=100 \

@@ -7,4 +7,10 @@ data:
     apiVersion: audit.k8s.io/v1
     kind: Policy
     rules:
+    - level: None
+      nonResourceURLs:
+      - "/healthz*"
+      - "/logs"
+      - "/metrics"
+      - "/version"
     - level: RequestResponse
