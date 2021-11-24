@@ -497,7 +497,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	kubeInformers := certinformers.NewSharedInformerFactory(operatorCtx.kubeClient, resync)
 
 	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces)
-	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces, operatorCtx.resourceSyncController, operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1(), nodeProvider)
+	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces, operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1(), nodeProvider)
 	if err != nil {
 		return err
 	}
@@ -590,6 +590,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.configClient.ConfigV1().APIServers(),
 		operatorCtx.operatorConfigInformer.Config().V1().APIServers(),
 		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.resourceSyncController,
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
