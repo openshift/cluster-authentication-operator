@@ -489,7 +489,8 @@ func oauthApiserverSvcYaml() (*asset, error) {
 	return a, nil
 }
 
-var _oauthOpenshiftAuditPolicyYaml = []byte(`kind: ConfigMap
+var _oauthOpenshiftAuditPolicyYaml = []byte(`apiVersion: v1
+kind: ConfigMap
 metadata:
   name: audit
   namespace: openshift-authentication
