@@ -227,7 +227,12 @@ func CAOE2ETestLabels() map[string]string {
 	}
 }
 
-func addOIDCIDentityProvider(t *testing.T, kubeClients *kubernetes.Clientset, configClient *configv1client.ConfigV1Client, clientID, clientSecret, idpName, idpURL string) ([]func(), error) {
+func addOIDCIDentityProvider(
+	t *testing.T,
+	kubeClients *kubernetes.Clientset,
+	configClient *configv1client.ConfigV1Client,
+	clientID, clientSecret, idpName, idpURL string,
+	claims configv1.OpenIDClaims) ([]func(), error) {
 	var cleanups []func()
 
 	secretName := idpName + "-secret"
@@ -268,6 +273,7 @@ func addOIDCIDentityProvider(t *testing.T, kubeClients *kubernetes.Clientset, co
 						Name: secretName,
 					},
 					ExtraScopes: []string{"profile", "email"},
+					Claims:      claims,
 					Issuer:      idpURL,
 					CA: configv1.ConfigMapNameReference{
 						Name: caCMName,
