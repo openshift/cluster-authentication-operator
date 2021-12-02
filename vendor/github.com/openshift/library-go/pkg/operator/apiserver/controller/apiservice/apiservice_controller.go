@@ -118,7 +118,20 @@ func (c *APIServiceController) sync(ctx context.Context, syncCtx factory.SyncCon
 		return err
 	}
 
-	err = c.syncAPIServices(apiServices, syncCtx.Recorder())
+	err = c.syncAPIServices(ctx, apiServices, syncCtx.Recorder())
+
+	if err != nil {
+		// a closed context indicates that the process has been requested to shutdown
+		// in that case we might have failed to check availability of the downstream servers due to the context being closed
+		// in that case don't report the failure to avoid false positives and changing the condition of the operator
+		// the next process will perform the checks immediately after the startup
+		select {
+		case <-ctx.Done():
+			nerr := fmt.Errorf("the operator is shutting down, skipping updating availability of the aggreaged APIs, err = %v", err)
+			return nerr
+		default:
+		}
+	}
 
 	// update failing condition
 	cond := operatorv1.OperatorCondition{
@@ -139,13 +152,13 @@ func (c *APIServiceController) sync(ctx context.Context, syncCtx factory.SyncCon
 	return err
 }
 
-func (c *APIServiceController) syncAPIServices(apiServices []*apiregistrationv1.APIService, recorder events.Recorder) error {
+func (c *APIServiceController) syncAPIServices(ctx context.Context, apiServices []*apiregistrationv1.APIService, recorder events.Recorder) error {
 	errs := []error{}
 	var availableConditionMessages []string
 
 	for _, apiService := range apiServices {
 		apiregistrationv1.SetDefaults_ServiceReference(apiService.Spec.Service)
-		apiService, _, err := resourceapply.ApplyAPIService(c.apiregistrationv1Client, recorder, apiService)
+		apiService, _, err := resourceapply.ApplyAPIService(ctx, c.apiregistrationv1Client, recorder, apiService)
 		if err != nil {
 			errs = append(errs, err)
 			continue

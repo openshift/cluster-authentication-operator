@@ -7,8 +7,12 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	openshiftconfigclientv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
+	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/apiservice"
+	"github.com/openshift/library-go/pkg/operator/apiserver/controller/auditpolicy"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/nsfinalizer"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	"github.com/openshift/library-go/pkg/operator/encryption"
@@ -32,7 +36,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/tools/cache"
 	apiregistrationv1client "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
 	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 )
@@ -43,6 +46,8 @@ type preparedAPIServerControllerSet struct {
 
 type controllerWrapper struct {
 	emptyAllowed bool
+	// creationError allows for reporting errors that occurred during object creation
+	creationError error
 	controller
 }
 
@@ -54,6 +59,9 @@ func (cw *controllerWrapper) prepare() (controller, error) {
 	if !cw.emptyAllowed && cw.controller == nil {
 		return nil, fmt.Errorf("missing controller")
 	}
+	if cw.creationError != nil {
+		return nil, cw.creationError
+	}
 
 	return cw.controller, nil
 }
@@ -64,6 +72,7 @@ type APIServerControllerSet struct {
 	eventRecorder  events.Recorder
 
 	apiServiceController            controllerWrapper
+	auditPolicyController           controllerWrapper
 	clusterOperatorStatusController controllerWrapper
 	configUpgradableController      controllerWrapper
 	encryptionControllers           encryptionControllerBuilder
@@ -216,7 +225,7 @@ func (cs *APIServerControllerSet) WithWorkloadController(
 	openshiftClusterConfigClient openshiftconfigclientv1.ClusterOperatorInterface,
 	versionRecorder status.VersionGetter,
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
-	informers ...cache.SharedIndexInformer) *APIServerControllerSet {
+	informers ...factory.Informer) *APIServerControllerSet {
 
 	workloadController := workload.NewController(
 		name,
@@ -228,22 +237,19 @@ func (cs *APIServerControllerSet) WithWorkloadController(
 		cs.operatorClient,
 		kubeClient,
 		kubeInformersForNamespaces.PodLister(),
+		append(informers,
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().ConfigMaps().Informer(),
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Secrets().Informer(),
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Pods().Informer(),
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Apps().V1().Deployments().Informer(),
+			kubeInformersForNamespaces.InformersFor(metav1.NamespaceSystem).Core().V1().Nodes().Informer(),
+		),
+		[]factory.Informer{kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Namespaces().Informer()},
+
 		delegate,
 		openshiftClusterConfigClient,
 		cs.eventRecorder,
 		versionRecorder)
-
-	workloadController.AddInformer(kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().ConfigMaps().Informer())
-	workloadController.AddInformer(kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Secrets().Informer())
-	workloadController.AddInformer(kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Pods().Informer())
-	workloadController.AddInformer(kubeInformersForNamespaces.InformersFor(targetNamespace).Apps().V1().Deployments().Informer())
-	workloadController.AddInformer(kubeInformersForNamespaces.InformersFor(metav1.NamespaceSystem).Core().V1().Nodes().Informer())
-
-	workloadController.AddNamespaceInformer(kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().Namespaces().Informer())
-
-	for _, informer := range informers {
-		workloadController.AddInformer(informer)
-	}
 
 	cs.workloadController.controller = workloadController
 
@@ -347,12 +353,40 @@ func (cs *APIServerControllerSet) WithoutEncryptionControllers() *APIServerContr
 	return cs
 }
 
+func (cs *APIServerControllerSet) WithAuditPolicyController(
+	targetNamespace string,
+	targetConfigMapName string,
+	apiserverConfigLister configv1listers.APIServerLister,
+	configInformers configinformers.SharedInformerFactory,
+	kubeInformersForTargetNamesace kubeinformers.SharedInformerFactory,
+	kubeClient kubernetes.Interface,
+) *APIServerControllerSet {
+	cs.auditPolicyController.controller = auditpolicy.NewAuditPolicyController(
+		targetNamespace,
+		targetConfigMapName,
+		apiserverConfigLister,
+		cs.operatorClient,
+		kubeClient,
+		configInformers,
+		kubeInformersForTargetNamesace,
+		cs.eventRecorder,
+	)
+	return cs
+}
+
+func (cs *APIServerControllerSet) WithoutAuditPolicyController() *APIServerControllerSet {
+	cs.auditPolicyController.controller = nil
+	cs.auditPolicyController.emptyAllowed = true
+	return cs
+}
+
 func (cs *APIServerControllerSet) PrepareRun() (preparedAPIServerControllerSet, error) {
 	prepared := []controller{}
 	errs := []error{}
 
 	for name, cw := range map[string]controllerWrapper{
 		"apiServiceController":            cs.apiServiceController,
+		"auditPolicyController":           cs.auditPolicyController,
 		"clusterOperatorStatusController": cs.clusterOperatorStatusController,
 		"configUpgradableController":      cs.configUpgradableController,
 		"encryptionControllers":           cs.encryptionControllers.build(),
@@ -404,7 +438,7 @@ func (e *encryptionControllerBuilder) build() controllerWrapper {
 	if e.emptyAllowed {
 		return e.controllerWrapper
 	}
-	e.controllerWrapper.controller = encryption.NewControllers(
+	e.controllerWrapper.controller, e.controllerWrapper.creationError = encryption.NewControllers(
 		e.component,
 		e.unsupportedConfigPrefix,
 		e.provider,

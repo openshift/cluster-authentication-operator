@@ -2,15 +2,22 @@ package staticresourcecontroller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"k8s.io/klog/v2"
+	configv1 "github.com/openshift/api/config/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/restmapper"
 
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -18,19 +25,17 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 
 	"github.com/openshift/api"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	migrationv1alpha1 "sigs.k8s.io/kube-storage-version-migrator/pkg/apis/migration/v1alpha1"
 
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
-)
-
-const (
-	workQueueKey = "key"
 )
 
 var (
@@ -41,23 +46,32 @@ var (
 
 func init() {
 	utilruntime.Must(api.InstallKube(genericScheme))
+	utilruntime.Must(migrationv1alpha1.AddToScheme(genericScheme))
+	utilruntime.Must(apiextensions.AddToScheme(genericScheme))
+	utilruntime.Must(admissionregistrationv1.AddToScheme(genericScheme))
 }
 
 type StaticResourceController struct {
-	name      string
-	manifests resourceapply.AssetFunc
-	files     []string
+	name                   string
+	manifests              resourceapply.AssetFunc
+	files                  []string
+	ignoreNotFoundOnCreate bool
 
 	operatorClient v1helpers.OperatorClient
 	clients        *resourceapply.ClientHolder
 
 	eventRecorder events.Recorder
 
-	factory *factory.Factory
+	factory          *factory.Factory
+	restMapper       meta.RESTMapper
+	categoryExpander restmapper.CategoryExpander
 }
 
 // NewStaticResourceController returns a controller that maintains certain static manifests. Most "normal" types are supported,
 // but feel free to add ones we missed.  Use .AddInformer(), .AddKubeInformers(), .AddNamespaceInformer or to provide triggering conditions.
+// By default, the controller sets <name>Degraded condition on error when syncing a manifest.
+// Optionally, the controller can ignore NotFound errors. This is useful when syncing CRs for CRDs that may not yet exist
+// when the controller runs, such as ServiceMonitor.
 func NewStaticResourceController(
 	name string,
 	manifests resourceapply.AssetFunc,
@@ -79,6 +93,16 @@ func NewStaticResourceController(
 		factory: factory.New().WithInformers(operatorClient.Informer()).ResyncEvery(1 * time.Minute),
 	}
 
+	return c
+}
+
+// WithIgnoreNotFoundOnCreate makes the controller to ignore NotFound errors when applying a manifest.
+// Such error is returned by the API server when the controller tries to apply a CR for CRD
+// that has not yet been created.
+// This is useful when creating CRs for other operators that were not started yet (such as ServiceMonitors).
+// NotFound errors are reported in <name>Degraded condition, but with Degraded=false.
+func (c *StaticResourceController) WithIgnoreNotFoundOnCreate() *StaticResourceController {
+	c.ignoreNotFoundOnCreate = true
 	return c
 }
 
@@ -142,6 +166,8 @@ func (c *StaticResourceController) AddKubeInformers(kubeInformersByNamespace v1h
 			ret = ret.AddInformer(informer.Rbac().V1().Roles().Informer())
 		case *rbacv1.RoleBinding:
 			ret = ret.AddInformer(informer.Rbac().V1().RoleBindings().Informer())
+		case *policyv1.PodDisruptionBudget:
+			ret = ret.AddInformer(informer.Policy().V1().PodDisruptionBudgets().Informer())
 		case *storagev1.StorageClass:
 			ret = ret.AddInformer(informer.Storage().V1().StorageClasses().Informer())
 		case *storagev1.CSIDriver:
@@ -161,6 +187,16 @@ func (c *StaticResourceController) AddInformer(informer cache.SharedIndexInforme
 	return c
 }
 
+func (c *StaticResourceController) AddRESTMapper(mapper meta.RESTMapper) *StaticResourceController {
+	c.restMapper = mapper
+	return c
+}
+
+func (c *StaticResourceController) AddCategoryExpander(categoryExpander restmapper.CategoryExpander) *StaticResourceController {
+	c.categoryExpander = categoryExpander
+	return c
+}
+
 func (c *StaticResourceController) AddNamespaceInformer(informer cache.SharedIndexInformer, namespaces ...string) *StaticResourceController {
 	c.factory.WithNamespaceInformer(informer, namespaces...)
 	return c
@@ -176,12 +212,23 @@ func (c StaticResourceController) Sync(ctx context.Context, syncContext factory.
 	}
 
 	errors := []error{}
-	directResourceResults := resourceapply.ApplyDirectly(c.clients, syncContext.Recorder(), c.manifests, c.files...)
+	var notFoundErrorsCount int
+	directResourceResults := resourceapply.ApplyDirectly(ctx, c.clients, syncContext.Recorder(), c.manifests, c.files...)
 	for _, currResult := range directResourceResults {
+		if apierrors.IsNotFound(currResult.Error) {
+			notFoundErrorsCount++
+		}
 		if currResult.Error != nil {
 			errors = append(errors, fmt.Errorf("%q (%T): %v", currResult.File, currResult.Type, currResult.Error))
 			continue
 		}
+	}
+
+	cnd := operatorv1.OperatorCondition{
+		Type:    fmt.Sprintf("%sDegraded", c.name),
+		Status:  operatorv1.ConditionFalse,
+		Reason:  "AsExpected",
+		Message: "",
 	}
 
 	if len(errors) > 0 {
@@ -189,36 +236,86 @@ func (c StaticResourceController) Sync(ctx context.Context, syncContext factory.
 		for _, err := range errors {
 			message = message + err.Error() + "\n"
 		}
-		errors = append(errors,
-			appendErrors(v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-				Type:    fmt.Sprintf("%sDegraded", c.name),
-				Status:  operatorv1.ConditionTrue,
-				Reason:  "SyncError",
-				Message: message,
-			})))...,
-		)
-	} else {
-		errors = append(errors,
-			appendErrors(v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-				Type:   fmt.Sprintf("%sDegraded", c.name),
-				Status: operatorv1.ConditionFalse,
-				Reason: "AsExpected",
-			})))...,
-		)
+		cnd.Status = operatorv1.ConditionTrue
+		cnd.Message = message
+		cnd.Reason = "SyncError"
+
+		if c.ignoreNotFoundOnCreate && len(errors) == notFoundErrorsCount {
+			// all errors were NotFound
+			cnd.Status = operatorv1.ConditionFalse
+		}
 	}
 
-	return utilerrors.NewAggregate(errors)
-}
-
-func appendErrors(_ *operatorv1.OperatorStatus, _ bool, err error) []error {
+	_, _, err = v1helpers.UpdateStatus(c.operatorClient, v1helpers.UpdateConditionFn(cnd))
 	if err != nil {
-		return []error{err}
+		errors = append(errors, err)
 	}
-	return []error{}
+	return utilerrors.NewAggregate(errors)
 }
 
 func (c *StaticResourceController) Name() string {
 	return "StaticResourceController"
+}
+
+func (c *StaticResourceController) RelatedObjects() ([]configv1.ObjectReference, error) {
+	if c.restMapper == nil {
+		return nil, errors.New("StaticResourceController.restMapper is nil")
+	}
+
+	if c.categoryExpander == nil {
+		return nil, errors.New("StaticResourceController.categoryExpander is nil")
+	}
+
+	// create lookup for resources in "all" alias
+	grs, _ := c.categoryExpander.Expand("all")
+	lookup := make(map[schema.GroupResource]struct{})
+	for _, gr := range grs {
+		lookup[gr] = struct{}{}
+	}
+
+	acc := make([]configv1.ObjectReference, 0)
+	errors := []error{}
+
+	for _, file := range c.files {
+		// parse static asset
+		objBytes, err := c.manifests(file)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		requiredObj, _, err := genericCodec.Decode(objBytes, nil, nil)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		metadata, err := meta.Accessor(requiredObj)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		// map gvk to gvr
+		gvk := requiredObj.GetObjectKind().GroupVersionKind()
+		mapping, err := c.restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		gvr := mapping.Resource
+		// filter out namespaced resources within "all" alias from result
+		if metadata.GetNamespace() != "" {
+			if _, ok := lookup[gvr.GroupResource()]; ok {
+				continue
+			}
+		}
+		acc = append(acc, configv1.ObjectReference{
+			Group:     gvk.Group,
+			Resource:  gvr.Resource,
+			Namespace: metadata.GetNamespace(),
+			Name:      metadata.GetName(),
+		})
+	}
+
+	return acc, utilerrors.NewAggregate(errors)
 }
 
 func (c *StaticResourceController) Run(ctx context.Context, workers int) {
