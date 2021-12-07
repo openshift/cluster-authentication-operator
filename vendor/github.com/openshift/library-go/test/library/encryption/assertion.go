@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/client/v3"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -82,7 +82,7 @@ func AssertLastMigratedKey(t testing.TB, kubeClient kubernetes.Interface, target
 	t.Helper()
 	expectedGRs := targetGRs
 	t.Logf("Checking if the last migrated key was used to encrypt %v", expectedGRs)
-	lastMigratedKeyMeta, err := GetLastKeyMeta(kubeClient, namespace, labelSelector)
+	lastMigratedKeyMeta, err := GetLastKeyMeta(t, kubeClient, namespace, labelSelector)
 	require.NoError(t, err)
 	if len(lastMigratedKeyMeta.Name) == 0 {
 		t.Log("Nothing to check no new key was created")

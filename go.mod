@@ -1,33 +1,29 @@
 module github.com/openshift/cluster-authentication-operator
 
-go 1.15
+go 1.16
 
 require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
-	github.com/openshift/api v0.0.0-20210706092853-b63d499a70ce
-	github.com/openshift/build-machinery-go v0.0.0-20210423112049-9415d7ebd33e
-	github.com/openshift/client-go v0.0.0-20210521082421-73d9475a9142
-	github.com/openshift/library-go v0.0.0-20210715155611-70a39c8ba7a1
-	github.com/spf13/cobra v1.1.1
+	github.com/openshift/api v0.0.0-20210831091943-07e756545ac1
+	github.com/openshift/build-machinery-go v0.0.0-20210806203541-4ea9b6da3a37
+	github.com/openshift/client-go v0.0.0-20210831095141-e19a065e79f7
+	github.com/openshift/library-go v0.0.0-20211207082558-36821c7a1fa2
+	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.6.1
-	go.etcd.io/etcd v0.5.0-alpha.5.0.20200910180754-dd1b699fc489
-	go.uber.org/multierr v1.1.1-0.20180122172545-ddea229ff1df // indirect
-	golang.org/x/net v0.0.0-20210224082022-3d97a244fca7
+	github.com/stretchr/testify v1.7.0
+	go.etcd.io/etcd/client/v3 v3.5.0
+	golang.org/x/net v0.0.0-20210520170846-37e1c6afe023
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.21.1
-	k8s.io/apimachinery v0.21.1
-	k8s.io/apiserver v0.21.1
-	k8s.io/client-go v0.21.1
-	k8s.io/component-base v0.21.1
-	k8s.io/klog/v2 v2.8.0
-	k8s.io/kube-aggregator v0.21.1
-	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
+	k8s.io/api v0.22.1
+	k8s.io/apimachinery v0.22.1
+	k8s.io/apiserver v0.22.1
+	k8s.io/client-go v0.22.1
+	k8s.io/component-base v0.22.1
+	k8s.io/klog/v2 v2.9.0
+	k8s.io/kube-aggregator v0.22.1
+	k8s.io/utils v0.0.0-20210707171843-4b05e18ac7d9
 	sigs.k8s.io/kube-storage-version-migrator v0.0.4
 )
-
-// points to temporary-watch-reduction-patch-1.21 to pick up k/k/pull/101102 - please remove it once the pr merges and a new Z release is cut
-replace k8s.io/apiserver => github.com/openshift/kubernetes-apiserver v0.0.0-20210419140141-620426e63a99

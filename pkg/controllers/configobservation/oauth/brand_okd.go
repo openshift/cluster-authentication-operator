@@ -1,3 +1,4 @@
+//go:build !ocp
 // +build !ocp
 
 package oauth
