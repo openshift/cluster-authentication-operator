@@ -122,20 +122,32 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 		GrantMethod:           oauthv1.GrantHandlerAuto,
 	}
 	if err := ensureOAuthClient(ctx, c.oauthClientClient, browserClient); err != nil {
-		return fmt.Errorf("unable to get %q bootstrapped OAuth client: %v", browserClient.Name, err)
+		return fmt.Errorf("unable to bootstrap OAuth client %s: %w", browserClient.Name, err)
 	}
 
-	cliClient := oauthv1.OAuthClient{
+	cliChallengingClient := oauthv1.OAuthClient{
 		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-challenging-client"},
 		Secret:                "",
 		RespondWithChallenges: true,
 		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},
 		GrantMethod:           oauthv1.GrantHandlerAuto,
 	}
-	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliClient); err != nil {
-		return fmt.Errorf("unable to get %q bootstrapped CLI OAuth client: %v", browserClient.Name, err)
+	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliChallengingClient); err != nil {
+		return fmt.Errorf("unable to bootstrap OAuth client %s: %w", cliChallengingClient.Name, err)
 	}
 
+	cliBrowserClient := oauthv1.OAuthClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "openshift-cli-client"},
+		RedirectURIs: []string{
+			"http://127.0.0.1/callback",
+			"http://[::1]/callback",
+		},
+		GrantMethod: oauthv1.GrantHandlerAuto,
+	}
+
+	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliBrowserClient); err != nil {
+		return fmt.Errorf("unable to bootstrap OAuth client %s: %w", cliBrowserClient.Name, err)
+	}
 	return nil
 }
 
