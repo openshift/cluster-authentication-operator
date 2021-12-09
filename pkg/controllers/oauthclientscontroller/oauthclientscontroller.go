@@ -117,26 +117,31 @@ func (c *oauthsClientsController) getCanonicalRouteHost(expectedHost string) (st
 }
 
 func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Context, masterPublicURL string) error {
-	browserClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
-		Secret:                base64.RawURLEncoding.EncodeToString(randomBits(256)),
-		RespondWithChallenges: false,
-		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenDisplayURL(masterPublicURL)},
-		GrantMethod:           oauthv1.GrantHandlerAuto,
-	}
-	if err := ensureOAuthClient(ctx, c.oauthClientClient, browserClient); err != nil {
-		return fmt.Errorf("unable to get %q bootstrapped OAuth client: %v", browserClient.Name, err)
-	}
+	for _, client := range []oauthv1.OAuthClient{
+		{
+			ObjectMeta:            metav1.ObjectMeta{Name: "openshift-browser-client"},
+			Secret:                base64.RawURLEncoding.EncodeToString(randomBits(256)),
+			RespondWithChallenges: false,
+			RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenDisplayURL(masterPublicURL)},
+			GrantMethod:           oauthv1.GrantHandlerAuto,
+		},
+		{
+			ObjectMeta:            metav1.ObjectMeta{Name: "openshift-challenging-client"},
+			Secret:                "",
+			RespondWithChallenges: true,
+			RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},
+			GrantMethod:           oauthv1.GrantHandlerAuto,
+		},
+		{
+			ObjectMeta:   metav1.ObjectMeta{Name: "openshift-cli-client"},
+			RedirectURIs: []string{"http://127.0.0.1/callback", "http://[::1]/callback"},
+			GrantMethod:  oauthv1.GrantHandlerAuto,
+		},
+	} {
 
-	cliClient := oauthv1.OAuthClient{
-		ObjectMeta:            metav1.ObjectMeta{Name: "openshift-challenging-client"},
-		Secret:                "",
-		RespondWithChallenges: true,
-		RedirectURIs:          []string{oauthdiscovery.OpenShiftOAuthTokenImplicitURL(masterPublicURL)},
-		GrantMethod:           oauthv1.GrantHandlerAuto,
-	}
-	if err := ensureOAuthClient(ctx, c.oauthClientClient, cliClient); err != nil {
-		return fmt.Errorf("unable to get %q bootstrapped CLI OAuth client: %v", browserClient.Name, err)
+		if err := ensureOAuthClient(ctx, c.oauthClientClient, client); err != nil {
+			return fmt.Errorf("unable to ensure existence of a bootstrapped OAuth client %q: %w", client.Name, err)
+		}
 	}
 
 	return nil
