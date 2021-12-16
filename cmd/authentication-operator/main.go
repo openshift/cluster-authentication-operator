@@ -1,5 +1,6 @@
 package main
 
+// test comment
 import (
 	goflag "flag"
 	"fmt"
