@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	configv1 "github.com/openshift/api/config/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 )
@@ -69,7 +70,7 @@ func AddKeycloakIDP(
 		},
 		corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				"cpu":    resource.MustParse("1000m"),
+				"cpu":    resource.MustParse("500m"),
 				"memory": resource.MustParse("700Mi"),
 			},
 		},
@@ -129,7 +130,20 @@ func AddKeycloakIDP(
 	clientSecret, err := kcClient.RegenerateClientSecret(passwdClientId)
 	require.NoError(t, err)
 
-	idpCleans, err := addOIDCIDentityProvider(t, kubeClients, configClient, passwdClientClientId, clientSecret, openshiftIDPName, keycloakURL)
+	const groupsClaimName = "groups"
+	require.NoError(t, kcClient.CreateClientGroupMapper(passwdClientId, "test-groups-mapper", groupsClaimName))
+
+	idpCleans, err := addOIDCIDentityProvider(t,
+		kubeClients,
+		configClient,
+		passwdClientClientId, clientSecret,
+		openshiftIDPName,
+		keycloakURL,
+		configv1.OpenIDClaims{
+			PreferredUsername: []string{"preferred_username"},
+			Groups:            []configv1.OpenIDClaim{groupsClaimName},
+		},
+	)
 	cleanups = append(cleanups, idpCleans...)
 	require.NoError(t, err, "failed to configure the identity provider")
 
@@ -210,6 +224,233 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 	return nil
 }
 
+func (kc *keycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsClaimName string) error {
+	mappersURL := *kc.keycloakAdminURL
+	mappersURL.Path += "/clients/" + clientId + "/protocol-mappers/models"
+
+	mapper := map[string]interface{}{
+		"name":           mapperName,
+		"protocol":       "openid-connect",
+		"protocolMapper": "oidc-group-membership-mapper", // protocol-mapper type provided by Keycloak
+		"config": map[string]string{
+			"full.path":            "false",
+			"id.token.claim":       "true",
+			"access.token.claim":   "false",
+			"userinfo.token.claim": "true",
+			"claim.name":           groupsClaimName,
+		},
+	}
+
+	mapperBytes, err := json.Marshal(mapper)
+	if err != nil {
+		return err
+	}
+
+	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
+	resp, err := kc.Do(http.MethodPost, mappersURL.String(), bytes.NewBuffer(mapperBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBytes, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("failed creating mapper %q: %s %s", mapperName, resp.Status, respBytes)
+	}
+
+	return nil
+}
+
+func (kc *keycloakClient) CreateGroup(groupName string) error {
+	groupsURL := *kc.keycloakAdminURL
+	groupsURL.Path += "/groups"
+
+	group := map[string]interface{}{
+		"name": groupName,
+	}
+
+	groupBytes, err := json.Marshal(group)
+	if err != nil {
+		return err
+	}
+
+	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
+	resp, err := kc.Do(http.MethodPost, groupsURL.String(), bytes.NewBuffer(groupBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBytes, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("failed creating group %q: %s %s", groupName, resp.Status, respBytes)
+	}
+
+	return nil
+}
+
+func (kc *keycloakClient) CreateUser(username, password string, groups []string) error {
+	usersURL := *kc.keycloakAdminURL
+	usersURL.Path += "/users"
+
+	user := map[string]interface{}{
+		"username": username,
+		"credentials": []map[string]interface{}{
+			{
+				"temporary": false,
+				"type":      "password",
+				"value":     password,
+			},
+		},
+		"enabled":       true,
+		"emailVerified": true,
+		"groups":        groups,
+	}
+
+	userBytes, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+
+	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
+	resp, err := kc.Do(http.MethodPost, usersURL.String(), bytes.NewBuffer(userBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBytes, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("failed creating user %q: %s %s", username, resp.Status, respBytes)
+	}
+
+	return nil
+}
+
+func (kc *keycloakClient) ListUsers() ([]map[string]interface{}, error) {
+	usersURL := *kc.keycloakAdminURL
+	usersURL.Path += "/users"
+
+	resp, err := kc.Do(http.MethodGet, usersURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("listing users failed: %s: %s", resp.Status, respBytes)
+	}
+
+	users := []map[string]interface{}{}
+	if err := json.Unmarshal(respBytes, &users); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+func (kc *keycloakClient) UpdateUser(id string, changes map[string]interface{}) error {
+	user, err := kc.GetUser(id)
+	if err != nil {
+		return err
+	}
+
+	for k, v := range changes {
+		user[k] = v
+	}
+
+	userBytes, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+
+	usersURL := *kc.keycloakAdminURL
+	usersURL.Path += "/users/" + id
+
+	resp, err := kc.Do(http.MethodPut, usersURL.String(), bytes.NewBuffer(userBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		respBytes, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("failed updating user %q: %s: %s", id, resp.Status, respBytes)
+	}
+
+	return nil
+}
+
+func (kc *keycloakClient) GetUser(id string) (map[string]interface{}, error) {
+	usersURL := *kc.keycloakAdminURL
+	usersURL.Path += "/users/" + id
+
+	resp, err := kc.Do(http.MethodGet, usersURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	user := map[string]interface{}{}
+	if err := json.Unmarshal(respBytes, &user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (kc *keycloakClient) ListUserGroups(id string) ([]map[string]interface{}, error) {
+	userGroupsURL := *kc.keycloakAdminURL
+	userGroupsURL.Path += "/users/" + id + "/groups"
+
+	resp, err := kc.Do(http.MethodGet, userGroupsURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	userGroups := []map[string]interface{}{}
+	if err := json.Unmarshal(respBytes, &userGroups); err != nil {
+		return nil, err
+	}
+
+	return userGroups, nil
+}
+
+func (kc *keycloakClient) DeleteUserFromGroups(userId string, groupIds ...string) error {
+	userGroupsURL := *kc.keycloakAdminURL
+	userGroupsURL.Path += "/users/" + userId + "/groups/"
+
+	for _, gid := range groupIds {
+		resp, err := kc.Do(http.MethodDelete, userGroupsURL.String()+gid, nil)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("failed removing group %q from user %q: the server returned %s", gid, userId, resp.Status)
+		}
+	}
+
+	return nil
+}
+
 // UpdateClientAccessTokenTimeout updates the timeout for a client of the given id
 // timeout is a timeout in seconds
 func (kc *keycloakClient) UpdateClientAccessTokenTimeout(id string, timeout int32) error {
@@ -251,6 +492,10 @@ func (kc *keycloakClient) UpdateClient(id string, changedFields map[string]inter
 	clientsURL := *kc.keycloakAdminURL
 	clientsURL.Path += "/clients/" + id
 	resp, err := kc.Do(http.MethodPut, clientsURL.String(), bytes.NewBuffer(clientBytes))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -348,7 +593,9 @@ func (kc *keycloakClient) RegenerateClientSecret(id string) (string, error) {
 	}
 
 	secret := map[string]string{}
-	err = json.Unmarshal(respBytes, &secret)
+	if err = json.Unmarshal(respBytes, &secret); err != nil {
+		return "", err
+	}
 
 	secretVal, ok := secret["value"]
 	if !ok {

@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	configv1 "github.com/openshift/api/config/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 
@@ -115,7 +116,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 	appID := app["application_id"].(string)
 	appSecret := app["secret"].(string)
 
-	idpCleanups, err := addOIDCIDentityProvider(t, kubeClients, configclients, appID, appSecret, openshiftIDPName, gitlabURL)
+	idpCleanups, err := addOIDCIDentityProvider(t, kubeClients, configclients, appID, appSecret, openshiftIDPName, gitlabURL, configv1.OpenIDClaims{})
 	require.NoError(t, err)
 
 	return gitlabURL, openshiftIDPName, append(cleanups, idpCleanups...)

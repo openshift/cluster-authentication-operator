@@ -58,7 +58,7 @@ func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1In
 		conditions := clusterOperator.Status.Conditions
 		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, conditionsStatusString(conditions))
 		degradedCondition := v1helpers.FindStatusCondition(conditions, configv1.OperatorDegraded)
-		if degradedCondition.Status == configv1.ConditionTrue {
+		if degradedCondition != nil && degradedCondition.Status == configv1.ConditionTrue {
 			t.Logf("clusteroperators.config.openshift.io/%v: degraded is true!: %s:%s", name, degradedCondition.Reason, degradedCondition.Message)
 		}
 		availableStatusIsMatch, progressingStatusIsMatch, degradedStatusIsMatch, upgradableStatusIsMatch := true, true, true, true
