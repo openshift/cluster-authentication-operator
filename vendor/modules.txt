@@ -249,11 +249,7 @@ github.com/openshift/client-go/route/informers/externalversions/route/v1
 github.com/openshift/client-go/route/listers/route/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-<<<<<<< HEAD
-# github.com/openshift/library-go v0.0.0-20211216141749-1816407208cf
-=======
-# github.com/openshift/library-go v0.0.0-20211214183058-58531ccbde67
->>>>>>> 3e9646f1 (feat: library-go bump)
+# github.com/openshift/library-go v0.0.0-20211217155025-d48a1fb9b7c2
 ## explicit; go 1.17
 github.com/openshift/library-go/pkg/apps/deployment
 github.com/openshift/library-go/pkg/assets
