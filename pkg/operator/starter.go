@@ -547,14 +547,18 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
 		assets.Asset,
-		[]string{
-			"oauth-apiserver/ns.yaml",
-			"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-			"oauth-apiserver/svc.yaml",
-			"oauth-apiserver/sa.yaml",
-			"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
-			"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
-			"oauth-apiserver/oauth-apiserver-pdb.yaml",
+		[]apiservercontrollerset.ConditionalFiles{
+			{
+				Files: []string{
+					"oauth-apiserver/ns.yaml",
+					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+					"oauth-apiserver/svc.yaml",
+					"oauth-apiserver/sa.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+					"oauth-apiserver/oauth-apiserver-pdb.yaml",
+				},
+			},
 		},
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
