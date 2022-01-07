@@ -359,7 +359,6 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced,
 		operatorCtx.operatorClient.Client,
 		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
 		controllerContext.EventRecorder,
