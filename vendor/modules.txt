@@ -306,6 +306,8 @@ github.com/openshift/library-go/pkg/operator/resourcesynccontroller
 github.com/openshift/library-go/pkg/operator/revisioncontroller
 github.com/openshift/library-go/pkg/operator/secretspruner
 github.com/openshift/library-go/pkg/operator/staleconditions
+github.com/openshift/library-go/pkg/operator/staticpod/controller/guard
+github.com/openshift/library-go/pkg/operator/staticpod/controller/guard/bindata
 github.com/openshift/library-go/pkg/operator/staticpod/controller/revision
 github.com/openshift/library-go/pkg/operator/staticresourcecontroller
 github.com/openshift/library-go/pkg/operator/status
