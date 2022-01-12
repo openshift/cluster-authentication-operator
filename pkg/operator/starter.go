@@ -53,6 +53,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
 	"github.com/openshift/library-go/pkg/operator/staleconditions"
+	"github.com/openshift/library-go/pkg/operator/staticpod/controller/guard"
 	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
@@ -528,6 +529,8 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	const apiServerConditionsPrefix = "APIServer"
 
+	infraLister := operatorCtx.operatorConfigInformer.Config().V1().Infrastructures().Lister()
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		operatorCtx.operatorClient,
 		eventRecorder,
@@ -556,10 +559,29 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 					"oauth-apiserver/sa.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+				},
+			},
+			{
+				Files: []string{
 					"oauth-apiserver/oauth-apiserver-pdb.yaml",
+				},
+				ShouldCreateFn: func() bool {
+					isSno, err := guard.IsSNOCheckFnc(infraLister)()
+					if err != nil {
+						return false
+					}
+					return !isSno
+				},
+				ShouldDeleteFn: func() bool {
+					isSno, err := guard.IsSNOCheckFnc(infraLister)()
+					if err != nil {
+						return false
+					}
+					return isSno
 				},
 			},
 		},
+
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
 	).WithRevisionController(
