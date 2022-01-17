@@ -38,11 +38,7 @@ func AddKeycloakIDP(
 
 	nsName, keycloakHost, cleanup := deployPod(t, kubeClients, routeClient,
 		"keycloak",
-		// Keycloak version 15.0.2 does not work with FIPS:
-		// https://issues.redhat.com/browse/KEYCLOAK-19771
-		//
-		// So we need to stay in this label until that gets solved.
-		"quay.io/keycloak/keycloak:15.0.1",
+		"quay.io/keycloak/keycloak:latest",
 		[]corev1.EnvVar{
 			// configure password for GitLab root user
 			{Name: "KEYCLOAK_USER", Value: "admin"},
