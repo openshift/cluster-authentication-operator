@@ -49,6 +49,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
+	"github.com/openshift/library-go/pkg/operator/metricscontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
@@ -222,6 +223,18 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
+
+	invalidCertsController := metricscontroller.NewMetricsController(
+		"InvalidProviderCertsController",
+		operatorCtx.operatorClient,
+		controllerContext.EventRecorder.WithComponentSuffix("invalid-provider-certs"),
+		"/var/run/configmaps/service-ca-bundle/service-ca.crt",
+		metricscontroller.NewLegacyCNCertsMetricsSyncFunc(
+			"InvalidProvider",
+			`sum by (provider) (openshift_auth_x509_missing_san_total{job="oauth-openshift",namespace="openshift-authentication"})`,
+			operatorCtx.operatorClient,
+		),
+	)
 
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
@@ -488,6 +501,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		proxyConfigController.Run,
 		customRouteController.Run,
 		trustDistributionController.Run,
+		invalidCertsController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)
