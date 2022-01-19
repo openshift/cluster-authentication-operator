@@ -529,8 +529,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	const apiServerConditionsPrefix = "APIServer"
 
-	infraLister := operatorCtx.operatorConfigInformer.Config().V1().Infrastructures().Lister()
-
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		operatorCtx.operatorClient,
 		eventRecorder,
@@ -566,18 +564,28 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 					"oauth-apiserver/oauth-apiserver-pdb.yaml",
 				},
 				ShouldCreateFn: func() bool {
-					isSno, err := guard.IsSNOCheckFnc(infraLister)()
+					isSNO, precheckSucceeded, err := guard.IsSNOCheckFnc(operatorCtx.operatorConfigInformer.Config().V1().Infrastructures())()
 					if err != nil {
+						klog.Errorf("IsSNOCheckFnc failed: %v", err)
 						return false
 					}
-					return !isSno
+					if !precheckSucceeded {
+						klog.V(4).Infof("IsSNOCheckFnc precheck did not succeed, skipping")
+						return false
+					}
+					return !isSNO
 				},
 				ShouldDeleteFn: func() bool {
-					isSno, err := guard.IsSNOCheckFnc(infraLister)()
+					isSNO, precheckSucceeded, err := guard.IsSNOCheckFnc(operatorCtx.operatorConfigInformer.Config().V1().Infrastructures())()
 					if err != nil {
+						klog.Errorf("IsSNOCheckFnc failed: %v", err)
 						return false
 					}
-					return isSno
+					if !precheckSucceeded {
+						klog.V(4).Infof("IsSNOCheckFnc precheck did not succeed, skipping")
+						return false
+					}
+					return isSNO
 				},
 			},
 		},
