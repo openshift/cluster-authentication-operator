@@ -293,8 +293,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
-		"oauth-openshift",
 		"v4-0-config-system-custom-router-certs",
+		"oauth-openshift",
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
