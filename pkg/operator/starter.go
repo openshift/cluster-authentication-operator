@@ -49,6 +49,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
+	"github.com/openshift/library-go/pkg/operator/metricscontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
@@ -222,6 +223,18 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
+
+	invalidCertsController := metricscontroller.NewMetricsController(
+		"InvalidProviderCertsController",
+		operatorCtx.operatorClient,
+		controllerContext.EventRecorder.WithComponentSuffix("invalid-provider-certs"),
+		"/var/run/configmaps/service-ca-bundle/service-ca.crt",
+		metricscontroller.NewLegacyCNCertsMetricsSyncFunc(
+			"InvalidProvider",
+			`sum by (provider) (openshift_auth_x509_missing_san_total{job="oauth-openshift",namespace="openshift-authentication"})`,
+			operatorCtx.operatorClient,
+		),
+	)
 
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
@@ -488,6 +501,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		proxyConfigController.Run,
 		customRouteController.Run,
 		trustDistributionController.Run,
+		invalidCertsController.Run,
 		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
 		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
 	)
@@ -521,7 +535,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	kubeInformers := certinformers.NewSharedInformerFactory(operatorCtx.kubeClient, resync)
 
 	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces)
-	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces, operatorCtx.resourceSyncController, operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1(), nodeProvider)
+	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces, operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1(), nodeProvider)
 	if err != nil {
 		return err
 	}
@@ -601,6 +615,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.configClient.ConfigV1().APIServers(),
 		operatorCtx.operatorConfigInformer.Config().V1().APIServers(),
 		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.resourceSyncController,
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
@@ -651,7 +666,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 	)
 
-	authenticatorCertRequester := csr.NewClientCertificateController(
+	authenticatorCertRequester, err := csr.NewClientCertificateController(
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
 			SecretName:      "openshift-authenticator-certs",
@@ -671,6 +686,9 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 		"OpenShiftAuthenticatorCertRequester",
 	)
+	if err != nil {
+		return err
+	}
 
 	labelsReq, err := labels.NewRequirement("authentication.openshift.io/csr", selection.Equals, []string{"openshift-authenticator"})
 	if err != nil {

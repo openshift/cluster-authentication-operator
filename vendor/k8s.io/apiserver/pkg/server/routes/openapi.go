@@ -18,13 +18,13 @@ package routes
 
 import (
 	restful "github.com/emicklei/go-restful"
-	"github.com/go-openapi/spec"
 	"k8s.io/klog/v2"
 
 	"k8s.io/apiserver/pkg/server/mux"
 	"k8s.io/kube-openapi/pkg/builder"
 	"k8s.io/kube-openapi/pkg/common"
 	"k8s.io/kube-openapi/pkg/handler"
+	"k8s.io/kube-openapi/pkg/validation/spec"
 )
 
 // OpenAPI installs spec endpoints for each web service.
@@ -34,6 +34,17 @@ type OpenAPI struct {
 
 // Install adds the SwaggerUI webservice to the given mux.
 func (oa OpenAPI) Install(c *restful.Container, mux *mux.PathRecorderMux) (*handler.OpenAPIService, *spec.Swagger) {
+	// we shadow ClustResourceQuotas, RoleBindingRestrictions, and SecurityContextContstraints
+	// with a CRD. This loop removes all CRQ,RBR, SCC paths
+	// from the OpenAPI spec such that they don't conflict with the CRD
+	// apiextensions-apiserver spec during merging.
+	oa.Config.IgnorePrefixes = append(oa.Config.IgnorePrefixes,
+		"/apis/quota.openshift.io/v1/clusterresourcequotas",
+		"/apis/security.openshift.io/v1/securitycontextconstraints",
+		"/apis/authorization.openshift.io/v1/rolebindingrestrictions",
+		"/apis/authorization.openshift.io/v1/namespaces/{namespace}/rolebindingrestrictions",
+		"/apis/authorization.openshift.io/v1/watch/namespaces/{namespace}/rolebindingrestrictions",
+		"/apis/authorization.openshift.io/v1/watch/rolebindingrestrictions")
 	spec, err := builder.BuildOpenAPISpec(c.RegisteredWebServices(), oa.Config)
 	if err != nil {
 		klog.Fatalf("Failed to build open api spec for root: %v", err)
