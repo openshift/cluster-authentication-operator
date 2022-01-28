@@ -252,6 +252,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"OAuthVersionRouteAvailable",
 			"OAuthVersionRouteSecretDegraded",
 			"OAuthVersionIngressConfigDegraded",
+			// removed in https://github.com/openshift/cluster-authentication-operator/commit/7c29d664bd571ce5f8e99456a206584651d200a7
+			"RouteDegraded",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
