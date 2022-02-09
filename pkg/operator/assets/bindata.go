@@ -505,7 +505,7 @@ data:
       - "/logs"
       - "/metrics"
       - "/version"
-    - level: RequestResponse
+    - level: Metadata
 `)
 
 func oauthOpenshiftAuditPolicyYamlBytes() ([]byte, error) {

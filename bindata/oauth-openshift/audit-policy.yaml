@@ -14,4 +14,4 @@ data:
       - "/logs"
       - "/metrics"
       - "/version"
-    - level: RequestResponse
+    - level: Metadata
