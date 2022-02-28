@@ -233,6 +233,8 @@ type GenericAPIServer struct {
 	// If enabled, after ShutdownDelayDuration elapses, any incoming request is
 	// rejected with a 429 status code and a 'Retry-After' response.
 	ShutdownSendRetryAfter bool
+
+	EnableWatermarkMaintenance bool
 }
 
 // DelegationTarget is an interface which allows for composition of API servers with top level handling that works

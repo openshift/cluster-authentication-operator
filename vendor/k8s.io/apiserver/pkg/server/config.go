@@ -257,6 +257,8 @@ type Config struct {
 
 	// StorageVersionManager holds the storage versions of the API resources installed by this server.
 	StorageVersionManager storageversion.Manager
+
+	EnableWatermarkMaintenance bool
 }
 
 type RecommendedConfig struct {
@@ -701,26 +703,28 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
 	}
 
 	// Add PostStartHooks for maintaining the watermarks for the Priority-and-Fairness and the Max-in-Flight filters.
-	if c.FlowControl != nil {
-		const priorityAndFairnessFilterHookName = "priority-and-fairness-filter"
-		if !s.isPostStartHookRegistered(priorityAndFairnessFilterHookName) {
-			err := s.AddPostStartHook(priorityAndFairnessFilterHookName, func(context PostStartHookContext) error {
-				genericfilters.StartPriorityAndFairnessWatermarkMaintenance(context.StopCh)
-				return nil
-			})
-			if err != nil {
-				return nil, err
+	if s.EnableWatermarkMaintenance {
+		if c.FlowControl != nil {
+			const priorityAndFairnessFilterHookName = "priority-and-fairness-filter"
+			if !s.isPostStartHookRegistered(priorityAndFairnessFilterHookName) {
+				err := s.AddPostStartHook(priorityAndFairnessFilterHookName, func(context PostStartHookContext) error {
+					genericfilters.StartPriorityAndFairnessWatermarkMaintenance(context.StopCh)
+					return nil
+				})
+				if err != nil {
+					return nil, err
+				}
 			}
-		}
-	} else {
-		const maxInFlightFilterHookName = "max-in-flight-filter"
-		if !s.isPostStartHookRegistered(maxInFlightFilterHookName) {
-			err := s.AddPostStartHook(maxInFlightFilterHookName, func(context PostStartHookContext) error {
-				genericfilters.StartMaxInFlightWatermarkMaintenance(context.StopCh)
-				return nil
-			})
-			if err != nil {
-				return nil, err
+		} else {
+			const maxInFlightFilterHookName = "max-in-flight-filter"
+			if !s.isPostStartHookRegistered(maxInFlightFilterHookName) {
+				err := s.AddPostStartHook(maxInFlightFilterHookName, func(context PostStartHookContext) error {
+					genericfilters.StartMaxInFlightWatermarkMaintenance(context.StopCh)
+					return nil
+				})
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -770,10 +774,10 @@ func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler {
 	if c.FlowControl != nil {
 		requestWorkEstimator := flowcontrolrequest.NewWorkEstimator(c.StorageObjectCountTracker.Get, c.FlowControl.GetInterestedWatchCount)
 		handler = filterlatency.TrackCompleted(handler)
-		handler = genericfilters.WithPriorityAndFairness(handler, c.LongRunningFunc, c.FlowControl, requestWorkEstimator)
+		handler = genericfilters.WithPriorityAndFairness(handler, c.LongRunningFunc, c.FlowControl, requestWorkEstimator, c.EnableWatermarkMaintenance)
 		handler = filterlatency.TrackStarted(handler, "priorityandfairness")
 	} else {
-		handler = genericfilters.WithMaxInFlightLimit(handler, c.MaxRequestsInFlight, c.MaxMutatingRequestsInFlight, c.LongRunningFunc)
+		handler = genericfilters.WithMaxInFlightLimit(handler, c.MaxRequestsInFlight, c.MaxMutatingRequestsInFlight, c.LongRunningFunc, c.EnableWatermarkMaintenance)
 	}
 
 	handler = filterlatency.TrackCompleted(handler)
