@@ -41,9 +41,13 @@ func AddKeycloakIDP(
 		"quay.io/keycloak/keycloak:latest",
 		[]corev1.EnvVar{
 			// configure password for GitLab root user
-			{Name: "KEYCLOAK_USER", Value: "admin"},
-			{Name: "KEYCLOAK_PASSWORD", Value: "password"},
-			{Name: "PROXY_ADDRESS_FORWARDING", Value: "true"},
+			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
+			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
+			{Name: "KC_METRICS_ENABLED", Value: "true"},
+			{Name: "KC_HOSTNAME_STRICT", Value: "false"},
+			{Name: "KC_PROXY", Value: "reencrypt"},
+			{Name: "KC_HTTPS_CERTIFICATE_FILE", Value: "/etc/x509/https/tls.crt"},
+			{Name: "KC_HTTPS_CERTIFICATE_KEY_FILE", Value: "/etc/x509/https/tls.key"},
 		},
 		8080,
 		8443,
@@ -71,6 +75,9 @@ func AddKeycloakIDP(
 			},
 		},
 		true,
+
+		// when triggered with "start", Keycloak does not seem to expose health checks: see https://github.com/keycloak/keycloak/issues/10559
+		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
@@ -81,16 +88,17 @@ func AddKeycloakIDP(
 		}
 	}()
 
-	keycloakURL := "https://" + keycloakHost + "/auth/realms/master"
+	keycloakBaseURL := "https://" + keycloakHost
 
 	transport, err := rest.TransportFor(kubeconfig)
 	require.NoError(t, err)
 
-	// TODO: add health and readiness instead?
-	err = WaitForHTTPStatus(t, 10*time.Minute, &http.Client{Transport: transport}, keycloakURL, http.StatusOK)
+	err = WaitForHTTPStatus(t, 10*time.Minute, &http.Client{Transport: transport}, keycloakBaseURL+"/health/ready", http.StatusOK)
 	require.NoError(t, err)
 
 	openshiftIDPName := fmt.Sprintf("keycloak-test-%s", nsName)
+
+	keycloakURL := keycloakBaseURL + "/realms/master"
 
 	// create a keycloak REST client and authenticate to the API
 	kcClient := KeycloakClientFor(t, transport, keycloakURL, "master")
@@ -160,7 +168,7 @@ func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, k
 	u, err := url.Parse(keycloakURL)
 	require.NoError(t, err)
 
-	u.Path = "/auth/admin/realms/" + keycloakRealm
+	u.Path = "/admin/realms/" + keycloakRealm
 
 	client := &http.Client{
 		Transport: transport,
@@ -188,7 +196,7 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 	}
 
 	authURL := *kc.keycloakAdminURL
-	authURL.Path = "/auth/realms/" + kc.realm + "/protocol/openid-connect/token"
+	authURL.Path = "/realms/" + kc.realm + "/protocol/openid-connect/token"
 	authReq, err := http.NewRequest(http.MethodPost, authURL.String(), bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return err
@@ -211,10 +219,18 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		return err
 	}
 
-	accessToken := authResp["access_token"].(string)
-	if len(accessToken) == 0 {
-		return fmt.Errorf("failed to retrieve an access token: %q - %q", authResp["error"], authResp["error_description"])
+	accessToken, ok := authResp["access_token"].(string)
+	if !ok || len(accessToken) == 0 {
+		errorMessage := "failed to retrieve an access token"
+		if serverErrorMessage, ok := authResp["error"]; ok {
+			errorMessage = fmt.Sprintf("%s. Server error was: %s", errorMessage, serverErrorMessage)
+			if serverErrorDescription, ok := authResp["error_description"]; ok {
+				errorMessage = fmt.Sprintf("%s - %s", errorMessage, serverErrorDescription)
+			}
+		}
+		return fmt.Errorf(errorMessage)
 	}
+
 	kc.token = accessToken
 
 	return nil
