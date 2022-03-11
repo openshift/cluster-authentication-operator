@@ -231,7 +231,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"/var/run/configmaps/service-ca-bundle/service-ca.crt",
 		metricscontroller.NewLegacyCNCertsMetricsSyncFunc(
 			"InvalidProvider",
-			`sum by (provider) (openshift_auth_x509_missing_san_total{job="oauth-openshift",namespace="openshift-authentication"})`,
+			`sum by (provider) (increase(openshift_auth_x509_missing_san_total{job="oauth-openshift",namespace="openshift-authentication"}[30m])) or on() vector(0)`,
 			operatorCtx.operatorClient,
 		),
 	)
