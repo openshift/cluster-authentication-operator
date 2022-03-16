@@ -136,6 +136,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 		return nil, err
 	}
 
+	// TODO@ibihim reading observed config here already for oauth apiserver
 	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
 	if err != nil {
 		return nil, err

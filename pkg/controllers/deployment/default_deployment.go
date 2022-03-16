@@ -25,6 +25,14 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
+var defaultAuditLogging = strings.Join([]string{
+	"--audit-log-path=/var/log/oauth-server/audit.log",
+	"--audit-log-format=json",
+	"--audit-log-maxsize=100",
+	"--audit-log-maxbackup=10",
+	"--audit-policy-file=/var/run/configmaps/audit/audit.yaml",
+}, " ")
+
 func getOAuthServerDeployment(
 	operatorConfig *operatorv1.Authentication,
 	proxyConfig *configv1.Proxy,
@@ -68,6 +76,10 @@ func getOAuthServerDeployment(
 	// set proxy env vars
 	container.Env = append(container.Env, proxyConfigToEnvVars(proxyConfig)...)
 
+	// if auditProfile not none then exchange ${ADUTI_LOTG}
+	// add audit TODO@ibihim: make dynamic
+	container.Args[0] = strings.Replace(container.Args[0], "${AUDIT_LOG}", defaultAuditLogging, 1)
+
 	// set log level
 	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
 
@@ -89,7 +101,10 @@ func getOAuthServerDeployment(
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
 	var configDeserialized map[string]interface{}
-	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
+		operatorConfig.Raw,
+		configobservation.OAuthServerConfigPrefix,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
 	}

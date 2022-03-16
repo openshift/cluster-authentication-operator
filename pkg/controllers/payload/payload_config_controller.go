@@ -153,7 +153,15 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
-func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
+// TODO@ibihim this is the place where the observed config is turned into a config map for the binary (oauth-server).
+// The configmap for the binary is aggregated here.
+func (c *payloadConfigController) handleOAuthConfig(
+	ctx context.Context,
+	operatorConfig *operatorv1.Authentication,
+	route *routev1.Route,
+	service *corev1.Service,
+	recorder events.Recorder,
+) []operatorv1.OperatorCondition {
 	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
@@ -172,7 +180,6 @@ func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operato
 				MaxRequestsInFlight:   1000,   // TODO this is a made up number
 				RequestTimeoutSeconds: 5 * 60, // 5 minutes
 			},
-			AuditConfig: configv1.AuditConfig{}, // TODO probably need this
 			KubeClientConfig: configv1.KubeClientConfig{
 				KubeConfig: "", // this should use in cluster config
 				ConnectionOverrides: configv1.ClientConnectionOverrides{
@@ -210,7 +217,10 @@ func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operato
 		}
 	}
 
-	observedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	observedConfig, err := common.UnstructuredConfigFrom(
+		operatorConfig.Spec.ObservedConfig.Raw,
+		configobservation.OAuthServerConfigPrefix,
+	)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{

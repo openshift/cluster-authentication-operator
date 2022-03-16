@@ -16,7 +16,12 @@ import (
 
 var identityProvidersMounts = []string{"volumesToMount", "identityProviders"}
 
-func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, errs []error) {
+// TODO@ibihim: really bad example, look into all the other observers.
+func ObserveIdentityProviders(
+	genericlisters configobserver.Listers,
+	recorder events.Recorder,
+	existingConfig map[string]interface{},
+) (ret map[string]interface{}, errs []error) {
 	identityProvidersPath := []string{"oauthConfig", "identityProviders"}
 	defer func() {
 		ret = configobserver.Pruned(ret, identityProvidersPath, identityProvidersMounts)
@@ -52,14 +57,22 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 
 	// convert identity providers from config to oauth-configuration API and
 	// extract the CMs and Secrets that need to be synchronized to the target NS
-	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(listers.ConfigMapLister, listers.SecretsLister, oauthConfig.Spec.IdentityProviders)
+	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(
+		listers.ConfigMapLister,
+		listers.SecretsLister,
+		oauthConfig.Spec.IdentityProviders,
+	)
 	if len(idpErrs) > 0 {
 		return existingConfig, append(errs, idpErrs...)
 	}
 
 	observedConfig := map[string]interface{}{}
 	if len(convertedObservedIdentityProviders) > 0 {
-		if err := unstructured.SetNestedField(observedConfig, convertedObservedIdentityProviders, identityProvidersPath...); err != nil {
+		if err := unstructured.SetNestedField(
+			observedConfig,
+			convertedObservedIdentityProviders,
+			identityProvidersPath...,
+		); err != nil {
 			return existingConfig, append(errs, err)
 		}
 	}
@@ -79,7 +92,11 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 
 	datasync.HandleIdPConfigSync(resourceSyncer, existingSyncData, observedSyncData)
 
-	if err := unstructured.SetNestedField(observedConfig, string(observedSyncDataBytes), identityProvidersMounts...); err != nil {
+	if err := unstructured.SetNestedField(
+		observedConfig,
+		string(observedSyncDataBytes),
+		identityProvidersMounts...,
+	); err != nil {
 		return existingConfig, append(errs, err)
 	}
 
@@ -89,7 +106,10 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 // GetIDPConfigSyncData returns the data that should be synchronized and mounted
 // to the oauth-server container from the observed configuration
 func GetIDPConfigSyncData(observedConfig map[string]interface{}) (*datasync.ConfigSyncData, error) {
-	currentSyncDataUnstructured, _, err := unstructured.NestedFieldCopy(observedConfig, identityProvidersMounts...)
+	currentSyncDataUnstructured, _, err := unstructured.NestedFieldCopy(
+		observedConfig,
+		identityProvidersMounts...,
+	)
 	if err != nil {
 		return nil, err
 	}

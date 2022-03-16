@@ -14,7 +14,11 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 )
 
-func ObserveRouterSecret(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, _ []error) {
+func ObserveRouterSecret(
+	genericlisters configobserver.Listers,
+	recorder events.Recorder,
+	existingConfig map[string]interface{},
+) (ret map[string]interface{}, _ []error) {
 	namedCertificatesPath := []string{"servingInfo", "namedCertificates"}
 	defer func() {
 		ret = configobserver.Pruned(ret, namedCertificatesPath)
@@ -53,7 +57,12 @@ func ObserveRouterSecret(genericlisters configobserver.Listers, recorder events.
 func getObservedNamedCertificates(listers configobservation.Listers) ([]interface{}, error) {
 	// Check for custom serving certificate secret
 	defaultSecretName := "v4-0-config-system-router-certs"
-	secret, err := common.GetActiveRouterSecret(listers.SecretsLister, "openshift-authentication", defaultSecretName, "v4-0-config-system-custom-router-certs")
+	secret, err := common.GetActiveRouterSecret(
+		listers.SecretsLister,
+		"openshift-authentication",
+		defaultSecretName,
+		"v4-0-config-system-custom-router-certs",
+	)
 	if err != nil {
 		return nil, err
 	}
