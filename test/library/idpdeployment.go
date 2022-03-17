@@ -37,6 +37,7 @@ func deployPod(
 	volumeMounts []corev1.VolumeMount,
 	resources corev1.ResourceRequirements,
 	useTLS bool,
+	command ...string,
 ) (namespace, host string, cleanup func()) {
 	testContext := context.TODO()
 
@@ -69,7 +70,7 @@ func deployPod(
 		}
 	}()
 
-	pod := podTemplate(name, image, httpPort, httpsPort)
+	pod := podTemplate(name, image, httpPort, httpsPort, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
@@ -89,7 +90,7 @@ func deployPod(
 	return
 }
 
-func podTemplate(name, image string, httpPort, httpsPort int32) *corev1.Pod {
+func podTemplate(name, image string, httpPort, httpsPort int32, command ...string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -113,6 +114,7 @@ func podTemplate(name, image string, httpPort, httpsPort int32) *corev1.Pod {
 							ContainerPort: httpPort,
 						},
 					},
+					Command: command,
 				},
 			},
 		},
