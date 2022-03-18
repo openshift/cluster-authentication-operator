@@ -101,7 +101,7 @@ func getOAuthServerDeployment(
 	container.Args[0] = strings.Replace(
 		container.Args[0],
 		"${AUDIT_OPTS}",
-		strings.Join(auditOpts, " "),
+		auditOpts,
 		1,
 	)
 
@@ -110,29 +110,38 @@ func getOAuthServerDeployment(
 	return deployment, nil
 }
 
-func getAuditOptionsFromOpteratorConfig(operatorConfig *runtime.RawExtension) ([]string, error) {
+func getAuditOptionsFromOpteratorConfig(operatorConfig *runtime.RawExtension) (string, error) {
 	var configDeserialized map[string]interface{}
 	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
 		operatorConfig.Raw,
 		configobservation.OAuthServerConfigPrefix,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
+		return "", fmt.Errorf("failed to grab the operator config: %w", err)
 	}
 
 	if err := yaml.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
+		return "", fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
 	}
 
 	klog.Infof("xxx configDeserialized: %+v", configDeserialized)
 
-	args, _, err := unstructured.NestedStringSlice(configDeserialized, observeoauth.AuditOptionsPath...)
+	args, _, err := unstructured.NestedStringMap(configDeserialized, observeoauth.AuditOptionsPath...)
 	if err != nil {
 		klog.Infof("xxx ERR NestedStringSlice: %+v", err)
-		return nil, err
+		return "", err
 	}
 
-	return args, nil
+	var argString strings.Builder
+	for k, v := range args {
+		argString.WriteString("--")
+		argString.WriteString(k)
+		argString.WriteString("=")
+		argString.WriteString(v)
+		argString.WriteString(" ")
+	}
+
+	return argString.String(), nil
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {

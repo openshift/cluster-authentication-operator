@@ -18,6 +18,16 @@ import (
 )
 
 func TestAuditProfile(t *testing.T) {
+	auditOpts := map[string]interface{}{
+		"serverArguments": map[string]interface{}{
+			"audit-log-path":      "/var/log/oauth-server/audit.log",
+			"audit-log-format":    "json",
+			"audit-log-maxsize":   "100",
+			"audit-log-maxbackup": "10",
+			"audit-policy-file":   "/var/run/configmaps/audit/audit.yaml",
+		},
+	}
+
 	for _, tt := range [...]struct {
 		name                     string
 		config                   *configv1.OAuth
@@ -29,17 +39,8 @@ func TestAuditProfile(t *testing.T) {
 			name:                     "nil config",
 			config:                   nil,
 			previouslyObservedConfig: map[string]interface{}{},
-			expected: map[string]interface{}{
-				"serverArguments": map[string]interface{}{
-					"auditOptions": []interface{}{
-						string("--audit-log-path=/var/log/oauth-server/audit.log"),
-						string("--audit-log-format=json"), string("--audit-log-maxsize=100"),
-						string("--audit-log-maxbackup=10"),
-						string("--audit-policy-file=/var/run/configmaps/audit/audit.yaml"),
-					},
-				},
-			},
-			errors: []error{},
+			expected:                 auditOpts,
+			errors:                   []error{},
 		},
 		{
 			name: "disable audit options from scratch",
@@ -61,16 +62,7 @@ func TestAuditProfile(t *testing.T) {
 				}},
 			},
 			previouslyObservedConfig: map[string]interface{}{},
-			expected: map[string]interface{}{
-				"serverArguments": map[string]interface{}{
-					"auditOptions": []interface{}{
-						string("--audit-log-path=/var/log/oauth-server/audit.log"),
-						string("--audit-log-format=json"), string("--audit-log-maxsize=100"),
-						string("--audit-log-maxbackup=10"),
-						string("--audit-policy-file=/var/run/configmaps/audit/audit.yaml"),
-					},
-				},
-			},
+			expected:                 auditOpts,
 		},
 		{
 			name: "disable audit profile from enabled",
@@ -80,17 +72,8 @@ func TestAuditProfile(t *testing.T) {
 					Profile: configv1.OAuthNoneAuditProfileType,
 				}},
 			},
-			previouslyObservedConfig: map[string]interface{}{
-				"serverArguments": map[string]interface{}{
-					"auditOptions": []interface{}{
-						string("--audit-log-path=/var/log/oauth-server/audit.log"),
-						string("--audit-log-format=json"), string("--audit-log-maxsize=100"),
-						string("--audit-log-maxbackup=10"),
-						string("--audit-policy-file=/var/run/configmaps/audit/audit.yaml"),
-					},
-				},
-			},
-			expected: map[string]interface{}{},
+			previouslyObservedConfig: auditOpts,
+			expected:                 map[string]interface{}{},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

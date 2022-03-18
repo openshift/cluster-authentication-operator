@@ -18,14 +18,14 @@ import (
 
 var (
 	AuditOptionsPath []string = []string{
-		"serverArguments", "auditOptions",
+		"serverArguments",
 	}
-	AuditOptionsArgs []string = []string{
-		"--audit-log-path=/var/log/oauth-server/audit.log",
-		"--audit-log-format=json",
-		"--audit-log-maxsize=100",
-		"--audit-log-maxbackup=10",
-		"--audit-policy-file=/var/run/configmaps/audit/audit.yaml",
+	auditOptionsArgs map[string]interface{} = map[string]interface{}{
+		"audit-log-path":      "/var/log/oauth-server/audit.log",
+		"audit-log-format":    "json",
+		"audit-log-maxsize":   "100",
+		"audit-log-maxbackup": "10",
+		"audit-policy-file":   "/var/run/configmaps/audit/audit.yaml",
 	}
 )
 
@@ -55,9 +55,9 @@ func ObserveAudit(
 	observedConfig := map[string]interface{}{}
 	observedAuditProfile := oauthConfig.Spec.Audit.Profile
 	if observedAuditProfile != configv1.OAuthNoneAuditProfileType {
-		if err := unstructured.SetNestedStringSlice(
+		if err := unstructured.SetNestedField(
 			observedConfig,
-			AuditOptionsArgs,
+			auditOptionsArgs,
 			AuditOptionsPath...,
 		); err != nil {
 			return existingConfig, append(errs, fmt.Errorf(
@@ -69,7 +69,7 @@ func ObserveAudit(
 		}
 	}
 
-	currentAuditProfile, _, err := unstructured.NestedStringSlice(
+	currentAuditProfile, _, err := unstructured.NestedFieldCopy(
 		existingConfig,
 		AuditOptionsPath...,
 	)
@@ -77,12 +77,12 @@ func ObserveAudit(
 		return existingConfig, append(errs, err)
 	}
 
-	if !equality.Semantic.DeepEqual(currentAuditProfile, AuditOptionsArgs) {
+	if !equality.Semantic.DeepEqual(currentAuditProfile, auditOptionsArgs) {
 		recorder.Eventf(
 			"ObserveAuditProfile",
 			"AuditProfile changed from '%s' to '%s'",
 			currentAuditProfile,
-			AuditOptionsArgs,
+			auditOptionsArgs,
 		)
 	}
 
