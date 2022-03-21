@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	AuditOptionsPath = []string{
+	ServerArgumentsPath = []string{
 		"serverArguments",
 	}
 	auditOptionsArgs = map[string]interface{}{
@@ -36,7 +36,7 @@ func ObserveAudit(
 	existingConfig map[string]interface{},
 ) (ret map[string]interface{}, _ []error) {
 	defer func() {
-		ret = configobserver.Pruned(ret, AuditOptionsPath)
+		ret = configobserver.Pruned(ret, ServerArgumentsPath)
 	}()
 
 	listers := genericListers.(configobservation.Listers)
@@ -61,12 +61,12 @@ func ObserveAudit(
 		if err := unstructured.SetNestedField(
 			observedConfig,
 			auditOptionsArgs,
-			AuditOptionsPath...,
+			ServerArgumentsPath...,
 		); err != nil {
 			klog.V(2).Info("xxx err on adding nested fields")
 			return existingConfig, append(errs, fmt.Errorf(
 				"xxx set nested field (%s) for profile (%s): %w",
-				strings.Join(AuditOptionsPath, "/"),
+				strings.Join(ServerArgumentsPath, "/"),
 				observedAuditProfile,
 				err,
 			))
@@ -75,7 +75,7 @@ func ObserveAudit(
 
 	currentAuditProfile, _, err := unstructured.NestedFieldCopy(
 		existingConfig,
-		AuditOptionsPath...,
+		ServerArgumentsPath...,
 	)
 	if err != nil {
 		klog.V(2).Info("xxx err on getting currrent stuff")

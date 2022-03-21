@@ -236,7 +236,10 @@ func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPISer
 		return nil, err
 	}
 
-	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.UnsupportedConfigOverrides.Raw, configobservation.OAuthAPIServerConfigPrefix)
+	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(
+		authOperatorSpec.UnsupportedConfigOverrides.Raw,
+		configobservation.OAuthAPIServerConfigPrefix,
+	)
 	if err != nil {
 		return nil, err
 	}
