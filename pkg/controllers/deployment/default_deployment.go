@@ -26,14 +26,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
-var defaultAuditLogging = strings.Join([]string{
-	"--audit-log-path=/var/log/oauth-server/audit.log",
-	"--audit-log-format=json",
-	"--audit-log-maxsize=100",
-	"--audit-log-maxbackup=10",
-	"--audit-policy-file=/var/run/configmaps/audit/audit.yaml",
-}, " ")
-
 func getOAuthServerDeployment(
 	operatorConfig *operatorv1.Authentication,
 	proxyConfig *configv1.Proxy,
@@ -78,7 +70,7 @@ func getOAuthServerDeployment(
 	container.Env = append(container.Env, proxyConfigToEnvVars(proxyConfig)...)
 
 	// set log level
-	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
+	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", "5", -1) // fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
 
 	idpSyncData, err := getSyncDataFromOperatorConfig(&operatorConfig.Spec.ObservedConfig)
 	if err != nil {
@@ -93,10 +85,12 @@ func getOAuthServerDeployment(
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
-	auditOpts, err := getAuditOptionsFromOpteratorConfig(&operatorConfig.Spec.ObservedConfig)
+	auditOpts, err := getAuditOptionsFromOperatorConfig(&operatorConfig.Spec.ObservedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get audit sync data: %w", err)
 	}
+
+	klog.Infof("xxx auditOpts: %s", auditOpts)
 
 	container.Args[0] = strings.Replace(
 		container.Args[0],
@@ -110,7 +104,7 @@ func getOAuthServerDeployment(
 	return deployment, nil
 }
 
-func getAuditOptionsFromOpteratorConfig(operatorConfig *runtime.RawExtension) (string, error) {
+func getAuditOptionsFromOperatorConfig(operatorConfig *runtime.RawExtension) (string, error) {
 	var configDeserialized map[string]interface{}
 	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
 		operatorConfig.Raw,
@@ -132,16 +126,33 @@ func getAuditOptionsFromOpteratorConfig(operatorConfig *runtime.RawExtension) (s
 		return "", err
 	}
 
+	newLiner := times(
+		fmt.Sprintf(" \\\n"),
+		len(args) - 1,
+		)
+
 	var argString strings.Builder
 	for k, v := range args {
 		argString.WriteString("--")
 		argString.WriteString(k)
 		argString.WriteString("=")
 		argString.WriteString(v)
-		argString.WriteString(" ")
+		argString.WriteString(newLiner())
 	}
 
 	return argString.String(), nil
+}
+
+// times a generic candidate
+func times(s string, t int) func () string {
+	return func () string {
+			if t > 0 {
+				t = t-1
+				return s
+			}
+
+			return ""
+	}
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
@@ -17,10 +18,10 @@ import (
 )
 
 var (
-	AuditOptionsPath []string = []string{
+	AuditOptionsPath = []string{
 		"serverArguments",
 	}
-	auditOptionsArgs map[string]interface{} = map[string]interface{}{
+	auditOptionsArgs = map[string]interface{}{
 		"audit-log-path":      "/var/log/oauth-server/audit.log",
 		"audit-log-format":    "json",
 		"audit-log-maxsize":   "100",
@@ -45,7 +46,9 @@ func ObserveAudit(
 	if errors.IsNotFound(err) {
 		klog.Warning("oauth.config.openshift.io/cluster: not found")
 		oauthConfig = new(configv1.OAuth)
+		klog.V(2).Info("xxx there is no oauth")
 	} else if err != nil {
+		klog.V(2).Info("xxx err on get oauth")
 		return existingConfig, []error{fmt.Errorf(
 			"xxx get oauth.config.openshift.io/cluster: %w",
 			err,
@@ -60,6 +63,7 @@ func ObserveAudit(
 			auditOptionsArgs,
 			AuditOptionsPath...,
 		); err != nil {
+			klog.V(2).Info("xxx err on adding nested fields")
 			return existingConfig, append(errs, fmt.Errorf(
 				"xxx set nested field (%s) for profile (%s): %w",
 				strings.Join(AuditOptionsPath, "/"),
@@ -74,6 +78,7 @@ func ObserveAudit(
 		AuditOptionsPath...,
 	)
 	if err != nil {
+		klog.V(2).Info("xxx err on getting currrent stuff")
 		return existingConfig, append(errs, err)
 	}
 
@@ -84,7 +89,10 @@ func ObserveAudit(
 			currentAuditProfile,
 			auditOptionsArgs,
 		)
+		klog.V(2).Info("xxx state change")
 	}
+
+	klog.V(2).Infof("xxx observedConfig: %+v", observedConfig)
 
 	return observedConfig, errs
 }
