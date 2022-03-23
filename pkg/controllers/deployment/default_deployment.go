@@ -177,7 +177,7 @@ func serverArgsToStringSlice(args serverArguments) []string {
 func stringSliceToNewLinedString(flags []string) string {
 	newLiner := times(
 		fmt.Sprintf(" \\\n"),
-		len(flags) - 1,
+		len(flags)-1,
 	)
 
 	var flagBlob strings.Builder
@@ -190,16 +190,15 @@ func stringSliceToNewLinedString(flags []string) string {
 	return flagBlob.String()
 }
 
-
 // times a generic candidate
-func times(s string, t int) func () string {
-	return func () string {
-			if t > 0 {
-				t = t-1
-				return s
-			}
+func times(s string, t int) func() string {
+	return func() string {
+		if t > 0 {
+			t = t - 1
+			return s
+		}
 
-			return ""
+		return ""
 	}
 }
 
