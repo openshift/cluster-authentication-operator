@@ -20,11 +20,11 @@ import (
 func TestAuditProfile(t *testing.T) {
 	auditOpts := map[string]interface{}{
 		"serverArguments": map[string]interface{}{
-			"audit-log-path":      "/var/log/oauth-server/audit.log",
-			"audit-log-format":    "json",
-			"audit-log-maxsize":   "100",
-			"audit-log-maxbackup": "10",
-			"audit-policy-file":   "/var/run/configmaps/audit/audit.yaml",
+			"audit-log-format":    []interface{}{string("json")},
+			"audit-log-maxbackup": []interface{}{string("10")},
+			"audit-log-maxsize":   []interface{}{string("100")},
+			"audit-log-path":      []interface{}{string("/var/log/oauth-server/audit.log")},
+			"audit-policy-file":   []interface{}{string("/var/run/configmaps/audit/audit.yaml")},
 		},
 	}
 
@@ -47,7 +47,7 @@ func TestAuditProfile(t *testing.T) {
 			config: &configv1.OAuth{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: configv1.OAuthSpec{Audit: configv1.OAuthAudit{
-					Profile: configv1.OAuthNoneAuditProfileType,
+					Profile: configv1.OAuthAuditProfileNone,
 				}},
 			},
 			previouslyObservedConfig: map[string]interface{}{},
@@ -58,7 +58,7 @@ func TestAuditProfile(t *testing.T) {
 			config: &configv1.OAuth{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: configv1.OAuthSpec{Audit: configv1.OAuthAudit{
-					Profile: configv1.OAuthWriteLoginEventsProfileType,
+					Profile: configv1.OAuthAuditProfileWriteLoginEvents,
 				}},
 			},
 			previouslyObservedConfig: map[string]interface{}{},
@@ -69,7 +69,7 @@ func TestAuditProfile(t *testing.T) {
 			config: &configv1.OAuth{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: configv1.OAuthSpec{Audit: configv1.OAuthAudit{
-					Profile: configv1.OAuthNoneAuditProfileType,
+					Profile: configv1.OAuthAuditProfileNone,
 				}},
 			},
 			previouslyObservedConfig: auditOpts,

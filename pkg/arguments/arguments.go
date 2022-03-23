@@ -1,16 +1,12 @@
-package deployment
+package arguments
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
@@ -18,25 +14,6 @@ var (
 )
 
 type ServerArguments map[string][]string
-
-func getServerArguments(operatorConfig *runtime.RawExtension) (ServerArguments, error) {
-	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
-		operatorConfig.Raw,
-		configobservation.OAuthServerConfigPrefix,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
-	}
-
-	configDeserialized := new(struct {
-		Args map[string]interface{} `json:"serverArguments"` // Now this thing is screwed.
-	})
-	if err := json.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
-	}
-
-	return Parse(configDeserialized.Args)
-}
 
 func Parse(raw map[string]interface{}) (ServerArguments, error) {
 	args := make(ServerArguments)
@@ -93,7 +70,7 @@ func Encode(args ServerArguments) string {
 		values := args[key]
 		for _, value := range values {
 			if buf.Len() > 0 {
-				buf.WriteByte('\n')
+				buf.WriteString(" \\\n")
 			}
 			buf.WriteString("--")
 			buf.WriteString(shellEscape(key))

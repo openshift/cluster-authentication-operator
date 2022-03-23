@@ -1,19 +1,21 @@
 package oauth
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
-
-	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 
@@ -29,6 +31,26 @@ var (
 		"audit-policy-file":   []interface{}{"/var/run/configmaps/audit/audit.yaml"},
 	}
 )
+
+func GetOAuthServerArgumentsRaw(operatorConfig *runtime.RawExtension) (map[string]interface{}, error) {
+	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
+		operatorConfig.Raw,
+		configobservation.OAuthServerConfigPrefix,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
+	}
+
+	configDeserialized := new(struct {
+		Args map[string]interface{} `json:"serverArguments"`
+	})
+	if err := json.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
+	}
+
+	return configDeserialized.Args, nil
+}
+
 
 func ObserveAudit(
 	genericListers configobserver.Listers,

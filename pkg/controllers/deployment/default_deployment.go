@@ -4,6 +4,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/arguments"
 	"os"
 	"sort"
 	"strings"
@@ -84,9 +85,14 @@ func getOAuthServerDeployment(
 	templateSpec.Volumes = append(templateSpec.Volumes, v...)
 	container.VolumeMounts = append(container.VolumeMounts, m...)
 
-	args, err := getServerArguments(&operatorConfig.Spec.ObservedConfig)
+	argsRaw, err := observeoauth.GetOAuthServerArgumentsRaw(&operatorConfig.Spec.ObservedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get audit sync data: %w", err)
+	}
+
+	args, err := arguments.Parse(argsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse raw server arguments: %w", err)
 	}
 
 	klog.Infof("xxx serverArguments: %s", args)
@@ -94,7 +100,7 @@ func getOAuthServerDeployment(
 	container.Args[0] = strings.Replace(
 		container.Args[0],
 		"${SERVER_ARGUMENTS}",
-		Encode(args),
+		arguments.Encode(args),
 		1,
 	)
 
