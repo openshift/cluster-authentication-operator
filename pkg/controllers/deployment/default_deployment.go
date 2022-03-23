@@ -108,26 +108,23 @@ func getOAuthServerDeployment(
 	return deployment, nil
 }
 
-type serverArguments map[string][]string
-
-func getServerArguments(operatorConfig *runtime.RawExtension) (serverArguments, error) {
-	var args serverArguments
-
+func getServerArguments(operatorConfig *runtime.RawExtension) (map[string][]string, error) {
 	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
 		operatorConfig.Raw,
 		configobservation.OAuthServerConfigPrefix,
 	)
 	if err != nil {
-		return args, fmt.Errorf("failed to grab the operator config: %w", err)
+		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
 	}
 
 	configDeserialized := new(struct {
 		Args map[string]interface{} `json:"serverArguments"` // Now this thing is screwed.
 	})
 	if err := json.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
-		return args, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
 	}
 
+	args := make(map[string][]string)
 	klog.Infof("xxx configDeserialized: %+v", configDeserialized)
 
 	for argName, argValue := range configDeserialized.Args {
@@ -146,7 +143,7 @@ func getServerArguments(operatorConfig *runtime.RawExtension) (serverArguments, 
 			argsSlice = append(argsSlice, str)
 		}
 
-		escapedArgsSlice := make([]string, 0, len(argsSlice))
+		escapedArgsSlice := make([]string, len(argsSlice))
 		for i, str := range argsSlice {
 			escapedArgsSlice[i] = maybeQuote(str)
 		}
@@ -157,7 +154,7 @@ func getServerArguments(operatorConfig *runtime.RawExtension) (serverArguments, 
 	return args, nil
 }
 
-func serverArgsToStringSlice(args serverArguments) []string {
+func serverArgsToStringSlice(args map[string][]string) []string {
 	keys := make([]string, 0, len(args))
 	for key := range args {
 		keys = append(keys, key)

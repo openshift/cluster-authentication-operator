@@ -22,11 +22,11 @@ var (
 		"serverArguments",
 	}
 	auditOptionsArgs = map[string]interface{}{
-		"audit-log-path":      "/var/log/oauth-server/audit.log",
-		"audit-log-format":    "json",
-		"audit-log-maxsize":   "100",
-		"audit-log-maxbackup": "10",
-		"audit-policy-file":   "/var/run/configmaps/audit/audit.yaml",
+		"audit-log-path":      []interface{}{"/var/log/oauth-server/audit.log"},
+		"audit-log-format":    []interface{}{"json"},
+		"audit-log-maxsize":   []interface{}{"100"},
+		"audit-log-maxbackup": []interface{}{"10"},
+		"audit-policy-file":   []interface{}{"/var/run/configmaps/audit/audit.yaml"},
 	}
 )
 
@@ -57,7 +57,7 @@ func ObserveAudit(
 
 	observedConfig := map[string]interface{}{}
 	observedAuditProfile := oauthConfig.Spec.Audit.Profile
-	if observedAuditProfile != configv1.OAuthNoneAuditProfileType {
+	if observedAuditProfile != configv1.OAuthAuditProfileNone {
 		if err := unstructured.SetNestedField(
 			observedConfig,
 			auditOptionsArgs,
