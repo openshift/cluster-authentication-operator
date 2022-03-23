@@ -3,17 +3,14 @@ package deployment
 import (
 	"crypto/sha512"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
@@ -92,130 +89,18 @@ func getOAuthServerDeployment(
 		return nil, fmt.Errorf("Unable to get audit sync data: %w", err)
 	}
 
-	flags := serverArgsToStringSlice(args)
-
-	klog.Infof("xxx serverArguments: %s", flags)
+	klog.Infof("xxx serverArguments: %s", args)
 
 	container.Args[0] = strings.Replace(
 		container.Args[0],
 		"${SERVER_ARGUMENTS}",
-		stringSliceToNewLinedString(flags),
+		Encode(args),
 		1,
 	)
 
 	klog.Info("xxx deployment: %+v", deployment)
 
 	return deployment, nil
-}
-
-func getServerArguments(operatorConfig *runtime.RawExtension) (map[string][]string, error) {
-	oauthServerObservedConfig, err := common.UnstructuredConfigFrom(
-		operatorConfig.Raw,
-		configobservation.OAuthServerConfigPrefix,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to grab the operator config: %w", err)
-	}
-
-	configDeserialized := new(struct {
-		Args map[string]interface{} `json:"serverArguments"` // Now this thing is screwed.
-	})
-	if err := json.Unmarshal(oauthServerObservedConfig, &configDeserialized); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal the observedConfig: %v", err)
-	}
-
-	args := make(map[string][]string)
-	klog.Infof("xxx configDeserialized: %+v", configDeserialized)
-
-	for argName, argValue := range configDeserialized.Args {
-		var argsSlice []string
-
-		argsSlice, found, err := unstructured.NestedStringSlice(configDeserialized.Args, argName)
-		if !found || err != nil {
-			str, found, err := unstructured.NestedString(configDeserialized.Args, argName)
-			if !found || err != nil {
-				return nil, fmt.Errorf(
-					"unable to create server arguments, incorrect value %v under %s key, expected []string or string",
-					argValue, argName,
-				)
-			}
-
-			argsSlice = append(argsSlice, str)
-		}
-
-		escapedArgsSlice := make([]string, len(argsSlice))
-		for i, str := range argsSlice {
-			escapedArgsSlice[i] = maybeQuote(str)
-		}
-
-		args[argName] = escapedArgsSlice
-	}
-
-	return args, nil
-}
-
-func serverArgsToStringSlice(args map[string][]string) []string {
-	keys := make([]string, 0, len(args))
-	for key := range args {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	var flags []string
-	for _, key := range keys {
-		for _, token := range args[key] {
-			flags = append(flags, fmt.Sprintf("--%s=%v", key, token))
-		}
-	}
-
-	return flags
-}
-
-func stringSliceToNewLinedString(flags []string) string {
-	newLiner := times(
-		fmt.Sprintf(" \\\n"),
-		len(flags)-1,
-	)
-
-	var flagBlob strings.Builder
-
-	for _, flag := range flags {
-		flagBlob.WriteString(flag)
-		flagBlob.WriteString(newLiner())
-	}
-
-	return flagBlob.String()
-}
-
-// times a generic candidate
-func times(s string, t int) func() string {
-	return func() string {
-		if t > 0 {
-			t = t - 1
-			return s
-		}
-
-		return ""
-	}
-}
-
-var (
-	shellEscapePattern = regexp.MustCompile(`[^\w@%+=:,./-]`)
-)
-
-// maybeQuote returns a shell-escaped version of the string s. The returned value
-// is a string that can safely be used as one token in a shell command line.
-//
-// note: this method was copied from https://github.com/alessio/shellescape/blob/0d13ae33b78a20a5d91c54ca7e216e1b75aaedef/shellescape.go#L30
-func maybeQuote(s string) string {
-	if len(s) == 0 {
-		return "''"
-	}
-	if shellEscapePattern.MatchString(s) {
-		return "'" + strings.Replace(s, "'", "'\"'\"'", -1) + "'"
-	}
-
-	return s
 }
 
 func getSyncDataFromOperatorConfig(operatorConfig *runtime.RawExtension) (*datasync.ConfigSyncData, error) {
