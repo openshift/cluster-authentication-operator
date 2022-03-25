@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "db16037adaa733f9caa55c8ae23e4c3b37674d5027f580ee3091897c2cdcc781"
+    operator.openshift.io/spec-hash: "c6b69eb66aa5315d99749b9562ed2a54f6f4758e71d29929d6d1e4174b373ce2"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -51,7 +51,7 @@ spec:
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
-                --shutdown-delay-duration=10s \
+                --shutdown-delay-duration=15s \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
                 --cors-allowed-origins='//127\.0\.0\.1(:|$)' \
@@ -70,20 +70,38 @@ spec:
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
-              path: healthz
-              port: 8443
               scheme: HTTPS
-            initialDelaySeconds: 30
+              port: 8443
+              path: healthz
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 8443
+              path: readyz
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 1
+          startupProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 8443
+              path: healthz
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 30
           name: oauth-apiserver
           ports:
             -
               containerPort: 8443
-          readinessProbe:
-            failureThreshold: 10
-            httpGet:
-              path: readyz
-              port: 8443
-              scheme: HTTPS
           resources:
             requests:
               cpu: 150m
@@ -138,7 +156,7 @@ spec:
         node-role.kubernetes.io/master: ""
       priorityClassName: system-node-critical
       serviceAccountName: oauth-apiserver-sa
-      terminationGracePeriodSeconds: 70
+      terminationGracePeriodSeconds: 90
       tolerations:
         -
           effect: NoSchedule
