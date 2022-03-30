@@ -2,8 +2,8 @@ package workload
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/openshift/cluster-authentication-operator/pkg/arguments"
 	"regexp"
 	"sort"
 	"strconv"
@@ -11,7 +11,6 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	configobservation "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -25,19 +24,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
-
-// shellEscapePattern determines if a string should be enclosed in single quotes
-// so that it can safely be passed to shell command line.
-var shellEscapePattern *regexp.Regexp
-
-func init() {
-	shellEscapePattern = regexp.MustCompile(`[^\w@%+=:,./-]`)
-}
 
 // nodeCountFunction a function to return count of nodes
 type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
@@ -95,21 +85,27 @@ func (c *OAuthAPIServerWorkload) PreconditionFulfilled(ctx context.Context) (boo
 }
 
 func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *operatorv1.Authentication) (bool, error) {
-	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
+	argsRaw, err := configobservation.GetAPIServerArgumentsRaw(authOperator.Spec.OperatorSpec)
 	if err != nil {
 		return false, err
 	}
 
-	if len(operatorCfg.APIServerArguments) == 0 {
+	args, err := arguments.Parse(argsRaw)
+	if err != nil {
+		return false, err
+	}
+
+	if len(args) == 0 {
 		klog.Info("Waiting for observed configuration to be available")
 		return false, fmt.Errorf("waiting for observed configuration to be available (haven't found APIServerArguments in spec.ObservedConfig.Raw)")
 	}
 
 	// specifying etcd servers list is mandatory, without it the pods will be crashlooping, so wait for it.
-	if storageServers := operatorCfg.APIServerArguments[libgoetcd.StorageConfigURLsKey]; len(storageServers) == 0 {
+	if storageServers := args[libgoetcd.StorageConfigURLsKey]; len(storageServers) == 0 {
 		klog.Infof("Waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
 		return false, fmt.Errorf("waiting for observed configuration to have mandatory apiServerArguments.%s", libgoetcd.StorageConfigURLsKey)
 	}
+
 	return true, nil
 }
 
@@ -136,14 +132,19 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 		return nil, err
 	}
 
-	operatorCfg, err := getStructuredConfig(authOperator.Spec.OperatorSpec)
+	argsRaw, err := configobservation.GetAPIServerArgumentsRaw(authOperator.Spec.OperatorSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	args, err := arguments.Parse(argsRaw)
 	if err != nil {
 		return nil, err
 	}
 
 	// log level verbosity is taken from the spec always
-	operatorCfg.APIServerArguments["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
-	operandFlags := toFlagSlice(operatorCfg.APIServerArguments)
+	args["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
+	operandFlags := toFlagSlice(args)
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -223,72 +224,6 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 	return deployment, err
 }
 
-// oAuthAPIServerConfig hold configuration for this controller it's taken from ObservedConfig.Raw
-// note that this struct is unsupported in a sense that it's not exposed through API
-type oAuthAPIServerConfig struct {
-	APIServerArguments map[string][]string `json:"apiServerArguments"`
-}
-
-// merged config is then encoded into oAuthAPIServerConfig struct
-func getStructuredConfig(authOperatorSpec operatorv1.OperatorSpec) (*oAuthAPIServerConfig, error) {
-	unstructuredCfg, err := common.UnstructuredConfigFrom(authOperatorSpec.ObservedConfig.Raw, configobservation.OAuthAPIServerConfigPrefix)
-	if err != nil {
-		return nil, err
-	}
-
-	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(
-		authOperatorSpec.UnsupportedConfigOverrides.Raw,
-		configobservation.OAuthAPIServerConfigPrefix,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	unstructuredMergedCfg, err := resourcemerge.MergeProcessConfig(
-		nil,
-		unstructuredCfg,
-		unstructuredUnsupportedCfg,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	type unstructuredOAuthAPIServerConfig struct {
-		APIServerArguments map[string]interface{} `json:"apiServerArguments"`
-	}
-
-	cfgUnstructured := &unstructuredOAuthAPIServerConfig{}
-	if err := json.Unmarshal(unstructuredMergedCfg, cfgUnstructured); err != nil {
-		return nil, err
-	}
-
-	cfg := &oAuthAPIServerConfig{}
-	cfg.APIServerArguments = map[string][]string{}
-	for argName, argRawValue := range cfgUnstructured.APIServerArguments {
-		var argsSlice []string
-		var found bool
-		var err error
-
-		argsSlice, found, err = unstructured.NestedStringSlice(cfgUnstructured.APIServerArguments, argName)
-		if !found || err != nil {
-			str, found, err := unstructured.NestedString(cfgUnstructured.APIServerArguments, argName)
-			if !found || err != nil {
-				return nil, fmt.Errorf("unable to create OAuthConfig, incorrect value %v under %v key, expected []string or string", argRawValue, argName)
-			}
-			argsSlice = append(argsSlice, str)
-		}
-
-		escapedArgsSlice := make([]string, len(argsSlice))
-		for index, str := range argsSlice {
-			escapedArgsSlice[index] = maybeQuote(str)
-		}
-
-		cfg.APIServerArguments[argName] = escapedArgsSlice
-	}
-
-	return cfg, nil
-}
-
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	switch logLevel {
 	case operatorv1.Normal:
@@ -302,21 +237,6 @@ func loglevelToKlog(logLevel operatorv1.LogLevel) string {
 	default:
 		return "2"
 	}
-}
-
-// maybeQuote returns a shell-escaped version of the string s. The returned value
-// is a string that can safely be used as one token in a shell command line.
-//
-// note: this method was copied from https://github.com/alessio/shellescape/blob/0d13ae33b78a20a5d91c54ca7e216e1b75aaedef/shellescape.go#L30
-func maybeQuote(s string) string {
-	if len(s) == 0 {
-		return "''"
-	}
-	if shellEscapePattern.MatchString(s) {
-		return "'" + strings.Replace(s, "'", "'\"'\"'", -1) + "'"
-	}
-
-	return s
 }
 
 // taken from apiserver-library-go so that we don't pull k/k dep to this repo

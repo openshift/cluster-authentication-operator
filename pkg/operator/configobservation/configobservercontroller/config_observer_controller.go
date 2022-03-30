@@ -1,6 +1,11 @@
 package configobservation
 
 import (
+	"encoding/json"
+
+	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"k8s.io/client-go/tools/cache"
 
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -93,4 +98,40 @@ func NewConfigObserverController(
 		"OAuthAPIServer",
 		observers...,
 	)
+}
+
+func GetAPIServerArgumentsRaw(authOperatorSpec operatorv1.OperatorSpec) (map[string]interface{}, error) {
+	unstructuredCfg, err := common.UnstructuredConfigFrom(
+		authOperatorSpec.ObservedConfig.Raw,
+		OAuthAPIServerConfigPrefix,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	unstructuredUnsupportedCfg, err := common.UnstructuredConfigFrom(
+		authOperatorSpec.UnsupportedConfigOverrides.Raw,
+		OAuthAPIServerConfigPrefix,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	unstructuredMergedCfg, err := resourcemerge.MergeProcessConfig(
+		nil,
+		unstructuredCfg,
+		unstructuredUnsupportedCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	cfgUnstructured := new(struct {
+		APIServerArguments map[string]interface{} `json:"apiServerArguments"`
+	})
+	if err := json.Unmarshal(unstructuredMergedCfg, cfgUnstructured); err != nil {
+		return nil, err
+	}
+
+	return cfgUnstructured.APIServerArguments, nil
 }
