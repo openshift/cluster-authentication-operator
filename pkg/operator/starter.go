@@ -39,6 +39,7 @@ import (
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/apiserver/controller/auditpolicy"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -367,6 +368,17 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 	)
 
+	auditController := auditpolicy.NewAuditPolicyController(
+		"openshift-authentication", // targetNamespace
+		"audit",                    // targetConfigMapName
+		operatorCtx.operatorConfigInformer.Config().V1().APIServers().Lister(), // apiServerConfigLister
+		operatorCtx.operatorClient,         // operatorClient
+		operatorCtx.kubeClient,             // kubeClient
+		operatorCtx.operatorConfigInformer, // configInformers
+		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"), // kubeInformersForTargetNamespace
+		controllerContext.EventRecorder, // eventRecorder
+	)
+
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
 		operatorCtx.operatorClient,
 		operatorCtx.operatorInformer.Operator().V1().IngressControllers(),
@@ -450,6 +462,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
 		configObserver.Run,
 		deploymentController.Run,
+		auditController.Run,
 		managementStateController.Run,
 		metadataController.Run,
 		oauthClientsController.Run,

@@ -631,15 +631,25 @@ spec:
               fi
               exec oauth-server osinserver \
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
-              --v=${LOG_LEVEL}
+              --v=${LOG_LEVEL} \
+              --audit-log-path=/var/log/oauth-server/audit.log \
+              --audit-log-format=json \
+              --audit-log-maxsize=100 \
+              --audit-log-maxbackup=10 \
+              --audit-policy-file=/var/run/configmaps/audit/policy.yaml
           ports:
             - name: https
               containerPort: 6443
               protocol: TCP
           securityContext:
+            privileged: true
             readOnlyRootFilesystem: false # because of the ` + "`" + `cp` + "`" + ` in args
             runAsUser: 0 # because /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is only writable by root
           volumeMounts:
+            - mountPath: /var/run/configmaps/audit
+              name: audit-policies
+            - mountPath: /var/log/oauth-server
+              name: audit-dir
             - name: v4-0-config-system-session
               readOnly: true
               mountPath: /var/config/system/secrets/v4-0-config-system-session
@@ -705,6 +715,12 @@ spec:
               cpu: 10m
               memory: 50Mi
       volumes:
+        - name: audit-policies
+          configMap:
+            name: audit
+        - hostPath:
+            path: /var/log/oauth-server
+          name: audit-dir
         - name: v4-0-config-system-session
           secret:
             secretName: v4-0-config-system-session
@@ -765,6 +781,7 @@ metadata:
     workload.openshift.io/allowed: "management"
   labels:
     openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/audit: privileged
 `)
 
 func oauthOpenshiftNsYamlBytes() ([]byte, error) {
