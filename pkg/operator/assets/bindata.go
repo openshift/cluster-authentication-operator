@@ -270,7 +270,7 @@ spec:
               --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
-              --shutdown-delay-duration=10s \
+              --shutdown-delay-duration=15s \
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
@@ -300,18 +300,36 @@ spec:
         - mountPath: /var/log/oauth-apiserver
           name: audit-dir
         livenessProbe:
-          initialDelaySeconds: 30
           httpGet:
             scheme: HTTPS
             port: 8443
             path: healthz
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 3
         readinessProbe:
-          failureThreshold: 10
           httpGet:
             scheme: HTTPS
             port: 8443
             path: readyz
-      terminationGracePeriodSeconds: 70 # a bit more than the 60 seconds timeout of non-long-running requests
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 1
+        startupProbe:
+          httpGet:
+            scheme: HTTPS
+            port: 8443
+            path: healthz
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 30
+      terminationGracePeriodSeconds: 90 # a bit more than the 60 seconds timeout of non-long-running requests + the shutdown delay
       volumes:
       - name: audit-policies
         configMap:
