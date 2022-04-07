@@ -71,6 +71,7 @@ func NewConfigObserver(
 		oauth.ObserveIdentityProviders,
 		oauth.ObserveTemplates,
 		oauth.ObserveTokenConfig,
+		oauth.ObserveAudit,
 		configobserveroauth.ObserveAccessTokenInactivityTimeout,
 		routersecret.ObserveRouterSecret,
 	} {
