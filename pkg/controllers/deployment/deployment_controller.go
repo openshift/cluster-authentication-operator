@@ -103,7 +103,7 @@ func NewOAuthServerWorkloadController(
 	}
 
 	if userExists, err := oauthDeploymentSyncer.bootstrapUserDataGetter.IsEnabled(); err != nil {
-		klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
+		klog.Warningf("unable to determine the state of bootstrap user: %v", err)
 		oauthDeploymentSyncer.bootstrapUserChangeRollOut = true
 	} else {
 		oauthDeploymentSyncer.bootstrapUserChangeRollOut = userExists
@@ -188,7 +188,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	// detail can be used in computing the deployment.
 	if c.bootstrapUserChangeRollOut {
 		if userExists, err := c.bootstrapUserDataGetter.IsEnabled(); err != nil {
-			klog.Warningf("Unable to determine the state of bootstrap user: %v", err)
+			klog.Warningf("unable to determine the state of bootstrap user: %v", err)
 		} else {
 			c.bootstrapUserChangeRollOut = userExists
 		}

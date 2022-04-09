@@ -261,6 +261,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		"OpenshiftAuthenticationStaticResources",
 		assets.Asset,
 		[]string{
+			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
 			"oauth-openshift/authentication-clusterrolebinding.yaml",
 			"oauth-openshift/cabundle.yaml",
@@ -803,7 +804,7 @@ func loadSystemCACertBundle() ([]byte, error) {
 	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
 	if err != nil {
 		// this may fail route-health checks in proxy environments
-		klog.Warningf("Unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
+		klog.Warningf("unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
 		return nil, nil // trust noone
 	}
 

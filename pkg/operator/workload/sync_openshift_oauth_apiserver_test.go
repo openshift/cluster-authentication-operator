@@ -72,7 +72,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
 			},
-			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
 		},
 
 		// scenario 2
@@ -84,7 +90,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
 				}},
 			},
-			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
 		},
 
 		// scenario 3
@@ -97,7 +109,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
 				}},
 			},
-			expectedActions: []string{"get:secrets:etcd-client", "get:configmaps:etcd-serving-ca", "get:configmaps:trusted-ca-bundle", "get:deployments:openshift-oauth-apiserver:apiserver", "create:deployments:openshift-oauth-apiserver:apiserver"},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
 		},
 	}
 

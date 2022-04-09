@@ -9,6 +9,7 @@
 // bindata/oauth-apiserver/oauth-apiserver-pdb.yaml
 // bindata/oauth-apiserver/sa.yaml
 // bindata/oauth-apiserver/svc.yaml
+// bindata/oauth-openshift/audit-policy.yaml
 // bindata/oauth-openshift/authentication-clusterrolebinding.yaml
 // bindata/oauth-openshift/branding-secret.yaml
 // bindata/oauth-openshift/cabundle.yaml
@@ -506,6 +507,40 @@ func oauthApiserverSvcYaml() (*asset, error) {
 	return a, nil
 }
 
+var _oauthOpenshiftAuditPolicyYaml = []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit
+  namespace: openshift-authentication
+data:
+  audit.yaml: |
+    apiVersion: audit.k8s.io/v1
+    kind: Policy
+    rules:
+    - level: None
+      nonResourceURLs:
+      - "/healthz*"
+      - "/logs"
+      - "/metrics"
+      - "/version"
+    - level: Metadata
+`)
+
+func oauthOpenshiftAuditPolicyYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftAuditPolicyYaml, nil
+}
+
+func oauthOpenshiftAuditPolicyYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftAuditPolicyYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/audit-policy.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 var _oauthOpenshiftAuthenticationClusterrolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -649,15 +684,21 @@ spec:
               fi
               exec oauth-server osinserver \
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
-              --v=${LOG_LEVEL}
+              --v=${LOG_LEVEL} \
+              ${SERVER_ARGUMENTS}
           ports:
             - name: https
               containerPort: 6443
               protocol: TCP
           securityContext:
+            privileged: true
             readOnlyRootFilesystem: false # because of the ` + "`" + `cp` + "`" + ` in args
             runAsUser: 0 # because /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is only writable by root
           volumeMounts:
+            - mountPath: /var/run/configmaps/audit
+              name: audit-policies
+            - mountPath: /var/log/oauth-server
+              name: audit-dir
             - name: v4-0-config-system-session
               readOnly: true
               mountPath: /var/config/system/secrets/v4-0-config-system-session
@@ -723,6 +764,12 @@ spec:
               cpu: 10m
               memory: 50Mi
       volumes:
+        - name: audit-policies
+          configMap:
+            name: audit
+        - hostPath:
+            path: /var/log/oauth-server
+          name: audit-dir
         - name: v4-0-config-system-session
           secret:
             secretName: v4-0-config-system-session
@@ -1022,6 +1069,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-apiserver/oauth-apiserver-pdb.yaml":                    oauthApiserverOauthApiserverPdbYaml,
 	"oauth-apiserver/sa.yaml":                                     oauthApiserverSaYaml,
 	"oauth-apiserver/svc.yaml":                                    oauthApiserverSvcYaml,
+	"oauth-openshift/audit-policy.yaml":                           oauthOpenshiftAuditPolicyYaml,
 	"oauth-openshift/authentication-clusterrolebinding.yaml":      oauthOpenshiftAuthenticationClusterrolebindingYaml,
 	"oauth-openshift/branding-secret.yaml":                        oauthOpenshiftBrandingSecretYaml,
 	"oauth-openshift/cabundle.yaml":                               oauthOpenshiftCabundleYaml,
@@ -1089,6 +1137,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"svc.yaml":                          {oauthApiserverSvcYaml, map[string]*bintree{}},
 	}},
 	"oauth-openshift": {nil, map[string]*bintree{
+		"audit-policy.yaml":                      {oauthOpenshiftAuditPolicyYaml, map[string]*bintree{}},
 		"authentication-clusterrolebinding.yaml": {oauthOpenshiftAuthenticationClusterrolebindingYaml, map[string]*bintree{}},
 		"branding-secret.yaml":                   {oauthOpenshiftBrandingSecretYaml, map[string]*bintree{}},
 		"cabundle.yaml":                          {oauthOpenshiftCabundleYaml, map[string]*bintree{}},
