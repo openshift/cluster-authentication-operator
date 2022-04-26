@@ -43,7 +43,7 @@ func AddKeycloakIDP(
 			// configure password for GitLab root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
 			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
-			{Name: "KC_METRICS_ENABLED", Value: "true"},
+			{Name: "KC_HEALTH_ENABLED", Value: "true"},
 			{Name: "KC_HOSTNAME_STRICT", Value: "false"},
 			{Name: "KC_PROXY", Value: "reencrypt"},
 			{Name: "KC_HTTPS_CERTIFICATE_FILE", Value: "/etc/x509/https/tls.crt"},
