@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/util/keyutil"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/library-go/pkg/crypto"
 )
 
 var validators = map[string]func(data []byte) []error{
@@ -88,6 +89,11 @@ func ValidateServerCert(pem []byte) []error {
 		return append(errs, fmt.Errorf("expected at least one server certificate"))
 	}
 
+	for _, cert := range certs {
+		if !crypto.CertHasSAN(cert) {
+			errs = append(errs, newErrNoSAN(cert))
+		}
+	}
 	return errs
 }
 

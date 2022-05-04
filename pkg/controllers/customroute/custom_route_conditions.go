@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -31,6 +33,18 @@ func ensureDefaultConditions(conditions []metav1.Condition) []metav1.Condition {
 			})
 		}
 	}
+	for _, conditionType := range []string{"Upgradeable"} {
+		condition := findCondition(conditions, conditionType)
+		if condition == nil {
+			conditions = append(conditions, metav1.Condition{
+				LastTransitionTime: metav1.Now(),
+				Type:               conditionType,
+				Status:             metav1.ConditionTrue,
+				Reason:             "AsExpected",
+				Message:            "All is well",
+			})
+		}
+	}
 	return conditions
 }
 
@@ -43,27 +57,49 @@ func findCondition(conditions []metav1.Condition, conditionType string) *metav1.
 	return nil
 }
 
-func checkErrorsConfiguringCustomRoute(errors []error) []metav1.Condition {
-	if len(errors) != 0 {
-		now := metav1.Now()
-		return []metav1.Condition{
-			{
-				LastTransitionTime: now,
-				Type:               "Degraded",
-				Status:             metav1.ConditionTrue,
-				Reason:             "CustomRouteError",
-				Message:            fmt.Sprintf("Error Configuring custom route: %v", errors),
-			},
+func checkErrorsConfiguringCustomRoute(errs []error) []metav1.Condition {
+	now := metav1.Now()
+	var conditions []metav1.Condition
+	var degradedErrors, upgradeableErrors []error
+	for _, err := range errs {
+		var errNoSAN datasync.ErrNoSAN
+		if errors.As(err, &errNoSAN) {
+			upgradeableErrors = append(upgradeableErrors, err)
+		} else {
+			degradedErrors = append(degradedErrors, err)
+		}
+	}
+
+	if len(errs) != 0 {
+		conditions = []metav1.Condition{
 			{
 				LastTransitionTime: now,
 				Type:               "Progressing",
 				Status:             metav1.ConditionFalse,
 				Reason:             "CustomRouteError",
-				Message:            fmt.Sprintf("Error Configuring custom route: %v", errors),
+				Message:            fmt.Sprintf("Error Configuring custom route: %v", errs),
 			},
 		}
 	}
-	return nil
+	if len(degradedErrors) != 0 {
+		conditions = append(conditions, metav1.Condition{
+			LastTransitionTime: now,
+			Type:               "Degraded",
+			Status:             metav1.ConditionTrue,
+			Reason:             "CustomRouteError",
+			Message:            fmt.Sprintf("Error Configuring custom route: %v", degradedErrors),
+		})
+	}
+	if len(upgradeableErrors) != 0 {
+		conditions = append(conditions, metav1.Condition{
+			LastTransitionTime: now,
+			Type:               "Upgradeable",
+			Status:             metav1.ConditionFalse,
+			Reason:             "CustomRouteError",
+			Message:            fmt.Sprintf("Error Configuring custom route: %v", upgradeableErrors),
+		})
+	}
+	return conditions
 }
 
 func checkIngressURI(ingressConfig *configv1.Ingress, route *routev1.Route) []metav1.Condition {

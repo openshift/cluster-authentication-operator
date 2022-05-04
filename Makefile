@@ -1,6 +1,8 @@
 all: build
 .PHONY: all
 
+export GODEBUG := x509ignoreCN=0
+
 # Include the library makefile
 include $(addprefix ./vendor/github.com/openshift/build-machinery-go/make/, \
 	golang.mk \
