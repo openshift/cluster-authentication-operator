@@ -111,4 +111,4 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
-replace k8s.io/apiserver => ../../kubernetes/staging/src/k8s.io/apiserver
+replace k8s.io/apiserver => github.com/qjkee/kubernetes/staging/src/k8s.io/apiserver v0.0.0-20220505155309-b2bea4e5bfae

@@ -742,7 +742,7 @@ k8s.io/apimachinery/pkg/version
 k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/json
 k8s.io/apimachinery/third_party/forked/golang/reflect
-# k8s.io/apiserver v0.23.0 => ../../kubernetes/staging/src/k8s.io/apiserver
+# k8s.io/apiserver v0.23.0 => github.com/qjkee/kubernetes/staging/src/k8s.io/apiserver v0.0.0-20220505155309-b2bea4e5bfae
 ## explicit; go 1.17
 k8s.io/apiserver/pkg/admission
 k8s.io/apiserver/pkg/admission/configuration
@@ -1243,4 +1243,4 @@ sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.2.0
 ## explicit; go 1.12
 sigs.k8s.io/yaml
-# k8s.io/apiserver => ../../kubernetes/staging/src/k8s.io/apiserver
+# k8s.io/apiserver => github.com/qjkee/kubernetes/staging/src/k8s.io/apiserver v0.0.0-20220505155309-b2bea4e5bfae
