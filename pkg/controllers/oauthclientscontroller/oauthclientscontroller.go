@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -66,6 +68,7 @@ func NewOAuthClientsController(
 			routeInformers.Route().V1().Routes().Informer(),
 		).
 		WithInformers(ingressInformers.Config().V1().Ingresses().Informer()).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("OAuthClientsController", eventRecorder.WithComponentSuffix("oauth-clients-controller"))
 }
 

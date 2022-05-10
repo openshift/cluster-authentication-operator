@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -83,7 +84,7 @@ func NewWebhookAuthenticatorController(
 		kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		configInformer.Config().V1().Authentications().Informer(),
-	).ResyncEvery(30*time.Second).
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController("WebhookAuthenticatorController", recorder.WithComponentSuffix("webhook-authenticator-controller"))

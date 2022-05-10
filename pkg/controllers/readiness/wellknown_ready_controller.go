@@ -31,6 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
@@ -84,9 +85,9 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 	).
-		ResyncEvery(30*time.Second).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController(controllerName, recorder.WithComponentSuffix("wellknown-ready-controller"))
 }
 

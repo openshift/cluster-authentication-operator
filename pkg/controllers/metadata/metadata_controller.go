@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -66,7 +67,7 @@ func NewMetadataController(kubeInformersForTargetNamespace informers.SharedInfor
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
 		routeInformer.Route().V1().Routes().Informer(),
-	).ResyncEvery(30*time.Second).WithSync(c.sync).ToController("MetadataController", recorder.WithComponentSuffix("metadata-controller"))
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("MetadataController", recorder.WithComponentSuffix("metadata-controller"))
 }
 
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {

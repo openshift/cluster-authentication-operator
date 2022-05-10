@@ -11,6 +11,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -51,7 +52,7 @@ func NewEndpointAccessibleController(
 		WithInformers(triggers...).
 		WithInformers(operatorClient.Informer()).
 		WithSync(c.sync).
-		ResyncEvery(30*time.Second).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }
