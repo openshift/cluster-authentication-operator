@@ -16,10 +16,10 @@ $ oc get crd authentications.operator.openshift.io -o yaml
 
 Many OpenShift ClusterOperators share common build, test, deployment, and update methods.    
 For more information about how to build, deploy, test, update, and develop OpenShift ClusterOperators, see      
-[OpenShift ClusterOperator and Operand Developer Document](https://github.com/openshift/enhancements/blob/master/enhancements/dev-guide/operators.md#how-do-i-buildupdateverifyrun-unit-tests)
+[OpenShift ClusterOperator and Operand Developer Document](https://github.com/openshift/enhancements/blob/master/dev-guide/operators.md#how-do-i-buildupdateverifyrun-unit-tests)
 
 This section explains how to deploy OpenShift with your test cluster-authentication-operator image:        
-[Testing a ClusterOperator/Operand image in a cluster](https://github.com/openshift/enhancements/blob/master/enhancements/dev-guide/operators.md#how-can-i-test-changes-to-an-openshift-operatoroperandrelease-component)
+[Testing a ClusterOperator/Operand image in a cluster](https://github.com/openshift/enhancements/blob/master/dev-guide/operators.md#how-can-i-test-changes-to-an-openshift-operatoroperandrelease-component)
 
 
 ## Add a basic IdP to test your stuff
