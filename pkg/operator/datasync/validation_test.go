@@ -2,6 +2,7 @@ package datasync
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -328,6 +329,80 @@ CazhEVmpFyKMwdD2nMNBGqSq3B6ph3jAvKHvdw==
 			}
 		})
 	}
+}
+
+func Test_ValidateServerCert(t *testing.T) {
+	tests := [...]struct {
+		name       string
+		pem        []byte
+		wantErrors []string
+	}{
+		{
+			name: "valid",
+			pem: []byte(`
+-----BEGIN CERTIFICATE-----
+MIIDMTCCAhmgAwIBAgIUUcmiUJ9GgRzK3/rqdJV0KQmC7XgwDQYJKoZIhvcNAQEL
+BQAwFzEVMBMGA1UEAwwMeHhpYV90ZXN0X2NhMCAXDTIyMDIyMzE3MDk1NVoYDzIy
+OTUxMjA5MTcwOTU1WjBmMQswCQYDVQQGEwJERTEPMA0GA1UECAwGQmVybGluMQ8w
+DQYDVQQHDAZCZXJsaW4xFTATBgNVBAoMDFJlZCBIYXQgSW5jLjEeMBwGA1UEAwwV
+b3BlbnNoaWZ0LmV4YW1wbGUuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
+CgKCAQEAvqCrAjysKeeEdnO89UfbRAqsv9PJTW+3RuulMBtdO+/OfWOIps9tHpJK
+oa0EQsk4A2d8FWpEsjbUDZ+q1OEILBqYigvnmAZXTADC/fAi2bkMjOk7bytAkCPB
+MYPH/8ziprbk3IP9ScfHFaiNN7WHaGVQ+qMaW1OL8oTwls7vRULYenc43KEj+jxH
+bR4zNcu5h6StorzKoahsAp2oBqkdhGfTlxD0AjQo4J4MQisN3Y7OUv0kATlHi0Ip
+OzqgAnl3xC1SP0XMAJIsEoCCEKlXibOlGTYe6Ib9neXHrS9X3FeUA3cfdlEWZZBu
+6DMQ64S9s7GqqQGPhFfnh+XOmADC3wIDAQABoyQwIjAgBgNVHREEGTAXghVvcGVu
+c2hpZnQuZXhhbXBsZS5jb20wDQYJKoZIhvcNAQELBQADggEBAFqu/mDLAAXXzoDy
+l3n7AvMeyBbZgdsKVKYlrhIkeTuB8r3AsCNPw8TcGENXizxENp72A4mFHDq1LHUf
+LfMx4f4OBX2NdaHzLABZxn4+I2oRxUfWIP2sn/KVZeyU5Zl1sFzewbbpvnBr5Efb
+LZTWOLgtg2zLe29drO2jqiCjLXeDexTKJQ2yW/IticVo6PAQK3r62k0TWk7lmUru
+Thyplz8NFxLqi2RLOy7MD+5AbRd0LBqyCwGrsFdewZmYoumoQYv7OCLk9fyTcTBU
+HDyCPQHci0vCS0EjJQbp/YfHqZc93Y/G2Y6aQaXmpS/db2W0mI9fTzVK6u4gszpL
+Rur2sSg=
+-----END CERTIFICATE-----`),
+			wantErrors: nil,
+		},
+		{
+			name: "missing SAN",
+			pem: []byte(`
+-----BEGIN CERTIFICATE-----
+MIIDAzCCAeugAwIBAgIUdLdLqT7oG1+FhoPS114k+2+xwRcwDQYJKoZIhvcNAQEL
+BQAwGDEWMBQGA1UEAwwNb3BlbnNoaWZ0LWNhbzAgFw0yMjAyMjMxNTIyMjFaGA8y
+Mjk1MTIwOTE1MjIyMVowIjEgMB4GA1UEAwwXKi5vcGVuc2hpZnQuZXhhbXBsZS5j
+b20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCr1iZlK3kdQYzP73yz
+SOMGanEylYPGLFp5i6dD1ExyCpBB+IagNMij5AMOknD7hp+oIFnM9GPWceYdVwDx
+QErQDN3av+YxqnA8rGjNPJxEw9/tDDnvAGhBQK+2X70IdMeQspB+JSPkNapg3muq
+TU681N2wsWp5EI1lj9bG346gLfKcdHaEeXzDfuOmVDpuYGLG+0gMNusOKVfF5ihL
+o15TW7T6MwI1/pDlNt463eyHYuM3tu8KFbXq7XbmV3BviSdyK7Ia8IIz5/6R5SKE
+v+FLtidFR+NaTLoRWeKTME08zn10kLKjRqu9vtVw4Fvfq4hevWOa3lPYCq1LxoAO
+CX5HAgMBAAGjOTA3MAkGA1UdEwQCMAAwCwYDVR0PBAQDAgXgMB0GA1UdJQQWMBQG
+CCsGAQUFBwMCBggrBgEFBQcDATANBgkqhkiG9w0BAQsFAAOCAQEAoheWZyf+nVIS
+C7XQaXVyGI6BOhVxga5nmO40e3ywwiPgvmcE/RgFiC7+rkMUizFxaVUYjTIOWicm
+DjFmx9/KZmZK093u7syr4xqkZxk/+FqCAC5HCdPU6M0PMD1RLSqo2i/m4Fv5DE5f
+UMIoyY8l8oenD56JeA4HcXra90nlL63fn6Ia10loddAJYcvnl/LOpsP5Y0PVcFej
+39CuE2O2WHO+EzlP+G3CbyUL8ATJdWijNV9BxBb9JPpRpmgsArDDtN6/XbvWIX2/
+jPZjABsOlvj9Zk166y1gPrO1H10wWjyh8Lzd52vSRxUYSKUYpsb9m0h4vKgC7Ni2
+vehFLurhTg==
+-----END CERTIFICATE-----`),
+			wantErrors: []string{"certificate relies on legacy Common Name field, use SANs instead"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidateServerCert(tt.pem)
+			if len(got) != len(tt.wantErrors) {
+				t.Errorf("ValidateServerCert() = %v, want %v", got, tt.wantErrors)
+			} else {
+				for i := range got {
+					if have, want := got[i].Error(), tt.wantErrors[i]; !strings.Contains(have, want) {
+						t.Errorf("ValidateServerCert() errs[%d] = %v, want %v", i, have, want)
+					}
+				}
+			}
+		})
+	}
+
 }
 
 func testSecret(name string, data map[string][]byte) *corev1.Secret {
