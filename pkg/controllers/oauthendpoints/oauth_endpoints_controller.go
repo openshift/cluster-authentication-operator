@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
@@ -47,7 +48,7 @@ func NewOAuthRouteCheckController(
 	ingressInformer := ingressInformerAllNamespaces.Informer()
 
 	endpointListFunc := func() ([]string, error) {
-		return listOAuthRoutes(routeLister)
+		return listOAuthRoutes(ingressLister, routeLister)
 	}
 
 	getTLSConfigFunc := func() (*tls.Config, error) {
@@ -143,6 +144,7 @@ func listOAuthServices(serviceLister corev1listers.ServiceLister) ([]string, err
 	if err != nil {
 		return nil, err
 	}
+
 	for _, port := range service.Spec.Ports {
 		results = append(results, net.JoinHostPort(service.Spec.ClusterIP, strconv.Itoa(int(port.Port))))
 	}
@@ -152,25 +154,52 @@ func listOAuthServices(serviceLister corev1listers.ServiceLister) ([]string, err
 	return toHealthzURL(results), nil
 }
 
-func listOAuthRoutes(routeLister routev1listers.RouteLister) ([]string, error) {
+func listOAuthRoutes(ingressConfigLister configv1lister.IngressLister, routeLister routev1listers.RouteLister) ([]string, error) {
 	var results []string
+	ingressConfig, err := ingressConfigLister.Get("cluster")
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve ingress from cache: %w", err)
+	}
+
 	route, err := routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to retrieve route from cache: %w", err)
 	}
+
+	// retrieve all the hostnames we want to be checking, don't care about any others
+	ingressStatus := common.GetComponentRouteStatus(ingressConfig, "openshift-authentication", "oauth-openshift")
+	if ingressStatus == nil || ingressStatus.CurrentHostnames == nil {
+		return nil, fmt.Errorf("ingress.config/cluster does not yet have status for the \"openshift-authentication/oauth-openshift\" route")
+	}
+	wantedHostnames := sets.NewString()
+	for _, host := range ingressStatus.CurrentHostnames {
+		wantedHostnames.Insert(string(host))
+	}
+
 	for _, ingress := range route.Status.Ingress {
-		if len(ingress.Host) > 0 {
+		if ingressHost := ingress.Host; len(ingressHost) > 0 && wantedHostnames.Has(ingressHost) {
 			for _, condition := range ingress.Conditions {
 				if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
 					results = append(results, ingress.Host)
-					break
+
+					wantedHostnames.Delete(ingressHost)
+					if wantedHostnames.Len() == 0 {
+						break
+					}
 				}
 			}
 		}
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("route \"openshift-authentication/oauth-openshift\": status does not have a host address")
+		return nil, fmt.Errorf("route \"openshift-authentication/oauth-openshift\": status does not have a valid host address")
 	}
+	if wantedHostnames.Len() > 0 {
+		return nil, fmt.Errorf(
+			"route \"openshift-authentication/oauth-openshift\": the following hostnames have not yet been admitted: %v",
+			wantedHostnames.List(), // use sorted list here to avoid infinite looping if condition gets created from this error
+		)
+	}
+
 	return toHealthzURL(results), nil
 }
 
