@@ -78,6 +78,7 @@ func (c *trustDistributionController) sync(ctx context.Context, syncContext fact
 		_, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
 
 		certsFiltered += "\n" + string(pem.EncodeToMemory(block))
