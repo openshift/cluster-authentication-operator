@@ -53,7 +53,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
 	"github.com/openshift/library-go/pkg/operator/staleconditions"
-	"github.com/openshift/library-go/pkg/operator/staticpod/controller/guard"
+	staticpodcommon "github.com/openshift/library-go/pkg/operator/staticpod/controller/common"
 	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
@@ -565,25 +565,29 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 					"oauth-apiserver/oauth-apiserver-pdb.yaml",
 				},
 				ShouldCreateFn: func() bool {
-					isSNO, precheckSucceeded, err := guard.IsSNOCheckFnc(operatorCtx.operatorConfigInformer.Config().V1().Infrastructures())()
+					isSNO, precheckSucceeded, err := staticpodcommon.NewIsSingleNodePlatformFn(
+						operatorCtx.operatorConfigInformer.Config().V1().Infrastructures(),
+					)()
 					if err != nil {
-						klog.Errorf("IsSNOCheckFnc failed: %v", err)
+						klog.Errorf("NewIsSingleNodePlatformFn failed: %v", err)
 						return false
 					}
 					if !precheckSucceeded {
-						klog.V(4).Infof("IsSNOCheckFnc precheck did not succeed, skipping")
+						klog.V(4).Infof("NewIsSingleNodePlatformFn precheck did not succeed, skipping")
 						return false
 					}
 					return !isSNO
 				},
 				ShouldDeleteFn: func() bool {
-					isSNO, precheckSucceeded, err := guard.IsSNOCheckFnc(operatorCtx.operatorConfigInformer.Config().V1().Infrastructures())()
+					isSNO, precheckSucceeded, err := staticpodcommon.NewIsSingleNodePlatformFn(
+						operatorCtx.operatorConfigInformer.Config().V1().Infrastructures(),
+					)()
 					if err != nil {
-						klog.Errorf("IsSNOCheckFnc failed: %v", err)
+						klog.Errorf("NewIsSingleNodePlatformFn failed: %v", err)
 						return false
 					}
 					if !precheckSucceeded {
-						klog.V(4).Infof("IsSNOCheckFnc precheck did not succeed, skipping")
+						klog.V(4).Infof("NewIsSingleNodePlatformFn precheck did not succeed, skipping")
 						return false
 					}
 					return isSNO
