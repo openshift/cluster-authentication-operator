@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/kubernetes"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -44,18 +43,10 @@ func deployPod(
 	var err error
 	cleanup = func() {}
 
-	namespace = names.SimpleNameGenerator.GenerateName("e2e-test-authentication-operator-")
-	_, err = clients.CoreV1().Namespaces().Create(
-		testContext,
-		&corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   namespace,
-				Labels: CAOE2ETestLabels(), // add label to easily remove/get the NS by hand
-			},
-		},
-		metav1.CreateOptions{},
-	)
-	require.NoError(t, err)
+	namespace = NewTestNamespaceBuilder("e2e-test-authentication-operator-").
+		WithPrivilegedPSaEnforcement().
+		WithLabels(CAOE2ETestLabels()).
+		Create(t, clients.CoreV1().Namespaces())
 
 	cleanup = func() {
 		// remove the NS, it will take away all the resources create here along with it
