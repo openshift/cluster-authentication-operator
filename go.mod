@@ -7,9 +7,9 @@ require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
 	github.com/google/go-cmp v0.5.5
-	github.com/openshift/api v0.0.0-20220525145417-ee5b62754c68
+	github.com/openshift/api v0.0.0-20220823152035-864c47647c02
 	github.com/openshift/build-machinery-go v0.0.0-20211213093930-7e33a7eb4ce3
-	github.com/openshift/client-go v0.0.0-20220525160904-9e1acff93e4a
+	github.com/openshift/client-go v0.0.0-20220823153052-6a04b8ac0f15
 	github.com/openshift/library-go v0.0.0-20220704153411-3ea4b775d418
 	github.com/spf13/cobra v1.4.0
 	github.com/stretchr/testify v1.7.0
@@ -108,6 +108,6 @@ require (
 	k8s.io/kube-openapi v0.0.0-20220328201542-3ee0da9b0b42 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.30 // indirect
 	sigs.k8s.io/json v0.0.0-20211208200746-9f7c6b3444d2 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
