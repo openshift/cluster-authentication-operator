@@ -13,11 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	applyconfigv1 "github.com/openshift/client-go/config/applyconfigurations/config/v1"
 	configsetterv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -225,31 +225,45 @@ func (c *customRouteController) updateIngressConfigStatus(ctx context.Context, i
 		return err
 	}
 
-	componentRoute := &configv1.ComponentRouteStatus{
-		Namespace:        c.componentRoute.Namespace,
-		Name:             c.componentRoute.Name,
-		DefaultHostname:  configv1.Hostname("oauth-openshift." + ingressConfig.Spec.Domain),
-		CurrentHostnames: []configv1.Hostname{configv1.Hostname(route.Spec.Host)},
-		ConsumingUsers: []configv1.ConsumingUser{
-			"system:serviceaccount:oauth-openshift:authentication-operator",
-		},
-		RelatedObjects: []configv1.ObjectReference{
-			{
-				Group:     routev1.GroupName,
-				Resource:  "routes",
-				Name:      "oauth-openshift",
-				Namespace: "openshift-authentication"},
-		},
-	}
-	conditions := checkErrorsConfiguringCustomRoute(customRouteErrors)
-	if conditions == nil {
-		conditions = checkIngressURI(ingressConfig, route)
-		if conditions == nil {
-			conditions = checkRouteAvailablity(c.secretLister, ingressConfig, route)
+	componentRoute := applyconfigv1.ComponentRouteStatus().
+		WithNamespace(c.componentRoute.Namespace).
+		WithName(c.componentRoute.Name).
+		WithDefaultHostname(configv1.Hostname("oauth-openshift." + ingressConfig.Spec.Domain)).
+		WithCurrentHostnames(configv1.Hostname(route.Spec.Host)).
+		WithConsumingUsers("system:serviceaccount:oauth-openshift:authentication-operator").
+		WithRelatedObjects(
+			applyconfigv1.ObjectReference().
+				WithNamespace("openshift-authentication").
+				WithName("oauth-openshift").
+				WithGroup(routev1.GroupName).
+				WithResource("routes"),
+		)
+
+	newConditions := checkErrorsConfiguringCustomRoute(customRouteErrors)
+	if newConditions == nil {
+		newConditions = checkIngressURI(ingressConfig, route)
+		if newConditions == nil {
+			newConditions = checkRouteAvailablity(c.secretLister, ingressConfig, route)
 		}
 	}
-	componentRoute.Conditions = ensureDefaultConditions(conditions)
-	_, err = c.updateComponentRouteStatus(ctx, componentRoute)
+	newConditions = ensureDefaultConditions(newConditions)
+	// set timestamps to last transitioned if available, otherwise, write a new lasttransitioned.
+	// this may not handle extremely rapid flapping well.
+	if existingComponentRoute := common.GetComponentRouteStatus(ingressConfig, c.componentRoute.Namespace, c.componentRoute.Name); existingComponentRoute != nil {
+		for i := range newConditions {
+			newCondition := newConditions[i]
+			if existingCondition := v1helpers.FindCondition(existingComponentRoute.Conditions, newCondition.Type); existingCondition != nil {
+				if newCondition.Status == existingCondition.Status {
+					newConditions[i].LastTransitionTime = existingCondition.LastTransitionTime
+				}
+			}
+		}
+	}
+
+	componentRoute.WithConditions(newConditions...)
+
+	ingressStatus := applyconfigv1.Ingress(ingressConfig.Name).WithStatus(applyconfigv1.IngressStatus().WithComponentRoutes(componentRoute))
+	_, err = c.ingressClient.ApplyStatus(ctx, ingressStatus, c.forceApply())
 	return err
 }
 
@@ -264,51 +278,14 @@ func (c *customRouteController) syncSecret(secretName string) error {
 	return c.resourceSyncer.SyncSecret(destination, source)
 }
 
-// updateComponentRouteStatus searches the entries of the ingress.status.componentRoutes array for a componentRoute with a matching namespace and name.
-// If a matching componentRoute is found, the two objects are compared minus any of the conditions.lastTransactionTime entries. If all the fields
-// match, the entry is updated.
-// If no matching componentRoute is found, the entry is appended to the list.
-// true is returned if the status of the ingress.config.openshift.io/cluster is updated.
-func (c *customRouteController) updateComponentRouteStatus(ctx context.Context, componentRoute *configv1.ComponentRouteStatus) (bool, error) {
-	// Override the timestamps
-	now := metav1.Now()
-
-	// Create a copy for compairison and remove transaction times
-	componentRouteCopy := componentRoute.DeepCopy()
-	setLastTransactionTime(componentRouteCopy, now)
-
-	updated := false
-	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		ingressConfig, err := c.ingressClient.Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
-
-		existingComponentRoute := common.GetComponentRouteStatus(ingressConfig, componentRoute.Namespace, componentRoute.Name)
-		if existingComponentRoute != nil {
-			// Create a copy for compairison and remove transaction times
-			existingComponentRouteCopy := existingComponentRoute.DeepCopy()
-			setLastTransactionTime(existingComponentRouteCopy, now)
-
-			// Check if an update is needed
-			if equality.Semantic.DeepEqual(componentRouteCopy, existingComponentRouteCopy) {
-				return nil
-			}
-			*existingComponentRoute = *componentRoute
-		} else {
-			ingressConfig.Status.ComponentRoutes = append(ingressConfig.Status.ComponentRoutes, *componentRoute)
-		}
-
-		_, err = c.ingressClient.UpdateStatus(ctx, ingressConfig, metav1.UpdateOptions{})
-		updated = err == nil
-		return err
-	})
-
-	return updated, err
+func (c *customRouteController) forceApply() metav1.ApplyOptions {
+	return metav1.ApplyOptions{
+		Force:        true, // this control loop owns these fields
+		FieldManager: c.getFieldManager(),
+	}
 }
 
-func setLastTransactionTime(componentRoute *configv1.ComponentRouteStatus, now metav1.Time) {
-	for i := range componentRoute.Conditions {
-		componentRoute.Conditions[i].LastTransitionTime = now
-	}
+func (c *customRouteController) getFieldManager() string {
+	// TODO find a way to get the client name and combine it with the controller name automatically
+	return "AuthenticationCustomRouteController"
 }
