@@ -17,31 +17,50 @@ import (
 
 func TestObserveConsoleURL(t *testing.T) {
 	existingConfig := configWithConsoleURL("https://teh.console.my")
+	noConfig := map[string]interface{}(nil)
 
 	tests := []struct {
 		name                string
 		consoleConfig       *configv1.ConsoleStatus
+		clusterVersion      *configv1.ClusterVersionStatus
 		existingConfig      map[string]interface{}
 		expectedConfig      map[string]interface{}
 		expectedErrs        []string
 		expectedUpdateEvent bool
 	}{
 		{
-			name:           "NoConsoleConfig",
+			name:           "NoConsoleConfigConsoleCapabilityEnabled",
 			consoleConfig:  nil,
+			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{configv1.ClusterVersionCapabilityConsole}}},
 			existingConfig: existingConfig,
 			expectedConfig: existingConfig,
 			expectedErrs:   []string{"\"cluster\" not found"},
 		},
 		{
+			name:           "NoConsoleConfigConsoleCapabilityDisabled",
+			consoleConfig:  nil,
+			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{}}},
+			existingConfig: noConfig,
+			expectedConfig: noConfig,
+		},
+		{
+			name:           "ConsoleConfigConsoleCapabilityDisabled",
+			consoleConfig:  &configv1.ConsoleStatus{ConsoleURL: "https://teh.console.my"},
+			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{}}},
+			existingConfig: configWithConsoleURL(""),
+			expectedConfig: configWithConsoleURL(""),
+		},
+		{
 			name:           "SameConfig",
 			consoleConfig:  &configv1.ConsoleStatus{ConsoleURL: "https://teh.console.my"},
+			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{configv1.ClusterVersionCapabilityConsole}}},
 			existingConfig: existingConfig,
 			expectedConfig: existingConfig,
 		},
 		{
 			name:                "UpdatedConsoleConfig",
 			consoleConfig:       &configv1.ConsoleStatus{ConsoleURL: "https://my-new.console.url"},
+			clusterVersion:      &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{configv1.ClusterVersionCapabilityConsole}}},
 			existingConfig:      existingConfig,
 			expectedConfig:      configWithConsoleURL("https://my-new.console.url"),
 			expectedUpdateEvent: true,
@@ -49,6 +68,7 @@ func TestObserveConsoleURL(t *testing.T) {
 		{
 			name:           "UnparsableConsoleURL",
 			consoleConfig:  &configv1.ConsoleStatus{ConsoleURL: "https://my-new.console.url:port"},
+			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{configv1.ClusterVersionCapabilityConsole}}},
 			existingConfig: existingConfig,
 			expectedConfig: existingConfig,
 			expectedErrs: []string{
@@ -58,9 +78,9 @@ func TestObserveConsoleURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			consoleIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			if tt.consoleConfig != nil {
-				if err := indexer.Add(&configv1.Console{
+				if err := consoleIndexer.Add(&configv1.Console{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cluster",
 					},
@@ -69,8 +89,20 @@ func TestObserveConsoleURL(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			clusterVersionIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			if tt.clusterVersion != nil {
+				if err := clusterVersionIndexer.Add(&configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "version",
+					},
+					Status: *tt.clusterVersion,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			listers := configobservation.Listers{
-				ConsoleLister: configlistersv1.NewConsoleLister(indexer),
+				ConsoleLister:        configlistersv1.NewConsoleLister(consoleIndexer),
+				ClusterVersionLister: configlistersv1.NewClusterVersionLister(clusterVersionIndexer),
 			}
 
 			eventRecorder := events.NewInMemoryRecorder(tt.name)
