@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"net/url"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
+
+	configv1 "github.com/openshift/api/config/v1"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
@@ -20,12 +23,32 @@ func ObserveConsoleURL(genericlisters configobserver.Listers, recorder events.Re
 	listers := genericlisters.(configobservation.Listers)
 	errs := []error{}
 
-	consoleConfig, err := listers.ConsoleLister.Get("cluster")
+	clusterVersionConfig, err := listers.ClusterVersionLister.Get("version")
 	if err != nil {
 		return existingConfig, append(errs, err)
 	}
 
-	observedAssetURL := consoleConfig.Status.ConsoleURL
+	isConsoleCapabilityEnabled := false
+	for _, capability := range clusterVersionConfig.Status.Capabilities.EnabledCapabilities {
+		if capability == configv1.ClusterVersionCapabilityConsole {
+			isConsoleCapabilityEnabled = true
+			break
+		}
+	}
+
+	consoleConfig, err := listers.ConsoleLister.Get("cluster")
+	if err != nil {
+		if errors.IsNotFound(err) && !isConsoleCapabilityEnabled {
+			return existingConfig, nil
+		}
+		return existingConfig, append(errs, err)
+	}
+
+	observedAssetURL := ""
+	if isConsoleCapabilityEnabled {
+		observedAssetURL = consoleConfig.Status.ConsoleURL
+	}
+
 	if _, err := url.Parse(observedAssetURL); err != nil { // should never happen
 		return existingConfig, append(errs, fmt.Errorf("failed to parse consoleURL %q: %w", observedAssetURL, err))
 	}

@@ -21,6 +21,7 @@ type Listers struct {
 
 	APIServerLister_     configlistersv1.APIServerLister
 	ConsoleLister        configlistersv1.ConsoleLister
+	ClusterVersionLister configlistersv1.ClusterVersionLister
 	InfrastructureLister configlistersv1.InfrastructureLister
 	OAuthLister_         configlistersv1.OAuthLister
 	IngressLister        configlistersv1.IngressLister

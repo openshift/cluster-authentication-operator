@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/sets"
 	certinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -224,6 +225,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
 
+	clusterVersionLister := operatorCtx.operatorConfigInformer.Config().V1().ClusterVersions().Lister()
+	clusterVersionConfig, err := clusterVersionLister.Get("version")
+	if err != nil {
+		return err
+	}
+	enabledClusterCapabilities := sets.StringKeySet(clusterVersionConfig.Status.Capabilities.EnabledCapabilities)
+
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "oauth-openshift"},
@@ -281,6 +289,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
+		enabledClusterCapabilities,
 		controllerContext.EventRecorder,
 	)
 
