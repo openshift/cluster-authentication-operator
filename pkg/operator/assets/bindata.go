@@ -16,6 +16,7 @@
 // bindata/oauth-openshift/deployment.yaml
 // bindata/oauth-openshift/ns.yaml
 // bindata/oauth-openshift/oauth-service.yaml
+// bindata/oauth-openshift/rolebinding.yaml
 // bindata/oauth-openshift/route.yaml
 // bindata/oauth-openshift/serviceaccount.yaml
 // bindata/oauth-openshift/trust_distribution_role.yaml
@@ -691,7 +692,6 @@ spec:
               containerPort: 6443
               protocol: TCP
           securityContext:
-            privileged: true
             readOnlyRootFilesystem: false # because of the ` + "`" + `cp` + "`" + ` in args
             runAsUser: 0 # because /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is only writable by root
           volumeMounts:
@@ -882,6 +882,34 @@ func oauthOpenshiftOauthServiceYaml() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "oauth-openshift/oauth-service.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _oauthOpenshiftRolebindingYaml = []byte(`apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: system:openshift:openshift-authentication:hostaccess
+roleRef:
+  kind: ClusterRole
+  name: system:openshift:scc:hostaccess
+subjects:
+- kind: ServiceAccount
+  namespace: openshift-authentication
+  name: oauth-openshift
+`)
+
+func oauthOpenshiftRolebindingYamlBytes() ([]byte, error) {
+	return _oauthOpenshiftRolebindingYaml, nil
+}
+
+func oauthOpenshiftRolebindingYaml() (*asset, error) {
+	bytes, err := oauthOpenshiftRolebindingYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "oauth-openshift/rolebinding.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -1079,6 +1107,7 @@ var _bindata = map[string]func() (*asset, error){
 	"oauth-openshift/deployment.yaml":                             oauthOpenshiftDeploymentYaml,
 	"oauth-openshift/ns.yaml":                                     oauthOpenshiftNsYaml,
 	"oauth-openshift/oauth-service.yaml":                          oauthOpenshiftOauthServiceYaml,
+	"oauth-openshift/rolebinding.yaml":                            oauthOpenshiftRolebindingYaml,
 	"oauth-openshift/route.yaml":                                  oauthOpenshiftRouteYaml,
 	"oauth-openshift/serviceaccount.yaml":                         oauthOpenshiftServiceaccountYaml,
 	"oauth-openshift/trust_distribution_role.yaml":                oauthOpenshiftTrust_distribution_roleYaml,
@@ -1147,6 +1176,7 @@ var _bintree = &bintree{nil, map[string]*bintree{
 		"deployment.yaml":                        {oauthOpenshiftDeploymentYaml, map[string]*bintree{}},
 		"ns.yaml":                                {oauthOpenshiftNsYaml, map[string]*bintree{}},
 		"oauth-service.yaml":                     {oauthOpenshiftOauthServiceYaml, map[string]*bintree{}},
+		"rolebinding.yaml":                       {oauthOpenshiftRolebindingYaml, map[string]*bintree{}},
 		"route.yaml":                             {oauthOpenshiftRouteYaml, map[string]*bintree{}},
 		"serviceaccount.yaml":                    {oauthOpenshiftServiceaccountYaml, map[string]*bintree{}},
 		"trust_distribution_role.yaml":           {oauthOpenshiftTrust_distribution_roleYaml, map[string]*bintree{}},
