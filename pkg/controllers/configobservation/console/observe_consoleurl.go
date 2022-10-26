@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openshift/library-go/pkg/operator/configobserver"
@@ -35,19 +34,15 @@ func ObserveConsoleURL(genericlisters configobserver.Listers, recorder events.Re
 			break
 		}
 	}
+	if !isConsoleCapabilityEnabled {
+		return existingConfig, nil
+	}
 
 	consoleConfig, err := listers.ConsoleLister.Get("cluster")
 	if err != nil {
-		if errors.IsNotFound(err) && !isConsoleCapabilityEnabled {
-			return existingConfig, nil
-		}
 		return existingConfig, append(errs, err)
 	}
-
-	observedAssetURL := ""
-	if isConsoleCapabilityEnabled {
-		observedAssetURL = consoleConfig.Status.ConsoleURL
-	}
+	observedAssetURL := consoleConfig.Status.ConsoleURL
 
 	if _, err := url.Parse(observedAssetURL); err != nil { // should never happen
 		return existingConfig, append(errs, fmt.Errorf("failed to parse consoleURL %q: %w", observedAssetURL, err))
