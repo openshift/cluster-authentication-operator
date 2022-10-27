@@ -175,6 +175,15 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorCtx.operatorInformer = operatorConfigInformers
 	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
+	// this one needs to be started now, so prepareOauthOperator can get ClusterVersion
+	operatorCtx.operatorConfigInformer.Start(ctx.Done())
+	allSynced := operatorCtx.operatorConfigInformer.WaitForCacheSync(ctx.Done())
+	for t, synced := range allSynced {
+		if !synced {
+			return fmt.Errorf("informer cache not synchronized for %v", t)
+		}
+	}
+
 	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
 		return err
 	}
@@ -194,12 +203,6 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 
 	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
 		informerToRunFn(ctx.Done())
-	}
-	allSynced := operatorCtx.operatorConfigInformer.WaitForCacheSync(ctx.Done())
-	for t, synced := range allSynced {
-		if !synced {
-			return fmt.Errorf("informer cache not synchronized for %v", t)
-		}
 	}
 
 	for _, controllerRunFn := range operatorCtx.controllersToRunFunc {
