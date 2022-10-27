@@ -195,6 +195,13 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
 		informerToRunFn(ctx.Done())
 	}
+	allSynced := operatorCtx.operatorConfigInformer.WaitForCacheSync(ctx.Done())
+	for t, synced := range allSynced {
+		if !synced {
+			return fmt.Errorf("informer cache not synchronized for %v", t)
+		}
+	}
+
 	for _, controllerRunFn := range operatorCtx.controllersToRunFunc {
 		go controllerRunFn(ctx, 1)
 	}
