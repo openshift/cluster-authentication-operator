@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	certinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
@@ -176,17 +177,21 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
 	// this one needs to be started now, so prepareOauthOperator can get ClusterVersion
-	operatorCtx.operatorConfigInformer.Start(ctx.Done())
-	allSynced := operatorCtx.operatorConfigInformer.WaitForCacheSync(ctx.Done())
-	for t, synced := range allSynced {
-		if !synced {
-			return fmt.Errorf("informer cache not synchronized for %v", t)
-		}
-	}
+	// operatorCtx.operatorConfigInformer.Start(ctx.Done())
+	// allSynced := operatorCtx.operatorConfigInformer.WaitForCacheSync(ctx.Done())
+	// for t, synced := range allSynced {
+	// 	if !synced {
+	// 		return fmt.Errorf("informer cache not synchronized for %v", t)
+	// 	}
+	// }
 
-	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
+	if err := prepareOauthOperator(ctx, controllerContext, operatorCtx); err != nil {
 		return err
 	}
+
+	// if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
+	// 	return err
+	// }
 	if err := prepareOauthAPIServerOperator(ctx, controllerContext, operatorCtx); err != nil {
 		return err
 	}
@@ -213,7 +218,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	return nil
 }
 
-func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
+func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
 	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
@@ -235,10 +240,13 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
 
-	clusterVersionLister := operatorCtx.operatorConfigInformer.Config().V1().ClusterVersions().Lister()
-	clusterVersionConfig, err := clusterVersionLister.Get("version")
-	fmt.Printf("\nclusterVersionConfig - %#v", clusterVersionConfig)
-	fmt.Printf("\nerr - %#v\n", err)
+	clusterVersionInformer := operatorCtx.operatorConfigInformer.Config().V1().ClusterVersions()
+	operatorCtx.operatorConfigInformer.Start(ctx.Done())
+	if !cache.WaitForNamedCacheSync(configv1.GroupName, ctx.Done(), clusterVersionInformer.Informer().HasSynced) {
+		return fmt.Errorf("failed to synchronize cluster version informer")
+	}
+
+	clusterVersionConfig, err := clusterVersionInformer.Lister().Get("version")
 	if err != nil {
 		return err
 	}

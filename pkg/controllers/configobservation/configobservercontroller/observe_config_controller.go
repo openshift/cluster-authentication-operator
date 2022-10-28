@@ -40,6 +40,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 		configInformer.Config().V1().OAuths().Informer().HasSynced,
 		configInformer.Config().V1().Ingresses().Informer().HasSynced,
+		configInformer.Config().V1().ClusterVersions().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -48,6 +49,7 @@ func NewConfigObserver(
 		configInformer.Config().V1().Infrastructures().Informer(),
 		configInformer.Config().V1().OAuths().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
+		configInformer.Config().V1().ClusterVersions().Informer(),
 	}
 
 	for _, ns := range interestingNamespaces {
