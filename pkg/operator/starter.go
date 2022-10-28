@@ -237,6 +237,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 
 	clusterVersionLister := operatorCtx.operatorConfigInformer.Config().V1().ClusterVersions().Lister()
 	clusterVersionConfig, err := clusterVersionLister.Get("version")
+	fmt.Printf("\nclusterVersionConfig - %#v", clusterVersionConfig)
+	fmt.Printf("\nerr - %#v\n", err)
 	if err != nil {
 		return err
 	}
