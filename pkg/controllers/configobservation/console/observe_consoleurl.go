@@ -9,8 +9,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
 
-	configv1 "github.com/openshift/api/config/v1"
-
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 
@@ -21,22 +19,6 @@ func ObserveConsoleURL(genericlisters configobserver.Listers, recorder events.Re
 	}()
 	listers := genericlisters.(configobservation.Listers)
 	errs := []error{}
-
-	clusterVersionConfig, err := listers.ClusterVersionLister.Get("version")
-	if err != nil {
-		return existingConfig, append(errs, err)
-	}
-
-	isConsoleCapabilityEnabled := false
-	for _, capability := range clusterVersionConfig.Status.Capabilities.EnabledCapabilities {
-		if capability == configv1.ClusterVersionCapabilityConsole {
-			isConsoleCapabilityEnabled = true
-			break
-		}
-	}
-	if !isConsoleCapabilityEnabled {
-		return existingConfig, nil
-	}
 
 	consoleConfig, err := listers.ConsoleLister.Get("cluster")
 	if err != nil {
