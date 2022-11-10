@@ -1,6 +1,7 @@
 package configobservercontroller
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -24,6 +25,7 @@ func NewConfigObserver(
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
 	configInformer configinformers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
+	enabledClusterCapabilities sets.String,
 	eventRecorder events.Recorder,
 ) factory.Controller {
 	interestingNamespaces := []string{
@@ -35,19 +37,19 @@ func NewConfigObserver(
 	preRunCacheSynced := []cache.InformerSynced{
 		operatorClient.Informer().HasSynced,
 		configInformer.Config().V1().APIServers().Informer().HasSynced,
-		configInformer.Config().V1().Consoles().Informer().HasSynced,
 		configInformer.Config().V1().Infrastructures().Informer().HasSynced,
 		configInformer.Config().V1().OAuths().Informer().HasSynced,
 		configInformer.Config().V1().Ingresses().Informer().HasSynced,
+		configInformer.Config().V1().ClusterVersions().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
 		operatorClient.Informer(),
 		configInformer.Config().V1().APIServers().Informer(),
-		configInformer.Config().V1().Consoles().Informer(),
 		configInformer.Config().V1().Infrastructures().Informer(),
 		configInformer.Config().V1().OAuths().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
+		configInformer.Config().V1().ClusterVersions().Informer(),
 	}
 
 	for _, ns := range interestingNamespaces {
@@ -79,21 +81,30 @@ func NewConfigObserver(
 			configobserver.WithPrefix(o, configobservation.OAuthServerConfigPrefix))
 	}
 
+	listers := configobservation.Listers{
+		ConfigMapLister: kubeInformersForNamespaces.ConfigMapLister(),
+		SecretsLister:   kubeInformersForNamespaces.SecretLister(),
+		IngressLister:   configInformer.Config().V1().Ingresses().Lister(),
+
+		APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
+		ClusterVersionLister: configInformer.Config().V1().ClusterVersions().Lister(),
+		InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
+		OAuthLister_:         configInformer.Config().V1().OAuths().Lister(),
+		ResourceSync:         resourceSyncer,
+		PreRunCachesSynced:   preRunCacheSynced,
+	}
+
+	// Check if the Console capability is enabled on the cluster and sync and add its informer and lister.
+	if enabledClusterCapabilities.Has("Console") {
+		listers.PreRunCachesSynced = append(listers.PreRunCachesSynced, configInformer.Config().V1().Consoles().Informer().HasSynced)
+		informers = append(informers, configInformer.Config().V1().Consoles().Informer())
+		listers.ConsoleLister = configInformer.Config().V1().Consoles().Lister()
+	}
+
 	return configobserver.NewNestedConfigObserver(
 		operatorClient,
 		eventRecorder,
-		configobservation.Listers{
-			ConfigMapLister: kubeInformersForNamespaces.ConfigMapLister(),
-			SecretsLister:   kubeInformersForNamespaces.SecretLister(),
-			IngressLister:   configInformer.Config().V1().Ingresses().Lister(),
-
-			APIServerLister_:     configInformer.Config().V1().APIServers().Lister(),
-			ConsoleLister:        configInformer.Config().V1().Consoles().Lister(),
-			InfrastructureLister: configInformer.Config().V1().Infrastructures().Lister(),
-			OAuthLister_:         configInformer.Config().V1().OAuths().Lister(),
-			ResourceSync:         resourceSyncer,
-			PreRunCachesSynced:   preRunCacheSynced,
-		},
+		listers,
 		informers,
 		[]string{configobservation.OAuthServerConfigPrefix},
 		"OAuthServer",
