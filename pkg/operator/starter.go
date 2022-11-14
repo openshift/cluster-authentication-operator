@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/sets"
 	certinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -174,9 +175,10 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorCtx.operatorInformer = operatorConfigInformers
 	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
 
-	if err := prepareOauthOperator(controllerContext, operatorCtx); err != nil {
+	if err := prepareOauthOperator(ctx, controllerContext, operatorCtx); err != nil {
 		return err
 	}
+
 	if err := prepareOauthAPIServerOperator(ctx, controllerContext, operatorCtx); err != nil {
 		return err
 	}
@@ -202,7 +204,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	return nil
 }
 
-func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
+func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
 	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return err
@@ -223,6 +225,16 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 	)
 
 	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
+
+	clusterVersion, err := operatorCtx.configClient.ConfigV1().ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	enabledClusterCapabilities := sets.NewString()
+	for _, v := range clusterVersion.Status.Capabilities.EnabledCapabilities {
+		enabledClusterCapabilities.Insert(string(v))
+	}
 
 	// add syncing for the OAuth metadata ConfigMap
 	if err := operatorCtx.resourceSyncController.SyncConfigMap(
@@ -281,6 +293,7 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.resourceSyncController,
+		enabledClusterCapabilities,
 		controllerContext.EventRecorder,
 	)
 
