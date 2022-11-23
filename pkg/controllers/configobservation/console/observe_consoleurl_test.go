@@ -42,13 +42,19 @@ func TestObserveConsoleURL(t *testing.T) {
 			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{}}},
 			existingConfig: noConfig,
 			expectedConfig: noConfig,
+			expectedErrs: []string{
+				"console.config.openshift.io \"cluster\" not found",
+			},
 		},
 		{
+			// even if the cap is disabled, the observer (if invoked) will take the expected action assuming it
+			// can find the console config.
+			// the observer should not be invoked if the console cap is disabled.
 			name:           "ConsoleConfigConsoleCapabilityDisabled",
 			consoleConfig:  &configv1.ConsoleStatus{ConsoleURL: "https://teh.console.my"},
 			clusterVersion: &configv1.ClusterVersionStatus{Capabilities: configv1.ClusterVersionCapabilitiesStatus{EnabledCapabilities: []configv1.ClusterVersionCapability{}}},
-			existingConfig: configWithConsoleURL(""),
-			expectedConfig: configWithConsoleURL(""),
+			existingConfig: existingConfig,
+			expectedConfig: existingConfig,
 		},
 		{
 			name:           "SameConfig",
@@ -120,7 +126,7 @@ func TestObserveConsoleURL(t *testing.T) {
 			}
 
 			for i := range errs {
-				if strings.Contains(tt.expectedErrs[i], errs[i].Error()) {
+				if !strings.Contains(errs[i].Error(), tt.expectedErrs[i]) {
 					t.Errorf("ObserveConsoleURL() errs = %v, want %v", errs, tt.expectedErrs)
 				}
 			}
