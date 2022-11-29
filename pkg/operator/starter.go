@@ -74,6 +74,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/termination"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/trustdistribution"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
@@ -105,7 +106,7 @@ type operatorContext struct {
 }
 
 // RunOperator prepares and runs both operators OAuth and OAuthAPIServer
-// TODO: in the future we might move each operator to its onw pkg
+// TODO: in the future we might move each operator to its own pkg
 // TODO: consider using the new operator framework
 func RunOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext) error {
 	kubeClient, err := kubernetes.NewForConfig(controllerContext.ProtoKubeConfig)
@@ -387,6 +388,17 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 		controllerContext.EventRecorder,
 		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
+
+	if !enabledClusterCapabilities.Has("Console") {
+		// This controller is only necessary if the console capability is not yet enabled in the cluster.
+		// Once the console capability is enabled, this controller will restart the auth operator and next
+		// time it comes up, the console cap will already be enabled and this controller won't be added.
+		terminationController := termination.NewTerminationController(
+			operatorCtx.operatorConfigInformer,
+			controllerContext.EventRecorder,
+		)
+		operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, terminationController.Run)
+	}
 
 	systemCABundle, err := loadSystemCACertBundle()
 	if err != nil {

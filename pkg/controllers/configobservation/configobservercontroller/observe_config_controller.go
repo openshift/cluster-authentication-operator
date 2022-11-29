@@ -68,7 +68,6 @@ func NewConfigObserver(
 	for _, o := range []configobserver.ObserveConfigFunc{
 		apiserver.ObserveAdditionalCORSAllowedOrigins,
 		apiserver.ObserveTLSSecurityProfile,
-		console.ObserveConsoleURL,
 		infrastructure.ObserveAPIServerURL,
 		oauth.ObserveIdentityProviders,
 		oauth.ObserveTemplates,
@@ -94,11 +93,12 @@ func NewConfigObserver(
 		PreRunCachesSynced:   preRunCacheSynced,
 	}
 
-	// Check if the Console capability is enabled on the cluster and sync and add its informer and lister.
+	// Check if the Console capability is enabled on the cluster and sync and add its informer, lister, and config observer
 	if enabledClusterCapabilities.Has("Console") {
 		listers.PreRunCachesSynced = append(listers.PreRunCachesSynced, configInformer.Config().V1().Consoles().Informer().HasSynced)
 		informers = append(informers, configInformer.Config().V1().Consoles().Informer())
 		listers.ConsoleLister = configInformer.Config().V1().Consoles().Lister()
+		oauthServerObservers = append(oauthServerObservers, configobserver.WithPrefix(console.ObserveConsoleURL, configobservation.OAuthServerConfigPrefix))
 	}
 
 	return configobserver.NewNestedConfigObserver(
