@@ -113,10 +113,10 @@ func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, r
 }
 
 // FIXME: we need to handle Authentication config object properly, namely:
-// - honor Type field being set to none and don't create the OSIN
-//   deployment in that case
-// - the WebhookTokenAuthenticators field is currently not being handled
-//   anywhere
+//   - honor Type field being set to none and don't create the OSIN
+//     deployment in that case
+//   - the WebhookTokenAuthenticators field is currently not being handled
+//     anywhere
 //
 // Note that the configMap from the reference in the OAuthMetadata field is
 // used to fill the data in the /.well-known/oauth-authorization-server
