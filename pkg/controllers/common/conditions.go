@@ -24,8 +24,9 @@ type ControllerProgressingError struct {
 // The error allows configuring `maxAge` which determines for how long can an
 // this error appear in the operator's status before it goes Degraded:
 // maxAge:
-//   <= 0 - never go Degraded
-//   > 0  - go Degraded if the controller was progressing with this error longer than `maxAge`
+//
+//	<= 0 - never go Degraded
+//	> 0  - go Degraded if the controller was progressing with this error longer than `maxAge`
 func NewControllerProgressingError(reason string, err error, maxAge time.Duration) *ControllerProgressingError {
 	return &ControllerProgressingError{
 		reason: reason,
