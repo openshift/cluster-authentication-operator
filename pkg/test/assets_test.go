@@ -14,7 +14,7 @@ func TestYamlCorrectness(t *testing.T) {
 }
 
 func readAllYaml(path string, t *testing.T) {
-	manifests, err := assets.New(path, make(map[string]string), assets.OnlyYaml)
+	manifests, err := assets.New(path, make(map[string]string), nil, assets.OnlyYaml)
 	if err != nil {
 		t.Errorf("Unexpected error reading manifests from %s: %v", path, err)
 	}
