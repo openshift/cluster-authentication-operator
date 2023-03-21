@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
 )
@@ -46,6 +47,7 @@ func TestEncryptionTurnOnAndOff(t *testing.T) {
 			TargetGRs:                       operatorencryption.DefaultTargetGRs,
 			AssertFunc:                      operatorencryption.AssertTokens,
 		},
+		EncryptionProvider: configv1.EncryptionTypeAESCBC,
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
 			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
 		},
