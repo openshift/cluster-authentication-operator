@@ -275,6 +275,9 @@ spec:
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
+        env:
+        - name: OPENSHIFT_PROFILE
+          value: web
         resources:
           requests:
             memory: 200Mi
@@ -686,6 +689,9 @@ spec:
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
               --v=${LOG_LEVEL} \
               ${SERVER_ARGUMENTS}
+          env:
+          - name: OPENSHIFT_PROFILE
+            value: web
           ports:
             - name: https
               containerPort: 6443

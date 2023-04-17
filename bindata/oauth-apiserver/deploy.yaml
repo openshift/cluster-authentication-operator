@@ -75,6 +75,9 @@ spec:
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
+        env:
+        - name: OPENSHIFT_PROFILE
+          value: web
         resources:
           requests:
             memory: 200Mi
