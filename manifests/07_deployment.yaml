@@ -73,6 +73,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: OPENSHIFT_PROFILE
+          value: web
         terminationMessagePolicy: FallbackToLogsOnError
       volumes:
       - name: config
