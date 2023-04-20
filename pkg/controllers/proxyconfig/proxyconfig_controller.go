@@ -52,7 +52,7 @@ func NewProxyConfigChecker(
 		WithInformers(
 			routeInformer.Informer(),
 		).
-		ResyncEvery(5 * time.Minute).
+		ResyncEvery(60 * time.Minute).
 		WithSyncDegradedOnError(operatorClient)
 
 	for ns := range caConfigMaps {
