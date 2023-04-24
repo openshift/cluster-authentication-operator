@@ -79,7 +79,7 @@ func NewRouterCertsDomainValidationController(
 			targetNSsecretInformer.Informer(),
 			configMapInformer.Informer()).
 		WithFilteredEventsInformers(
-			common.NamesFilter("router-certs"),
+			factory.NamesFilter("router-certs"),
 			machineConfigNSSecretInformer.Informer(),
 		).
 		WithSync(controller.sync).
