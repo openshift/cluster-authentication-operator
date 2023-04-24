@@ -56,8 +56,9 @@ func NewProxyConfigChecker(
 		ResyncEvery(60 * time.Minute).
 		WithSyncDegradedOnError(operatorClient)
 
-	for ns := range caConfigMaps {
-		c.WithInformers(
+	for ns, configMapNames := range caConfigMaps {
+		c.WithFilteredEventsInformers(
+			factory.NamesFilter(configMapNames...),
 			configMapInformers.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
 		)
 	}
