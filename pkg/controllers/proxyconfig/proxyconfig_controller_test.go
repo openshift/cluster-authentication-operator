@@ -171,20 +171,17 @@ func Test_checkProxyConfig(t *testing.T) {
 		wantErr            error
 	}{
 		{
-			name:               "good proxy config with endpoint not matching noProxy",
-			clientWithProxy:    goodHTTPClient,
-			clientWithoutProxy: badHTTPClient,
+			name:            "good proxy config with endpoint not matching noProxy",
+			clientWithProxy: goodHTTPClient,
 		},
 		{
 			name:               "good proxy config with endpoint matching noProxy",
 			noProxy:            "proxy.testing.com",
-			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: goodHTTPClient,
 		},
 		{
 			name:               "good proxy config with endpoint matching domain in noProxy",
 			noProxy:            "testing.com",
-			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: goodHTTPClient,
 		},
 		{
