@@ -252,6 +252,8 @@ func prepareOauthOperator(controllerContext *controllercmd.ControllerContext, op
 			"OAuthVersionRouteAvailable",
 			"OAuthVersionRouteSecretDegraded",
 			"OAuthVersionIngressConfigDegraded",
+			// condition type only present in 4.9, removed in 4.10
+			"InvalidProviderInvalidCertsUpgradeable",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
