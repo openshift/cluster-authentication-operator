@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
@@ -52,11 +53,12 @@ func NewProxyConfigChecker(
 		WithInformers(
 			routeInformer.Informer(),
 		).
-		ResyncEvery(5 * time.Minute).
+		ResyncEvery(60 * time.Minute).
 		WithSyncDegradedOnError(operatorClient)
 
-	for ns := range caConfigMaps {
-		c.WithInformers(
+	for ns, configMapNames := range caConfigMaps {
+		c.WithFilteredEventsInformers(
+			factory.NamesFilter(configMapNames...),
 			configMapInformers.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
 		)
 	}
@@ -94,22 +96,22 @@ func (p *proxyConfigChecker) sync(ctx context.Context, _ factory.SyncContext) er
 // checkProxyConfig determines any mis-configuration in proxy settings by attempting
 // to connect to endpoint directly and via proxy and comparing the results with expectations.
 func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string, clientWithProxy, clientWithoutProxy *http.Client) error {
-	withProxyErr := isEndpointReachable(ctx, endpointURL.String(), clientWithProxy)
-	withoutProxyErr := isEndpointReachable(ctx, endpointURL.String(), clientWithoutProxy)
+	withProxy := newLazyChecker(func() error { return isEndpointReachable(ctx, endpointURL.String(), clientWithProxy) })
+	withoutProxy := newLazyChecker(func() error { return isEndpointReachable(ctx, endpointURL.String(), clientWithoutProxy) })
 	noProxyMatchesEndpoint := parseNoProxy(noProxy).matches(canonicalAddr(endpointURL))
 
-	if noProxyMatchesEndpoint && withoutProxyErr != nil {
-		if withProxyErr == nil {
-			return fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withoutProxyErr)
+	if noProxyMatchesEndpoint && withoutProxy() != nil {
+		if withProxy() == nil {
+			return fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withoutProxy())
 		}
-		return fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxyErr, withoutProxyErr)
+		return fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxy(), withoutProxy())
 	}
 
-	if !noProxyMatchesEndpoint && withProxyErr != nil {
-		if withoutProxyErr == nil {
-			return fmt.Errorf("failed to reach endpoint(%q) missing in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withProxyErr)
+	if !noProxyMatchesEndpoint && withProxy() != nil {
+		if withoutProxy() == nil {
+			return fmt.Errorf("failed to reach endpoint(%q) missing in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withProxy())
 		}
-		return fmt.Errorf("endpoint(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), withProxyErr, withoutProxyErr)
+		return fmt.Errorf("endpoint(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), withProxy(), withoutProxy())
 	}
 
 	return nil
@@ -204,4 +206,17 @@ func proxyFunc(req *http.Request) (*url.URL, error) {
 		return nil, err
 	}
 	return proxyURL, nil
+}
+
+// newLazyChecker returns a function that calculates an error value once
+// and returns that error in subsequent calls
+func newLazyChecker(f func() error) func() error {
+	var err error
+	var once sync.Once
+	return func() error {
+		once.Do(func() {
+			err = f()
+		})
+		return err
+	}
 }
