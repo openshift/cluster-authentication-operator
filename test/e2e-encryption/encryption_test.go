@@ -2,6 +2,7 @@ package e2eencryption
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
 )
+
+var provider = flag.String("provider", "aescbc", "encryption provider used by the tests")
 
 func TestEncryptionTypeIdentity(t *testing.T) {
 	library.TestEncryptionTypeIdentity(t, library.BasicScenario{
@@ -54,6 +57,6 @@ func TestEncryptionTurnOnAndOff(t *testing.T) {
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
-		EncryptionProvider:             configv1.EncryptionType("aescbc"),
+		EncryptionProvider:             configv1.EncryptionType(*provider),
 	})
 }

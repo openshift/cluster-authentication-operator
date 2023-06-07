@@ -3,6 +3,7 @@ package e2e_encryption_perf
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"testing"
 	"time"
@@ -25,7 +26,9 @@ const (
 	tokenStatsKey = "created oauthaccesstokens"
 )
 
-func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
+var provider = flag.String("provider", "aescbc", "encryption provider used by the tests")
+
+func TestPerfEncryption(tt *testing.T) {
 	ctx := context.TODO()
 	clientSet := getPerfClients(tt)
 	library.TestPerfEncryption(tt, library.PerfScenario{
@@ -38,6 +41,7 @@ func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 			TargetGRs:                       operatorencryption.DefaultTargetGRs,
 			AssertFunc:                      operatorencryption.AssertTokens,
 		},
+		EncryptionProvider: configv1.EncryptionType(*provider),
 		GetOperatorConditionsFunc: func(t testing.TB) ([]operatorv1.OperatorCondition, error) {
 			apiServerOperator, err := clientSet.OperatorClient.Get(ctx, "cluster", metav1.GetOptions{})
 			if err != nil {

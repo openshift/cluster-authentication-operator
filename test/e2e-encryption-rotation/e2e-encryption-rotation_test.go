@@ -3,6 +3,7 @@ package e2e_encryption_rotation
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"testing"
 
@@ -11,10 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	configv1 "github.com/openshift/api/config/v1"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
 )
+
+var provider = flag.String("provider", "aescbc", "encryption provider used by the tests")
 
 // TestEncryptionRotation first encrypts data with aescbc key
 // then it forces a key rotation by setting the "encyrption.Reason" in the operator's configuration file
@@ -30,6 +34,7 @@ func TestEncryptionRotation(t *testing.T) {
 			TargetGRs:                       operatorencryption.DefaultTargetGRs,
 			AssertFunc:                      operatorencryption.AssertTokens,
 		},
+		EncryptionProvider: configv1.EncryptionType(*provider),
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, _ string) runtime.Object {
 			return operatorencryption.CreateAndStoreTokenOfLife(ctx, t, operatorencryption.GetClients(t))
 		},
