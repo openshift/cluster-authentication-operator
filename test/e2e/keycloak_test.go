@@ -123,7 +123,11 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 
 	// we need to repeat challenger creation as they remember handling the challenge and won't do that twice
 	createChallengeHandler := func(username, password string) *challengehandlers.BasicChallengeHandler {
-		return challengehandlers.NewBasicChallengeHandler(kubeConfig.Host, nil, nil, nil, username, password)
+		return challengehandlers.NewBasicChallengeHandler(
+			kubeConfig.Host, "",
+			nil, nil, nil,
+			username, password,
+		)
 	}
 
 	_, err = tokenrequest.RequestToken(kubeConfig, createChallengeHandler(username, "password42"))

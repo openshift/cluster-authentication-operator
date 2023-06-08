@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	configv1 "github.com/openshift/api/config/v1"
 	oauthapiv1 "github.com/openshift/api/oauth/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
@@ -27,7 +28,7 @@ const (
 func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 	ctx := context.TODO()
 	clientSet := getPerfClients(tt)
-	library.TestPerfEncryptionTypeAESCBC(tt, library.PerfScenario{
+	library.TestPerfEncryption(tt, library.PerfScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
@@ -66,6 +67,7 @@ func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 		DBLoaderWorkers: 3,
 		DBLoaderFunc: library.DBLoaderRepeat(1, false,
 			library.DBLoaderRepeatParallel(5010, 50, false, createAccessTokenWrapper(ctx, clientSet.TokenClient), reportSecret)),
+		EncryptionProvider: configv1.EncryptionType("aescbc"),
 	})
 }
 
