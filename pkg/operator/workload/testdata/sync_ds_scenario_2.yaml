@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "c6b69eb66aa5315d99749b9562ed2a54f6f4758e71d29929d6d1e4174b373ce2"
+    operator.openshift.io/spec-hash: "fc856dccb78052f4091e81833aaad06e7354f1e3a2a6fd15927b75e91f0cafde"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -75,7 +75,7 @@ spec:
               path: healthz
             initialDelaySeconds: 0
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 10
             successThreshold: 1
             failureThreshold: 3
           readinessProbe:
@@ -85,7 +85,7 @@ spec:
               path: readyz
             initialDelaySeconds: 0
             periodSeconds: 5
-            timeoutSeconds: 1
+            timeoutSeconds: 10
             successThreshold: 1
             failureThreshold: 1
           startupProbe:
@@ -95,7 +95,7 @@ spec:
               path: healthz
             initialDelaySeconds: 0
             periodSeconds: 5
-            timeoutSeconds: 1
+            timeoutSeconds: 10
             successThreshold: 1
             failureThreshold: 30
           name: oauth-apiserver
