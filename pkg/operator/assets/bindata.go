@@ -483,6 +483,8 @@ metadata:
     service.alpha.openshift.io/serving-cert-secret-name: serving-cert
     prometheus.io/scrape: "true"
     prometheus.io/scheme: https
+  labels:
+    app: openshift-oauth-apiserver
 spec:
   selector:
     apiserver: "true"
