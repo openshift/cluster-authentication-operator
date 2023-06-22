@@ -138,7 +138,6 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 			GrantMethod:  oauthv1.GrantHandlerAuto,
 		},
 	} {
-
 		if err := ensureOAuthClient(ctx, c.oauthClientClient, client); err != nil {
 			return fmt.Errorf("unable to ensure existence of a bootstrapped OAuth client %q: %w", client.Name, err)
 		}
