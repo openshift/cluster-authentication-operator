@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	configv1 "github.com/openshift/api/config/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,5 +65,6 @@ func TestEncryptionRotation(t *testing.T) {
 			_, err = cs.OperatorClient.Update(ctx, authOperator, metav1.UpdateOptions{})
 			return err
 		},
+		EncryptionProvider: configv1.EncryptionType("aescbc"),
 	})
 }
