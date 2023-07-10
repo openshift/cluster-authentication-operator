@@ -1,6 +1,6 @@
 # cluster-authentication-operator
 The authentication operator is an 
-[OpenShift ClusterOperator](https://github.com/openshift/enhancements/blob/master/enhancements/dev-guide/operators.md#what-is-an-openshift-clusteroperator).    
+[OpenShift ClusterOperator](https://github.com/openshift/enhancements/blob/master/dev-guide/operators.md#what-is-an-openshift-clusteroperator).    
 It installs and maintains the Authentication [Custom Resource](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/) in a cluster and can be viewed with:     
 ```
 oc get clusteroperator authentication -o yaml
