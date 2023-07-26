@@ -130,7 +130,7 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 		)
 	}
 
-	_, err = tokenrequest.RequestToken(kubeConfig, createChallengeHandler(username, "password42"))
+	_, err = tokenrequest.RequestTokenWithChallengeHandlers(kubeConfig, createChallengeHandler(username, "password42"))
 	require.NoError(t, err)
 
 	defer func() {
@@ -176,7 +176,7 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 	require.NoError(t, kcClient.DeleteUserFromGroups(userId, userGroupsIDMap["group2"], userGroupsIDMap["group3"]))
 	removedGroups := sets.NewString("group2", "group3")
 
-	_, err = tokenrequest.RequestToken(kubeConfig, createChallengeHandler(username, "password42"))
+	_, err = tokenrequest.RequestTokenWithChallengeHandlers(kubeConfig, createChallengeHandler(username, "password42"))
 	require.NoError(t, err)
 
 	groupList, err := userClient.Groups().List(context.Background(), metav1.ListOptions{})
