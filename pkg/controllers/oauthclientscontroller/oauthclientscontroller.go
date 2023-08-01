@@ -60,7 +60,7 @@ func NewOAuthClientsController(
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		WithFilteredEventsInformers(
-			factory.NamesFilter("openshift-browser-client", "openshift-challenging-client"),
+			factory.NamesFilter("openshift-browser-client", "openshift-challenging-client", "openshift-cli-client"),
 			oauthInformers.Oauth().V1().OAuthClients().Informer(),
 		).
 		WithFilteredEventsInformers(
