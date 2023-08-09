@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	corev1lister "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
@@ -22,6 +25,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
+
+const controllerName = "ProxyConfigController"
 
 // proxyConfigChecker reports bad proxy configurations.
 type proxyConfigChecker struct {
@@ -48,8 +53,10 @@ func NewProxyConfigChecker(
 		caConfigMaps:    caConfigMaps,
 	}
 
+	syncCtx := factory.NewSyncContext(controllerName, recorder.WithComponentSuffix(controllerName))
 	c := factory.New().
 		WithSync(p.sync).
+		WithSyncContext(syncCtx).
 		WithInformers(
 			routeInformer.Informer(),
 		).
@@ -57,13 +64,13 @@ func NewProxyConfigChecker(
 		WithSyncDegradedOnError(operatorClient)
 
 	for ns, configMapNames := range caConfigMaps {
-		c.WithFilteredEventsInformers(
-			factory.NamesFilter(configMapNames...),
-			configMapInformers.InformersFor(ns).Core().V1().ConfigMaps().Informer(),
-		)
+		configMapInformer := configMapInformers.InformersFor(ns).Core().V1().ConfigMaps().Informer()
+		eventHandler := eventHandler(factory.NamesFilter(configMapNames...), syncCtx)
+		configMapInformer.AddEventHandler(eventHandler)
+		c.WithBareInformers(configMapInformer)
 	}
 
-	return c.ToController("ProxyConfigController", recorder.WithComponentSuffix("proxy-config-controller"))
+	return c.ToController(controllerName, recorder.WithComponentSuffix("proxy-config-controller"))
 }
 
 // sync attempts to connect to route using configured proxy settings and reports any error.
@@ -218,5 +225,43 @@ func newLazyChecker(f func() error) func() error {
 			err = f()
 		})
 		return err
+	}
+}
+
+// eventHandler creates a new FilteringResourceEventHandler that does not enqueue events
+// caused by object updates that do not alter the object
+func eventHandler(filterFunc func(obj interface{}) bool, syncCtx factory.SyncContext) cache.ResourceEventHandler {
+	return cache.FilteringResourceEventHandler{
+		FilterFunc: filterFunc,
+		Handler: cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				enqueue(obj, syncCtx)
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				if reflect.DeepEqual(oldObj, newObj) {
+					return
+				}
+
+				enqueue(newObj, syncCtx)
+			},
+			DeleteFunc: func(obj interface{}) {
+				enqueue(obj, syncCtx)
+			},
+		},
+	}
+}
+
+func enqueue(obj interface{}, syncCtx factory.SyncContext) {
+	if syncCtx == nil {
+		panic("sync context is nil")
+	}
+
+	runtimeObj, ok := obj.(runtime.Object)
+	if !ok {
+		return
+	}
+
+	for _, key := range factory.DefaultQueueKeysFunc(runtimeObj) {
+		syncCtx.Queue().Add(key)
 	}
 }
