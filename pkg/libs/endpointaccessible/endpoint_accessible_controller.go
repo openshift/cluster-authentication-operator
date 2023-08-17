@@ -11,7 +11,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -38,6 +37,7 @@ func NewEndpointAccessibleController(
 	getTLSConfigFn EndpointTLSConfigFunc,
 	triggers []factory.Informer,
 	recorder events.Recorder,
+	resyncInterval time.Duration,
 ) factory.Controller {
 	controllerName := name + "EndpointAccessibleController"
 
@@ -52,7 +52,7 @@ func NewEndpointAccessibleController(
 		WithInformers(triggers...).
 		WithInformers(operatorClient.Informer()).
 		WithSync(c.sync).
-		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
+		ResyncEvery(resyncInterval).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }

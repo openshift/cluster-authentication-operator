@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
@@ -65,7 +67,8 @@ func NewOAuthRouteCheckController(
 			routeInformer,
 			ingressInformer,
 		},
-		recorder)
+		recorder,
+		wait.Jitter(5*time.Minute, 0.1))
 }
 
 // NewOAuthServiceCheckController returns a controller that checks the health of authentication service.
@@ -90,7 +93,8 @@ func NewOAuthServiceCheckController(
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 			kubeInformersForTargetNS.Core().V1().Services().Informer(),
 		},
-		recorder)
+		recorder,
+		wait.Jitter(time.Minute, 1.0))
 }
 
 // NewOAuthServiceEndpointsCheckController returns a controller that checks the health of authentication service
@@ -116,7 +120,8 @@ func NewOAuthServiceEndpointsCheckController(
 			kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 		},
-		recorder)
+		recorder,
+		wait.Jitter(time.Minute, 1.0))
 }
 
 func listOAuthServiceEndpoints(endpointsLister corev1listers.EndpointsLister) ([]string, error) {
