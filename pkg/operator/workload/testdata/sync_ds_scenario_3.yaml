@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "12ebf32bd21d3cd5a2a3a2eb7f7689fdcced34406acd9b62dfd3859b97e2b931"
+    operator.openshift.io/spec-hash: "0ac23e4834469cabe09a8436adbc50a839d21736e9750fd62b73d57ec35164af"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -62,6 +62,15 @@ spec:
           command:
             - /bin/bash
             - "-ec"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
