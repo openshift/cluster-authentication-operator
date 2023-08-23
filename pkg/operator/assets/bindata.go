@@ -275,6 +275,17 @@ spec:
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
+        env:
+          # used to emit shutdown lifecycles events in the correct namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          # used to emit shutdown lifecycles events in the correct namespace
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
         resources:
           requests:
             memory: 200Mi
