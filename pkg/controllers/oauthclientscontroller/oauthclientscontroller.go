@@ -146,7 +146,7 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 	return nil
 }
 
-func randomBits(bits int) []byte {
+func randomBits(bits uint) []byte {
 	size := bits / 8
 	if bits%8 != 0 {
 		size++
