@@ -57,6 +57,19 @@ func NewOAuthRouteCheckController(
 		return getOAuthRouteTLSConfig(cmLister, secretLister, ingressLister, systemCABundle)
 	}
 
+	controllerResourcesFilterFunc := factory.NamesFilter(
+		// cluster-scoped
+		"cluster", // ingress
+
+		// NS: openshift-authentication
+		"oauth-openshift",                        // route
+		"v4-0-config-system-router-certs",        // secret
+		"v4-0-config-system-custom-router-certs", // secret
+
+		// NS: openshift-config-managed
+		"default-ingress-cert", //configmap
+	)
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerRoute",
 		operatorClient,
@@ -67,6 +80,7 @@ func NewOAuthRouteCheckController(
 			routeInformer,
 			ingressInformer,
 		},
+		controllerResourcesFilterFunc,
 		recorder,
 		wait.Jitter(5*time.Minute, 0.1))
 }
@@ -93,6 +107,7 @@ func NewOAuthServiceCheckController(
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 			kubeInformersForTargetNS.Core().V1().Services().Informer(),
 		},
+		nil,
 		recorder,
 		wait.Jitter(time.Minute, 1.0))
 }
@@ -120,6 +135,7 @@ func NewOAuthServiceEndpointsCheckController(
 			kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 		},
+		nil,
 		recorder,
 		wait.Jitter(time.Minute, 1.0))
 }

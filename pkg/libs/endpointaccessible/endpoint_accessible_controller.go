@@ -36,6 +36,7 @@ func NewEndpointAccessibleController(
 	endpointListFn EndpointListFunc,
 	getTLSConfigFn EndpointTLSConfigFunc,
 	triggers []factory.Informer,
+	triggersFilterFunc factory.EventFilterFunc,
 	recorder events.Recorder,
 	resyncInterval time.Duration,
 ) factory.Controller {
@@ -49,7 +50,7 @@ func NewEndpointAccessibleController(
 	}
 
 	return factory.New().
-		WithInformers(triggers...).
+		WithFilteredEventsInformers(triggersFilterFunc, triggers...).
 		WithInformers(operatorClient.Informer()).
 		WithSync(c.sync).
 		ResyncEvery(resyncInterval).
