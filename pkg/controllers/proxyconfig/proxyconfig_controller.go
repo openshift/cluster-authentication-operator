@@ -109,16 +109,16 @@ func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string,
 
 	if noProxyMatchesEndpoint && withoutProxy() != nil {
 		if withProxy() == nil {
-			return fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withoutProxy())
+			return fmt.Errorf("failed to reach endpoint(%q) present in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withoutProxy())
 		}
-		return fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxy(), withoutProxy())
+		return fmt.Errorf("endpoint(%q) present in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxy(), withoutProxy())
 	}
 
 	if !noProxyMatchesEndpoint && withProxy() != nil {
 		if withoutProxy() == nil {
-			return fmt.Errorf("failed to reach endpoint(%q) missing in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withProxy())
+			return fmt.Errorf("failed to reach endpoint(%q) not present in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withProxy())
 		}
-		return fmt.Errorf("endpoint(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), withProxy(), withoutProxy())
+		return fmt.Errorf("endpoint(%q) not present in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxy(), withoutProxy())
 	}
 
 	return nil
