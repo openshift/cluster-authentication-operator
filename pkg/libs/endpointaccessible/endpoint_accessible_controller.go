@@ -3,6 +3,7 @@ package endpointaccessible
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -23,6 +25,12 @@ type endpointAccessibleController struct {
 	endpointListFn         EndpointListFunc
 	getTLSConfigFn         EndpointTLSConfigFunc
 	availableConditionName string
+
+	maxCheckLatency time.Duration
+	lastCheckTime   time.Time
+	lastEndpoints   sets.Set[string]
+	lastServerName  string
+	lastCA          *x509.CertPool
 }
 
 type EndpointListFunc func() ([]string, error)
@@ -47,6 +55,8 @@ func NewEndpointAccessibleController(
 		endpointListFn:         endpointListFn,
 		getTLSConfigFn:         getTLSConfigFn,
 		availableConditionName: name + "EndpointAccessibleControllerAvailable",
+		maxCheckLatency:        resyncInterval - 5*time.Second,
+		lastEndpoints:          sets.New[string](),
 	}
 
 	return factory.New().
@@ -70,26 +80,41 @@ func humanizeError(err error) error {
 
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	endpoints, err := c.endpointListFn()
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			_, _, statusErr := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(
-				operatorv1.OperatorCondition{
-					Type:    c.availableConditionName,
-					Status:  operatorv1.ConditionFalse,
-					Reason:  "ResourceNotFound",
-					Message: err.Error(),
-				}))
+	if apierrors.IsNotFound(err) {
+		_, _, statusErr := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(
+			operatorv1.OperatorCondition{
+				Type:    c.availableConditionName,
+				Status:  operatorv1.ConditionFalse,
+				Reason:  "ResourceNotFound",
+				Message: err.Error(),
+			}))
 
-			return statusErr
-		}
-
+		return statusErr
+	} else if err != nil {
 		return err
 	}
 
-	client, err := c.buildTLSClient()
+	newEndpoints := sets.New(endpoints...)
+	endpointsChanged := !c.lastEndpoints.Equal(newEndpoints)
+
+	tlsConfig, err := c.getTLSConfigFn()
 	if err != nil {
 		return err
 	}
+	tlsChanged := c.lastServerName != tlsConfig.ServerName || !tlsConfig.RootCAs.Equal(c.lastCA)
+
+	isPastTimeForCheck := time.Since(c.lastCheckTime) > c.maxCheckLatency
+	if !endpointsChanged && !tlsChanged && !isPastTimeForCheck {
+		return nil
+	}
+	c.lastCheckTime = time.Now()
+	c.lastEndpoints = newEndpoints
+
+	client, err := c.buildTLSClient(tlsConfig)
+	if err != nil {
+		return err
+	}
+
 	// check all the endpoints in parallel.  This matters for pods.
 	errCh := make(chan error, len(endpoints))
 	wg := sync.WaitGroup{}
@@ -155,20 +180,22 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	return utilerrors.NewAggregate(errors)
 }
 
-func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
+func (c *endpointAccessibleController) buildTLSClient(tlsConfig *tls.Config) (*http.Client, error) {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
-	if c.getTLSConfigFn != nil {
-		tlsConfig, err := c.getTLSConfigFn()
-		if err != nil {
-			return nil, err
-		}
+
+	if tlsConfig != nil {
 		transport.TLSClientConfig = tlsConfig
+
+		// these are the fields that are set by our getTLSConfigFn funcs
+		c.lastServerName = tlsConfig.ServerName
+		c.lastCA = tlsConfig.RootCAs
 	}
+
 	return &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: transport,
