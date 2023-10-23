@@ -243,7 +243,7 @@ func Test_ensureBootstrappedOAuthClients(t *testing.T) {
 
 func Test_randomBits(t *testing.T) {
 	tests := []struct {
-		bits        int
+		bits        uint
 		expectedLen int
 	}{
 		{0, 0}, {1, 1}, {8, 1}, {16, 2}, {32, 4}, {64, 8}, {128, 16}, {256, 32}, {512, 64},
