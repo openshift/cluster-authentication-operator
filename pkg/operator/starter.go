@@ -731,6 +731,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
 			SecretName:      "openshift-authenticator-certs",
+			JiraComponent:   "apiserver-auth",
 		},
 		csr.CSROption{
 			ObjectMeta: metav1.ObjectMeta{
