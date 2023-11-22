@@ -167,6 +167,7 @@ github.com/munnerz/goautoneg
 # github.com/openshift/api v0.0.0-20231010075512-1ccc6058c62d
 ## explicit; go 1.20
 github.com/openshift/api
+github.com/openshift/api/annotations
 github.com/openshift/api/apiserver
 github.com/openshift/api/apiserver/v1
 github.com/openshift/api/apps
@@ -300,12 +301,13 @@ github.com/openshift/client-go/user/applyconfigurations/internal
 github.com/openshift/client-go/user/applyconfigurations/user/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-# github.com/openshift/library-go v0.0.0-20231017173800-126f85ed0cc7
+# github.com/openshift/library-go v0.0.0-20231128230659-785a9313da6c
 ## explicit; go 1.20
 github.com/openshift/library-go/pkg/apps/deployment
 github.com/openshift/library-go/pkg/assets
 github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator
 github.com/openshift/library-go/pkg/authorization/hardcodedauthorizer
+github.com/openshift/library-go/pkg/certs
 github.com/openshift/library-go/pkg/config/client
 github.com/openshift/library-go/pkg/config/clusteroperator/v1helpers
 github.com/openshift/library-go/pkg/config/clusterstatus
@@ -326,6 +328,7 @@ github.com/openshift/library-go/pkg/operator/apiserver/controller/auditpolicy
 github.com/openshift/library-go/pkg/operator/apiserver/controller/nsfinalizer
 github.com/openshift/library-go/pkg/operator/apiserver/controller/workload
 github.com/openshift/library-go/pkg/operator/apiserver/controllerset
+github.com/openshift/library-go/pkg/operator/certrotation
 github.com/openshift/library-go/pkg/operator/condition
 github.com/openshift/library-go/pkg/operator/configobserver
 github.com/openshift/library-go/pkg/operator/configobserver/apiserver
