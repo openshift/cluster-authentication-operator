@@ -13,6 +13,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
+	"github.com/openshift/api/annotations"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -95,6 +96,9 @@ func (c *trustDistributionController) sync(ctx context.Context, syncContext fact
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "oauth-serving-cert",
 				Namespace: "openshift-config-managed",
+				Annotations: map[string]string{
+					annotations.OpenShiftComponent: "apiserver-auth",
+				},
 			},
 			Data: map[string]string{
 				"ca-bundle.crt": certsFiltered,
