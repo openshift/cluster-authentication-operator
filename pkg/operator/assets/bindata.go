@@ -442,6 +442,7 @@ metadata:
   namespace: openshift-oauth-apiserver
 spec:
   maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
