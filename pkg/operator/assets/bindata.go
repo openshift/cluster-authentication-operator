@@ -272,6 +272,7 @@ spec:
               --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
               --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
               --shutdown-delay-duration=15s \
+              --shutdown-send-retry-after=true \
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
               ${FLAGS}
