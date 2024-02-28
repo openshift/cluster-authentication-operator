@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "a3388d2173a2b31e4859bf0a2aaf399244095d1f07b564ef1ff462cb702c8526"
+    operator.openshift.io/spec-hash: "9afc5895a397b7bc091476c1f6cf21f1fa1cc69bd07ccb993b61c7a6adc826a6"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -52,6 +52,7 @@ spec:
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
                 --shutdown-delay-duration=15s \
+                --shutdown-send-retry-after=true \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
                 --v=2
