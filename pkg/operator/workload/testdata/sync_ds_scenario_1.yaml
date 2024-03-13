@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "9afc5895a397b7bc091476c1f6cf21f1fa1cc69bd07ccb993b61c7a6adc826a6"
+    operator.openshift.io/spec-hash: "8c6e83d933784ed1fb02dd5f1fbea3ecfe1e4ff01c09f20315f1e97876c30dcd"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -55,6 +55,7 @@ spec:
                 --shutdown-send-retry-after=true \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+                --enable-priority-and-fairness=false \
                 --v=2
           command:
             - /bin/bash
