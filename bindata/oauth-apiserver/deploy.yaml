@@ -75,6 +75,7 @@ spec:
               --shutdown-send-retry-after=true \
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+              --enable-priority-and-fairness=false \
               ${FLAGS}
         env:
           # used to emit shutdown lifecycles events in the correct namespace
