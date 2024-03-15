@@ -40,6 +40,14 @@ func (c OperatorClient) GetOperatorState() (*operatorv1.OperatorSpec, *operatorv
 	return &instance.Spec.OperatorSpec, &instance.Status.OperatorStatus, instance.ResourceVersion, nil
 }
 
+func (c OperatorClient) GetOperatorStateWithQuorum(ctx context.Context) (*operatorv1.OperatorSpec, *operatorv1.OperatorStatus, string, error) {
+	instance, err := c.Client.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return &instance.Spec.OperatorSpec, &instance.Status.OperatorStatus, instance.ResourceVersion, nil
+}
+
 func (c OperatorClient) UpdateOperatorSpec(ctx context.Context, resourceVersion string, spec *operatorv1.OperatorSpec) (*operatorv1.OperatorSpec, string, error) {
 	original, err := c.Informers.Operator().V1().Authentications().Lister().Get("cluster")
 	if err != nil {
