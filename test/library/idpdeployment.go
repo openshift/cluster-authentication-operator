@@ -61,11 +61,23 @@ func deployPod(
 		}
 	}()
 
+	_, err = clients.CoreV1().ServiceAccounts(namespace).Create(
+		testContext,
+		&corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+		metav1.CreateOptions{},
+	)
+
 	pod := podTemplate(name, image, httpPort, httpsPort, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
 	pod.Spec.Containers[0].Resources = resources
+	pod.Spec.ServiceAccountName = name
+
 	_, err = clients.CoreV1().Pods(namespace).Create(testContext, pod, metav1.CreateOptions{})
 	require.NoError(t, err)
 
