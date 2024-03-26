@@ -42,6 +42,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
+	"github.com/openshift/library-go/pkg/operator/certrotation"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
@@ -731,7 +732,9 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
 			SecretName:      "openshift-authenticator-certs",
-			JiraComponent:   "apiserver-auth",
+			AdditionalAnnotations: certrotation.AdditionalAnnotations{
+				JiraComponent: "apiserver-auth",
+			},
 		},
 		csr.CSROption{
 			ObjectMeta: metav1.ObjectMeta{
