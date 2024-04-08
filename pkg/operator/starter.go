@@ -638,12 +638,13 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		v1helpers.CachedSecretGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 	).WithAPIServiceController(
 		"openshift-apiserver",
+		"openshift-oauth-apiserver",
 		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
 			return apiServices(), nil, nil
 		},
 		apiregistrationInformers,
 		apiregistrationv1Client.ApiregistrationV1(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.kubeClient,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
