@@ -16,7 +16,6 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
-	routev1 "github.com/openshift/api/route/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
@@ -115,7 +114,8 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		}
 	}()
 
-	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
+	// the well-known endpoint cannot be ready until we know the oauth-server's hostname
+	_, err = c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if apierrors.IsNotFound(err) {
 		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
@@ -128,7 +128,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		return err
 	}
 
-	if err := c.isWellknownEndpointsReady(operatorSpec, operatorStatus, authConfig, route, infraConfig); err != nil {
+	if err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig); err != nil {
 		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
 			Type:    "WellKnownAvailable",
 			Status:  operatorv1.ConditionFalse,
@@ -161,7 +161,7 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	return nil
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, route *routev1.Route, infraConfig *configv1.Infrastructure) error {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context, spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, infraConfig *configv1.Infrastructure) error {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
 	// the operator manages the metadata if specifically requested and by default
@@ -187,7 +187,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 	}
 
 	for _, ip := range ips {
-		err := c.checkWellknownEndpointReady(ip, rt, route)
+		err := c.checkWellknownEndpointReady(ctx, ip, rt)
 		if err != nil {
 			return err
 		}
@@ -213,12 +213,11 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(spec *operatorv1.Op
 	return nil
 }
 
-func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) error {
+func (c *wellKnownReadyController) checkWellknownEndpointReady(ctx context.Context, apiIP string, rt http.RoundTripper) error {
 	expectedMetadata, err := c.getOAuthMetadata()
 	if err != nil {
 		return fmt.Errorf("failed to get oauth metadata from openshift-config-managed/oauth-openshift ConfigMap: %w (check authentication operator, it is supposed to create this)", err)
 	}
-
 	wellKnown := "https://" + apiIP + "/.well-known/oauth-authorization-server"
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
@@ -226,11 +225,27 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(apiIP string, rt 
 		return fmt.Errorf("failed to build request to well-known %s: %v", wellKnown, err)
 	}
 
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		return fmt.Errorf("failed to GET kube-apiserver oauth endpoint %s: %w%s", wellKnown, err, wellKnownRoundtripErrorHint(err))
+	var connError error
+	var resp *http.Response
+	for i := 0; i < 3; i++ {
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		req := req.WithContext(reqCtx)
+		resp, err = rt.RoundTrip(req)
+		if err != nil {
+			connError = fmt.Errorf("failed to GET kube-apiserver oauth endpoint %s: %w%s", wellKnown, err, wellKnownRoundtripErrorHint(err))
+			klog.V(2).Info(connError)
+			continue
+		}
+		connError = nil
+		defer resp.Body.Close()
+		break
 	}
-	defer resp.Body.Close()
+
+	if connError != nil {
+		return connError
+	}
 
 	switch resp.StatusCode {
 	case 200:
