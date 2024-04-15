@@ -252,7 +252,7 @@ github.com/openshift/build-machinery-go/make/targets/golang
 github.com/openshift/build-machinery-go/make/targets/openshift
 github.com/openshift/build-machinery-go/make/targets/openshift/operator
 github.com/openshift/build-machinery-go/scripts
-# github.com/openshift/client-go v0.0.0-20240312121557-60dd5f9fbf8d
+# github.com/openshift/client-go v0.0.0-20240405120947-c67c8325cdd8
 ## explicit; go 1.21
 github.com/openshift/client-go/config/applyconfigurations/config/v1
 github.com/openshift/client-go/config/applyconfigurations/config/v1alpha1
@@ -308,7 +308,7 @@ github.com/openshift/client-go/user/applyconfigurations/internal
 github.com/openshift/client-go/user/applyconfigurations/user/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-# github.com/openshift/library-go v0.0.0-20240312152318-4109a9e7a437
+# github.com/openshift/library-go v0.0.0-20240412151150-149aa7608754
 ## explicit; go 1.21
 github.com/openshift/library-go/pkg/apps/deployment
 github.com/openshift/library-go/pkg/assets
@@ -335,6 +335,7 @@ github.com/openshift/library-go/pkg/operator/apiserver/controller/auditpolicy
 github.com/openshift/library-go/pkg/operator/apiserver/controller/nsfinalizer
 github.com/openshift/library-go/pkg/operator/apiserver/controller/workload
 github.com/openshift/library-go/pkg/operator/apiserver/controllerset
+github.com/openshift/library-go/pkg/operator/bootstrap
 github.com/openshift/library-go/pkg/operator/certrotation
 github.com/openshift/library-go/pkg/operator/condition
 github.com/openshift/library-go/pkg/operator/configobserver

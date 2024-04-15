@@ -9,8 +9,8 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/openshift/api v0.0.0-20240408161721-1e963d8dc466
 	github.com/openshift/build-machinery-go v0.0.0-20231128094528-1e9b1b0595c8
-	github.com/openshift/client-go v0.0.0-20240312121557-60dd5f9fbf8d
-	github.com/openshift/library-go v0.0.0-20240312152318-4109a9e7a437
+	github.com/openshift/client-go v0.0.0-20240405120947-c67c8325cdd8
+	github.com/openshift/library-go v0.0.0-20240412151150-149aa7608754
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	go.etcd.io/etcd/client/v3 v3.5.10
