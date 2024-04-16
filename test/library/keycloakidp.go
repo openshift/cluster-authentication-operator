@@ -2,6 +2,7 @@ package library
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -102,7 +104,17 @@ func AddKeycloakIDP(
 
 	// create a keycloak REST client and authenticate to the API
 	kcClient := KeycloakClientFor(t, transport, keycloakURL, "master")
-	err = kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+
+	// even though configured via env vars and even though we checked Keycloak reports
+	// ready on /health/ready, it still appears that we may need some time to log in properly
+	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		err := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+		if err != nil {
+			t.Logf("failed to authenticate to Keycloak: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
 	require.NoError(t, err)
 
 	clientList, err := kcClient.ListClients()
