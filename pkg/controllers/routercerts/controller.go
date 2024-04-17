@@ -117,7 +117,7 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 		syncCtx.Recorder(),
 		"openshift-config-managed", "router-certs",
 		"openshift-authentication", "v4-0-config-system-router-certs",
-		sets.NewString(ingress.Spec.Domain),
+		sets.New(ingress.Spec.Domain),
 		nil,
 	); err != nil {
 		return err
