@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informers "k8s.io/client-go/informers/core/v1"
@@ -23,6 +24,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/pkg/errors"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
@@ -231,17 +233,19 @@ func newRouterCertsDegraded(reason, message string) operatorv1.OperatorCondition
 }
 
 func verifyWithAnyCertificate(serverCerts []*x509.Certificate, options x509.VerifyOptions) error {
-	var err error
+	var errs []error
 	for _, certificate := range serverCerts {
-		_, err = certificate.Verify(options)
+		_, err := certificate.Verify(options)
 		if err == nil {
-			klog.V(4).Infof("cert %s passed verification", certificate.Subject.String())
+			klog.Infof("cert %s passed verification", certificate.Subject.String())
 			return nil
 		}
-		klog.V(4).Infof("cert %s failed verification: %v", certificate.Subject.String(), err)
+		klog.Infof("cert %s failed verification: %v", certificate.Subject.String(), err)
+		errs = append(errs, errors.Wrapf(err, "cert %s failed verification", certificate.Subject.String()))
 	}
-	// no certificate was able to verify dns name, return last error
-	return err
+	// no certificate was able to verify dns name, return all errors
+
+	return utilerrors.NewAggregate(errs)
 }
 
 func populateVerifyOptionsFromCertSlice(opts *x509.VerifyOptions, certs []*x509.Certificate) []*x509.Certificate {
@@ -249,12 +253,13 @@ func populateVerifyOptionsFromCertSlice(opts *x509.VerifyOptions, certs []*x509.
 	for _, certificate := range certs {
 		switch {
 		case certificate.IsCA && bytes.Equal(certificate.RawSubject, certificate.RawIssuer):
-			klog.V(4).Infof("using CA %s as root", certificate.Subject.String())
+			klog.Infof("using CA %s as root", certificate.Subject.String())
 			opts.Roots.AddCert(certificate)
 		case certificate.IsCA:
-			klog.V(4).Infof("using CA %s as intermediate", certificate.Subject.String())
+			klog.Infof("using CA %s as intermediate", certificate.Subject.String())
 			opts.Intermediates.AddCert(certificate)
 		default:
+			klog.Infof("using CA %s as server cert", certificate.Subject.String())
 			serverCerts = append(serverCerts, certificate)
 		}
 	}
