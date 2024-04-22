@@ -178,6 +178,10 @@ spec:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
           effect: "NoSchedule"
+        # Ensure pod can be scheduled on control plane nodes tainted by NoExecute
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoExecute"
           # Ensure pod can be evicted if the node is unreachable
         - key: "node.kubernetes.io/unreachable"
           operator: "Exists"
