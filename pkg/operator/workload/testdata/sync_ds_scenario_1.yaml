@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "8c6e83d933784ed1fb02dd5f1fbea3ecfe1e4ff01c09f20315f1e97876c30dcd"
+    operator.openshift.io/spec-hash: "7f8b324fb643a96c4eb3a239efa627550d609fade6c27c57b24ef7ee0b7c055e"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -163,6 +163,10 @@ spec:
         -
           effect: NoSchedule
           key: node-role.kubernetes.io/master
+          operator: Exists
+        -
+          effect: NoExecute
+          key: node-role.kubernetes.io/control-plane
           operator: Exists
         -
           effect: NoExecute
