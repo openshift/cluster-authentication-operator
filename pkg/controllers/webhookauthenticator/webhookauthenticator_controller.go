@@ -32,7 +32,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
+	"github.com/openshift/cluster-authentication-operator/bindata"
 )
 
 // webhookAuthenticatorController makes sure that the webhook token authenticators
@@ -157,7 +157,7 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 		return nil, fmt.Errorf("failed to read service-ca crt bundle: %w", err)
 	}
 
-	kubeconfigBytes, err := assets.Asset("oauth-apiserver/authenticator-kubeconfig.yaml")
+	kubeconfigBytes, err := bindata.Asset("oauth-apiserver/authenticator-kubeconfig.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read kubeconfig template: %w", err)
 	}

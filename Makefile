@@ -28,9 +28,6 @@ IMAGE_REGISTRY?=registry.svc.ci.openshift.org
 # It will generate target "image-$(1)" for building the image and binding it as a prerequisite to target "images".
 $(call build-image,ocp-cluster-authentication-operator,$(IMAGE_REGISTRY)/ocp/4.3:cluster-authentication-operator,./Dockerfile.rhel7,.)
 
-# generate bindata targets
-$(call add-bindata,assets,./bindata/...,bindata,assets,pkg/operator/assets/bindata.go)
-
 $(call verify-golang-versions,Dockerfile.rhel7)
 
 clean:

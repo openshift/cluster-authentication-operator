@@ -18,11 +18,11 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 
+	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/arguments"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
@@ -33,7 +33,7 @@ func getOAuthServerDeployment(
 	resourceVersions ...string,
 ) (*appsv1.Deployment, error) {
 	// load deployment
-	deployment := resourceread.ReadDeploymentV1OrDie(assets.MustAsset("oauth-openshift/deployment.yaml"))
+	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-openshift/deployment.yaml"))
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely

@@ -31,8 +31,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
@@ -131,7 +131,7 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 }
 
 func (c *customRouteController) getOAuthRouteAndSecretName(ingressConfig *configv1.Ingress) (*routev1.Route, string, []error) {
-	route := resourceread.ReadRouteV1OrDie(assets.MustAsset("oauth-openshift/route.yaml"))
+	route := resourceread.ReadRouteV1OrDie(bindata.MustAsset("oauth-openshift/route.yaml"))
 	// set defaults
 	route.Spec.Host = "oauth-openshift." + ingressConfig.Spec.Domain // mimic the behavior of subdomain
 	secretName := ""
