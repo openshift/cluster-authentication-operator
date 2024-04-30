@@ -25,9 +25,9 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
 
+	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/arguments"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 )
 
@@ -129,7 +129,7 @@ func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncC
 }
 
 func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
-	tmpl, err := assets.Asset("oauth-apiserver/deploy.yaml")
+	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
 	}

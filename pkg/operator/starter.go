@@ -62,6 +62,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -78,7 +79,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/termination"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/trustdistribution"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/assets"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/revisionclient"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
@@ -273,7 +273,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
-		assets.Asset,
+		bindata.Asset,
 		[]string{
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
@@ -574,7 +574,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
-		assets.Asset,
+		bindata.Asset,
 		[]apiservercontrollerset.ConditionalFiles{
 			{
 				Files: []string{
