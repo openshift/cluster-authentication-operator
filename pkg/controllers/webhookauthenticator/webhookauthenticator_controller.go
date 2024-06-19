@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 
+	"github.com/openshift/api/annotations"
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
@@ -175,6 +176,9 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "webhook-authentication-integrated-oauth",
 			Namespace: "openshift-config",
+			Annotations: map[string]string{
+				annotations.OpenShiftComponent: "apiserver-auth",
+			},
 		},
 		Data: map[string][]byte{
 			"kubeConfig": []byte(kubeconfigComplete),
