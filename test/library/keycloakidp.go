@@ -117,9 +117,6 @@ func AddKeycloakIDP(
 	transport, err := rest.TransportFor(kubeconfig)
 	require.NoError(t, err)
 
-	err = WaitForHTTPStatus(t, 10*time.Minute, &http.Client{Transport: transport}, keycloakBaseURL+"/health/ready", http.StatusOK)
-	require.NoError(t, err)
-
 	openshiftIDPName := fmt.Sprintf("keycloak-test-%s", nsName)
 
 	keycloakURL := keycloakBaseURL + "/realms/master"
