@@ -101,9 +101,7 @@ func AddKeycloakIDP(
 		&readinessProbe,
 		&livenessProbe,
 		true,
-
-		// when triggered with "start", Keycloak does not seem to expose health checks: see https://github.com/keycloak/keycloak/issues/10559
-		"/opt/keycloak/bin/kc.sh", "start-dev",
+		"/opt/keycloak/bin/kc.sh", "start",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
