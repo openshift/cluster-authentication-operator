@@ -8,15 +8,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
+	v1 "k8s.io/api/rbac/v1"
 )
 
 const servingSecretName = "serving-secret"
@@ -71,14 +74,50 @@ func deployPod(
 		metav1.CreateOptions{},
 	)
 
+	saName := name
 	pod := podTemplate(name, image, httpPort, httpsPort, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
 	pod.Spec.Containers[0].Resources = resources
-	pod.Spec.ServiceAccountName = name
+	pod.Spec.ServiceAccountName = saName
 
-	_, err = clients.CoreV1().Pods(namespace).Create(testContext, pod, metav1.CreateOptions{})
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{"app": "e2e-tested-app"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "e2e-tested-app"}},
+			Replicas: ptr.To(int32(1)),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: pod.ObjectMeta,
+				Spec:       pod.Spec,
+			},
+		},
+	}
+
+	roleBinding := &v1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "privileged-scc-to-default-sa",
+		},
+		RoleRef: v1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "system:openshift:scc:privileged",
+		},
+		Subjects: []v1.Subject{
+			{
+				Kind: "ServiceAccount",
+				Name: saName,
+			},
+		},
+	}
+
+	_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = clients.AppsV1().Deployments(namespace).Create(testContext, deployment, metav1.CreateOptions{})
 	require.NoError(t, err)
 
 	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(httpPort, httpsPort), metav1.CreateOptions{})
