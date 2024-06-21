@@ -38,6 +38,8 @@ func deployPod(
 	volumes []corev1.Volume,
 	volumeMounts []corev1.VolumeMount,
 	resources corev1.ResourceRequirements,
+	readinessProbe *corev1.Probe,
+	livenessProbe *corev1.Probe,
 	useTLS bool,
 	command ...string,
 ) (namespace, host string, cleanup func()) {
@@ -80,6 +82,12 @@ func deployPod(
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
 	pod.Spec.Containers[0].Resources = resources
+	if readinessProbe != nil {
+		pod.Spec.Containers[0].ReadinessProbe = readinessProbe
+	}
+	if livenessProbe != nil {
+		pod.Spec.Containers[0].LivenessProbe = livenessProbe
+	}
 	pod.Spec.ServiceAccountName = saName
 
 	deployment := &appsv1.Deployment{
