@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 
@@ -20,6 +23,8 @@ import (
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	v1 "k8s.io/api/rbac/v1"
+	"k8s.io/client-go/tools/cache"
+	watchtools "k8s.io/client-go/tools/watch"
 )
 
 const servingSecretName = "serving-secret"
@@ -129,6 +134,20 @@ func deployPod(
 	require.NoError(t, err)
 
 	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(httpPort, httpsPort), metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	timeLimitedCtx, cancel := context.WithTimeout(testContext, 5*time.Minute)
+	defer cancel()
+	_, err = watchtools.UntilWithSync(timeLimitedCtx,
+		cache.NewListWatchFromClient(
+			clients.AppsV1().RESTClient(), "deployments", namespace, fields.OneTermEqualSelector("metadata.name", deployment.Name)),
+		&appsv1.Deployment{},
+		nil,
+		func(event watch.Event) (bool, error) {
+			ds := event.Object.(*appsv1.Deployment)
+			return ds.Status.ReadyReplicas > 0, nil
+		},
+	)
 	require.NoError(t, err)
 
 	route, err := routeClient.Routes(namespace).Create(testContext, routeTemplate(useTLS), metav1.CreateOptions{})
