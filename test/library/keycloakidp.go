@@ -40,7 +40,7 @@ func AddKeycloakIDP(
 
 	nsName, keycloakHost, cleanup := deployPod(t, kubeClients, routeClient,
 		"keycloak",
-		"quay.io/keycloak/keycloak:latest",
+		"quay.io/keycloak/keycloak:25.0",
 		[]corev1.EnvVar{
 			// configure password for GitLab root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
