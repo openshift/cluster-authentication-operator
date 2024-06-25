@@ -5,18 +5,26 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
+	v1 "k8s.io/api/rbac/v1"
+	"k8s.io/client-go/tools/cache"
+	watchtools "k8s.io/client-go/tools/watch"
 )
 
 const servingSecretName = "serving-secret"
@@ -35,6 +43,8 @@ func deployPod(
 	volumes []corev1.Volume,
 	volumeMounts []corev1.VolumeMount,
 	resources corev1.ResourceRequirements,
+	readinessProbe *corev1.Probe,
+	livenessProbe *corev1.Probe,
 	useTLS bool,
 	command ...string,
 ) (namespace, host string, cleanup func()) {
@@ -71,17 +81,73 @@ func deployPod(
 		metav1.CreateOptions{},
 	)
 
+	saName := name
 	pod := podTemplate(name, image, httpPort, httpsPort, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
 	pod.Spec.Containers[0].Resources = resources
-	pod.Spec.ServiceAccountName = name
+	if readinessProbe != nil {
+		pod.Spec.Containers[0].ReadinessProbe = readinessProbe
+	}
+	if livenessProbe != nil {
+		pod.Spec.Containers[0].LivenessProbe = livenessProbe
+	}
+	pod.Spec.ServiceAccountName = saName
 
-	_, err = clients.CoreV1().Pods(namespace).Create(testContext, pod, metav1.CreateOptions{})
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{"app": "e2e-tested-app"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "e2e-tested-app"}},
+			Replicas: ptr.To(int32(1)),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: pod.ObjectMeta,
+				Spec:       pod.Spec,
+			},
+		},
+	}
+
+	roleBinding := &v1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "privileged-scc-to-default-sa",
+		},
+		RoleRef: v1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "system:openshift:scc:privileged",
+		},
+		Subjects: []v1.Subject{
+			{
+				Kind: "ServiceAccount",
+				Name: saName,
+			},
+		},
+	}
+
+	_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = clients.AppsV1().Deployments(namespace).Create(testContext, deployment, metav1.CreateOptions{})
 	require.NoError(t, err)
 
 	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(httpPort, httpsPort), metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	timeLimitedCtx, cancel := context.WithTimeout(testContext, 5*time.Minute)
+	defer cancel()
+	_, err = watchtools.UntilWithSync(timeLimitedCtx,
+		cache.NewListWatchFromClient(
+			clients.AppsV1().RESTClient(), "deployments", namespace, fields.OneTermEqualSelector("metadata.name", deployment.Name)),
+		&appsv1.Deployment{},
+		nil,
+		func(event watch.Event) (bool, error) {
+			ds := event.Object.(*appsv1.Deployment)
+			return ds.Status.ReadyReplicas > 0, nil
+		},
+	)
 	require.NoError(t, err)
 
 	route, err := routeClient.Routes(namespace).Create(testContext, routeTemplate(useTLS), metav1.CreateOptions{})

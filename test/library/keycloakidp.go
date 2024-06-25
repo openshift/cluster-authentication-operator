@@ -16,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -38,9 +39,30 @@ func AddKeycloakIDP(
 	configClient, err := configv1client.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
+	readinessProbe := corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health/ready",
+				Port:   intstr.FromInt(9000),
+				Scheme: corev1.URISchemeHTTPS,
+			},
+		},
+		InitialDelaySeconds: 10,
+	}
+	livenessProbe := corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health/live",
+				Port:   intstr.FromInt(9000),
+				Scheme: corev1.URISchemeHTTPS,
+			},
+		},
+		InitialDelaySeconds: 10,
+	}
+
 	nsName, keycloakHost, cleanup := deployPod(t, kubeClients, routeClient,
 		"keycloak",
-		"quay.io/keycloak/keycloak:latest",
+		"quay.io/keycloak/keycloak:25.0",
 		[]corev1.EnvVar{
 			// configure password for GitLab root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
@@ -76,10 +98,10 @@ func AddKeycloakIDP(
 				"memory": resource.MustParse("700Mi"),
 			},
 		},
+		&readinessProbe,
+		&livenessProbe,
 		true,
-
-		// when triggered with "start", Keycloak does not seem to expose health checks: see https://github.com/keycloak/keycloak/issues/10559
-		"/opt/keycloak/bin/kc.sh", "start-dev",
+		"/opt/keycloak/bin/kc.sh", "start",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
@@ -93,9 +115,6 @@ func AddKeycloakIDP(
 	keycloakBaseURL := "https://" + keycloakHost
 
 	transport, err := rest.TransportFor(kubeconfig)
-	require.NoError(t, err)
-
-	err = WaitForHTTPStatus(t, 10*time.Minute, &http.Client{Transport: transport}, keycloakBaseURL+"/health/ready", http.StatusOK)
 	require.NoError(t, err)
 
 	openshiftIDPName := fmt.Sprintf("keycloak-test-%s", nsName)
