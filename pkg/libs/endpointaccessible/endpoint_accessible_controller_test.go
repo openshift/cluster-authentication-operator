@@ -34,7 +34,7 @@ func Test_endpointAccessibleController_sync(t *testing.T) {
 		{
 			name: "non working endpoints",
 			endpointListFn: func() ([]string, error) {
-				return []string{"https://google.com", "https://nonexistenturl.com"}, nil
+				return []string{"https://httpbin.org/status/500"}, nil
 			},
 			wantErr: true,
 		},
