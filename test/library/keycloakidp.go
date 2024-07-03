@@ -29,6 +29,7 @@ import (
 func AddKeycloakIDP(
 	t *testing.T,
 	kubeconfig *rest.Config,
+	directOIDC bool,
 ) (idpURL, idpName string, cleanups []func()) {
 	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
 	require.NoError(t, err)
@@ -64,7 +65,7 @@ func AddKeycloakIDP(
 		"keycloak",
 		"quay.io/keycloak/keycloak:25.0",
 		[]corev1.EnvVar{
-			// configure password for GitLab root user
+			// configure password for Keycloak root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
 			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
 			{Name: "KC_HEALTH_ENABLED", Value: "true"},
@@ -178,6 +179,7 @@ func AddKeycloakIDP(
 			PreferredUsername: []string{"preferred_username"},
 			Groups:            []configv1.OpenIDClaim{groupsClaimName},
 		},
+		directOIDC,
 	)
 	cleanups = append(cleanups, idpCleans...)
 	require.NoError(t, err, "failed to configure the identity provider")
