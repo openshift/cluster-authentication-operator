@@ -136,7 +136,7 @@ func deployPod(
 	_, err = clients.CoreV1().Services(namespace).Create(testContext, svcTemplate(httpPort, httpsPort), metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	timeLimitedCtx, cancel := context.WithTimeout(testContext, 5*time.Minute)
+	timeLimitedCtx, cancel := context.WithTimeout(testContext, 10*time.Minute)
 	defer cancel()
 	_, err = watchtools.UntilWithSync(timeLimitedCtx,
 		cache.NewListWatchFromClient(

@@ -332,12 +332,13 @@ func (kc *KeycloakClient) CreateGroup(groupName string) error {
 	return nil
 }
 
-func (kc *KeycloakClient) CreateUser(username, password string, groups []string) error {
+func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string) error {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
 
 	user := map[string]interface{}{
 		"username": username,
+		"email":    fmt.Sprintf("%s@test.dev", username),
 		"credentials": []map[string]interface{}{
 			{
 				"temporary": false,
@@ -348,6 +349,10 @@ func (kc *KeycloakClient) CreateUser(username, password string, groups []string)
 		"enabled":       true,
 		"emailVerified": true,
 		"groups":        groups,
+	}
+
+	if len(email) > 0 {
+		user["email"] = email
 	}
 
 	userBytes, err := json.Marshal(user)
