@@ -118,7 +118,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 	appID := app["application_id"].(string)
 	appSecret := app["secret"].(string)
 
-	idpCleanups, err := addOIDCIDentityProvider(t, kubeClients, configclients, appID, appSecret, openshiftIDPName, gitlabURL, configv1.OpenIDClaims{})
+	idpCleanups, err := addOIDCIDentityProvider(t, kubeClients, configclients, appID, appSecret, openshiftIDPName, gitlabURL, configv1.OpenIDClaims{}, false)
 	require.NoError(t, err)
 
 	return gitlabURL, openshiftIDPName, append(cleanups, idpCleanups...)

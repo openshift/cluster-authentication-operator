@@ -303,7 +303,8 @@ func addOIDCIDentityProvider(
 	kubeClients *kubernetes.Clientset,
 	configClient *configv1client.ConfigV1Client,
 	clientID, clientSecret, idpName, idpURL string,
-	claims configv1.OpenIDClaims) ([]func(), error) {
+	claims configv1.OpenIDClaims,
+	directExternalOIDC bool) ([]func(), error) {
 	var cleanups []func()
 
 	secretName := idpName + "-secret"
@@ -332,33 +333,38 @@ func addOIDCIDentityProvider(
 	// configure the default ingress CA as the CA for the IdP in the openshift-config NS
 	cleanups = append(cleanups, SyncDefaultIngressCAToConfig(t, kubeClients.CoreV1(), caCMName))
 
-	idpClean, err := addIdentityProvider(t, kubeClients, configClient,
-		&configv1.IdentityProvider{
-			Name:          idpName,
-			MappingMethod: configv1.MappingMethodClaim,
-			IdentityProviderConfig: configv1.IdentityProviderConfig{
-				Type: configv1.IdentityProviderTypeOpenID,
-				OpenID: &configv1.OpenIDIdentityProvider{
-					ClientID: clientID,
-					ClientSecret: configv1.SecretNameReference{
-						Name: secretName,
-					},
-					ExtraScopes: []string{"profile", "email"},
-					Claims:      claims,
-					Issuer:      idpURL,
-					CA: configv1.ConfigMapNameReference{
-						Name: caCMName,
+	if !directExternalOIDC {
+		idpClean, err := addIdentityProvider(t, configClient,
+			&configv1.IdentityProvider{
+				Name:          idpName,
+				MappingMethod: configv1.MappingMethodClaim,
+				IdentityProviderConfig: configv1.IdentityProviderConfig{
+					Type: configv1.IdentityProviderTypeOpenID,
+					OpenID: &configv1.OpenIDIdentityProvider{
+						ClientID: clientID,
+						ClientSecret: configv1.SecretNameReference{
+							Name: secretName,
+						},
+						ExtraScopes: []string{"profile", "email"},
+						Claims:      claims,
+						Issuer:      idpURL,
+						CA: configv1.ConfigMapNameReference{
+							Name: caCMName,
+						},
 					},
 				},
-			},
-		})
+			})
+		if err != nil {
+			return cleanups, fmt.Errorf("failed to add identity provider to oauth server: %v", err)
+		}
 
-	cleanups = append(cleanups, idpClean...)
+		cleanups = append(cleanups, idpClean...)
+	}
+
 	return cleanups, err
-
 }
 
-func addIdentityProvider(t *testing.T, kubeClients *kubernetes.Clientset, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
+func addIdentityProvider(t *testing.T, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
 	cleanups := []func(){}
 
 	oauth, err := configClient.OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
