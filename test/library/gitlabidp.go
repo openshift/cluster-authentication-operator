@@ -82,6 +82,8 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 				"memory": resource.MustParse("1500Mi"),
 			},
 		},
+		nil,
+		nil,
 		false,
 	)
 	cleanups = []func(){cleanup}
