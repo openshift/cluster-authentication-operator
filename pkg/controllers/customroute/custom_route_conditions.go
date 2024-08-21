@@ -15,71 +15,87 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 )
 
-func ensureDefaultConditions(conditions []metav1.Condition) []metav1.Condition {
+var (
+	conditionStatusTrue      = metav1.ConditionTrue
+	conditionStatusFalse     = metav1.ConditionFalse
+	conditionTypeDegraded    = "Degraded"
+	conditionTypeProgressing = "Progressing"
+)
+
+func ensureDefaultConditions(conditions []*v1.ConditionApplyConfiguration) []*v1.ConditionApplyConfiguration {
 	for _, conditionType := range []string{"Progressing", "Degraded"} {
 		condition := findCondition(conditions, conditionType)
+		now := metav1.Now()
+		reason := "AsExpected"
+		message := "All is well"
 		if condition == nil {
-			conditions = append(conditions, metav1.Condition{
-				LastTransitionTime: metav1.Now(),
-				Type:               conditionType,
-				Status:             metav1.ConditionFalse,
-				Reason:             "AsExpected",
-				Message:            "All is well",
+			conditions = append(conditions, &v1.ConditionApplyConfiguration{
+				LastTransitionTime: &now,
+				Type:               &conditionType,
+				Status:             &conditionStatusFalse,
+				Reason:             &reason,
+				Message:            &message,
 			})
 		}
 	}
 	return conditions
 }
 
-func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
+func findCondition(conditions []*v1.ConditionApplyConfiguration, conditionType string) *v1.ConditionApplyConfiguration {
 	for i := range conditions {
-		if conditions[i].Type == conditionType {
-			return &conditions[i]
+		if *conditions[i].Type == conditionType {
+			return conditions[i]
 		}
 	}
 	return nil
 }
 
-func checkErrorsConfiguringCustomRoute(errors []error) []metav1.Condition {
+func checkErrorsConfiguringCustomRoute(errors []error) []*v1.ConditionApplyConfiguration {
 	if len(errors) != 0 {
 		now := metav1.Now()
-		return []metav1.Condition{
+		reason := "CustomRouteError"
+		message := fmt.Sprintf("Error Configuring custom route: %v", errors)
+		return []*v1.ConditionApplyConfiguration{
 			{
-				LastTransitionTime: now,
-				Type:               "Degraded",
-				Status:             metav1.ConditionTrue,
-				Reason:             "CustomRouteError",
-				Message:            fmt.Sprintf("Error Configuring custom route: %v", errors),
+				LastTransitionTime: &now,
+				Type:               &conditionTypeDegraded,
+				Status:             &conditionStatusTrue,
+				Reason:             &reason,
+				Message:            &message,
 			},
 			{
-				LastTransitionTime: now,
-				Type:               "Progressing",
-				Status:             metav1.ConditionFalse,
-				Reason:             "CustomRouteError",
-				Message:            fmt.Sprintf("Error Configuring custom route: %v", errors),
+				LastTransitionTime: &now,
+				Type:               &conditionTypeProgressing,
+				Status:             &conditionStatusFalse,
+				Reason:             &reason,
+				Message:            &message,
 			},
 		}
 	}
 	return nil
 }
 
-func checkIngressURI(ingressConfig *configv1.Ingress, route *routev1.Route) []metav1.Condition {
+func checkIngressURI(ingressConfig *configv1.Ingress, route *routev1.Route) []*v1.ConditionApplyConfiguration {
 	if _, _, err := routeapihelpers.IngressURI(route, route.Spec.Host); err != nil {
-		condition := &metav1.Condition{
-			LastTransitionTime: metav1.Now(),
-			Type:               "Progressing",
-			Status:             "True",
-			Reason:             "RouteNotAdmitted",
-			Message:            fmt.Sprintf("Route not admitted: %v", err),
+		now := metav1.Now()
+		reason := "RouteNotAdmitted"
+		message := fmt.Sprintf("Route not admitted: %v", err)
+		condition := &v1.ConditionApplyConfiguration{
+			LastTransitionTime: &now,
+			Type:               &conditionTypeProgressing,
+			Status:             &conditionStatusTrue,
+			Reason:             &reason,
+			Message:            &message,
 		}
 		componentRoute := common.GetComponentRouteStatus(ingressConfig, "openshift-authentication", "oauth-openshift")
 		if componentRoute != nil {
 			degradeIfTimeElapsed(componentRoute.Conditions, condition, time.Minute*5)
 		}
-		return []metav1.Condition{*condition}
+		return []*v1.ConditionApplyConfiguration{condition}
 	}
 	return nil
 }
@@ -87,33 +103,35 @@ func checkIngressURI(ingressConfig *configv1.Ingress, route *routev1.Route) []me
 // degradeIfTimeElapsed checks if the condition matching this error (same type, reason and message)
 // was found in the set of conditions and its `lastTransitionTime` appeared longer than
 // `maxAge` ago, if so the condition's type is set to "Degraded"
-func degradeIfTimeElapsed(conditions []metav1.Condition, condition *metav1.Condition, maxAge time.Duration) {
+func degradeIfTimeElapsed(conditions []metav1.Condition, condition *v1.ConditionApplyConfiguration, maxAge time.Duration) {
 	for i := range conditions {
-		if conditions[i].Reason == condition.Reason &&
-			conditions[i].Message == condition.Message &&
-			conditions[i].Type == condition.Type &&
+		if conditions[i].Reason == *condition.Reason &&
+			conditions[i].Message == *condition.Message &&
+			conditions[i].Type == *condition.Type &&
 			!condition.LastTransitionTime.IsZero() &&
 			condition.LastTransitionTime.Add(maxAge).Before(condition.LastTransitionTime.Time) {
-			condition.Type = "Degraded"
+			condition.Type = &conditionTypeDegraded
 		}
 	}
 }
 
-func checkRouteAvailablity(secretLister corev1listers.SecretLister, ingressConfig *configv1.Ingress, route *routev1.Route) []metav1.Condition {
-	now := metav1.Now()
+func checkRouteAvailablity(secretLister corev1listers.SecretLister, ingressConfig *configv1.Ingress, route *routev1.Route) []*v1.ConditionApplyConfiguration {
 	if err := routeAvailablity(secretLister, route.Spec.Host, ingressConfig); err != nil {
-		condition := &metav1.Condition{
-			LastTransitionTime: now,
-			Type:               "Progressing",
-			Status:             "True",
-			Reason:             "ErrorReachingOutToService",
-			Message:            fmt.Sprintf("unexpected error at %s: %v", route.Spec.Host, err),
+		now := metav1.Now()
+		reason := "ErrorReachingOutToService"
+		message := fmt.Sprintf("unexpected error at %s: %v", route.Spec.Host, err)
+		condition := &v1.ConditionApplyConfiguration{
+			LastTransitionTime: &now,
+			Type:               &conditionTypeProgressing,
+			Status:             &conditionStatusTrue,
+			Reason:             &reason,
+			Message:            &message,
 		}
 		componentRoute := common.GetComponentRouteStatus(ingressConfig, "openshift-authentication", "oauth-openshift")
 		if componentRoute != nil {
 			degradeIfTimeElapsed(componentRoute.Conditions, condition, time.Minute*5)
 		}
-		return []metav1.Condition{*condition}
+		return []*v1.ConditionApplyConfiguration{condition}
 
 	}
 	return nil
