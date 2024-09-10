@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "b918854185d0765a284a5e090a23dba21dbba0fb66852e2f5488ef1b6b7a90ca"
+    operator.openshift.io/spec-hash: "ebf731cc0240f9619bfc159abfd6e040d5be778b5bb83495578397ceeba5695f"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -52,7 +52,9 @@ spec:
                 --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
                 --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
                 --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
-                --shutdown-delay-duration=15s \
+                --etcd-healthcheck-timeout=9s \
+                --etcd-readycheck-timeout=9s \
+                --shutdown-delay-duration=50s \
                 --shutdown-send-retry-after=true \
                 --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
                 --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
@@ -75,7 +77,7 @@ spec:
             httpGet:
               scheme: HTTPS
               port: 8443
-              path: healthz
+              path: livez?exclude=etcd
             initialDelaySeconds: 0
             periodSeconds: 10
             timeoutSeconds: 10
@@ -90,12 +92,12 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 10
             successThreshold: 1
-            failureThreshold: 1
+            failureThreshold: 3
           startupProbe:
             httpGet:
               scheme: HTTPS
               port: 8443
-              path: healthz
+              path: livez
             initialDelaySeconds: 0
             periodSeconds: 5
             timeoutSeconds: 10
@@ -159,7 +161,7 @@ spec:
         node-role.kubernetes.io/master: ""
       priorityClassName: system-node-critical
       serviceAccountName: oauth-apiserver-sa
-      terminationGracePeriodSeconds: 90
+      terminationGracePeriodSeconds: 120
       tolerations:
         -
           effect: NoSchedule
