@@ -27,7 +27,7 @@ import (
 )
 
 func getOAuthServerDeployment(
-	operatorConfig *operatorv1.Authentication,
+	operatorSpec *operatorv1.OperatorSpec,
 	proxyConfig *configv1.Proxy,
 	bootstrapUserExists bool,
 	resourceVersions ...string,
@@ -70,10 +70,10 @@ func getOAuthServerDeployment(
 	container.Env = append(container.Env, proxyConfigToEnvVars(proxyConfig)...)
 
 	// set log level
-	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorConfig.Spec.LogLevel)), -1)
+	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorSpec.LogLevel)), -1)
 
 	observedConfig, err := common.UnstructuredConfigFrom(
-		operatorConfig.Spec.ObservedConfig.Raw,
+		operatorSpec.ObservedConfig.Raw,
 		configobservation.OAuthServerConfigPrefix,
 	)
 	if err != nil {

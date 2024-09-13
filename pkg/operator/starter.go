@@ -9,24 +9,6 @@ import (
 	"os"
 	"time"
 
-	certapiv1 "k8s.io/api/certificates/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/util/sets"
-	certinformers "k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
-	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
-	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
-	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
-	utilpointer "k8s.io/utils/pointer"
-	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
-	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
-
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -35,33 +17,10 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
 	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
+	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
-	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
-	"github.com/openshift/library-go/pkg/controller/controllercmd"
-	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
-	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
-	"github.com/openshift/library-go/pkg/operator/certrotation"
-	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
-	"github.com/openshift/library-go/pkg/operator/csr"
-	"github.com/openshift/library-go/pkg/operator/encryption"
-	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
-	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
-	"github.com/openshift/library-go/pkg/operator/loglevel"
-	"github.com/openshift/library-go/pkg/operator/management"
-	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
-	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
-	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
-	"github.com/openshift/library-go/pkg/operator/staleconditions"
-	staticpodcommon "github.com/openshift/library-go/pkg/operator/staticpod/controller/common"
-	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
-	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
-	"github.com/openshift/library-go/pkg/operator/status"
-	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
-	"github.com/openshift/library-go/pkg/operator/v1helpers"
-
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
@@ -82,6 +41,47 @@ import (
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/revisionclient"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
+	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
+	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
+	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
+	"github.com/openshift/library-go/pkg/operator/certrotation"
+	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/csr"
+	"github.com/openshift/library-go/pkg/operator/encryption"
+	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
+	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
+	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
+	"github.com/openshift/library-go/pkg/operator/loglevel"
+	"github.com/openshift/library-go/pkg/operator/management"
+	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
+	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
+	"github.com/openshift/library-go/pkg/operator/staleconditions"
+	staticpodcommon "github.com/openshift/library-go/pkg/operator/staticpod/controller/common"
+	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
+	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
+	"github.com/openshift/library-go/pkg/operator/status"
+	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	certapiv1 "k8s.io/api/certificates/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/sets"
+	certinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
+	utilpointer "k8s.io/utils/pointer"
+	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
+	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
 )
 
 const (
@@ -92,7 +92,7 @@ const (
 type operatorContext struct {
 	kubeClient     kubernetes.Interface
 	configClient   configclient.Interface
-	operatorClient *OperatorClient
+	operatorClient v1helpers.OperatorClient
 
 	versionRecorder status.VersionGetter
 
@@ -120,7 +120,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		return err
 	}
 
-	authOperatorClient, err := operatorclient.NewForConfig(controllerContext.KubeConfig)
+	typedOperatorClient, err := operatorclient.NewForConfig(controllerContext.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -139,11 +139,14 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	)
 
 	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(authOperatorClient, time.Second*30)
+	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(typedOperatorClient, time.Second*30)
 
-	operatorClient := &OperatorClient{
-		operatorConfigInformers,
-		authOperatorClient.OperatorV1(),
+	operatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
+		controllerContext.KubeConfig,
+		operatorv1.GroupVersion.WithResource("authentications"),
+	)
+	if err != nil {
+		return err
 	}
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
@@ -192,6 +195,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		kubeInformersForNamespaces.Start,
 		operatorConfigInformers.Start,
 		operatorCtx.operatorConfigInformer.Start,
+		dynamicInformers.Start,
 	)
 	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, resourceSyncer.Run, configOverridesController.Run, logLevelController.Run)
 
@@ -353,7 +357,6 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.operatorClient,
-		operatorCtx.operatorClient.Client,
 		routeInformersNamespaced.Route().V1().Routes(),
 		controllerContext.EventRecorder,
 	)
@@ -376,7 +379,6 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced,
-		operatorCtx.operatorClient.Client,
 		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
 		controllerContext.EventRecorder,
 		operatorCtx.versionRecorder,
@@ -522,6 +524,11 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	}
 	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationv1Client, 10*time.Minute)
 
+	typedOperatorClient, err := operatorconfigclient.NewForConfig(controllerContext.KubeConfig)
+	if err != nil {
+		return err
+	}
+
 	kubeInformers := certinformers.NewSharedInformerFactory(operatorCtx.kubeClient, resync)
 
 	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces)
@@ -534,7 +541,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	migrator := migrators.NewKubeStorageVersionMigrator(migrationClient, migrationInformer.Migration().V1alpha1(), operatorCtx.kubeClient.Discovery())
 
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
-		operatorCtx.operatorClient.Client,
+		typedOperatorClient,
 		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		"openshift-oauth-apiserver",
@@ -571,7 +578,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		operatorCtx.configClient.ConfigV1().ClusterOperators(),
 		operatorCtx.versionRecorder,
 		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.operatorClient.Informers.Operator().V1().Authentications().Informer(),
+		operatorCtx.operatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
 		bindata.Asset,
@@ -633,7 +640,8 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			Optional: true,
 		}},
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		revisionclient.New(operatorCtx.operatorClient, operatorCtx.operatorClient.Client),
+		// TODO looks like the concept of revisions has leaked into at least one non-static pod operator.  Probably end up making this a flavor of regular OperatorStatus?
+		revisionclient.New(operatorCtx.operatorClient, typedOperatorClient),
 		v1helpers.CachedConfigMapGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 		v1helpers.CachedSecretGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 	).WithAPIServiceController(
@@ -718,12 +726,10 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication-operator"),
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.configClient.ConfigV1().Authentications(),
-		operatorCtx.operatorClient.Client,
 		operatorCtx.operatorClient,
 		operatorCtx.versionRecorder,
 		eventRecorder,

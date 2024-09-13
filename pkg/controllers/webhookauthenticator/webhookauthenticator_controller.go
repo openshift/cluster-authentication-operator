@@ -26,7 +26,6 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
-	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -49,8 +48,7 @@ type webhookAuthenticatorController struct {
 	secrets       corev1client.SecretsGetter
 	secretsLister corev1listers.SecretLister
 
-	operatorConfigClient operatorconfigclient.AuthenticationsGetter
-	operatorClient       v1helpers.OperatorClient
+	operatorClient v1helpers.OperatorClient
 
 	apiServerVersionWaitEventsLimiter flowcontrol.RateLimiter
 	versionGetter                     status.VersionGetter
@@ -58,12 +56,10 @@ type webhookAuthenticatorController struct {
 
 func NewWebhookAuthenticatorController(
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
-	kubeInformersForOperatorNamespace informers.SharedInformerFactory,
 	configInformer configinformers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
 	serviceAccounts corev1client.ServiceAccountsGetter,
 	authentication configv1client.AuthenticationInterface,
-	operatorConfigClient operatorconfigclient.AuthenticationsGetter,
 	operatorClient v1helpers.OperatorClient,
 	versionGetter status.VersionGetter,
 	recorder events.Recorder,
@@ -75,7 +71,6 @@ func NewWebhookAuthenticatorController(
 		svcLister:                         kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
 		saLister:                          kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
 		authentication:                    authentication,
-		operatorConfigClient:              operatorConfigClient,
 		operatorClient:                    operatorClient,
 		apiServerVersionWaitEventsLimiter: flowcontrol.NewTokenBucketRateLimiter(0.0167, 1), // set it so that the event may only occur once per minute
 		versionGetter:                     versionGetter,
