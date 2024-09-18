@@ -9,7 +9,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -22,7 +21,6 @@ import (
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
-	operatorv1client "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
@@ -55,7 +53,6 @@ type oauthServerDeploymentSyncer struct {
 	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc
 
 	deployments appsv1client.DeploymentsGetter
-	auth        operatorv1client.AuthenticationsGetter
 
 	configMapLister corev1listers.ConfigMapLister
 	secretLister    corev1listers.SecretLister
@@ -76,7 +73,6 @@ func NewOAuthServerWorkloadController(
 	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
 	configInformers configinformer.SharedInformerFactory,
 	routeInformersForTargetNamespace routeinformers.SharedInformerFactory,
-	authOperatorGetter operatorv1client.AuthenticationsGetter,
 	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
@@ -91,7 +87,6 @@ func NewOAuthServerWorkloadController(
 		ensureAtMostOnePodPerNode: ensureAtMostOnePodPerNode,
 
 		deployments: kubeClient.AppsV1(),
-		auth:        authOperatorGetter,
 
 		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
 		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
@@ -155,7 +150,7 @@ func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (
 func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}
 
-	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
@@ -195,7 +190,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment, err := getOAuthServerDeployment(operatorConfig, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
+	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
@@ -231,7 +226,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
 		syncContext.Recorder(),
 		expectedDeployment,
-		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorConfig.Status.Generations),
+		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
 	)
 	if err != nil {
 		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))

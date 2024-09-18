@@ -25,7 +25,6 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	operatorv1client "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -63,21 +62,24 @@ type payloadConfigController struct {
 	serviceLister corev1lister.ServiceLister
 	routeLister   routev1lister.RouteLister
 
-	auth           operatorv1client.AuthenticationsGetter
 	configMaps     corev1client.ConfigMapsGetter
 	secrets        corev1client.SecretsGetter
 	operatorClient v1helpers.OperatorClient
 }
 
-func NewPayloadConfigController(kubeInformersForTargetNamespace informers.SharedInformerFactory, secrets corev1client.SecretsGetter, configMaps corev1client.ConfigMapsGetter,
-	operatorClient v1helpers.OperatorClient, authentication operatorv1client.AuthenticationsGetter, routeInformer routeinformer.RouteInformer, recorder events.Recorder) factory.Controller {
+func NewPayloadConfigController(
+	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	secrets corev1client.SecretsGetter,
+	configMaps corev1client.ConfigMapsGetter,
+	operatorClient v1helpers.OperatorClient,
+	routeInformer routeinformer.RouteInformer,
+	recorder events.Recorder) factory.Controller {
 	c := &payloadConfigController{
 		serviceLister:  kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
 		routeLister:    routeInformer.Lister(),
 		secrets:        secrets,
 		configMaps:     configMaps,
 		operatorClient: operatorClient,
-		auth:           authentication,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -88,8 +90,8 @@ func NewPayloadConfigController(kubeInformersForTargetNamespace informers.Shared
 	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
 }
 
-func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.Authentication, []operatorv1.OperatorCondition) {
-	operatorConfig, err := c.auth.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.OperatorSpec, []operatorv1.OperatorCondition) {
+	spec, _, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return nil, []operatorv1.OperatorCondition{
 			{
@@ -100,7 +102,7 @@ func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv
 			},
 		}
 	}
-	return operatorConfig, nil
+	return spec, nil
 }
 
 func (c *payloadConfigController) getSessionSecret(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
@@ -154,7 +156,7 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
 }
 
-func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorConfig *operatorv1.Authentication, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
+func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
 	ca := "/var/config/system/configmaps/v4-0-config-system-service-ca/service-ca.crt"
 	cliConfig := &osinv1.OsinServerConfig{
 		GenericAPIServerConfig: configv1.GenericAPIServerConfig{
@@ -211,7 +213,7 @@ func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operato
 		}
 	}
 
-	observedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Spec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
+	observedConfig, err := common.UnstructuredConfigFrom(operatorSpec.ObservedConfig.Raw, configobservation.OAuthServerConfigPrefix)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{
@@ -223,7 +225,7 @@ func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operato
 		}
 	}
 
-	unsupportedConfig, err := common.UnstructuredConfigFrom(operatorConfig.Spec.UnsupportedConfigOverrides.Raw, configobservation.OAuthServerConfigPrefix)
+	unsupportedConfig, err := common.UnstructuredConfigFrom(operatorSpec.UnsupportedConfigOverrides.Raw, configobservation.OAuthServerConfigPrefix)
 	if err != nil {
 		return []operatorv1.OperatorCondition{
 			{

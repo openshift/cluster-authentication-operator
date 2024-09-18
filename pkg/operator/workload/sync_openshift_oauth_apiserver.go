@@ -40,6 +40,7 @@ type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentNa
 
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
+	// TODO this needs to be run off a lister to reduce live gets
 	operatorClient operatorconfigclient.AuthenticationsGetter
 	// countNodes a function to return count of nodes on which the workload will be installed
 	countNodes nodeCountFunc
