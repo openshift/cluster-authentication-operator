@@ -37,7 +37,7 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 	userClient, err := userv1client.NewForConfig(kubeConfig)
 	require.NoError(t, err)
 
-	_, idpName, cleanups := test.AddKeycloakIDP(t, kubeConfig)
+	_, idpName, cleanups := test.AddKeycloakIDP(t, kubeConfig, false)
 	defer test.IDPCleanupWrapper(func() {
 		for _, c := range cleanups {
 			c()
@@ -117,7 +117,7 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 
 	username := "douglasnoeladams"
 	require.NoError(t, kcClient.CreateUser(
-		username, "password42",
+		username, "", "password42",
 		groups,
 	))
 

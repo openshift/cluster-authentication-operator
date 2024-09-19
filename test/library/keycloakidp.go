@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"testing"
@@ -29,7 +28,8 @@ import (
 func AddKeycloakIDP(
 	t *testing.T,
 	kubeconfig *rest.Config,
-) (idpURL, idpName string, cleanups []func()) {
+	directOIDC bool,
+) (kcClient *KeycloakClient, idpName string, cleanups []func()) {
 	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
@@ -64,7 +64,7 @@ func AddKeycloakIDP(
 		"keycloak",
 		"quay.io/keycloak/keycloak:25.0",
 		[]corev1.EnvVar{
-			// configure password for GitLab root user
+			// configure password for Keycloak root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
 			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
 			{Name: "KC_HEALTH_ENABLED", Value: "true"},
@@ -122,7 +122,7 @@ func AddKeycloakIDP(
 	keycloakURL := keycloakBaseURL + "/realms/master"
 
 	// create a keycloak REST client and authenticate to the API
-	kcClient := KeycloakClientFor(t, transport, keycloakURL, "master")
+	kcClient = KeycloakClientFor(t, transport, keycloakURL, "master")
 
 	// even though configured via env vars and even though we checked Keycloak reports
 	// ready on /health/ready, it still appears that we may need some time to log in properly
@@ -178,14 +178,15 @@ func AddKeycloakIDP(
 			PreferredUsername: []string{"preferred_username"},
 			Groups:            []configv1.OpenIDClaim{groupsClaimName},
 		},
+		directOIDC,
 	)
 	cleanups = append(cleanups, idpCleans...)
 	require.NoError(t, err, "failed to configure the identity provider")
 
-	return keycloakURL, openshiftIDPName, cleanups
+	return kcClient, openshiftIDPName, cleanups
 }
 
-type keycloakClient struct {
+type KeycloakClient struct {
 	keycloakAdminURL *url.URL
 	realm            string
 	testT            *testing.T
@@ -195,7 +196,7 @@ type keycloakClient struct {
 
 // KeycloakClientFor creates a Keycloak REST client for the default (master) realm
 // using the supplied transport
-func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, keycloakRealm string) *keycloakClient {
+func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, keycloakRealm string) *KeycloakClient {
 	u, err := url.Parse(keycloakURL)
 	require.NoError(t, err)
 
@@ -205,7 +206,7 @@ func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, k
 		Transport: transport,
 	}
 
-	c := &keycloakClient{
+	c := &KeycloakClient{
 		client:           client,
 		keycloakAdminURL: u,
 		realm:            keycloakRealm,
@@ -215,7 +216,7 @@ func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, k
 	return c
 }
 
-func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, password string) error {
+func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, password string) error {
 	data := url.Values{
 		"username":   []string{name},
 		"password":   []string{password},
@@ -226,9 +227,7 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		data.Add("client_secret", clientSecret)
 	}
 
-	authURL := *kc.keycloakAdminURL
-	authURL.Path = "/realms/" + kc.realm + "/protocol/openid-connect/token"
-	authReq, err := http.NewRequest(http.MethodPost, authURL.String(), bytes.NewBufferString(data.Encode()))
+	authReq, err := http.NewRequest(http.MethodPost, kc.TokenURL(), bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -240,7 +239,7 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -267,7 +266,7 @@ func (kc *keycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 	return nil
 }
 
-func (kc *keycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsClaimName string) error {
+func (kc *KeycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsClaimName string) error {
 	mappersURL := *kc.keycloakAdminURL
 	mappersURL.Path += "/clients/" + clientId + "/protocol-mappers/models"
 
@@ -290,21 +289,21 @@ func (kc *keycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsCl
 	}
 
 	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
-	resp, err := kc.Do(http.MethodPost, mappersURL.String(), bytes.NewBuffer(mapperBytes))
+	resp, err := kc.do(http.MethodPost, mappersURL.String(), bytes.NewBuffer(mapperBytes))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		respBytes, _ := ioutil.ReadAll(resp.Body)
+		respBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed creating mapper %q: %s %s", mapperName, resp.Status, respBytes)
 	}
 
 	return nil
 }
 
-func (kc *keycloakClient) CreateGroup(groupName string) error {
+func (kc *KeycloakClient) CreateGroup(groupName string) error {
 	groupsURL := *kc.keycloakAdminURL
 	groupsURL.Path += "/groups"
 
@@ -318,26 +317,27 @@ func (kc *keycloakClient) CreateGroup(groupName string) error {
 	}
 
 	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
-	resp, err := kc.Do(http.MethodPost, groupsURL.String(), bytes.NewBuffer(groupBytes))
+	resp, err := kc.do(http.MethodPost, groupsURL.String(), bytes.NewBuffer(groupBytes))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		respBytes, _ := ioutil.ReadAll(resp.Body)
+		respBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed creating group %q: %s %s", groupName, resp.Status, respBytes)
 	}
 
 	return nil
 }
 
-func (kc *keycloakClient) CreateUser(username, password string, groups []string) error {
+func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string) error {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
 
 	user := map[string]interface{}{
 		"username": username,
+		"email":    fmt.Sprintf("%s@test.dev", username),
 		"credentials": []map[string]interface{}{
 			{
 				"temporary": false,
@@ -350,37 +350,41 @@ func (kc *keycloakClient) CreateUser(username, password string, groups []string)
 		"groups":        groups,
 	}
 
+	if len(email) > 0 {
+		user["email"] = email
+	}
+
 	userBytes, err := json.Marshal(user)
 	if err != nil {
 		return err
 	}
 
 	// Keycloak does not return the object on successful create so there's no need to attempt to retrieve it from the response
-	resp, err := kc.Do(http.MethodPost, usersURL.String(), bytes.NewBuffer(userBytes))
+	resp, err := kc.do(http.MethodPost, usersURL.String(), bytes.NewBuffer(userBytes))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		respBytes, _ := ioutil.ReadAll(resp.Body)
+		respBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed creating user %q: %s %s", username, resp.Status, respBytes)
 	}
 
 	return nil
 }
 
-func (kc *keycloakClient) ListUsers() ([]map[string]interface{}, error) {
+func (kc *KeycloakClient) ListUsers() ([]map[string]interface{}, error) {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
 
-	resp, err := kc.Do(http.MethodGet, usersURL.String(), nil)
+	resp, err := kc.do(http.MethodGet, usersURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +401,7 @@ func (kc *keycloakClient) ListUsers() ([]map[string]interface{}, error) {
 	return users, nil
 }
 
-func (kc *keycloakClient) UpdateUser(id string, changes map[string]interface{}) error {
+func (kc *KeycloakClient) UpdateUser(id string, changes map[string]interface{}) error {
 	user, err := kc.GetUser(id)
 	if err != nil {
 		return err
@@ -415,31 +419,31 @@ func (kc *keycloakClient) UpdateUser(id string, changes map[string]interface{}) 
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users/" + id
 
-	resp, err := kc.Do(http.MethodPut, usersURL.String(), bytes.NewBuffer(userBytes))
+	resp, err := kc.do(http.MethodPut, usersURL.String(), bytes.NewBuffer(userBytes))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		respBytes, _ := ioutil.ReadAll(resp.Body)
+		respBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed updating user %q: %s: %s", id, resp.Status, respBytes)
 	}
 
 	return nil
 }
 
-func (kc *keycloakClient) GetUser(id string) (map[string]interface{}, error) {
+func (kc *KeycloakClient) GetUser(id string) (map[string]interface{}, error) {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users/" + id
 
-	resp, err := kc.Do(http.MethodGet, usersURL.String(), nil)
+	resp, err := kc.do(http.MethodGet, usersURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -452,17 +456,17 @@ func (kc *keycloakClient) GetUser(id string) (map[string]interface{}, error) {
 	return user, nil
 }
 
-func (kc *keycloakClient) ListUserGroups(id string) ([]map[string]interface{}, error) {
+func (kc *KeycloakClient) ListUserGroups(id string) ([]map[string]interface{}, error) {
 	userGroupsURL := *kc.keycloakAdminURL
 	userGroupsURL.Path += "/users/" + id + "/groups"
 
-	resp, err := kc.Do(http.MethodGet, userGroupsURL.String(), nil)
+	resp, err := kc.do(http.MethodGet, userGroupsURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -475,12 +479,12 @@ func (kc *keycloakClient) ListUserGroups(id string) ([]map[string]interface{}, e
 	return userGroups, nil
 }
 
-func (kc *keycloakClient) DeleteUserFromGroups(userId string, groupIds ...string) error {
+func (kc *KeycloakClient) DeleteUserFromGroups(userId string, groupIds ...string) error {
 	userGroupsURL := *kc.keycloakAdminURL
 	userGroupsURL.Path += "/users/" + userId + "/groups/"
 
 	for _, gid := range groupIds {
-		resp, err := kc.Do(http.MethodDelete, userGroupsURL.String()+gid, nil)
+		resp, err := kc.do(http.MethodDelete, userGroupsURL.String()+gid, nil)
 		if err != nil {
 			return err
 		}
@@ -496,7 +500,7 @@ func (kc *keycloakClient) DeleteUserFromGroups(userId string, groupIds ...string
 
 // UpdateClientAccessTokenTimeout updates the timeout for a client of the given id
 // timeout is a timeout in seconds
-func (kc *keycloakClient) UpdateClientAccessTokenTimeout(id string, timeout int32) error {
+func (kc *KeycloakClient) UpdateClientAccessTokenTimeout(id string, timeout int32) error {
 	changes := map[string]interface{}{
 		"attributes": map[string]interface{}{
 			"access.token.lifespan": timeout,
@@ -509,7 +513,7 @@ func (kc *keycloakClient) UpdateClientAccessTokenTimeout(id string, timeout int3
 // UpdateClientDirectAccessGrantsEnabled updates the `directAccessGrantsEnabled`
 // attribute of the client which influences whether the password grant is allowed
 // via the client or not
-func (kc *keycloakClient) UpdateClientDirectAccessGrantsEnabled(id string, allow bool) error {
+func (kc *KeycloakClient) UpdateClientDirectAccessGrantsEnabled(id string, allow bool) error {
 	changes := map[string]interface{}{
 		"directAccessGrantsEnabled": allow,
 	}
@@ -517,7 +521,7 @@ func (kc *keycloakClient) UpdateClientDirectAccessGrantsEnabled(id string, allow
 	return kc.UpdateClient(id, changes)
 }
 
-func (kc *keycloakClient) UpdateClient(id string, changedFields map[string]interface{}) error {
+func (kc *KeycloakClient) UpdateClient(id string, changedFields map[string]interface{}) error {
 	client, err := kc.GetClient(id)
 	if err != nil {
 		return err
@@ -534,13 +538,13 @@ func (kc *keycloakClient) UpdateClient(id string, changedFields map[string]inter
 
 	clientsURL := *kc.keycloakAdminURL
 	clientsURL.Path += "/clients/" + id
-	resp, err := kc.Do(http.MethodPut, clientsURL.String(), bytes.NewBuffer(clientBytes))
+	resp, err := kc.do(http.MethodPut, clientsURL.String(), bytes.NewBuffer(clientBytes))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -553,17 +557,17 @@ func (kc *keycloakClient) UpdateClient(id string, changedFields map[string]inter
 }
 
 // GetClient retrieves a client based on its id (NOTE: id != clientID)
-func (kc *keycloakClient) GetClient(id string) (map[string]interface{}, error) {
+func (kc *KeycloakClient) GetClient(id string) (map[string]interface{}, error) {
 	clientsURL := *kc.keycloakAdminURL
 	clientsURL.Path += "/clients/" + id
 
-	resp, err := kc.Do(http.MethodGet, clientsURL.String(), nil)
+	resp, err := kc.do(http.MethodGet, clientsURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +581,7 @@ func (kc *keycloakClient) GetClient(id string) (map[string]interface{}, error) {
 	return client, err
 }
 
-func (kc *keycloakClient) GetClientByClientID(clientID string) (map[string]interface{}, error) {
+func (kc *KeycloakClient) GetClientByClientID(clientID string) (map[string]interface{}, error) {
 	clients, err := kc.ListClients()
 	if err != nil {
 		return nil, err
@@ -593,17 +597,17 @@ func (kc *keycloakClient) GetClientByClientID(clientID string) (map[string]inter
 }
 
 // GetClient retrieves a client based on its id (NOTE: id != name)
-func (kc *keycloakClient) ListClients() ([]map[string]interface{}, error) {
+func (kc *KeycloakClient) ListClients() ([]map[string]interface{}, error) {
 	clientsURL := *kc.keycloakAdminURL
 	clientsURL.Path += "/clients"
 
-	resp, err := kc.Do(http.MethodGet, clientsURL.String(), nil)
+	resp, err := kc.do(http.MethodGet, clientsURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -617,17 +621,17 @@ func (kc *keycloakClient) ListClients() ([]map[string]interface{}, error) {
 	return clients, err
 }
 
-func (kc *keycloakClient) RegenerateClientSecret(id string) (string, error) {
+func (kc *KeycloakClient) RegenerateClientSecret(id string) (string, error) {
 	clientRegenURL := *kc.keycloakAdminURL
 	clientRegenURL.Path += "/clients/" + id + "/client-secret"
 
-	resp, err := kc.Do(http.MethodPost, clientRegenURL.String(), nil)
+	resp, err := kc.do(http.MethodPost, clientRegenURL.String(), nil)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -648,7 +652,7 @@ func (kc *keycloakClient) RegenerateClientSecret(id string) (string, error) {
 	return secretVal, nil
 }
 
-func (kc *keycloakClient) Do(method, url string, body io.Reader) (*http.Response, error) {
+func (kc *KeycloakClient) do(method, url string, body io.Reader) (*http.Response, error) {
 	if len(kc.token) == 0 {
 		return nil, fmt.Errorf("authenticate first")
 	}
@@ -663,4 +667,22 @@ func (kc *keycloakClient) Do(method, url string, body io.Reader) (*http.Response
 	req.Header.Set("Accept", "application/json")
 
 	return kc.client.Do(req)
+}
+
+func (kc *KeycloakClient) AdminURL() string {
+	return kc.keycloakAdminURL.String()
+}
+
+func (kc *KeycloakClient) TokenURL() string {
+	authURL := *kc.keycloakAdminURL
+	authURL.Path = "/realms/" + kc.realm + "/protocol/openid-connect/token"
+
+	return authURL.String()
+}
+
+func (kc *KeycloakClient) IssuerURL() string {
+	issuerURL := *kc.keycloakAdminURL
+	issuerURL.Path = "/realms/" + kc.realm
+
+	return issuerURL.String()
 }
