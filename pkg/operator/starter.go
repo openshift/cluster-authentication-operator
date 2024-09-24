@@ -138,8 +138,9 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 		libgoetcd.EtcdEndpointNamespace,
 	)
 
-	// short resync period as this drives the check frequency when checking the .well-known endpoint. 20 min is too slow for that.
-	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(typedOperatorClient, time.Second*30)
+	// resyncs in individual controller loops for this operator are driven by a duration based trigger independent of a resource resync.
+	// this allows us to resync essentially never, but reach out to external systems on a polling basis around one minute.
+	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(typedOperatorClient, 24*time.Hour)
 
 	operatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
 		controllerContext.KubeConfig,
