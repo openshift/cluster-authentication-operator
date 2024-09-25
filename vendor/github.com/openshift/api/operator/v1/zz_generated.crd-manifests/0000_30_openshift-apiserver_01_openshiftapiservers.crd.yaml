@@ -150,16 +150,27 @@ spec:
                       description: resource is the resource type of the thing you're
                         tracking
                       type: string
+                  required:
+                  - group
+                  - name
+                  - namespace
+                  - resource
                   type: object
                 type: array
-                x-kubernetes-list-type: atomic
+                x-kubernetes-list-map-keys:
+                - group
+                - resource
+                - namespace
+                - name
+                x-kubernetes-list-type: map
               latestAvailableRevision:
-                description: latestAvailableRevision is the latest revision used as
-                  suffix of revisioned secrets like encryption-config. A new revision
-                  causes a new deployment of pods.
+                description: latestAvailableRevision is the deploymentID of the most
+                  recent deployment
                 format: int32
-                minimum: 0
                 type: integer
+                x-kubernetes-validations:
+                - message: must only increase
+                  rule: self >= oldSelf
               observedGeneration:
                 description: observedGeneration is the last generation change you've
                   dealt with
