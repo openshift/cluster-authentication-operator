@@ -3,6 +3,7 @@ package genericoperatorclient
 import (
 	"context"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"reflect"
 	"strings"
 	"time"
@@ -192,6 +193,18 @@ func (c dynamicOperatorClient) UpdateOperatorSpec(ctx context.Context, resourceV
 // in operatorv1.OperatorStatus while preserving pre-existing status fields that have
 // no correspondence in operatorv1.OperatorStatus.
 func (c dynamicOperatorClient) UpdateOperatorStatus(ctx context.Context, resourceVersion string, status *operatorv1.OperatorStatus) (*operatorv1.OperatorStatus, error) {
+	if status != nil {
+		for i, curr := range status.Conditions {
+			// panicking so we can quickly find it and fix the source
+			if len(curr.Type) == 0 {
+				panic(fmt.Sprintf(".status.conditions[%d].type is missing", i))
+			}
+			if len(curr.Status) == 0 {
+				panic(fmt.Sprintf(".status.conditions[%q].status is missing", curr.Type))
+			}
+		}
+	}
+
 	uncastOriginal, err := c.informer.Lister().Get(c.configName)
 	if err != nil {
 		return nil, err
@@ -202,6 +215,15 @@ func (c dynamicOperatorClient) UpdateOperatorStatus(ctx context.Context, resourc
 	copy.SetResourceVersion(resourceVersion)
 	if err := setOperatorStatusFromUnstructured(copy.UnstructuredContent(), status); err != nil {
 		return nil, err
+	}
+
+	for _, curr := range status.Conditions {
+		if len(curr.Reason) == 0 {
+			klog.Warningf(".status.conditions[%q].reason is missing; this will eventually be fatal", curr.Type)
+		}
+		if len(curr.Message) == 0 {
+			klog.Warningf(".status.conditions[%q].message is missing; this will eventually be fatal", curr.Type)
+		}
 	}
 
 	ret, err := c.client.UpdateStatus(ctx, copy, metav1.UpdateOptions{})
@@ -279,6 +301,18 @@ func (c dynamicOperatorClient) ApplyOperatorStatus(ctx context.Context, fieldMan
 }
 
 func (c dynamicOperatorClient) applyOperatorStatus(ctx context.Context, fieldManager string, desiredConfiguration *applyoperatorv1.StaticPodOperatorStatusApplyConfiguration) (err error) {
+	if desiredConfiguration != nil {
+		for i, curr := range desiredConfiguration.Conditions {
+			// panicking so we can quickly find it and fix the source
+			if len(ptr.Deref(curr.Type, "")) == 0 {
+				panic(fmt.Sprintf(".status.conditions[%d].type is missing", i))
+			}
+			if len(ptr.Deref(curr.Status, "")) == 0 {
+				panic(fmt.Sprintf(".status.conditions[%q].status is missing", *curr.Type))
+			}
+		}
+	}
+
 	uncastOriginal, err := c.informer.Lister().Get(c.configName)
 	switch {
 	case apierrors.IsNotFound(err):
@@ -331,6 +365,15 @@ func (c dynamicOperatorClient) applyOperatorStatus(ctx context.Context, fieldMan
 		if equality.Semantic.DeepEqual(previouslyDesiredObj, desiredObj) {
 			// nothing to apply, so return early
 			return nil
+		}
+	}
+
+	for _, curr := range desiredConfiguration.Conditions {
+		if len(ptr.Deref(curr.Reason, "")) == 0 {
+			klog.Warningf(".status.conditions[%q].reason is missing; this will eventually be fatal", *curr.Type)
+		}
+		if len(ptr.Deref(curr.Message, "")) == 0 {
+			klog.Warningf(".status.conditions[%q].message is missing; this will eventually be fatal", *curr.Type)
 		}
 	}
 
