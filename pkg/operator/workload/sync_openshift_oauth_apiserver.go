@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -40,8 +40,7 @@ type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentNa
 
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
-	// TODO this needs to be run off a lister to reduce live gets
-	operatorClient operatorconfigclient.AuthenticationsGetter
+	operatorClient v1helpers.OperatorClient
 	// countNodes a function to return count of nodes on which the workload will be installed
 	countNodes nodeCountFunc
 	// ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
@@ -56,7 +55,7 @@ type OAuthAPIServerWorkload struct {
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
 func NewOAuthAPIServerWorkload(
-	operatorClient operatorconfigclient.AuthenticationsGetter,
+	operatorClient v1helpers.OperatorClient,
 	countNodes nodeCountFunc,
 	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc,
 	targetNamespace string,
@@ -79,16 +78,21 @@ func NewOAuthAPIServerWorkload(
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.
 func (c *OAuthAPIServerWorkload) PreconditionFulfilled(ctx context.Context) (bool, error) {
-	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return false, err
 	}
 
-	return c.preconditionFulfilledInternal(authOperator)
+	return c.preconditionFulfilledInternal(operatorSpec, operatorStatus)
 }
 
-func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *operatorv1.Authentication) (bool, error) {
-	argsRaw, err := GetAPIServerArgumentsRaw(authOperator.Spec.OperatorSpec)
+func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus) (bool, error) {
+	if operatorStatus.LatestAvailableRevision == 0 {
+		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
+		return false, fmt.Errorf("waiting for .status.latestAvailableRevision to be available")
+	}
+
+	argsRaw, err := GetAPIServerArgumentsRaw(*operatorSpec)
 	if err != nil {
 		return false, err
 	}
@@ -116,26 +120,31 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(authOperator *ope
 func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}
 
-	authOperator, err := c.operatorClient.Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		errs = append(errs, err)
 		return nil, false, errs
 	}
 
-	actualDeployment, err := c.syncDeployment(ctx, authOperator, authOperator.Status.Generations, syncCtx.Recorder())
+	actualDeployment, err := c.syncDeployment(ctx, operatorSpec, operatorStatus, syncCtx.Recorder())
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
 	return actualDeployment, true, errs
 }
 
-func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperator *operatorv1.Authentication, generationStatus []operatorv1.GenerationStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+	if operatorStatus.LatestAvailableRevision == 0 {
+		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
+		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
+	}
+
 	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	argsRaw, err := GetAPIServerArgumentsRaw(authOperator.Spec.OperatorSpec)
+	argsRaw, err := GetAPIServerArgumentsRaw(*operatorSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -146,12 +155,12 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 	}
 
 	// log level verbosity is taken from the spec always
-	args["v"] = []string{loglevelToKlog(authOperator.Spec.LogLevel)}
+	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
 		"${IMAGE}", c.targetImagePullSpec,
-		"${REVISION}", strconv.Itoa(int(authOperator.Status.OAuthAPIServer.LatestAvailableRevision)),
+		"${REVISION}", strconv.Itoa(int(operatorStatus.LatestAvailableRevision)),
 	)
 
 	excludedReferences := sets.NewString("${FLAGS}")
@@ -187,8 +196,8 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 	}
 	required.Annotations["openshiftapiservers.operator.openshift.io/operator-pull-spec"] = c.operatorImagePullSpec
 
-	required.Labels["revision"] = strconv.Itoa(int(authOperator.Status.OAuthAPIServer.LatestAvailableRevision))
-	required.Spec.Template.Labels["revision"] = strconv.Itoa(int(authOperator.Status.OAuthAPIServer.LatestAvailableRevision))
+	required.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
+	required.Spec.Template.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
 
 	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
 	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
@@ -223,7 +232,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, authOperato
 	}
 	required.Spec.Replicas = masterNodeCount
 
-	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, generationStatus))
+	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
 }
 

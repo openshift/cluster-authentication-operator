@@ -71,6 +71,11 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			goldenFile: "./testdata/sync_ds_scenario_1.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			expectedActions: []string{
 				"get:secrets:etcd-client",
@@ -89,6 +94,11 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
 				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			expectedActions: []string{
 				"get:secrets:etcd-client",
@@ -108,6 +118,11 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
 					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
 				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			expectedActions: []string{
 				"get:secrets:etcd-client",
@@ -130,7 +145,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				kubeClient:                fakeKubeClient,
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), scenario.operator, scenario.operator.Status.Generations, eventRecorder)
+			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -202,6 +217,11 @@ func TestPreconditionFulfilled(t *testing.T) {
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(withETCDServerListJSON)},
 				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			preconditionMet: true,
 		},
@@ -213,6 +233,11 @@ func TestPreconditionFulfilled(t *testing.T) {
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(emptyAPIServerArgsJSON)},
 				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -224,6 +249,11 @@ func TestPreconditionFulfilled(t *testing.T) {
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(withDummytJSON)},
 				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
 			},
 			expectError: true,
 		},
@@ -235,7 +265,7 @@ func TestPreconditionFulfilled(t *testing.T) {
 			target := &OAuthAPIServerWorkload{}
 
 			// act
-			actualPreconditions, err := target.preconditionFulfilledInternal(scenario.operator)
+			actualPreconditions, err := target.preconditionFulfilledInternal(&scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus)
 
 			// validate
 			if err != nil && !scenario.expectError {

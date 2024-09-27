@@ -18,7 +18,6 @@ import (
 	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
-	operatorconfigclient "github.com/openshift/client-go/operator/clientset/versioned/typed/operator/v1"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
@@ -40,7 +39,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/trustdistribution"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/revisionclient"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
@@ -157,6 +155,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	}
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
+		"oauth-server",
 		operatorClient,
 		kubeInformersForNamespaces,
 		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), kubeInformersForNamespaces),
@@ -515,11 +514,6 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	}
 	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationv1Client, 10*time.Minute)
 
-	typedOperatorClient, err := operatorconfigclient.NewForConfig(controllerContext.KubeConfig)
-	if err != nil {
-		return err
-	}
-
 	kubeInformers := certinformers.NewSharedInformerFactory(operatorCtx.kubeClient, resync)
 
 	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces)
@@ -532,7 +526,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	migrator := migrators.NewKubeStorageVersionMigrator(migrationClient, migrationInformer.Migration().V1alpha1(), operatorCtx.kubeClient.Discovery())
 
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
-		typedOperatorClient,
+		operatorCtx.operatorClient,
 		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		"openshift-oauth-apiserver",
@@ -555,6 +549,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	const apiServerConditionsPrefix = "APIServer"
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
+		"oauth-apiserver",
 		operatorCtx.operatorClient,
 		eventRecorder,
 	).WithWorkloadController(
@@ -632,7 +627,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		}},
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		// TODO looks like the concept of revisions has leaked into at least one non-static pod operator.  Probably end up making this a flavor of regular OperatorStatus?
-		revisionclient.New(operatorCtx.operatorClient, typedOperatorClient),
+		operatorCtx.operatorClient,
 		v1helpers.CachedConfigMapGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 		v1helpers.CachedSecretGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
 	).WithAPIServiceController(
