@@ -17,6 +17,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -33,20 +34,22 @@ const (
 
 // routerCertsDomainValidationController validates that router certs match the ingress domain
 type routerCertsDomainValidationController struct {
-	operatorClient    v1helpers.OperatorClient
-	secretsClient     corev1clients.SecretsGetter
-	ingressLister     configv1listers.IngressLister
-	secretLister      corev1listers.SecretLister
-	configMapLister   corev1listers.ConfigMapLister
-	secretNamespace   string
-	defaultSecretName string
-	customSecretName  string
-	routeName         string
+	controllerInstanceName string
+	operatorClient         v1helpers.OperatorClient
+	secretsClient          corev1clients.SecretsGetter
+	ingressLister          configv1listers.IngressLister
+	secretLister           corev1listers.SecretLister
+	configMapLister        corev1listers.ConfigMapLister
+	secretNamespace        string
+	defaultSecretName      string
+	customSecretName       string
+	routeName              string
 
 	systemCertPool func() (*x509.CertPool, error) // enables unit testing
 }
 
 func NewRouterCertsDomainValidationController(
+	instanceName string,
 	operatorClient v1helpers.OperatorClient,
 	secretsClient corev1clients.SecretsGetter,
 	eventRecorder events.Recorder,
@@ -60,16 +63,17 @@ func NewRouterCertsDomainValidationController(
 	routeName string,
 ) factory.Controller {
 	controller := &routerCertsDomainValidationController{
-		operatorClient:    operatorClient,
-		secretsClient:     secretsClient,
-		ingressLister:     ingressInformer.Lister(),
-		secretLister:      targetNSsecretInformer.Lister(),
-		configMapLister:   configMapInformer.Lister(),
-		secretNamespace:   secretNamespace,
-		defaultSecretName: defaultSecretName,
-		customSecretName:  customSecretName,
-		routeName:         routeName,
-		systemCertPool:    x509.SystemCertPool,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "RouterCertsDomainValidation"),
+		operatorClient:         operatorClient,
+		secretsClient:          secretsClient,
+		ingressLister:          ingressInformer.Lister(),
+		secretLister:           targetNSsecretInformer.Lister(),
+		configMapLister:        configMapInformer.Lister(),
+		secretNamespace:        secretNamespace,
+		defaultSecretName:      defaultSecretName,
+		customSecretName:       customSecretName,
+		routeName:              routeName,
+		systemCertPool:         x509.SystemCertPool,
 	}
 
 	return factory.New().
@@ -85,7 +89,7 @@ func NewRouterCertsDomainValidationController(
 		WithSync(controller.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
-		ToController("RouterCertsDomainValidationController", eventRecorder)
+		ToController("RouterCertsDomainValidationController", eventRecorder) // Don't change what is passed here unless you also remove the old FooDegraded condition
 }
 
 func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) (err error) {
@@ -105,7 +109,12 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 			return
 		}
 
-		_, _, err = v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(condition))
+		err = c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus().
+			WithConditions(applyoperatorv1.OperatorCondition().
+				WithType(condition.Type).
+				WithStatus(condition.Status).
+				WithReason(condition.Reason).
+				WithMessage(condition.Message)))
 	}()
 
 	// get ingress

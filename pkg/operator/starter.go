@@ -294,6 +294,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
+		"openshift-authentication",
 		operatorCtx.operatorClient,
 		operatorCtx.kubeClient.CoreV1(),
 		controllerContext.EventRecorder,
