@@ -18,6 +18,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
@@ -49,31 +50,33 @@ func init() {
 }
 
 type wellKnownReadyController struct {
-	serviceLister        corev1lister.ServiceLister
-	endpointLister       corev1lister.EndpointsLister
-	operatorClient       v1helpers.OperatorClient
-	authLister           configv1lister.AuthenticationLister
-	configMapLister      corev1lister.ConfigMapLister
-	routeLister          routev1lister.RouteLister
-	infrastructureLister configv1lister.InfrastructureLister
+	controllerInstanceName string
+	serviceLister          corev1lister.ServiceLister
+	endpointLister         corev1lister.EndpointsLister
+	operatorClient         v1helpers.OperatorClient
+	authLister             configv1lister.AuthenticationLister
+	configMapLister        corev1lister.ConfigMapLister
+	routeLister            routev1lister.RouteLister
+	infrastructureLister   configv1lister.InfrastructureLister
 }
 
 const controllerName = "WellKnownReadyController"
 
-func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
+func NewWellKnownReadyController(instanceName string, kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
 	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
 
 	nsOpenshiftConfigManagedInformers := kubeInformers.InformersFor("openshift-config-managed")
 	nsDefaultInformers := kubeInformers.InformersFor("default")
 
 	c := &wellKnownReadyController{
-		serviceLister:        nsDefaultInformers.Core().V1().Services().Lister(),
-		endpointLister:       nsDefaultInformers.Core().V1().Endpoints().Lister(),
-		authLister:           configInformers.Config().V1().Authentications().Lister(),
-		infrastructureLister: configInformers.Config().V1().Infrastructures().Lister(),
-		configMapLister:      nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
-		routeLister:          routeInformer.Lister(),
-		operatorClient:       operatorClient,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "WellKnownReady"),
+		serviceLister:          nsDefaultInformers.Core().V1().Services().Lister(),
+		endpointLister:         nsDefaultInformers.Core().V1().Endpoints().Lister(),
+		authLister:             configInformers.Config().V1().Authentications().Lister(),
+		infrastructureLister:   configInformers.Config().V1().Infrastructures().Lister(),
+		configMapLister:        nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
+		routeLister:            routeInformer.Lister(),
+		operatorClient:         operatorClient,
 	}
 
 	return factory.New().WithInformers(
@@ -87,7 +90,9 @@ func NewWellKnownReadyController(kubeInformers v1helpers.KubeInformersForNamespa
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
-		ToController(controllerName, recorder.WithComponentSuffix("wellknown-ready-controller"))
+		ToController(
+			controllerName, // Don't change what is passed here unless you also remove the old FooDegraded condition
+			recorder.WithComponentSuffix("wellknown-ready-controller"))
 }
 
 func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
@@ -106,9 +111,9 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	}
 
 	// the code below this point triggers status updates, unify status update handling in defer
-	statusUpdates := []v1helpers.UpdateStatusFunc{}
+	status := applyoperatorv1.OperatorStatus()
 	defer func() {
-		if _, _, updateErr := v1helpers.UpdateStatus(ctx, c.operatorClient, statusUpdates...); updateErr != nil {
+		if updateErr := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); updateErr != nil {
 			// fall through to the generic error handling for degraded and requeue
 			utilruntime.HandleError(updateErr)
 		}
@@ -117,47 +122,49 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	// the well-known endpoint cannot be ready until we know the oauth-server's hostname
 	_, err = c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if apierrors.IsNotFound(err) {
-		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-			Type:    "WellKnownAvailable",
-			Status:  operatorv1.ConditionFalse,
-			Reason:  "PrereqsNotReady",
-			Message: err.Error(),
-		}))
+		status = status.WithConditions(applyoperatorv1.OperatorCondition().
+			WithType("WellKnownAvailable").
+			WithStatus(operatorv1.ConditionFalse).
+			WithReason("PrereqsNotReady").
+			WithMessage(err.Error()))
 	}
 	if err != nil {
 		return err
 	}
 
 	if err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig); err != nil {
-		statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-			Type:    "WellKnownAvailable",
-			Status:  operatorv1.ConditionFalse,
-			Reason:  "NotReady",
-			Message: fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()),
-		}))
+		status = status.WithConditions(applyoperatorv1.OperatorCondition().
+			WithType("WellKnownAvailable").
+			WithStatus(operatorv1.ConditionFalse).
+			WithReason("NotReady").
+			WithMessage(fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error())))
 
 		if progressingErr, ok := err.(*common.ControllerProgressingError); ok {
 			if progressingErr.IsDegraded(controllerName, operatorStatus) {
 				return progressingErr.Unwrap()
 			}
-			statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(progressingErr.ToCondition(controllerName)))
+			condition := progressingErr.ToCondition(controllerName)
+			status = status.WithConditions(applyoperatorv1.OperatorCondition().
+				WithType(condition.Type).
+				WithStatus(condition.Status).
+				WithReason(condition.Reason).
+				WithMessage(condition.Message))
 			return nil
 		} else {
 			return err
 		}
 	}
 
-	statusUpdates = append(statusUpdates, v1helpers.UpdateConditionFn(
-		operatorv1.OperatorCondition{
-			Type:   common.ControllerProgressingConditionName(controllerName),
-			Status: operatorv1.ConditionFalse,
-		}),
-		v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-			Type:   "WellKnownAvailable",
-			Status: operatorv1.ConditionTrue,
-			Reason: "AsExpected",
-		}),
+	status = status.WithConditions(
+		applyoperatorv1.OperatorCondition().
+			WithType(common.ControllerProgressingConditionName(controllerName)).
+			WithStatus(operatorv1.ConditionFalse),
+		applyoperatorv1.OperatorCondition().
+			WithType("WellKnownAvailable").
+			WithStatus(operatorv1.ConditionTrue).
+			WithReason("AsExpected"),
 	)
+
 	return nil
 }
 
