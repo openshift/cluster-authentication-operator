@@ -308,6 +308,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
+		"openshift-authentication",
 		openshiftAuthenticationInformers,
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),

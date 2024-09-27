@@ -32,13 +32,16 @@ var degradedConditionTypes = sets.NewString(
 )
 
 type ingressStateController struct {
-	endpointsGetter corev1client.EndpointsGetter
-	podsGetter      corev1client.PodsGetter
-	targetNamespace string
-	operatorClient  v1helpers.OperatorClient
+	controllerInstanceName string
+	endpointsGetter        corev1client.EndpointsGetter
+	podsGetter             corev1client.PodsGetter
+	targetNamespace        string
+	operatorClient         v1helpers.OperatorClient
 }
 
-func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedInformerFactory,
+func NewIngressStateController(
+	instanceName string,
+	kubeInformersForTargetNamespace informers.SharedInformerFactory,
 	endpointsGetter corev1client.EndpointsGetter,
 	podsGetter corev1client.PodsGetter,
 	operatorClient v1helpers.OperatorClient,
@@ -46,10 +49,11 @@ func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedI
 	recorder events.Recorder,
 ) factory.Controller {
 	c := &ingressStateController{
-		endpointsGetter: endpointsGetter,
-		podsGetter:      podsGetter,
-		targetNamespace: targetNamespace,
-		operatorClient:  operatorClient,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressState"),
+		endpointsGetter:        endpointsGetter,
+		podsGetter:             podsGetter,
+		targetNamespace:        targetNamespace,
+		operatorClient:         operatorClient,
 	}
 
 	return factory.New().
@@ -59,7 +63,7 @@ func NewIngressStateController(kubeInformersForTargetNamespace informers.SharedI
 		).
 		WithSync(c.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
-		ToController("IngressStateController", recorder.WithComponentSuffix("ingress-state-controller"))
+		ToController(c.controllerInstanceName, recorder.WithComponentSuffix("ingress-state-controller"))
 }
 
 // checkPodStatus will check the target pod container status and return a list of possible problems.
@@ -95,7 +99,7 @@ func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncC
 		degradedConditions = []operatorv1.OperatorCondition{*subsetCondition}
 	}
 
-	return common.UpdateControllerConditions(ctx, c.operatorClient, degradedConditionTypes, degradedConditions)
+	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, degradedConditionTypes, degradedConditions)
 }
 
 // unhealthyPodMessages returns a slice of messages intended to aid in the
