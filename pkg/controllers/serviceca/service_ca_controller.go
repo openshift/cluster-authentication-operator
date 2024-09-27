@@ -34,19 +34,21 @@ var knownConditionNames = sets.NewString(
 )
 
 type serviceCAController struct {
-	serviceLister  corev1lister.ServiceLister
-	secretLister   corev1lister.SecretLister
-	configMaps     corev1client.ConfigMapsGetter
-	operatorClient v1helpers.OperatorClient
+	controllerInstanceName string
+	serviceLister          corev1lister.ServiceLister
+	secretLister           corev1lister.SecretLister
+	configMaps             corev1client.ConfigMapsGetter
+	operatorClient         v1helpers.OperatorClient
 }
 
-func NewServiceCAController(kubeInformersForTargetNamespace informers.SharedInformerFactory, configInformer configinformers.SharedInformerFactory, configMaps corev1client.ConfigMapsGetter,
+func NewServiceCAController(instanceName string, kubeInformersForTargetNamespace informers.SharedInformerFactory, configInformer configinformers.SharedInformerFactory, configMaps corev1client.ConfigMapsGetter,
 	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
 	c := &serviceCAController{
-		serviceLister:  kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		secretLister:   kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		configMaps:     configMaps,
-		operatorClient: operatorClient,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "ServiceCA"),
+		serviceLister:          kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		secretLister:           kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		configMaps:             configMaps,
+		operatorClient:         operatorClient,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -54,7 +56,13 @@ func NewServiceCAController(kubeInformersForTargetNamespace informers.SharedInfo
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
-	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("ServiceCAController", recorder.WithComponentSuffix("service-ca-controller"))
+	).ResyncEvery(
+		wait.Jitter(time.Minute, 1.0),
+	).WithSync(
+		c.sync,
+	).ToController(
+		c.controllerInstanceName,
+		recorder.WithComponentSuffix("service-ca-controller"))
 }
 
 func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
@@ -71,7 +79,7 @@ func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncCont
 		foundConditions = append(foundConditions, serviceCAConditions...)
 	}
 
-	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
+	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
 }
 
 func getServiceCAConfig() *corev1.ConfigMap {
