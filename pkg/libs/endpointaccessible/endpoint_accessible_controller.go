@@ -14,12 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 type endpointAccessibleController struct {
+	controllerInstanceName string
 	operatorClient         v1helpers.OperatorClient
 	endpointListFn         EndpointListFunc
 	getTLSConfigFn         EndpointTLSConfigFunc
@@ -42,6 +44,7 @@ func NewEndpointAccessibleController(
 	controllerName := name + "EndpointAccessibleController"
 
 	c := &endpointAccessibleController{
+		controllerInstanceName: factory.ControllerInstanceName(name, "EndpointAccessible"),
 		operatorClient:         operatorClient,
 		endpointListFn:         endpointListFn,
 		getTLSConfigFn:         getTLSConfigFn,
@@ -54,7 +57,9 @@ func NewEndpointAccessibleController(
 		WithSync(c.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		WithSyncDegradedOnError(operatorClient).
-		ToController(controllerName, recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
+		ToController(
+			controllerName, // Don't change what is passed here unless you also remove the old FooDegraded condition
+			recorder.WithComponentSuffix(name+"endpoint-accessible-controller"))
 }
 
 // humanizeError produce error message that makes more sense to humans/admins.
@@ -71,15 +76,13 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	endpoints, err := c.endpointListFn()
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			_, _, statusErr := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(
-				operatorv1.OperatorCondition{
-					Type:    c.availableConditionName,
-					Status:  operatorv1.ConditionFalse,
-					Reason:  "ResourceNotFound",
-					Message: err.Error(),
-				}))
-
-			return statusErr
+			status := applyoperatorv1.OperatorStatus().
+				WithConditions(applyoperatorv1.OperatorCondition().
+					WithType(c.availableConditionName).
+					WithStatus(operatorv1.ConditionFalse).
+					WithReason("ResourceNotFound").
+					WithMessage(err.Error()))
+			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status)
 		}
 
 		return err
@@ -127,11 +130,12 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 
 	// if at least one endpoint responded, we are available
 	if len(endpoints) > 0 && len(errors) < len(endpoints) {
-		if _, _, err := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-			Type:   c.availableConditionName,
-			Status: operatorv1.ConditionTrue,
-			Reason: "AsExpected",
-		})); err != nil {
+		status := applyoperatorv1.OperatorStatus().
+			WithConditions(applyoperatorv1.OperatorCondition().
+				WithType(c.availableConditionName).
+				WithStatus(operatorv1.ConditionTrue).
+				WithReason("AsExpected"))
+		if err := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); err != nil {
 			// append the error to be degraded
 			errors = append(errors, err)
 		}
@@ -140,12 +144,13 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		if len(endpoints) == 0 {
 			errors = append(errors, fmt.Errorf("failed to get oauth-openshift endpoints"))
 		}
-		if _, _, err := v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(operatorv1.OperatorCondition{
-			Type:    c.availableConditionName,
-			Status:  operatorv1.ConditionFalse,
-			Reason:  "EndpointUnavailable",
-			Message: utilerrors.NewAggregate(errors).Error(),
-		})); err != nil {
+		status := applyoperatorv1.OperatorStatus().
+			WithConditions(applyoperatorv1.OperatorCondition().
+				WithType(c.availableConditionName).
+				WithStatus(operatorv1.ConditionFalse).
+				WithReason("EndpointUnavailable").
+				WithMessage(utilerrors.NewAggregate(errors).Error()))
+		if err := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); err != nil {
 			// append the error to be degraded
 			errors = append(errors, err)
 		}
