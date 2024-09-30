@@ -717,6 +717,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	)
 
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.kubeClient.CoreV1(),
