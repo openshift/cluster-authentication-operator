@@ -3,12 +3,12 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "ebf731cc0240f9619bfc159abfd6e040d5be778b5bb83495578397ceeba5695f"
+    operator.openshift.io/spec-hash: "1986a56f7e54d5a8fb43656056b747bf93c3eeea535b79bb2866562a001a3778"
   creationTimestamp: ~
   labels:
     apiserver: "true"
     app: openshift-oauth-apiserver
-    revision: '0'
+    revision: '1'
   name: apiserver
   namespace: openshift-oauth-apiserver
 spec:
@@ -28,7 +28,7 @@ spec:
       labels:
         apiserver: "true"
         app: openshift-oauth-apiserver
-        revision: '0'
+        revision: '1'
       name: openshift-oauth-apiserver
       annotations:
         target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
@@ -180,7 +180,7 @@ spec:
       volumes:
         -
           configMap:
-            name: audit-0
+            name: audit-1
           name: audit-policies
         -
           name: etcd-client
@@ -207,7 +207,7 @@ spec:
           name: encryption-config
           secret:
             optional: true
-            secretName: encryption-config-0
+            secretName: encryption-config-1
         -
           hostPath:
             path: /var/log/oauth-apiserver

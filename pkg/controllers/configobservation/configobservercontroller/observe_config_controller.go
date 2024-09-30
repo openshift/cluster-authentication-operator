@@ -102,6 +102,7 @@ func NewConfigObserver(
 	}
 
 	return configobserver.NewNestedConfigObserver(
+		"oauth-server",
 		operatorClient,
 		eventRecorder,
 		listers,

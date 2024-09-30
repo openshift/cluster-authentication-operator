@@ -76,6 +76,7 @@ func NewConfigObserverController(
 	}
 
 	return configobserver.NewNestedConfigObserver(
+		"oauth-apiserver",
 		operatorClient,
 		eventRecorder,
 		configobservation.Listers{
