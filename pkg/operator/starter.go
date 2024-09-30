@@ -326,6 +326,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	metadataController := metadata.NewMetadataController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced,

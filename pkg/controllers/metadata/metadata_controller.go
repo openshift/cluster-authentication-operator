@@ -39,35 +39,37 @@ var knownConditionNames = sets.NewString(
 )
 
 type metadataController struct {
-	ingressLister  configv1listers.IngressLister
-	route          routeclient.RouteInterface
-	secretLister   corev1listers.SecretLister
-	configMaps     corev1client.ConfigMapsGetter
-	authentication configv1client.AuthenticationInterface
-	operatorClient v1helpers.OperatorClient
+	controllerInstanceName string
+	ingressLister          configv1listers.IngressLister
+	route                  routeclient.RouteInterface
+	secretLister           corev1listers.SecretLister
+	configMaps             corev1client.ConfigMapsGetter
+	authentication         configv1client.AuthenticationInterface
+	operatorClient         v1helpers.OperatorClient
 }
 
 // NewMetadataController assure that ingress configuration is available to determine the domain suffix that this controller use to create
 // a route for oauth. The controller then update the oauth metadata config map and update the cluster authentication config.
 // The controller use degraded condition if any part of the process fail and use the "AuthMetadataProgressing=false" condition when the controller job is done
 // and all resources exists.
-func NewMetadataController(kubeInformersForTargetNamespace informers.SharedInformerFactory, configInformer configinformers.SharedInformerFactory, routeInformer routeinformer.SharedInformerFactory,
+func NewMetadataController(instanceName string, kubeInformersForTargetNamespace informers.SharedInformerFactory, configInformer configinformers.SharedInformerFactory, routeInformer routeinformer.SharedInformerFactory,
 	configMaps corev1client.ConfigMapsGetter, route routeclient.RouteInterface, authentication configv1client.AuthenticationInterface, operatorClient v1helpers.OperatorClient,
 	recorder events.Recorder) factory.Controller {
 	c := &metadataController{
-		ingressLister:  configInformer.Config().V1().Ingresses().Lister(),
-		secretLister:   kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		configMaps:     configMaps,
-		route:          route,
-		authentication: authentication,
-		operatorClient: operatorClient,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "Metadata"),
+		ingressLister:          configInformer.Config().V1().Ingresses().Lister(),
+		secretLister:           kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		configMaps:             configMaps,
+		route:                  route,
+		authentication:         authentication,
+		operatorClient:         operatorClient,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().Ingresses().Informer(),
 		routeInformer.Route().V1().Routes().Informer(),
-	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("MetadataController", recorder.WithComponentSuffix("metadata-controller"))
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController(c.controllerInstanceName, recorder.WithComponentSuffix("metadata-controller"))
 }
 
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
@@ -79,7 +81,7 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 		foundConditions = append(foundConditions, c.handleAuthConfig(ctx)...)
 	}
 
-	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
+	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
 }
 
 func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
