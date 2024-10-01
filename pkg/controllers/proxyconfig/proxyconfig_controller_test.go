@@ -189,26 +189,26 @@ func Test_checkProxyConfig(t *testing.T) {
 			noProxy:            "testing.com",
 			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: badHTTPClient,
-			wantErr:            fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, "testing.com", endpoint, endpoint),
+			wantErr:            fmt.Errorf("endpoint(%q) present in NO_PROXY(%q) is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, "testing.com", endpoint, endpoint),
 		},
 		{
 			name:               "endpoint matching noProxy is reachable with proxy",
 			noProxy:            "proxy.testing.com",
 			clientWithProxy:    goodHTTPClient,
 			clientWithoutProxy: badHTTPClient,
-			wantErr:            fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %q returned 404", endpoint, "proxy.testing.com", endpoint),
+			wantErr:            fmt.Errorf("failed to reach endpoint(%q) present in NO_PROXY(%q) with error: %q returned 404", endpoint, "proxy.testing.com", endpoint),
 		},
 		{
 			name:               "endpoint not matching noProxy is reachable without proxy",
 			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: goodHTTPClient,
-			wantErr:            fmt.Errorf("failed to reach endpoint(%q) missing in NO_PROXY(\"\") with error: %q returned 404", endpoint, endpoint),
+			wantErr:            fmt.Errorf("failed to reach endpoint(%q) not present in NO_PROXY(\"\") with error: %q returned 404", endpoint, endpoint),
 		},
 		{
 			name:               "endpoint not matching noProxy is unreachable with/without proxy",
 			clientWithProxy:    badHTTPClient,
 			clientWithoutProxy: badHTTPClient,
-			wantErr:            fmt.Errorf("endpoint(%q) is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, endpoint, endpoint),
+			wantErr:            fmt.Errorf("endpoint(%q) not present in NO_PROXY(\"\") is unreachable with proxy(%q returned 404) and without proxy(%q returned 404)", endpoint, endpoint, endpoint),
 		},
 	}
 	for _, tt := range tests {
