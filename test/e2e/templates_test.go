@@ -55,7 +55,7 @@ func TestTemplatesConfig(t *testing.T) {
 
 	oauthConfigCopy.Spec.IdentityProviders = []configv1.IdentityProvider{
 		{
-			Name: "super duper production-ready htpasswd idp",
+			Name: "super-duper-production-ready-htpasswd-idp",
 			IdentityProviderConfig: configv1.IdentityProviderConfig{
 				Type: configv1.IdentityProviderTypeHTPasswd,
 				HTPasswd: &configv1.HTPasswdIdentityProvider{
@@ -109,7 +109,7 @@ func TestTemplatesConfig(t *testing.T) {
 
 	// modify URL to go to the IdP login
 	oauthURL.Path = "/oauth/token/display"
-	oauthURL.RawQuery = fmt.Sprintf("client_id=openshift-browser-client&idp=super+duper+production-ready+htpasswd+idp&redirect_uri=%s&response_type=code", url.QueryEscape(oauthURL.String()))
+	oauthURL.RawQuery = fmt.Sprintf("client_id=openshift-browser-client&idp=super-duper-production-ready-htpasswd-idp&redirect_uri=%s&response_type=code", url.QueryEscape(oauthURL.String()))
 	oauthURL.Path = "/oauth/authorize"
 	resp, err = httpClient.Get(oauthURL.String())
 	require.NoError(t, err)
