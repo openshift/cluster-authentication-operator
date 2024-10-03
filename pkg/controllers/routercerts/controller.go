@@ -100,6 +100,11 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 	// set the condition anywhere in sync() to update the controller's degraded condition
 	var condition operatorv1.OperatorCondition
 	defer func() {
+		if len(condition.Type) == 0 {
+			// no change is desired.  This happens when the SyncPartialSecret fails
+			return
+		}
+
 		_, _, err = v1helpers.UpdateStatus(ctx, c.operatorClient, v1helpers.UpdateConditionFn(condition))
 	}()
 

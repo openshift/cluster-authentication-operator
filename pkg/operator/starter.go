@@ -248,24 +248,8 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
 		[]string{
-			// condition types removed in 4.8
-			"OAuthRouteCheckEndpointAccessibleControllerDegraded",
-			"OAuthRouteCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceCheckEndpointAccessibleControllerDegraded",
-			"OAuthServiceCheckEndpointAccessibleControllerAvailable",
-			"OAuthServiceEndpointsCheckEndpointAccessibleControllerDegraded",
-			"OAuthServiceEndpointsCheckEndpointAccessibleControllerAvailable",
-			"OAuthServerIngressConfigDegraded",
-			"OAuthServerProxyDegraded",
-			"OAuthServerRouteDegraded",
-			"OAuthVersionDeploymentAvailable",
-			"OAuthVersionDeploymentProgressing",
-			"OAuthVersionDeploymentDegraded",
-			"OAuthVersionRouteDegraded",
-			"OAuthVersionRouteProgressing",
-			"OAuthVersionRouteAvailable",
-			"OAuthVersionRouteSecretDegraded",
-			"OAuthVersionIngressConfigDegraded",
+			// condition type removed in 4.17.z
+			"",
 		},
 		operatorCtx.operatorClient,
 		controllerContext.EventRecorder,
