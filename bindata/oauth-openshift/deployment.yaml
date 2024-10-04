@@ -66,6 +66,9 @@ spec:
               --config=/var/config/system/configmaps/v4-0-config-system-cliconfig/v4-0-config-system-cliconfig \
               --v=${LOG_LEVEL} \
               ${SERVER_ARGUMENTS}
+          env:
+            - name: GODEBUG
+              value: "httpmuxgo121=1"
           ports:
             - name: https
               containerPort: 6443
