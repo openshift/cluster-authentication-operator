@@ -112,7 +112,16 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 
 	// the code below this point triggers status updates, unify status update handling in defer
 	status := applyoperatorv1.OperatorStatus()
+
+	// create conditions to be applied during defer. These conditions are intentionally left without a status,
+	// ensuring the API server will reject the Apply operation if the status is not set down below
+	available := applyoperatorv1.OperatorCondition().
+		WithType("WellKnownAvailable")
+	progressing := applyoperatorv1.OperatorCondition().
+		WithType(common.ControllerProgressingConditionName(controllerName))
+
 	defer func() {
+		status = status.WithConditions(available, progressing)
 		if updateErr := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); updateErr != nil {
 			// fall through to the generic error handling for degraded and requeue
 			utilruntime.HandleError(updateErr)
@@ -122,48 +131,47 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	// the well-known endpoint cannot be ready until we know the oauth-server's hostname
 	_, err = c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if apierrors.IsNotFound(err) {
-		status = status.WithConditions(applyoperatorv1.OperatorCondition().
-			WithType("WellKnownAvailable").
+		available = available.
 			WithStatus(operatorv1.ConditionFalse).
 			WithReason("PrereqsNotReady").
-			WithMessage(err.Error()))
+			WithMessage(err.Error())
+		progressing = progressing.
+			WithStatus(operatorv1.ConditionTrue)
+		return err
 	}
 	if err != nil {
+		available = available.
+			WithStatus(operatorv1.ConditionFalse).
+			WithReason("SyncError").
+			WithMessage(err.Error())
+		progressing = progressing.
+			WithStatus(operatorv1.ConditionTrue)
 		return err
 	}
 
 	if err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig); err != nil {
-		status = status.WithConditions(applyoperatorv1.OperatorCondition().
-			WithType("WellKnownAvailable").
+		available = available.
 			WithStatus(operatorv1.ConditionFalse).
 			WithReason("NotReady").
-			WithMessage(fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error())))
-
+			WithMessage(fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()))
+		progressing = progressing.
+			WithStatus(operatorv1.ConditionTrue)
 		if progressingErr, ok := err.(*common.ControllerProgressingError); ok {
 			if progressingErr.IsDegraded(controllerName, operatorStatus) {
 				return progressingErr.Unwrap()
 			}
-			condition := progressingErr.ToCondition(controllerName)
-			status = status.WithConditions(applyoperatorv1.OperatorCondition().
-				WithType(condition.Type).
-				WithStatus(condition.Status).
-				WithReason(condition.Reason).
-				WithMessage(condition.Message))
+			progressing = progressingErr.ToCondition(controllerName)
 			return nil
 		} else {
 			return err
 		}
 	}
 
-	status = status.WithConditions(
-		applyoperatorv1.OperatorCondition().
-			WithType(common.ControllerProgressingConditionName(controllerName)).
-			WithStatus(operatorv1.ConditionFalse),
-		applyoperatorv1.OperatorCondition().
-			WithType("WellKnownAvailable").
-			WithStatus(operatorv1.ConditionTrue).
-			WithReason("AsExpected"),
-	)
+	progressing = progressing.
+		WithStatus(operatorv1.ConditionFalse)
+	available = available.
+		WithStatus(operatorv1.ConditionTrue).
+		WithReason("AsExpected")
 
 	return nil
 }
