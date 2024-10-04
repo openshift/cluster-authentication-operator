@@ -59,8 +59,9 @@ var knownConditionNames = sets.NewString(
 )
 
 type payloadConfigController struct {
-	serviceLister corev1lister.ServiceLister
-	routeLister   routev1lister.RouteLister
+	controllerInstanceName string
+	serviceLister          corev1lister.ServiceLister
+	routeLister            routev1lister.RouteLister
 
 	configMaps     corev1client.ConfigMapsGetter
 	secrets        corev1client.SecretsGetter
@@ -68,6 +69,7 @@ type payloadConfigController struct {
 }
 
 func NewPayloadConfigController(
+	instanceName string,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
 	configMaps corev1client.ConfigMapsGetter,
@@ -75,11 +77,12 @@ func NewPayloadConfigController(
 	routeInformer routeinformer.RouteInformer,
 	recorder events.Recorder) factory.Controller {
 	c := &payloadConfigController{
-		serviceLister:  kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		routeLister:    routeInformer.Lister(),
-		secrets:        secrets,
-		configMaps:     configMaps,
-		operatorClient: operatorClient,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "PayloadConfig"),
+		serviceLister:          kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		routeLister:            routeInformer.Lister(),
+		secrets:                secrets,
+		configMaps:             configMaps,
+		operatorClient:         operatorClient,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -87,7 +90,7 @@ func NewPayloadConfigController(
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 		operatorClient.Informer(),
-	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController("PayloadConfig", recorder.WithComponentSuffix("payload-config-controller"))
+	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController(c.controllerInstanceName, recorder.WithComponentSuffix("payload-config-controller"))
 }
 
 func (c *payloadConfigController) getAuthConfig(ctx context.Context) (*operatorv1.OperatorSpec, []operatorv1.OperatorCondition) {
@@ -153,7 +156,7 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 		foundConditions = append(foundConditions, oauthConfigConditions...)
 	}
 
-	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
+	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
 }
 
 func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {

@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -79,9 +80,12 @@ func ControllerProgressingConditionName(controllerName string) string {
 	return controllerName + "Progressing"
 }
 
-func UpdateControllerConditions(ctx context.Context, operatorClient v1helpers.OperatorClient, allConditionNames sets.String, updatedConditions []operatorv1.OperatorCondition) error {
-	updateConditionFuncs := []v1helpers.UpdateStatusFunc{}
+func ApplyControllerConditions(ctx context.Context, operatorClient v1helpers.OperatorClient, fieldManager string, allConditionNames sets.String, updatedConditions []operatorv1.OperatorCondition) error {
+	if allConditionNames.Len() == 0 {
+		return nil
+	}
 
+	status := applyoperatorv1.OperatorStatus()
 	for _, conditionType := range allConditionNames.List() {
 		// clean up existing updatedConditions
 		newCondition := operatorv1.OperatorCondition{
@@ -95,12 +99,13 @@ func UpdateControllerConditions(ctx context.Context, operatorClient v1helpers.Op
 		if condition := v1helpers.FindOperatorCondition(updatedConditions, conditionType); condition != nil {
 			newCondition = *condition
 		}
-		updateConditionFuncs = append(updateConditionFuncs, v1helpers.UpdateConditionFn(newCondition))
+
+		status = status.WithConditions(applyoperatorv1.OperatorCondition().
+			WithType(newCondition.Type).
+			WithStatus(newCondition.Status).
+			WithReason(newCondition.Reason).
+			WithMessage(newCondition.Message))
 	}
 
-	if _, _, err := v1helpers.UpdateStatus(ctx, operatorClient, updateConditionFuncs...); err != nil {
-		return err
-	}
-
-	return nil
+	return operatorClient.ApplyOperatorStatus(ctx, fieldManager, status)
 }

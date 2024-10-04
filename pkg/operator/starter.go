@@ -294,6 +294,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
+		"openshift-authentication",
 		operatorCtx.operatorClient,
 		operatorCtx.kubeClient.CoreV1(),
 		controllerContext.EventRecorder,
@@ -308,6 +309,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	ingressStateController := ingressstate.NewIngressStateController(
+		"openshift-authentication",
 		openshiftAuthenticationInformers,
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
@@ -324,6 +326,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	metadataController := metadata.NewMetadataController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced,
@@ -335,6 +338,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	serviceCAController := serviceca.NewServiceCAController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.kubeClient.CoreV1(),
@@ -343,6 +347,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	payloadConfigController := payload.NewPayloadConfigController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		operatorCtx.kubeClient.CoreV1(),
 		operatorCtx.kubeClient.CoreV1(),
@@ -376,6 +381,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
+		"openshift-authentication",
 		operatorCtx.operatorClient,
 		operatorCtx.operatorInformer.Operator().V1().IngressControllers(),
 		controllerContext.EventRecorder,
@@ -711,6 +717,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 	)
 
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		operatorCtx.operatorConfigInformer,
 		operatorCtx.kubeClient.CoreV1(),

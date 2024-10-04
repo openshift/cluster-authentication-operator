@@ -28,21 +28,24 @@ var knownConditionNames = sets.NewString(
 
 // ingressNodesAvailableController validates that router certs match the ingress domain
 type ingressNodesAvailableController struct {
-	operatorClient v1helpers.OperatorClient
-	ingressLister  operatorv1listers.IngressControllerLister
-	nodeLister     corev1listers.NodeLister
+	controllerInstanceName string
+	operatorClient         v1helpers.OperatorClient
+	ingressLister          operatorv1listers.IngressControllerLister
+	nodeLister             corev1listers.NodeLister
 }
 
 func NewIngressNodesAvailableController(
+	instanceName string,
 	operatorClient v1helpers.OperatorClient,
 	ingressControllerInformer operatorv1informers.IngressControllerInformer,
 	eventRecorder events.Recorder,
 	nodeInformer corev1informers.NodeInformer,
 ) factory.Controller {
 	controller := &ingressNodesAvailableController{
-		operatorClient: operatorClient,
-		ingressLister:  ingressControllerInformer.Lister(),
-		nodeLister:     nodeInformer.Lister(),
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressNodesAvailable"),
+		operatorClient:         operatorClient,
+		ingressLister:          ingressControllerInformer.Lister(),
+		nodeLister:             nodeInformer.Lister(),
 	}
 
 	return factory.New().
@@ -53,7 +56,7 @@ func NewIngressNodesAvailableController(
 		).
 		WithSync(controller.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
-		ToController("IngressNodesAvailableController", eventRecorder)
+		ToController(controller.controllerInstanceName, eventRecorder)
 }
 
 func countReadyWorkerNodes(nodes []*corev1.Node) int {
@@ -122,7 +125,7 @@ func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx fact
 		})
 	}
 
-	return common.UpdateControllerConditions(ctx, c.operatorClient, knownConditionNames, foundConditions)
+	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
 }
 
 func (c *ingressNodesAvailableController) numberOfCustomIngressTargets(ctx context.Context, syncCtx factory.SyncContext) (int, error) {
