@@ -24,8 +24,10 @@ import (
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
@@ -303,6 +305,25 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	}
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
 	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, oauthAPIServerRunOnceFns...)
+
+	// OIDC
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
+		informerFactories.operatorConfigInformer.Config().V1().ClusterVersions(),
+		informerFactories.operatorConfigInformer.Config().V1().FeatureGates(),
+		authOperatorInput.eventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	externalOIDCController := externaloidc.NewExternalOIDCController(
+		featureGateAccessor,
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.eventRecorder,
+	)
+	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(externalOIDCController.Run))
+	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, externalOIDCController.Sync))
 
 	return ret, nil
 }
