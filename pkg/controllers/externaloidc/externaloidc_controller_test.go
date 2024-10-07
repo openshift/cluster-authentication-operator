@@ -110,6 +110,10 @@ var (
 	})
 
 	baseAuthConfig = apiserverv1beta1.AuthenticationConfiguration{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "AuthenticationConfiguration",
+			APIVersion: "apiserver.config.k8s.io/v1beta1",
+		},
 		JWT: []apiserverv1beta1.JWTAuthenticator{
 			{
 				Issuer: apiserverv1beta1.Issuer{
@@ -423,6 +427,23 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 							},
 							PrefixPolicy: configv1.Prefix,
 							Prefix:       nil,
+						}
+					}
+				},
+			}),
+			expectError: true,
+		},
+		{
+			name:              "auth config invalid prefix policy",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Claim: "username",
+							},
+							PrefixPolicy: configv1.UsernamePrefixPolicy("invalid-policy"),
 						}
 					}
 				},

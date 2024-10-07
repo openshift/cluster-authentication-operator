@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,12 +19,11 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"golang.org/x/net/http/httpproxy"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/sets"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -33,12 +33,6 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-var (
-	cfgScheme         = runtime.NewScheme()
-	codecs            = serializer.NewCodecFactory(cfgScheme, serializer.EnableStrict)
-	serializerInfo, _ = runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), runtime.ContentTypeJSON)
-)
-
 const (
 	configNamespace           = "openshift-config"
 	managedNamespace          = "openshift-config-managed"
@@ -46,12 +40,6 @@ const (
 	authConfigDataKey         = "auth-config.json"
 	oidcDiscoveryEndpointPath = "/.well-known/openid-configuration"
 )
-
-func init() {
-	if err := apiserverv1beta1.AddToScheme(cfgScheme); err != nil {
-		panic(err)
-	}
-}
 
 type externalOIDCController struct {
 	name            string
@@ -121,11 +109,11 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return err
 	}
 
-	encoded, err := runtime.Encode(codecs.EncoderForVersion(serializerInfo.Serializer, apiserverv1beta1.ConfigSchemeGroupVersion), authConfig)
+	b, err := json.Marshal(authConfig)
 	if err != nil {
 		return fmt.Errorf("could not marshal auth config into JSON: %v", err)
 	}
-	authConfigJSON := strings.TrimSpace(string(encoded))
+	authConfigJSON := string(b)
 
 	existingCM, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -142,7 +130,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 	}
 
 	cm := corev1ac.ConfigMap(targetAuthConfigCMName, managedNamespace).WithData(map[string]string{authConfigDataKey: authConfigJSON})
-	if _, err := c.configMaps.ConfigMaps(managedNamespace).Apply(ctx, cm, metav1.ApplyOptions{FieldManager: c.name}); err != nil {
+	if _, err := c.configMaps.ConfigMaps(managedNamespace).Apply(ctx, cm, metav1.ApplyOptions{FieldManager: c.name, Force: true}); err != nil {
 		return fmt.Errorf("could not apply changes to auth configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
 	}
 
@@ -154,7 +142,13 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 // generateAuthConfig creates a structured JWT AuthenticationConfiguration for OIDC
 // from the configuration found in the authentication/cluster resource
 func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication) (*apiserverv1beta1.AuthenticationConfiguration, error) {
-	authConfig := apiserverv1beta1.AuthenticationConfiguration{}
+	authConfig := apiserverv1beta1.AuthenticationConfiguration{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "AuthenticationConfiguration",
+			APIVersion: "apiserver.config.k8s.io/v1beta1",
+		},
+	}
+
 	for _, provider := range auth.Spec.OIDCProviders {
 		jwt := apiserverv1beta1.JWTAuthenticator{
 			Issuer: apiserverv1beta1.Issuer{
@@ -204,6 +198,8 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 			} else {
 				jwt.ClaimMappings.Username.Prefix = &provider.ClaimMappings.Username.Prefix.PrefixString
 			}
+		default:
+			return nil, fmt.Errorf("invalid username prefix policy: %s", provider.ClaimMappings.Username.PrefixPolicy)
 		}
 
 		for i, rule := range provider.ClaimValidationRules {
@@ -334,6 +330,12 @@ func validateCACert(hostURL url.URL, caCertPool *x509.CertPool) error {
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: caCertPool},
+			Proxy: func(*http.Request) (*url.URL, error) {
+				if proxyConfig := httpproxy.FromEnvironment(); len(proxyConfig.HTTPSProxy) > 0 {
+					return url.Parse(proxyConfig.HTTPSProxy)
+				}
+				return nil, nil
+			},
 		},
 		Timeout: 5 * time.Second,
 	}
