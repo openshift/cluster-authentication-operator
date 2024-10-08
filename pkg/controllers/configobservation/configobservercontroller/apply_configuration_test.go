@@ -2,18 +2,18 @@ package configobservercontroller
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
-	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-
+	"github.com/google/go-cmp/cmp"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/manifestclient"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -22,10 +22,16 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	clocktesting "k8s.io/utils/clock/testing"
 )
+
+//go:embed testdata
+var packageTestData embed.FS
 
 func TestApplyConfiguration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,7 +48,14 @@ func TestApplyConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	now, err := time.Parse(time.RFC3339, "2006-01-02T15:04:05Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeClock := clocktesting.NewFakePassiveClock(now)
+
 	operatorClient, dynamicInformers, err := genericoperatorclient.NewOperatorClientWithClient(
+		fakeClock,
 		mutationTrackingHTTPClient.GetHTTPClient(),
 		operatorv1.GroupVersion.WithResource("authentications"),
 		operatorv1.GroupVersion.WithKind("Authentication"),
@@ -104,8 +117,27 @@ func TestApplyConfiguration(t *testing.T) {
 		t.Fatal(syncErr)
 	}
 
-	mutations := mutationTrackingHTTPClient.GetMutations()
-	t.Fatal(spew.Sdump(mutations))
+	actualRequests := mutationTrackingHTTPClient.GetMutations()
+	expectedRequests, err := manifestclient.ReadEmbeddedMutationDirectory(packageTestData, filepath.Join("testdata", "TestApplyConfiguration"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const updateEnvVar = "UPDATE_MUTATION_TEST_DATA"
+	if os.Getenv(updateEnvVar) == "true" {
+		mutationDir := filepath.Join("testdata", "TestApplyConfiguration")
+		err := manifestclient.WriteMutationDirectory(mutationDir, actualRequests.AllRequests()...)
+		if err != nil {
+			t.Fatal(err)
+		} else {
+			t.Logf("Updated data")
+		}
+	}
+
+	if !manifestclient.AreAllSerializedRequestsEquivalent(actualRequests.AllRequests(), expectedRequests.AllRequests()) {
+		t.Logf("Re-run with `UPDATE_MUTATION_TEST_DATA=true` to write new expected test data")
+		t.Fatal(cmp.Diff(actualRequests.AllRequests(), expectedRequests.AllRequests()))
+	}
 }
 
 func extractOperatorSpec(obj *unstructured.Unstructured, fieldManager string) (*applyoperatorv1.OperatorSpecApplyConfiguration, error) {
