@@ -44,13 +44,12 @@ func (e *ControllerProgressingError) Unwrap() error {
 	return e.err
 }
 
-func (e *ControllerProgressingError) ToCondition(controllerName string) operatorv1.OperatorCondition {
-	return operatorv1.OperatorCondition{
-		Type:    ControllerProgressingConditionName(controllerName),
-		Status:  operatorv1.ConditionTrue,
-		Reason:  e.reason,
-		Message: e.err.Error(),
-	}
+func (e *ControllerProgressingError) ToCondition(controllerName string) *applyoperatorv1.OperatorConditionApplyConfiguration {
+	return applyoperatorv1.OperatorCondition().
+		WithType(ControllerProgressingConditionName(controllerName)).
+		WithStatus(operatorv1.ConditionTrue).
+		WithReason(e.reason).
+		WithMessage(e.err.Error())
 }
 
 // IsDegraded returns true if the condition matching this error (same type, reason and message)
