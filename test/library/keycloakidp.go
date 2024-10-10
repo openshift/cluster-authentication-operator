@@ -70,6 +70,7 @@ func AddKeycloakIDP(
 			{Name: "KC_HEALTH_ENABLED", Value: "true"},
 			{Name: "KC_HOSTNAME_STRICT", Value: "false"},
 			{Name: "KC_PROXY", Value: "reencrypt"},
+			{Name: "KC_CACHE", Value: "local"},
 			{Name: "KC_HTTPS_CERTIFICATE_FILE", Value: "/etc/x509/https/tls.crt"},
 			{Name: "KC_HTTPS_CERTIFICATE_KEY_FILE", Value: "/etc/x509/https/tls.key"},
 		},
