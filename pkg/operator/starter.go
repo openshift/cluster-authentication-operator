@@ -318,6 +318,7 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 		controllerContext.EventRecorder)
 
 	wellKnownReadyController := readiness.NewWellKnownReadyController(
+		"openshift-authentication",
 		operatorCtx.kubeInformersForNamespaces,
 		operatorCtx.operatorConfigInformer,
 		routeInformersNamespaced.Route().V1().Routes(),
