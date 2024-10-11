@@ -9,7 +9,8 @@ require (
 	github.com/openshift/api v0.0.0-20241001152557-e415140e5d5f
 	github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660
 	github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f
-	github.com/openshift/library-go v0.0.0-20241001171606-756adf2188fc
+	github.com/openshift/library-go v0.0.0-20241016205830-b3a7a46e7136
+	github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/client/v3 v3.5.14
@@ -18,6 +19,7 @@ require (
 	k8s.io/api v0.31.1
 	k8s.io/apimachinery v0.31.1
 	k8s.io/apiserver v0.31.1
+	k8s.io/cli-runtime v0.31.1
 	k8s.io/client-go v0.31.1
 	k8s.io/component-base v0.31.1
 	k8s.io/klog/v2 v2.130.1
