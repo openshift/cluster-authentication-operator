@@ -77,9 +77,11 @@ import (
 	certinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
+	"k8s.io/utils/clock"
 	utilpointer "k8s.io/utils/pointer"
 	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
 	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
@@ -144,6 +146,7 @@ func RunOperator(ctx context.Context, controllerContext *controllercmd.Controlle
 	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(typedOperatorClient, 24*time.Hour)
 
 	operatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
+		clock.RealClock{},
 		controllerContext.KubeConfig,
 		operatorv1.GroupVersion.WithResource("authentications"),
 		operatorv1.GroupVersion.WithKind("Authentication"),
