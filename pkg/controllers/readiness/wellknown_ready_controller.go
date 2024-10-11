@@ -141,11 +141,11 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	}
 	if err != nil {
 		available = available.
-			WithStatus(operatorv1.ConditionFalse).
+			WithStatus(operatorv1.ConditionUnknown).
 			WithReason("SyncError").
 			WithMessage(err.Error())
 		progressing = progressing.
-			WithStatus(operatorv1.ConditionTrue)
+			WithStatus(operatorv1.ConditionUnknown)
 		return err
 	}
 
