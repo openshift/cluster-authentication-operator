@@ -9,18 +9,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
+
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
-	configinformer "github.com/openshift/client-go/config/informers/externalversions"
-	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
-	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
-	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
-	routeclient "github.com/openshift/client-go/route/clientset/versioned"
-	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
@@ -45,13 +39,10 @@ import (
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
-	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
-	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
-	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -62,7 +53,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/staticpod/controller/revision"
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
-	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -74,175 +64,46 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
-	certinformers "k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
-	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
-	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
-	"k8s.io/utils/clock"
 	utilpointer "k8s.io/utils/pointer"
-	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
-	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
 )
 
 const (
 	resync = 20 * time.Minute
 )
 
-// operatorContext holds combined data for both operators
-type operatorContext struct {
-	kubeClient                   kubernetes.Interface
-	configClient                 configclient.Interface
-	authenticationOperatorClient v1helpers.OperatorClient
-
-	versionRecorder status.VersionGetter
-
-	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces
-	operatorConfigInformer     configinformer.SharedInformerFactory
-	operatorInformer           operatorinformer.SharedInformerFactory
-
-	resourceSyncController *resourcesynccontroller.ResourceSyncController
-
-	informersToRunFunc   []func(stopCh <-chan struct{})
-	controllersToRunFunc []func(ctx context.Context, workers int)
-}
-
 // RunOperator prepares and runs both operators OAuth and OAuthAPIServer
 // TODO: in the future we might move each operator to its own pkg
 // TODO: consider using the new operator framework
 func RunOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext) error {
-	kubeClient, err := kubernetes.NewForConfig(controllerContext.ProtoKubeConfig)
+	operatorInput, err := CreateControllerInputFromControllerContext(ctx, controllerContext)
 	if err != nil {
 		return err
 	}
-
-	configClient, err := configclient.NewForConfig(controllerContext.KubeConfig)
+	operatorStarter, err := CreateOperatorStarter(ctx, operatorInput)
 	if err != nil {
 		return err
 	}
-
-	typedOperatorClient, err := operatorclient.NewForConfig(controllerContext.KubeConfig)
-	if err != nil {
+	if err := operatorStarter.Start(ctx); err != nil {
 		return err
-	}
-
-	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(
-		kubeClient,
-		"default",
-		"openshift-authentication",
-		"openshift-config",
-		"openshift-config-managed",
-		"openshift-oauth-apiserver",
-		"openshift-authentication-operator",
-		"", // an informer for non-namespaced resources
-		"kube-system",
-		libgoetcd.EtcdEndpointNamespace,
-	)
-
-	// resyncs in individual controller loops for this operator are driven by a duration based trigger independent of a resource resync.
-	// this allows us to resync essentially never, but reach out to external systems on a polling basis around one minute.
-	operatorConfigInformers := operatorinformer.NewSharedInformerFactory(typedOperatorClient, 24*time.Hour)
-
-	operatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
-		clock.RealClock{},
-		controllerContext.KubeConfig,
-		operatorv1.GroupVersion.WithResource("authentications"),
-		operatorv1.GroupVersion.WithKind("Authentication"),
-		extractOperatorSpec,
-		extractOperatorStatus,
-	)
-	if err != nil {
-		return err
-	}
-
-	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
-		"oauth-server",
-		operatorClient,
-		kubeInformersForNamespaces,
-		v1helpers.CachedSecretGetter(kubeClient.CoreV1(), kubeInformersForNamespaces),
-		v1helpers.CachedConfigMapGetter(kubeClient.CoreV1(), kubeInformersForNamespaces),
-		controllerContext.EventRecorder,
-	)
-
-	versionRecorder := status.NewVersionGetter()
-	clusterOperator, err := configClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return err
-	}
-	// perform version changes to the version getter prior to tying it up in the status controller
-	// via change-notification channel so that it only updates operator version in status once
-	// either of the workloads synces
-	for _, version := range clusterOperator.Status.Versions {
-		versionRecorder.SetVersion(version.Name, version.Version)
-	}
-	versionRecorder.SetVersion("operator", os.Getenv("OPERATOR_IMAGE_VERSION"))
-
-	operatorCtx := &operatorContext{}
-	operatorCtx.versionRecorder = versionRecorder
-	operatorCtx.kubeClient = kubeClient
-	operatorCtx.configClient = configClient
-	operatorCtx.kubeInformersForNamespaces = kubeInformersForNamespaces
-	operatorCtx.resourceSyncController = resourceSyncer
-	operatorCtx.authenticationOperatorClient = operatorClient
-	operatorCtx.operatorInformer = operatorConfigInformers
-	operatorCtx.operatorConfigInformer = configinformer.NewSharedInformerFactoryWithOptions(configClient, resync)
-
-	if err := prepareOauthOperator(ctx, controllerContext, operatorCtx); err != nil {
-		return err
-	}
-
-	if err := prepareOauthAPIServerOperator(ctx, controllerContext, operatorCtx); err != nil {
-		return err
-	}
-
-	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(operatorCtx.authenticationOperatorClient, controllerContext.EventRecorder)
-	logLevelController := loglevel.NewClusterOperatorLoggingController(operatorCtx.authenticationOperatorClient, controllerContext.EventRecorder)
-
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
-		kubeInformersForNamespaces.Start,
-		operatorConfigInformers.Start,
-		operatorCtx.operatorConfigInformer.Start,
-		dynamicInformers.Start,
-	)
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, resourceSyncer.Run, configOverridesController.Run, logLevelController.Run)
-
-	for _, informerToRunFn := range operatorCtx.informersToRunFunc {
-		informerToRunFn(ctx.Done())
-	}
-	for _, controllerRunFn := range operatorCtx.controllersToRunFunc {
-		go controllerRunFn(ctx, 1)
 	}
 
 	<-ctx.Done()
 	return nil
 }
 
-func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
-	routeClient, err := routeclient.NewForConfig(controllerContext.ProtoKubeConfig)
+func prepareOauthOperator(
+	ctx context.Context,
+	authOperatorInput *authenticationOperatorInput,
+	informerFactories authenticationOperatorInformerFactories,
+	resourceSyncController *resourcesynccontroller.ResourceSyncController,
+	versionRecorder status.VersionGetter,
+) ([]libraryapplyconfiguration.RunOnceFunc, []libraryapplyconfiguration.RunFunc, error) {
+
+	clusterVersion, err := authOperatorInput.configClient.ConfigV1().ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
 	if err != nil {
-		return err
-	}
-
-	// protobuf can be used with non custom resources
-	oauthClient, err := oauthclient.NewForConfig(controllerContext.ProtoKubeConfig)
-	if err != nil {
-		return err
-	}
-
-	openshiftAuthenticationInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication")
-	kubeSystemNamespaceInformers := operatorCtx.kubeInformersForNamespaces.InformersFor("kube-system")
-
-	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
-		routeinformer.WithNamespace("openshift-authentication"),
-		routeinformer.WithTweakListOptions(singleNameListOptions("oauth-openshift")),
-	)
-
-	oauthInformers := oauthinformers.NewSharedInformerFactory(oauthClient, resync)
-
-	clusterVersion, err := operatorCtx.configClient.ConfigV1().ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
-	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	enabledClusterCapabilities := sets.NewString()
@@ -251,11 +112,11 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 	}
 
 	// add syncing for the OAuth metadata ConfigMap
-	if err := operatorCtx.resourceSyncController.SyncConfigMap(
+	if err := resourceSyncController.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "oauth-openshift"},
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: "v4-0-config-system-metadata"},
 	); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
@@ -263,8 +124,8 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 			// condition type removed in 4.17.z
 			"",
 		},
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -281,29 +142,29 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 			"oauth-openshift/trust_distribution_role.yaml",
 			"oauth-openshift/trust_distribution_rolebinding.yaml",
 		},
-		resourceapply.NewKubeClientHolder(operatorCtx.kubeClient),
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
-	).AddKubeInformers(operatorCtx.kubeInformersForNamespaces)
+		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
+	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
 
 	configObserver := configobservercontroller.NewConfigObserver(
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.operatorConfigInformer,
-		operatorCtx.resourceSyncController,
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		resourceSyncController,
 		enabledClusterCapabilities,
-		controllerContext.EventRecorder,
+		authOperatorInput.eventRecorder,
 	)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
 		"openshift-authentication",
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeClient.CoreV1(),
-		controllerContext.EventRecorder,
-		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
-		openshiftAuthenticationInformers.Core().V1().Secrets(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.eventRecorder,
+		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"v4-0-config-system-custom-router-certs",
@@ -312,134 +173,123 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 
 	ingressStateController := ingressstate.NewIngressStateController(
 		"openshift-authentication",
-		openshiftAuthenticationInformers,
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.authenticationOperatorClient,
 		"openshift-authentication",
-		controllerContext.EventRecorder)
+		authOperatorInput.eventRecorder)
 
 	wellKnownReadyController := readiness.NewWellKnownReadyController(
 		"openshift-authentication",
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced.Route().V1().Routes(),
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
 	)
 
 	metadataController := metadata.NewMetadataController(
 		"openshift-authentication",
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced,
-		operatorCtx.kubeClient.CoreV1(),
-		routeClient.RouteV1().Routes("openshift-authentication"),
-		operatorCtx.configClient.ConfigV1().Authentications(),
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.operatorConfigInformer,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
+		authOperatorInput.configClient.ConfigV1().Authentications(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
 	)
 
 	serviceCAController := serviceca.NewServiceCAController(
 		"openshift-authentication",
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.operatorConfigInformer,
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.operatorConfigInformer,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
 	)
 
 	payloadConfigController := payload.NewPayloadConfigController(
 		"openshift-authentication",
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.authenticationOperatorClient,
-		routeInformersNamespaced.Route().V1().Routes(),
-		controllerContext.EventRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authOperatorInput.eventRecorder,
 	)
 
 	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
-		operatorCtx.authenticationOperatorClient,
-		oauthClient.OauthV1().OAuthClients(),
-		oauthInformers,
-		routeInformersNamespaced,
-		operatorCtx.operatorConfigInformer,
-		controllerContext.EventRecorder,
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.oauthClient.OauthV1().OAuthClients(),
+		informerFactories.oauthInformers,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes,
+		informerFactories.operatorConfigInformer,
+		authOperatorInput.eventRecorder,
 	)
 
 	deploymentController := deployment.NewOAuthServerWorkloadController(
-		operatorCtx.authenticationOperatorClient,
-		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		authOperatorInput.authenticationOperatorClient,
+		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
-		operatorCtx.kubeClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
-		operatorCtx.configClient.ConfigV1().ClusterOperators(),
-		operatorCtx.operatorConfigInformer,
-		routeInformersNamespaced,
-		bootstrapauthenticator.NewBootstrapUserDataGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1()),
-		controllerContext.EventRecorder,
-		operatorCtx.versionRecorder,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.kubeClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		authOperatorInput.configClient.ConfigV1().ClusterOperators(),
+		informerFactories.operatorConfigInformer,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes,
+		bootstrapauthenticator.NewBootstrapUserDataGetter(authOperatorInput.kubeClient.CoreV1(), authOperatorInput.kubeClient.CoreV1()),
+		authOperatorInput.eventRecorder,
+		versionRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
 		"openshift-authentication",
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.operatorInformer.Operator().V1().IngressControllers(),
-		controllerContext.EventRecorder,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.operatorInformer.Operator().V1().IngressControllers(),
+		authOperatorInput.eventRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
 	)
-
-	if !enabledClusterCapabilities.Has("Console") {
-		// This controller is only necessary if the console capability is not yet enabled in the cluster.
-		// Once the console capability is enabled, this controller will restart the auth operator and next
-		// time it comes up, the console cap will already be enabled and this controller won't be added.
-		terminationController := termination.NewTerminationController(
-			operatorCtx.operatorConfigInformer,
-			controllerContext.EventRecorder,
-		)
-		operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc, terminationController.Run)
-	}
 
 	systemCABundle, err := loadSystemCACertBundle()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
-		routeInformersNamespaced.Route().V1().Routes(),
-		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
 		systemCABundle,
-		controllerContext.EventRecorder,
+		authOperatorInput.eventRecorder,
 	)
 
 	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		controllerContext.EventRecorder,
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.eventRecorder,
 	)
 
 	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		controllerContext.EventRecorder,
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.eventRecorder,
 	)
 
 	proxyConfigController := proxyconfig.NewProxyConfigChecker(
-		routeInformersNamespaced.Route().V1().Routes(),
-		operatorCtx.kubeInformersForNamespaces,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		informerFactories.kubeInformersForNamespaces,
 		"openshift-authentication",
 		"oauth-openshift",
 		map[string][]string{
 			"openshift-authentication-operator": {"trusted-ca-bundle"},
 			"openshift-config-managed":          {"default-ingress-cert"},
 		},
-		controllerContext.EventRecorder,
-		operatorCtx.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
+		authOperatorInput.authenticationOperatorClient,
 	)
 
 	customRouteController := componentroutesecretsync.NewCustomRouteController(
@@ -447,108 +297,131 @@ func prepareOauthOperator(ctx context.Context, controllerContext *controllercmd.
 		componentroutesecretsync.OAuthComponentRouteName,
 		"openshift-authentication",
 		"v4-0-config-system-custom-router-certs",
-		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
-		operatorCtx.configClient.ConfigV1().Ingresses(),
-		routeInformersNamespaced.Route().V1().Routes(),
-		routeClient.RouteV1().Routes("openshift-authentication"),
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.authenticationOperatorClient,
-		controllerContext.EventRecorder,
-		operatorCtx.resourceSyncController,
+		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		authOperatorInput.configClient.ConfigV1().Ingresses(),
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
+		informerFactories.kubeInformersForNamespaces,
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
+		resourceSyncController,
 	)
 
 	// TODO remove this controller once we support Removed
-	managementStateController := managementstatecontroller.NewOperatorManagementStateController("authentication", operatorCtx.authenticationOperatorClient, controllerContext.EventRecorder)
+	managementStateController := managementstatecontroller.NewOperatorManagementStateController("authentication", authOperatorInput.authenticationOperatorClient, authOperatorInput.eventRecorder)
 	management.SetOperatorNotRemovable()
 
 	trustDistributionController := trustdistribution.NewTrustDistributionController(
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.operatorConfigInformer.Config().V1().Ingresses(),
-		controllerContext.EventRecorder,
+		authOperatorInput.kubeClient.CoreV1(),
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		authOperatorInput.eventRecorder,
 	)
 
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
-		oauthInformers.Start,
-		routeInformersNamespaced.Start,
-		kubeSystemNamespaceInformers.Start,
-		openshiftAuthenticationInformers.Start,
-	)
+	runOnceFns := []libraryapplyconfiguration.RunOnceFunc{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configObserver.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, deploymentController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, managementStateController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, metadataController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, oauthClientsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, payloadConfigController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, routerCertsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, serviceCAController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, staticResourceController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, wellKnownReadyController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authRouteCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceEndpointCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, workersAvailableController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, proxyConfigController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, customRouteController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, trustDistributionController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, staleConditions.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, ingressStateController.Sync),
+	}
 
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
-		configObserver.Run,
-		deploymentController.Run,
-		managementStateController.Run,
-		metadataController.Run,
-		oauthClientsController.Run,
-		payloadConfigController.Run,
-		routerCertsController.Run,
-		serviceCAController.Run,
-		staticResourceController.Run,
-		wellKnownReadyController.Run,
-		authRouteCheckController.Run,
-		authServiceCheckController.Run,
-		authServiceEndpointCheckController.Run,
-		workersAvailableController.Run,
-		proxyConfigController.Run,
-		customRouteController.Run,
-		trustDistributionController.Run,
-		func(ctx context.Context, workers int) { staleConditions.Run(ctx, workers) },
-		func(ctx context.Context, workers int) { ingressStateController.Run(ctx, workers) },
-	)
+	runFns := []libraryapplyconfiguration.RunFunc{
+		libraryapplyconfiguration.AdaptRunFn(configObserver.Run),
+		libraryapplyconfiguration.AdaptRunFn(deploymentController.Run),
+		libraryapplyconfiguration.AdaptRunFn(managementStateController.Run),
+		libraryapplyconfiguration.AdaptRunFn(metadataController.Run),
+		libraryapplyconfiguration.AdaptRunFn(oauthClientsController.Run),
+		libraryapplyconfiguration.AdaptRunFn(payloadConfigController.Run),
+		libraryapplyconfiguration.AdaptRunFn(routerCertsController.Run),
+		libraryapplyconfiguration.AdaptRunFn(serviceCAController.Run),
+		libraryapplyconfiguration.AdaptRunFn(staticResourceController.Run),
+		libraryapplyconfiguration.AdaptRunFn(wellKnownReadyController.Run),
+		libraryapplyconfiguration.AdaptRunFn(authRouteCheckController.Run),
+		libraryapplyconfiguration.AdaptRunFn(authServiceCheckController.Run),
+		libraryapplyconfiguration.AdaptRunFn(authServiceEndpointCheckController.Run),
+		libraryapplyconfiguration.AdaptRunFn(workersAvailableController.Run),
+		libraryapplyconfiguration.AdaptRunFn(proxyConfigController.Run),
+		libraryapplyconfiguration.AdaptRunFn(customRouteController.Run),
+		libraryapplyconfiguration.AdaptRunFn(trustDistributionController.Run),
+		libraryapplyconfiguration.AdaptRunFn(staleConditions.Run),
+		libraryapplyconfiguration.AdaptRunFn(ingressStateController.Run),
+	}
 
-	return nil
+	if !enabledClusterCapabilities.Has("Console") {
+		// This controller is only necessary if the console capability is not yet enabled in the cluster.
+		// Once the console capability is enabled, this controller will restart the auth operator and next
+		// time it comes up, the console cap will already be enabled and this controller won't be added.
+		terminationController := termination.NewTerminationController(
+			informerFactories.operatorConfigInformer,
+			authOperatorInput.eventRecorder,
+		)
+		runOnceFns = append(runOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, terminationController.Sync))
+		runFns = append(runFns, libraryapplyconfiguration.AdaptRunFn(terminationController.Run))
+	}
+
+	return runOnceFns, runFns, nil
 }
 
-func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *controllercmd.ControllerContext, operatorCtx *operatorContext) error {
-	eventRecorder := controllerContext.EventRecorder.ForComponent("oauth-apiserver")
+func prepareOauthAPIServerOperator(
+	ctx context.Context,
+	authOperatorInput *authenticationOperatorInput,
+	informerFactories authenticationOperatorInformerFactories,
+	resourceSyncController *resourcesynccontroller.ResourceSyncController,
+	versionRecorder status.VersionGetter,
+) ([]libraryapplyconfiguration.RunOnceFunc, []libraryapplyconfiguration.RunFunc, error) {
+	eventRecorder := authOperatorInput.eventRecorder.ForComponent("oauth-apiserver")
 
 	// add syncing for etcd certs for oauthapi-server
-	if err := operatorCtx.resourceSyncController.SyncConfigMap(
+	if err := resourceSyncController.SyncConfigMap(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "etcd-serving-ca"},
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "etcd-serving-ca"},
 	); err != nil {
-		return err
+		return nil, nil, err
 	}
-	if err := operatorCtx.resourceSyncController.SyncSecret(
+	if err := resourceSyncController.SyncSecret(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "etcd-client"},
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "etcd-client"},
 	); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	apiregistrationv1Client, err := apiregistrationclient.NewForConfig(controllerContext.ProtoKubeConfig)
+	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", informerFactories.kubeInformersForNamespaces)
+	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", informerFactories.kubeInformersForNamespaces, authOperatorInput.kubeClient.CoreV1(), authOperatorInput.kubeClient.CoreV1(), nodeProvider)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	apiregistrationInformers := apiregistrationinformers.NewSharedInformerFactory(apiregistrationv1Client, 10*time.Minute)
-
-	kubeInformers := certinformers.NewSharedInformerFactory(operatorCtx.kubeClient, resync)
-
-	nodeProvider := encryptiondeployer.NewDeploymentNodeProvider("openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces)
-	deployer, err := encryptiondeployer.NewRevisionLabelPodDeployer("revision", "openshift-oauth-apiserver", operatorCtx.kubeInformersForNamespaces, operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeClient.CoreV1(), nodeProvider)
-	if err != nil {
-		return err
-	}
-	migrationClient := kubemigratorclient.NewForConfigOrDie(controllerContext.KubeConfig)
-	migrationInformer := migrationv1alpha1informer.NewSharedInformerFactory(migrationClient, time.Minute*30)
-	migrator := migrators.NewKubeStorageVersionMigrator(migrationClient, migrationInformer.Migration().V1alpha1(), operatorCtx.kubeClient.Discovery())
+	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
-		operatorCtx.authenticationOperatorClient,
-		workloadcontroller.CountNodesFuncWrapper(operatorCtx.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		authOperatorInput.authenticationOperatorClient,
+		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		"openshift-oauth-apiserver",
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
-		operatorCtx.kubeClient,
-		operatorCtx.versionRecorder)
+		authOperatorInput.kubeClient,
+		versionRecorder)
 
-	infra, err := operatorCtx.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
+	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
 		klog.Warningf("unexpectedly no infrastructure resource found, assuming non SingleReplicaTopologyMode controlPlaneTopology: %v", err)
 	} else if err != nil {
-		return err
+		return nil, nil, err
 	}
 	var statusControllerOptions []func(*status.StatusSyncer) *status.StatusSyncer
 	if infra == nil || infra.Status.ControlPlaneTopology != configv1.SingleReplicaTopologyMode {
@@ -559,7 +432,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",
-		operatorCtx.authenticationOperatorClient,
+		authOperatorInput.authenticationOperatorClient,
 		eventRecorder,
 	).WithWorkloadController(
 		"OAuthAPIServerController",
@@ -568,12 +441,12 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		os.Getenv("OPERATOR_IMAGE_VERSION"),
 		"oauth",
 		apiServerConditionsPrefix,
-		operatorCtx.kubeClient,
+		authOperatorInput.kubeClient,
 		authAPIServerWorkload,
-		operatorCtx.configClient.ConfigV1().ClusterOperators(),
-		operatorCtx.versionRecorder,
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.authenticationOperatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
+		authOperatorInput.configClient.ConfigV1().ClusterOperators(),
+		versionRecorder,
+		informerFactories.kubeInformersForNamespaces,
+		authOperatorInput.authenticationOperatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
 		bindata.Asset,
@@ -594,7 +467,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 				},
 				ShouldCreateFn: func() bool {
 					isSNO, precheckSucceeded, err := staticpodcommon.NewIsSingleNodePlatformFn(
-						operatorCtx.operatorConfigInformer.Config().V1().Infrastructures(),
+						informerFactories.operatorConfigInformer.Config().V1().Infrastructures(),
 					)()
 					if err != nil {
 						klog.Errorf("NewIsSingleNodePlatformFn failed: %v", err)
@@ -608,7 +481,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 				},
 				ShouldDeleteFn: func() bool {
 					isSNO, precheckSucceeded, err := staticpodcommon.NewIsSingleNodePlatformFn(
-						operatorCtx.operatorConfigInformer.Config().V1().Infrastructures(),
+						informerFactories.operatorConfigInformer.Config().V1().Infrastructures(),
 					)()
 					if err != nil {
 						klog.Errorf("NewIsSingleNodePlatformFn failed: %v", err)
@@ -623,8 +496,8 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			},
 		},
 
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.kubeClient,
+		informerFactories.kubeInformersForNamespaces,
+		authOperatorInput.kubeClient,
 	).WithRevisionController(
 		"openshift-oauth-apiserver",
 		[]revisioncontroller.RevisionResource{{
@@ -634,21 +507,21 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			Name:     "encryption-config",
 			Optional: true,
 		}},
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		// TODO looks like the concept of revisions has leaked into at least one non-static pod operator.  Probably end up making this a flavor of regular OperatorStatus?
-		operatorCtx.authenticationOperatorClient,
-		v1helpers.CachedConfigMapGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
-		v1helpers.CachedSecretGetter(operatorCtx.kubeClient.CoreV1(), operatorCtx.kubeInformersForNamespaces),
+		authOperatorInput.authenticationOperatorClient,
+		v1helpers.CachedConfigMapGetter(authOperatorInput.kubeClient.CoreV1(), informerFactories.kubeInformersForNamespaces),
+		v1helpers.CachedSecretGetter(authOperatorInput.kubeClient.CoreV1(), informerFactories.kubeInformersForNamespaces),
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
 		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
 			return apiServices(), nil, nil
 		},
-		apiregistrationInformers,
-		apiregistrationv1Client.ApiregistrationV1(),
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.kubeClient,
+		informerFactories.apiregistrationInformers,
+		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
+		informerFactories.kubeInformersForNamespaces,
+		authOperatorInput.kubeClient,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
 		encryption.StaticEncryptionProvider{
@@ -657,30 +530,30 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		},
 		deployer,
 		migrator,
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.configClient.ConfigV1().APIServers(),
-		operatorCtx.operatorConfigInformer.Config().V1().APIServers(),
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.resourceSyncController,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.configClient.ConfigV1().APIServers(),
+		informerFactories.operatorConfigInformer.Config().V1().APIServers(),
+		informerFactories.kubeInformersForNamespaces,
+		resourceSyncController,
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
 		"openshift-oauth-apiserver",
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		operatorCtx.kubeClient.CoreV1(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		authOperatorInput.kubeClient.CoreV1(),
 	).WithSecretRevisionPruneController(
 		"openshift-oauth-apiserver",
 		[]string{"encryption-config-"},
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeInformersForNamespaces,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
+		informerFactories.kubeInformersForNamespaces,
 	).WithAuditPolicyController(
 		"openshift-oauth-apiserver",
 		"audit",
-		operatorCtx.operatorConfigInformer.Config().V1().APIServers().Lister(),
-		operatorCtx.operatorConfigInformer,
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		operatorCtx.kubeClient,
+		informerFactories.operatorConfigInformer.Config().V1().APIServers().Lister(),
+		informerFactories.operatorConfigInformer,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		authOperatorInput.kubeClient,
 	).
 		WithClusterOperatorStatusController(
 			"authentication",
@@ -698,9 +571,9 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 				{Resource: "namespaces", Name: "openshift-ingress"},
 				{Resource: "namespaces", Name: "openshift-oauth-apiserver"},
 			},
-			operatorCtx.configClient.ConfigV1(),
-			operatorCtx.operatorConfigInformer.Config().V1().ClusterOperators(),
-			operatorCtx.versionRecorder,
+			authOperatorInput.configClient.ConfigV1(),
+			informerFactories.operatorConfigInformer.Config().V1().ClusterOperators(),
+			versionRecorder,
 			statusControllerOptions...,
 		).
 		WithoutLogLevelController().
@@ -708,26 +581,26 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		PrepareRun()
 
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeInformersForNamespaces,
-		operatorCtx.operatorConfigInformer,
-		operatorCtx.resourceSyncController,
-		controllerContext.EventRecorder,
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		resourceSyncController,
+		authOperatorInput.eventRecorder,
 	)
 
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
 		"openshift-authentication",
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		operatorCtx.operatorConfigInformer,
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.kubeClient.CoreV1(),
-		operatorCtx.configClient.ConfigV1().Authentications(),
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.versionRecorder,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
+		informerFactories.operatorConfigInformer,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.configClient.ConfigV1().Authentications(),
+		authOperatorInput.authenticationOperatorClient,
+		versionRecorder,
 		eventRecorder,
 	)
 
@@ -747,28 +620,28 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 			Subject:    &pkix.Name{CommonName: "system:serviceaccount:openshift-oauth-apiserver:openshift-authenticator"},
 			SignerName: certapiv1.KubeAPIServerClientSignerName,
 		},
-		kubeInformers.Certificates().V1().CertificateSigningRequests(),
-		operatorCtx.kubeClient.CertificatesV1().CertificateSigningRequests(),
-		operatorCtx.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets(),
-		operatorCtx.kubeClient.CoreV1(),
+		informerFactories.kubeInformers.Certificates().V1().CertificateSigningRequests(),
+		authOperatorInput.kubeClient.CertificatesV1().CertificateSigningRequests(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets(),
+		authOperatorInput.kubeClient.CoreV1(),
 		eventRecorder,
 		"OpenShiftAuthenticatorCertRequester",
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	labelsReq, err := labels.NewRequirement("authentication.openshift.io/csr", selection.Equals, []string{"openshift-authenticator"})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	labelSelector := labels.NewSelector().Add(*labelsReq)
 
 	webhookCertsApprover := csr.NewCSRApproverController(
 		"OpenShiftAuthenticator",
-		operatorCtx.authenticationOperatorClient,
-		operatorCtx.kubeClient.CertificatesV1().CertificateSigningRequests(),
-		kubeInformers.Certificates().V1().CertificateSigningRequests(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.kubeClient.CertificatesV1().CertificateSigningRequests(),
+		informerFactories.kubeInformers.Certificates().V1().CertificateSigningRequests(),
 		csr.NewLabelFilter(labelSelector),
 		csr.NewServiceAccountApprover(
 			"openshift-authentication-operator",
@@ -778,19 +651,24 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 	)
 
-	operatorCtx.controllersToRunFunc = append(operatorCtx.controllersToRunFunc,
-		authenticatorCertRequester.Run,
-		configObserver.Run,
-		webhookAuthController.Run,
-		webhookCertsApprover.Run,
-		func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) },
-	)
-	operatorCtx.informersToRunFunc = append(operatorCtx.informersToRunFunc,
-		apiregistrationInformers.Start,
-		kubeInformers.Start,
-		migrationInformer.Start,
-	)
-	return nil
+	runOnceFns := []libraryapplyconfiguration.RunOnceFunc{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configObserver.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authenticatorCertRequester.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, webhookAuthController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, webhookCertsApprover.Sync),
+		// TODO missing :(
+		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, apiServerControllers.Sync),
+	}
+
+	runFns := []libraryapplyconfiguration.RunFunc{
+		libraryapplyconfiguration.AdaptRunFn(configObserver.Run),
+		libraryapplyconfiguration.AdaptRunFn(authenticatorCertRequester.Run),
+		libraryapplyconfiguration.AdaptRunFn(webhookAuthController.Run),
+		libraryapplyconfiguration.AdaptRunFn(webhookCertsApprover.Run),
+		libraryapplyconfiguration.AdaptRunFn(func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) }),
+	}
+
+	return runOnceFns, runFns, nil
 }
 
 func singleNameListOptions(name string) func(opts *metav1.ListOptions) {
