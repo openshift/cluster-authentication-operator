@@ -70,7 +70,6 @@ func AddKeycloakIDP(
 			{Name: "KC_HEALTH_ENABLED", Value: "true"},
 			{Name: "KC_HOSTNAME_STRICT", Value: "false"},
 			{Name: "KC_PROXY", Value: "reencrypt"},
-			{Name: "KC_CACHE", Value: "local"},
 			{Name: "KC_HTTPS_CERTIFICATE_FILE", Value: "/etc/x509/https/tls.crt"},
 			{Name: "KC_HTTPS_CERTIFICATE_KEY_FILE", Value: "/etc/x509/https/tls.key"},
 		},
@@ -96,13 +95,13 @@ func AddKeycloakIDP(
 		corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				"cpu":    resource.MustParse("500m"),
-				"memory": resource.MustParse("700Mi"),
+				"memory": resource.MustParse("1Gi"),
 			},
 		},
 		&readinessProbe,
 		&livenessProbe,
 		true,
-		"/opt/keycloak/bin/kc.sh", "start",
+		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
