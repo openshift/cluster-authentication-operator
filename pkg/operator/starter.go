@@ -25,6 +25,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
@@ -46,6 +47,7 @@ import (
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
@@ -729,6 +731,23 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		eventRecorder,
 	)
 
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
+		operatorCtx.operatorConfigInformer.Config().V1().ClusterVersions(),
+		operatorCtx.operatorConfigInformer.Config().V1().FeatureGates(),
+		controllerContext.EventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+
+	externalOIDCController := externaloidc.NewExternalOIDCController(
+		featureGateAccessor,
+		operatorCtx.kubeInformersForNamespaces,
+		operatorCtx.operatorConfigInformer,
+		operatorCtx.operatorClient,
+		operatorCtx.kubeClient.CoreV1(),
+		eventRecorder,
+	)
+
 	authenticatorCertRequester, err := csr.NewClientCertificateController(
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
@@ -780,6 +799,7 @@ func prepareOauthAPIServerOperator(ctx context.Context, controllerContext *contr
 		authenticatorCertRequester.Run,
 		configObserver.Run,
 		webhookAuthController.Run,
+		externalOIDCController.Run,
 		webhookCertsApprover.Run,
 		func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) },
 	)
