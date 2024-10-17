@@ -95,13 +95,13 @@ func AddKeycloakIDP(
 		corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				"cpu":    resource.MustParse("500m"),
-				"memory": resource.MustParse("700Mi"),
+				"memory": resource.MustParse("1Gi"),
 			},
 		},
 		&readinessProbe,
 		&livenessProbe,
 		true,
-		"/opt/keycloak/bin/kc.sh", "start",
+		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
