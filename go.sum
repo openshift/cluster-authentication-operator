@@ -35,6 +35,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/deads2k/library-go v0.0.0-20241018145942-b2e2f6550c5d h1:v+bR+VNgJT4uSFb86KA87kjMll9pDeIJTvLurYUDhWA=
 github.com/deads2k/library-go v0.0.0-20241018145942-b2e2f6550c5d/go.mod h1:9B1MYPoLtP9tqjWxcbUNVpwxy68zOH/3EIP6c31dAM0=
+github.com/deads2k/multi-operator-manager v0.0.0-20241018151747-37e90dffb68c h1:EZIH7ADBrT5jNcYVqNlZtNLDd3Y7/St/m21G79X2bok=
+github.com/deads2k/multi-operator-manager v0.0.0-20241018151747-37e90dffb68c/go.mod h1:7u7Wj5yctFzwixEJdrnpZCCNuJwdwls3SwqHoxRlN7E=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/emicklei/go-restful/v3 v3.11.0 h1:rAQeMHw1c7zTmncogyy8VvRZwtkmkZ4FxERmMY4rD+g=
@@ -150,8 +152,6 @@ github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660 h1:F0
 github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f h1:FRc0bVNWprihWS0GqQWzb3dY4dkCwpOP3mDw5NwSoR4=
 github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f/go.mod h1:KiZi2mJRH1TOJ3FtBDYS6YvUL30s/iIXaGSUrSa36mo=
-github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3 h1:/rOm5CjL8W8sSeSzf/bg8wySP98+juT2SbVhBhmROLo=
-github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3/go.mod h1:7u7Wj5yctFzwixEJdrnpZCCNuJwdwls3SwqHoxRlN7E=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
