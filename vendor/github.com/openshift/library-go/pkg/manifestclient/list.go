@@ -42,9 +42,9 @@ func (mrt *manifestRoundTripper) listAll(requestInfo *apirequest.RequestInfo) ([
 	}
 
 	kind, err := mrt.getKindForResource(gvr)
-	//if err != nil {
-	//	return nil, fmt.Errorf("unable to determine list kind: %w", err)
-	//}
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine list kind: %w", err)
+	}
 	possibleListFiles, err := allPossibleListFileLocations(mrt.sourceFS, requestInfo)
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine list file locations: %w", err)
@@ -68,9 +68,9 @@ func (mrt *manifestRoundTripper) listAll(requestInfo *apirequest.RequestInfo) ([
 		}
 	}
 	if retList != nil {
-		//if retList.GroupVersionKind() != kind.listKind {
-		//	return nil, fmt.Errorf("inconsistent list kind: got %v, expected %v", retList.GroupVersionKind(), kind.listKind)
-		//}
+		if retList.GroupVersionKind() != kind.listKind {
+			return nil, fmt.Errorf("inconsistent list kind: got %v, expected %v", retList.GroupVersionKind(), kind.listKind)
+		}
 		ret, err := serializeListObjToJSON(retList)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize: %v", err)
@@ -100,14 +100,9 @@ func (mrt *manifestRoundTripper) listAll(requestInfo *apirequest.RequestInfo) ([
 		retList.Items = append(retList.Items, *currInstance)
 	}
 	if len(retList.Items) > 0 {
-		//if retList.Items[0].GroupVersionKind() != kind.kind {
-		//	return nil, fmt.Errorf("inconsistent item kind: got %v, expected %v", retList.Items[0].GroupVersionKind(), kind.kind)
-		//}
-		retList.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   retList.Items[0].GroupVersionKind().Group,
-			Version: retList.Items[0].GroupVersionKind().Version,
-			Kind:    retList.Items[0].GroupVersionKind().Kind + "List",
-		})
+		if retList.Items[0].GroupVersionKind() != kind.kind {
+			return nil, fmt.Errorf("inconsistent item kind: got %v, expected %v", retList.Items[0].GroupVersionKind(), kind.kind)
+		}
 		ret, err := serializeListObjToJSON(retList)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize: %v", err)
