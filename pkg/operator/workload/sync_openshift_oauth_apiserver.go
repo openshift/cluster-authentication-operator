@@ -232,6 +232,11 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	}
 	required.Spec.Replicas = masterNodeCount
 
+	// TODO MOM this call here is the one that fails.  Using the return value of ApplyDeployment to make decisions doesn't work in a MOM world.
+	// TODO MOM workload.NewController needs to (somehow) use the data read *after* this write, without  using data *in* this write.
+	// TODO MOM this may be possible by storing a hash of the desired content.  If the hash of the desired content matches
+	// TODO MOM then there is no new deployment required.  This would not prevent rapid writes to fields we aren't controlling.
+	// TODO MOM perhaps we actually need to find a way to request MOM inject a generation after a write?  It is an operator standard.
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
 }
