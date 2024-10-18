@@ -309,7 +309,7 @@ github.com/openshift/client-go/user/applyconfigurations/internal
 github.com/openshift/client-go/user/applyconfigurations/user/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-# github.com/openshift/library-go v0.0.0-20241016205830-b3a7a46e7136
+# github.com/openshift/library-go v0.0.0-20241016205830-b3a7a46e7136 => github.com/deads2k/library-go v0.0.0-20241018145942-b2e2f6550c5d
 ## explicit; go 1.22.0
 github.com/openshift/library-go/pkg/apiserver/jsonpatch
 github.com/openshift/library-go/pkg/apps/deployment
@@ -381,7 +381,7 @@ github.com/openshift/library-go/pkg/route/routeapihelpers
 github.com/openshift/library-go/pkg/serviceability
 github.com/openshift/library-go/test/library
 github.com/openshift/library-go/test/library/encryption
-# github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3
+# github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3 => github.com/deads2k/multi-operator-manager v0.0.0-20241018151747-37e90dffb68c
 ## explicit; go 1.22.0
 github.com/openshift/multi-operator-manager/pkg/flagtypes
 github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration
@@ -1471,3 +1471,5 @@ sigs.k8s.io/structured-merge-diff/v4/value
 ## explicit; go 1.12
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
+# github.com/openshift/library-go => github.com/deads2k/library-go v0.0.0-20241018145942-b2e2f6550c5d
+# github.com/openshift/multi-operator-manager => github.com/deads2k/multi-operator-manager v0.0.0-20241018151747-37e90dffb68c

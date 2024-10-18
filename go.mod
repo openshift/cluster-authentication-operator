@@ -118,3 +118,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace (
+	github.com/openshift/library-go => github.com/deads2k/library-go v0.0.0-20241018145942-b2e2f6550c5d
+	github.com/openshift/multi-operator-manager => github.com/deads2k/multi-operator-manager v0.0.0-20241018151747-37e90dffb68c
+)
