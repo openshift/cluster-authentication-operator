@@ -306,3 +306,20 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 
 	return ret, nil
 }
+
+func CreateOperatorStarterLive(ctx context.Context, authOperatorInput *authenticationOperatorInput) (libraryapplyconfiguration.OperatorStarter, error) {
+	ret := &libraryapplyconfiguration.SimpleOperatorStarter{
+		Informers: append([]libraryapplyconfiguration.SimplifiedInformerFactory{}, authOperatorInput.informerFactories...),
+	}
+
+	informerFactories := newInformerFactories(authOperatorInput)
+	ret.Informers = append(ret.Informers, informerFactories.simplifiedInformerFactories()...)
+
+	oauthRunOnceFns, err := prepareOauthOperatorLive(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, fmt.Errorf("unable to prepare oauth server: %w", err)
+	}
+	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, oauthRunOnceFns...)
+
+	return ret, nil
+}

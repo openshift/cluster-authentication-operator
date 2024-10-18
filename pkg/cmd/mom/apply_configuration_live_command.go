@@ -11,16 +11,16 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
-func NewApplyConfigurationCommand(streams genericiooptions.IOStreams) *cobra.Command {
+func NewApplyConfigurationLiveCommand(streams genericiooptions.IOStreams) *cobra.Command {
 	return libraryapplyconfiguration.NewApplyConfigurationCommand(RunApplyConfiguration, streams)
 }
 
-func RunApplyConfiguration(ctx context.Context, input libraryapplyconfiguration.ApplyConfigurationInput) (libraryapplyconfiguration.AllDesiredMutationsGetter, error) {
+func RunApplyConfigurationLive(ctx context.Context, input libraryapplyconfiguration.ApplyConfigurationInput) (libraryapplyconfiguration.AllDesiredMutationsGetter, error) {
 	authenticationOperatorInput, err := operator.CreateOperatorInputFromMOM(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("unable to configure operator input: %w", err)
 	}
-	operatorStarter, err := operator.CreateOperatorStarter(ctx, authenticationOperatorInput)
+	operatorStarter, err := operator.CreateOperatorStarterLive(ctx, authenticationOperatorInput)
 	if err != nil {
 		return nil, fmt.Errorf("unable to configure operators: %w", err)
 	}
