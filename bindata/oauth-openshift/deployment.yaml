@@ -53,6 +53,9 @@ spec:
       containers:
         - name: oauth-openshift
           image: ${IMAGE}
+          env:
+            - name: GODEBUG
+              value: httpmuxgo121=1
           command:
             - /bin/bash
             - '-ec'
