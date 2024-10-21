@@ -20,10 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/kubernetes"
@@ -32,15 +29,10 @@ import (
 
 const (
 	oidcClientId      = "admin-cli"
-	oidcAudience      = "openshift-aud"
 	oidcGroupsClaim   = "groups"
 	oidcUsernameClaim = "email"
 
 	kasNamespace = "openshift-kube-apiserver"
-
-	// set if a specific CA bundle is needed for the OIDC provider
-	oidcCABundleConfigMap          = ""
-	oidcCABundleConfigMapNamespace = ""
 )
 
 type testClient struct {
@@ -212,237 +204,100 @@ func (tc *testClient) setupExternalOIDCWithKeycloak(ctx context.Context) (kcClie
 	kcClient, idpName, c := test.AddKeycloakIDP(tc.t, tc.kubeConfig, true)
 	cleanups = append(cleanups, c...)
 
+	// default-ingress-cert is copied to openshift-config and used as the CA for the IdP
+	// see test/library/idpdeployment.go:334
+	caBundleName := idpName + "-ca"
+
 	// update the authentication CR with the external OIDC configuration
-	authConfig, c, err := tc.updateAuthForOIDC(ctx, kcClient.IssuerURL(), idpName)
+	authConfig, c, err := tc.updateAuthForOIDC(ctx, kcClient.IssuerURL(), idpName, caBundleName)
 	cleanups = append(cleanups, c...)
 	require.NoError(tc.t, err)
 	require.NotNil(tc.t, authConfig)
+	require.Equal(tc.t, configv1.AuthenticationTypeOIDC, authConfig.Spec.Type)
 	require.NotEmpty(tc.t, authConfig.Spec.OIDCProviders)
 
-	// patch proxy/cluster to access the default-ingress-cert that now exists in openshift-config
-	c, err = tc.updateProxyForIngressCert(ctx)
-	cleanups = append(cleanups, c...)
-	require.NoError(tc.t, err)
-
-	// sync service-ca signing certificate to the KAS nodes as a static resource so that it can be used with --oidc-ca-file
-	c, err = tc.syncServingCA(ctx)
-	cleanups = append(cleanups, c...)
-	require.NoError(tc.t, err)
-
-	// setup kube-apiserver to access the external OIDC directly by modifying its args via UnsupportedConfigOverrides
-	kasOrigRev, c, err := tc.updateKASArgsForOIDC(ctx, kcClient.IssuerURL())
-	cleanups = append(cleanups, c...)
-	require.NoError(tc.t, err)
-
-	// wait for serving CA and KAS args overrides to get rolled out
-	tc.t.Log("will wait for KAS rollout")
-	err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOrigRev)
-	require.NoError(tc.t, err)
-
 	return
 }
 
-func (tc *testClient) updateProxyForIngressCert(ctx context.Context) (cleanups []func(), err error) {
-	tc.t.Log("will copy default-ingress-cert and patch proxy")
-
-	defaultIngressCert, err := tc.kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(ctx, "default-ingress-cert", metav1.GetOptions{})
-	if err != nil {
-		return
-	}
-
-	cmCopy := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultIngressCert.Name,
-			Namespace: "openshift-config",
-		},
-		Data: defaultIngressCert.Data,
-	}
-
-	_, err = tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Create(ctx, cmCopy, metav1.CreateOptions{})
-	cleanups = append(cleanups, func() {
-		err := tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Delete(ctx, cmCopy.Name, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			tc.t.Fatalf("cleanup failed for configmap '%s/%s': %v", cmCopy.Namespace, cmCopy.Name, err)
-		}
-	})
-	if err != nil {
-		return
-	}
-
-	proxy, err := tc.configClient.ConfigV1().Proxies().Get(ctx, "cluster", metav1.GetOptions{})
-	if err != nil {
-		return
-	}
-
-	origTrustedCAName := proxy.Spec.TrustedCA.Name
-	proxy.Spec.TrustedCA.Name = "default-ingress-cert"
-	proxy, err = tc.configClient.ConfigV1().Proxies().Update(ctx, proxy, metav1.UpdateOptions{})
-	cleanups = append(cleanups, func() {
-		proxy.Spec.TrustedCA.Name = origTrustedCAName
-		proxy, err = tc.configClient.ConfigV1().Proxies().Update(ctx, proxy, metav1.UpdateOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for proxy '%s': %v", proxy.Name, err)
-		}
-	})
-	if err != nil {
-		return
-	}
-
-	return
-}
-
-func (tc *testClient) syncServingCA(ctx context.Context) (cleanups []func(), err error) {
-	if len(oidcCABundleConfigMap) == 0 || len(oidcCABundleConfigMapNamespace) == 0 {
-		tc.t.Log("no oidc CA defined; will use system CA")
-		return nil, nil
-	}
-
-	tc.t.Log("will sync OIDC ca-bundle to KAS static pod resources")
-
-	signingKey, err := tc.kubeClient.CoreV1().ConfigMaps(oidcCABundleConfigMapNamespace).Get(ctx, oidcCABundleConfigMap, metav1.GetOptions{})
-	if err != nil {
-		return
-	}
-
-	// This functionality requires defining "oidc-serving-ca" as a RevisionConfigMap at the KAS-o
-	// See example PR: https://github.com/openshift/cluster-kube-apiserver-operator/pull/1720
-	oidcServingCA := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "oidc-serving-ca",
-			Namespace: kasNamespace,
-		},
-		Data: map[string]string{
-			"ca-bundle.crt": string(signingKey.Data["tls.crt"]),
-		},
-	}
-
-	_, err = tc.kubeClient.CoreV1().ConfigMaps(kasNamespace).Create(ctx, oidcServingCA, metav1.CreateOptions{})
-	cleanups = append(cleanups, func() {
-		err := tc.kubeClient.CoreV1().ConfigMaps(kasNamespace).Delete(ctx, oidcServingCA.Name, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			tc.t.Fatalf("cleanup failed for secret '%s/%s': %v", oidcServingCA.Namespace, oidcServingCA.Name, err)
-		}
-	})
-	if err != nil {
-		return
-	}
-
-	return
-}
-
-func (tc *testClient) updateKASArgsForOIDC(ctx context.Context, idpURL string) (origRevision int32, cleanups []func(), err error) {
-	tc.t.Log("will update KAS args for OIDC")
-
-	oidcCAFile := "/etc/kubernetes/static-pod-certs/configmaps/trusted-ca-bundle/ca-bundle.crt"
-	if len(oidcCABundleConfigMap) > 0 {
-		oidcCAFile = "/etc/kubernetes/static-pod-resources/configmaps/oidc-serving-ca/ca-bundle.crt"
-	}
-
-	unsupportedConfigOverrides := fmt.Sprintf(`{
-		"apiServerArguments": {
-			"oidc-ca-file": ["%s"],
-			"oidc-client-id": ["%s"],
-			"oidc-issuer-url": ["%s"],
-			"oidc-groups-claim": ["%s"],
-			"oidc-username-claim": ["%s"],
-			"oidc-username-prefix":["-"]
-		}
-	}`, oidcCAFile, oidcClientId, idpURL, oidcGroupsClaim, oidcUsernameClaim)
-
-	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-	if err != nil {
-		return
-	}
-
-	origRevision = kas.Status.LatestAvailableRevision
-	origUnsupportedConfigOverides := kas.Spec.UnsupportedConfigOverrides
-	kas.Spec.UnsupportedConfigOverrides = runtime.RawExtension{Raw: []byte(unsupportedConfigOverrides)}
-
-	kas, err = tc.operatorConfigClient.OperatorV1().KubeAPIServers().Update(ctx, kas, metav1.UpdateOptions{})
-	cleanups = append(cleanups, func() {
-		kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for kube-apiserver '%s', while getting fresh object: %v", kas.Name, err)
-		}
-
-		origRevision := kas.Status.LatestAvailableRevision
-		kas.Spec.UnsupportedConfigOverrides = origUnsupportedConfigOverides
-		kas, err = tc.operatorConfigClient.OperatorV1().KubeAPIServers().Update(ctx, kas, metav1.UpdateOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for kube-apiserver '%s': %v", kas.Name, err)
-		}
-
-		err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), origRevision)
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for kube-apiserver '%s': %v", kas.Name, err)
-		}
-	})
-	if err != nil {
-		return
-	}
-
-	return
-}
-
-func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName string) (auth *configv1.Authentication, cleanups []func(), err error) {
+func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, caBundleName string) (auth *configv1.Authentication, cleanups []func(), err error) {
 	tc.t.Log("will update auth CR for OIDC")
 
 	auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
-		return
+		return nil, cleanups, fmt.Errorf("get auth cluster error: %v", err)
 	}
 
 	origSpec := auth.Spec.DeepCopy()
-	auth.Spec.Type = configv1.AuthenticationTypeOIDC
-	auth.Spec.WebhookTokenAuthenticator = nil
-	auth.Spec.OIDCProviders = []configv1.OIDCProvider{
-		{
-			Name: idpName,
-			Issuer: configv1.TokenIssuer{
-				URL:       idpURL,
-				Audiences: []configv1.TokenAudience{oidcAudience},
-				CertificateAuthority: configv1.ConfigMapNameReference{
-					Name: oidcCABundleConfigMap,
-				},
-			},
-			ClaimMappings: configv1.TokenClaimMappings{
-				Groups: configv1.PrefixedClaimMapping{
-					TokenClaimMapping: configv1.TokenClaimMapping{
-						Claim: oidcGroupsClaim,
+	auth.Spec = configv1.AuthenticationSpec{
+		Type:                      configv1.AuthenticationTypeOIDC,
+		WebhookTokenAuthenticator: nil,
+		OIDCProviders: []configv1.OIDCProvider{
+			configv1.OIDCProvider{
+				Name: idpName,
+				Issuer: configv1.TokenIssuer{
+					URL:       idpURL,
+					Audiences: []configv1.TokenAudience{oidcClientId},
+					CertificateAuthority: configv1.ConfigMapNameReference{
+						Name: caBundleName,
 					},
 				},
-				Username: configv1.UsernameClaimMapping{
-					TokenClaimMapping: configv1.TokenClaimMapping{
-						Claim: oidcUsernameClaim,
+				ClaimMappings: configv1.TokenClaimMappings{
+					Username: configv1.UsernameClaimMapping{
+						TokenClaimMapping: configv1.TokenClaimMapping{
+							Claim: oidcUsernameClaim,
+						},
 					},
-				},
-			},
-			OIDCClients: []configv1.OIDCClientConfig{
-				{
-					ClientID:           "console",
-					ClientSecret:       configv1.SecretNameReference{Name: "console-secret"},
-					ComponentName:      "console",
-					ComponentNamespace: "openshift-console",
+					Groups: configv1.PrefixedClaimMapping{
+						TokenClaimMapping: configv1.TokenClaimMapping{
+							Claim: oidcGroupsClaim,
+						},
+					},
 				},
 			},
 		},
 	}
 
+	// record current KAS revision
+	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return nil, cleanups, fmt.Errorf("get kubeapiserver cluster error: %v", err)
+	}
+	kasOriginalRevision := kas.Status.LatestAvailableRevision
+
 	_, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
 	cleanups = append(cleanups, func() {
-		auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+		kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving kubeapiservers/cluster: %v", auth.Name, err)
+		}
+		kasOriginalCleanupRevision := kas.Status.LatestAvailableRevision
+
+		auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 		if err != nil {
 			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
 		}
 
 		auth.Spec = *origSpec
-		_, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
-		if err != nil {
+		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
 			tc.t.Fatalf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
+		}
+
+		if kasOriginalCleanupRevision > kasOriginalRevision {
+			// a new rollout occured because of this test; cleanup will therefore cause another rollout
+			tc.t.Log("cleanup waiting for KAS rollout for original auth config")
+			if err := test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalCleanupRevision); err != nil {
+				tc.t.Fatalf("cleanup failed for authentication '%s' while waiting for KAS rollout: %v", auth.Name, err)
+			}
 		}
 	})
 	if err != nil {
-		return
+		return nil, cleanups, fmt.Errorf("auth apply error: %v", err)
+	}
+
+	tc.t.Log("will wait for KAS rollout for new auth config")
+	err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
+	if err != nil {
+		return nil, cleanups, fmt.Errorf("KAS rollout wait error: %v", err)
 	}
 
 	return
