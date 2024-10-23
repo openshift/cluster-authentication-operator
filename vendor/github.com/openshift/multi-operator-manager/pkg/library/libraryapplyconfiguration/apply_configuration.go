@@ -3,7 +3,9 @@ package libraryapplyconfiguration
 import (
 	"errors"
 	"fmt"
+	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 	"path/filepath"
+	"strings"
 
 	"github.com/openshift/library-go/pkg/manifestclient"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -35,21 +37,41 @@ var (
 	_ AllDesiredMutationsGetter = &applyConfiguration{}
 )
 
-func ValidateAllDesiredMutationsGetter(s AllDesiredMutationsGetter) error {
+func ValidateAllDesiredMutationsGetter(allDesiredMutationsGetter AllDesiredMutationsGetter, allAllowedOutputResources *libraryoutputresources.OutputResources) error {
 	errs := []error{}
 
-	if s == nil {
+	if allDesiredMutationsGetter == nil {
 		return fmt.Errorf("applyConfiguration is required")
 	}
 
+	allMutationRequests := []manifestclient.SerializedRequestish{}
 	for _, clusterType := range sets.List(AllClusterTypes) {
-		desiredMutationsGetter := s.MutationsForClusterType(clusterType)
+		desiredMutationsGetter := allDesiredMutationsGetter.MutationsForClusterType(clusterType)
 		switch {
 		case desiredMutationsGetter == nil:
 			errs = append(errs, fmt.Errorf("mutations for %q are required even if empty", clusterType))
 		case desiredMutationsGetter.GetClusterType() != clusterType:
 			errs = append(errs, fmt.Errorf("mutations for %q reported type=%q", clusterType, desiredMutationsGetter.GetClusterType()))
 		}
+
+		allMutationRequests = append(allMutationRequests, desiredMutationsGetter.Requests().AllRequests()...)
+	}
+
+	combinedList := &libraryoutputresources.ResourceList{}
+	combinedList.ExactResources = append(combinedList.ExactResources, allAllowedOutputResources.ConfigurationResources.ExactResources...)
+	combinedList.ExactResources = append(combinedList.ExactResources, allAllowedOutputResources.ManagementResources.ExactResources...)
+	combinedList.ExactResources = append(combinedList.ExactResources, allAllowedOutputResources.UserWorkloadResources.ExactResources...)
+	combinedList.GeneratedNameResources = append(combinedList.GeneratedNameResources, allAllowedOutputResources.ConfigurationResources.GeneratedNameResources...)
+	combinedList.GeneratedNameResources = append(combinedList.GeneratedNameResources, allAllowedOutputResources.ManagementResources.GeneratedNameResources...)
+	combinedList.GeneratedNameResources = append(combinedList.GeneratedNameResources, allAllowedOutputResources.UserWorkloadResources.GeneratedNameResources...)
+	filteredMutationRequests := FilterSerializedRequests(allMutationRequests, combinedList)
+
+	if unspecifiedOutputResources := manifestclient.DifferenceOfSerializedRequests(allMutationRequests, filteredMutationRequests); len(unspecifiedOutputResources) > 0 {
+		unspecifiedOutputIdentifiers := []string{}
+		for _, curr := range unspecifiedOutputResources {
+			unspecifiedOutputIdentifiers = append(unspecifiedOutputIdentifiers, curr.GetSerializedRequest().StringID())
+		}
+		errs = append(errs, fmt.Errorf("%d output-resource were produced, but not present in the specified output: %v", len(unspecifiedOutputIdentifiers), strings.Join(unspecifiedOutputIdentifiers, ", ")))
 	}
 
 	return errors.Join(errs...)

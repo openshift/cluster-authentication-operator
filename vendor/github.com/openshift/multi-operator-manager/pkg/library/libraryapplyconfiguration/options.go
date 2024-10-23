@@ -5,42 +5,60 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 )
 
 type applyConfigurationOptions struct {
-	ApplyConfigurationFn ApplyConfigurationFunc
+	applyConfigurationFn ApplyConfigurationFunc
+	outputResourcesFn    libraryoutputresources.OutputResourcesFunc
 
-	Input ApplyConfigurationInput
+	input ApplyConfigurationInput
 
-	OutputDirectory string
+	outputDirectory string
 }
 
 func newApplyConfigurationOptions(
 	applyConfigurationFn ApplyConfigurationFunc,
+	outputResourcesFn libraryoutputresources.OutputResourcesFunc,
 	input ApplyConfigurationInput,
 	outputDirectory string) *applyConfigurationOptions {
 	return &applyConfigurationOptions{
-		ApplyConfigurationFn: applyConfigurationFn,
-		Input:                input,
-		OutputDirectory:      outputDirectory,
+		applyConfigurationFn: applyConfigurationFn,
+		outputResourcesFn:    outputResourcesFn,
+		input:                input,
+		outputDirectory:      outputDirectory,
 	}
 }
 
 func (o *applyConfigurationOptions) Run(ctx context.Context) error {
-	if err := os.MkdirAll(o.OutputDirectory, 0755); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("unable to create output directory %q:%v", o.OutputDirectory, err)
+	if err := os.MkdirAll(o.outputDirectory, 0755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("unable to create output directory %q:%v", o.outputDirectory, err)
 	}
 
 	errs := []error{}
-	result, err := o.ApplyConfigurationFn(ctx, o.Input)
+	allAllowedOutputResources, err := o.outputResourcesFn(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if err := ValidateAllDesiredMutationsGetter(result); err != nil {
+
+	result, err := o.applyConfigurationFn(ctx, o.input)
+	if err != nil {
 		errs = append(errs, err)
 	}
 
-	if err := WriteApplyConfiguration(result, o.OutputDirectory); err != nil {
+	// also validate the raw results because filtering may have eliminated "bad" output.
+	if err := ValidateAllDesiredMutationsGetter(result, allAllowedOutputResources); err != nil {
+		errs = append(errs, err)
+	}
+
+	// now filter the results and check them
+	filteredResult := FilterAllDesiredMutationsGetter(result, allAllowedOutputResources)
+	if err := ValidateAllDesiredMutationsGetter(filteredResult, allAllowedOutputResources); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := WriteApplyConfiguration(filteredResult, o.outputDirectory); err != nil {
 		errs = append(errs, err)
 	}
 
