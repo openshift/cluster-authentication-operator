@@ -381,7 +381,7 @@ github.com/openshift/library-go/pkg/route/routeapihelpers
 github.com/openshift/library-go/pkg/serviceability
 github.com/openshift/library-go/test/library
 github.com/openshift/library-go/test/library/encryption
-# github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3
+# github.com/openshift/multi-operator-manager v0.0.0-20241023203339-1581b88a91a1
 ## explicit; go 1.22.0
 github.com/openshift/multi-operator-manager/pkg/flagtypes
 github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration
