@@ -2,6 +2,7 @@ package libraryapplyconfiguration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 )
@@ -30,17 +31,18 @@ func (o *applyConfigurationOptions) Run(ctx context.Context) error {
 		return fmt.Errorf("unable to create output directory %q:%v", o.OutputDirectory, err)
 	}
 
+	errs := []error{}
 	result, err := o.ApplyConfigurationFn(ctx, o.Input)
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 	if err := ValidateAllDesiredMutationsGetter(result); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	if err := WriteApplyConfiguration(result, o.OutputDirectory); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
