@@ -59,31 +59,36 @@ type authenticationOperatorInput struct {
 const componentName = "cluster-authentication-operator"
 
 func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfiguration.ApplyConfigurationInput) (*authenticationOperatorInput, error) {
-	kubeClient, err := kubernetes.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	// TODO replace with the library-go function in https://github.com/openshift/library-go/pull/1857 once it merges
+	recommendedRESTConfig := &rest.Config{
+		QPS:   1000,
+		Burst: 10000,
+	}
+	kubeClient, err := kubernetes.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	configClient, err := configclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	configClient, err := configclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	operatorClient, err := operatorclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	operatorClient, err := operatorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	routeClient, err := routeclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	routeClient, err := routeclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	oauthClient, err := oauthclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	oauthClient, err := oauthclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	migrationClient, err := kubemigratorclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	migrationClient, err := kubemigratorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
