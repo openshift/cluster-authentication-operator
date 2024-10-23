@@ -252,9 +252,9 @@ func (c *customRouteController) updateIngressConfigStatus(ctx context.Context, i
 	if existingComponentRoute := common.GetComponentRouteStatus(ingressConfig, c.componentRoute.Namespace, c.componentRoute.Name); existingComponentRoute != nil {
 		for i := range newConditions {
 			newCondition := newConditions[i]
-			if existingCondition := v1helpers.FindCondition(existingComponentRoute.Conditions, newCondition.Type); existingCondition != nil {
-				if newCondition.Status == existingCondition.Status {
-					newConditions[i].LastTransitionTime = existingCondition.LastTransitionTime
+			if existingCondition := v1helpers.FindCondition(existingComponentRoute.Conditions, *newCondition.Type); existingCondition != nil {
+				if *newCondition.Status == existingCondition.Status {
+					newConditions[i].LastTransitionTime = &existingCondition.LastTransitionTime
 				}
 			}
 		}
