@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    openshift.io/node-selector: ""
+    operator.openshift.io/controller-name: TODO-staticResourceController
+    workload.openshift.io/allowed: management
+  creationTimestamp: null
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  name: openshift-authentication
+spec: {}
+status: {}

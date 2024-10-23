@@ -1,0 +1,22 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2024-10-29T15:44:28Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2024-10-29T15:44:28Z"
+message: Created Role.rbac.authorization.k8s.io/system:openshift:oauth-servercert-trust
+  -n openshift-config-managed because it was missing
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.1802f6e48ff304ac
+  namespace: openshift-authentication-operator
+reason: RoleCreated
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal

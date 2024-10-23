@@ -22,21 +22,28 @@ func RunOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 		ManagementResources: libraryoutputresources.ResourceList{
 			ExactResources: []libraryoutputresources.ExactResourceID{
 				libraryoutputresources.ExactClusterOperator("authentication"),
-				libraryoutputresources.ExactResource("operator.openshift.io", "authentications", "", "cluster"),
+				libraryoutputresources.ExactConfigMap("openshift-authentication", "audit"),
+				libraryoutputresources.ExactConfigMap("openshift-authentication", "v4-0-config-system-trusted-ca-bundle"),
+				libraryoutputresources.ExactDeployment("openshift-authentication", "oauth-openshift"),
+				libraryoutputresources.ExactLowLevelOperator("authentications"),
+				exactNamespace("openshift-authentication"),
+				exactRole("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
+				exactRoleBinding("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
+				libraryoutputresources.ExactSecret("openshift-authentication", "v4-0-config-system-session"),
+				libraryoutputresources.ExactSecret("openshift-authentication", "v4-0-config-system-ocp-branding-template"),
+				exactService("openshift-authentication", "oauth-openshift"),
+				libraryoutputresources.ExactServiceAccount("openshift-authentication", "oauth-openshift"),
+			},
+			EventingNamespaces: []string{
+				"openshift-authentication-operator",
 			},
 		},
 		UserWorkloadResources: libraryoutputresources.ResourceList{
 			ExactResources: []libraryoutputresources.ExactResourceID{
-				libraryoutputresources.ExactSecret("openshift-authentication", "v4-0-config-system-session"),
-				libraryoutputresources.ExactSecret("openshift-authentication", "v4-0-config-system-ocp-branding-template"),
-				libraryoutputresources.ExactServiceAccount("openshift-authentication", "oauth-openshift"),
-				libraryoutputresources.ExactDeployments("openshift-authentication", "oauth-openshift"),
+				libraryoutputresources.ExactClusterRoleBinding("system:openshift:openshift-authentication"),
 				exactOAuthClient("openshift-browser-client"),
 				exactOAuthClient("openshift-challenging-client"),
 				exactOAuthClient("openshift-cli-client"),
-				libraryoutputresources.ExactClusterRoleBinding("system:openshift:openshift-authentication"),
-				libraryoutputresources.ExactRoleBinding("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
-				libraryoutputresources.ExactRole("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
 			},
 			GeneratedNameResources: []libraryoutputresources.GeneratedResourceID{
 				libraryoutputresources.GeneratedCSR("system:openshift:openshift-authenticator-"),
@@ -47,4 +54,20 @@ func RunOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 
 func exactOAuthClient(name string) libraryoutputresources.ExactResourceID {
 	return libraryoutputresources.ExactResource("oauth.openshift.io", "oauthclients", "", name)
+}
+
+func exactNamespace(name string) libraryoutputresources.ExactResourceID {
+	return libraryoutputresources.ExactResource("", "namespaces", "", name)
+}
+
+func exactService(namespace, name string) libraryoutputresources.ExactResourceID {
+	return libraryoutputresources.ExactResource("", "services", namespace, name)
+}
+
+func exactRole(namespace, name string) libraryoutputresources.ExactResourceID {
+	return libraryoutputresources.ExactResource("rbac.authorization.k8s.io", "roles", namespace, name)
+}
+
+func exactRoleBinding(namespace, name string) libraryoutputresources.ExactResourceID {
+	return libraryoutputresources.ExactResource("rbac.authorization.k8s.io", "rolebindings", namespace, name)
 }

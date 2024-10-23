@@ -1,0 +1,15 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-resourceSyncer
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: an error on the server ("request namespace \"openshift-oauth-apiserver\"
+      does not equal body namespace \"\"") has prevented the request from succeeding
+      (delete secrets etcd-client)
+    reason: Error
+    status: "True"
+    type: ResourceSyncControllerDegraded

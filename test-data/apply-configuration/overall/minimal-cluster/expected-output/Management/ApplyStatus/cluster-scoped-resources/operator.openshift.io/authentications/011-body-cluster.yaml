@@ -1,0 +1,23 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-metadataController
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: ""
+    reason: ""
+    status: "False"
+    type: AuthConfigDegraded
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: ""
+    reason: ""
+    status: "False"
+    type: IngressConfigDegraded
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: ""
+    reason: ""
+    status: "False"
+    type: OAuthSystemMetadataDegraded

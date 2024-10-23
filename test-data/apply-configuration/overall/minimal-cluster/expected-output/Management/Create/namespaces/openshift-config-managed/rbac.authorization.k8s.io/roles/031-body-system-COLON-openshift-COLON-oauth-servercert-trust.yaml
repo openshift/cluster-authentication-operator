@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-staticResourceController
+  creationTimestamp: null
+  name: system:openshift:oauth-servercert-trust
+  namespace: openshift-config-managed
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - oauth-serving-cert
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch

@@ -1,0 +1,21 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2024-10-29T15:44:30Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2024-10-29T15:44:30Z"
+message: A csr "" is created for OpenShiftAuthenticatorCertRequester
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.1802f6e4f057efb3
+  namespace: openshift-authentication-operator
+reason: CSRCreated
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal

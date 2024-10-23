@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-staticResourceController
+  creationTimestamp: null
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
+  name: v4-0-config-system-trusted-ca-bundle
+  namespace: openshift-authentication
