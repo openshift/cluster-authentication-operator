@@ -299,7 +299,7 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 
 	oauthAPIServerRunOnceFns, oauthAPIServerRunFns, err := prepareOauthAPIServerOperator(ctx, authOperatorInput, informerFactories, resourceSyncer, versionRecorder)
 	if err != nil {
-		return nil, fmt.Errorf("unable to prepare oauth server: %w", err)
+		return nil, fmt.Errorf("unable to prepare oauth apiserver: %w", err)
 	}
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
 	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, oauthAPIServerRunOnceFns...)

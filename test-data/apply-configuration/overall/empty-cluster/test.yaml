@@ -1,0 +1,6 @@
+binaryName: ./authentication-operator
+testName: empty cluster
+testType: ApplyConfiguration
+now: 2024-10-14T22:38:20Z
+description: >
+  What does the operator create when the cluster is first created with no input.
