@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator"
-
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
