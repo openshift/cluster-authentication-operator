@@ -282,7 +282,7 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(resourceSyncer.Run))
 	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, resourceSyncer.Sync))
 
-	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController(authOperatorInput.authenticationOperatorClient, authOperatorInput.eventRecorder)
+	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController("oauth-server", authOperatorInput.authenticationOperatorClient, authOperatorInput.eventRecorder)
 	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(configOverridesController.Run))
 	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configOverridesController.Sync))
 
