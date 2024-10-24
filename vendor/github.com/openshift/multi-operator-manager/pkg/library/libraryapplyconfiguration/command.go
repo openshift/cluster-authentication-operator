@@ -3,6 +3,7 @@ package libraryapplyconfiguration
 import (
 	"context"
 	"fmt"
+	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 	"time"
 
 	"github.com/openshift/library-go/pkg/manifestclient"
@@ -31,12 +32,13 @@ type ApplyConfigurationInput struct {
 // ApplyConfigurationFunc is a function called for applying configuration.
 type ApplyConfigurationFunc func(ctx context.Context, applyConfigurationInput ApplyConfigurationInput) (AllDesiredMutationsGetter, error)
 
-func NewApplyConfigurationCommand(applyConfigurationFn ApplyConfigurationFunc, streams genericiooptions.IOStreams) *cobra.Command {
-	return newApplyConfigurationCommand(applyConfigurationFn, streams)
+func NewApplyConfigurationCommand(applyConfigurationFn ApplyConfigurationFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
+	return newApplyConfigurationCommand(applyConfigurationFn, outputResourcesFn, streams)
 }
 
 type applyConfigurationFlags struct {
 	applyConfigurationFn ApplyConfigurationFunc
+	outputResourcesFn    libraryoutputresources.OutputResourcesFunc
 
 	// InputDirectory is a directory that contains the must-gather formatted inputs
 	inputDirectory string
@@ -49,16 +51,17 @@ type applyConfigurationFlags struct {
 	streams genericiooptions.IOStreams
 }
 
-func newApplyConfigurationFlags(streams genericiooptions.IOStreams) *applyConfigurationFlags {
+func newApplyConfigurationFlags(streams genericiooptions.IOStreams, applyConfigurationFn ApplyConfigurationFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc) *applyConfigurationFlags {
 	return &applyConfigurationFlags{
-		now:     time.Now(),
-		streams: streams,
+		applyConfigurationFn: applyConfigurationFn,
+		outputResourcesFn:    outputResourcesFn,
+		now:                  time.Now(),
+		streams:              streams,
 	}
 }
 
-func newApplyConfigurationCommand(applyConfigurationFn ApplyConfigurationFunc, streams genericiooptions.IOStreams) *cobra.Command {
-	f := newApplyConfigurationFlags(streams)
-	f.applyConfigurationFn = applyConfigurationFn
+func newApplyConfigurationCommand(applyConfigurationFn ApplyConfigurationFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
+	f := newApplyConfigurationFlags(streams, applyConfigurationFn, outputResourcesFn)
 
 	cmd := &cobra.Command{
 		Use:   "apply-configuration",
@@ -121,6 +124,7 @@ func (f *applyConfigurationFlags) ToOptions(ctx context.Context) (*applyConfigur
 
 	return newApplyConfigurationOptions(
 			f.applyConfigurationFn,
+			f.outputResourcesFn,
 			input,
 			f.outputDirectory,
 		),

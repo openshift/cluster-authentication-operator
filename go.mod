@@ -9,8 +9,8 @@ require (
 	github.com/openshift/api v0.0.0-20241001152557-e415140e5d5f
 	github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660
 	github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f
-	github.com/openshift/library-go v0.0.0-20241021151851-4c5ecb35c294
-	github.com/openshift/multi-operator-manager v0.0.0-20241017140751-8b22f6c45da3
+	github.com/openshift/library-go v0.0.0-20241023193830-022ad9c25e39
+	github.com/openshift/multi-operator-manager v0.0.0-20241023203339-1581b88a91a1
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/client/v3 v3.5.14
@@ -117,4 +117,9 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
+)
+
+replace (
+	github.com/openshift/build-machinery-go => github.com/bertinatto/build-machinery-go v0.0.0-20241023195559-8d7194c57e4f
+	github.com/openshift/multi-operator-manager => github.com/deads2k/multi-operator-manager v0.0.0-20241023194700-e88d8aab5f6b
 )

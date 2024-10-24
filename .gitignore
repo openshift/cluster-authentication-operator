@@ -19,3 +19,4 @@ tags
 .envrc
 authentication-operator
 telepresence.log
+/test-output/

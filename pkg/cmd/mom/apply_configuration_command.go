@@ -5,19 +5,16 @@ import (
 	"fmt"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator"
-
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
 func NewApplyConfigurationCommand(streams genericiooptions.IOStreams) *cobra.Command {
-	return libraryapplyconfiguration.NewApplyConfigurationCommand(RunApplyConfiguration, streams)
+	return libraryapplyconfiguration.NewApplyConfigurationCommand(RunApplyConfiguration, RunOutputResources, streams)
 }
 
 func RunApplyConfiguration(ctx context.Context, input libraryapplyconfiguration.ApplyConfigurationInput) (libraryapplyconfiguration.AllDesiredMutationsGetter, error) {
-	// TODO initialize dynamic clients, informers, operator clients, and kubeclients from the input to demonstrate.
-
 	authenticationOperatorInput, err := operator.CreateOperatorInputFromMOM(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("unable to configure operator input: %w", err)

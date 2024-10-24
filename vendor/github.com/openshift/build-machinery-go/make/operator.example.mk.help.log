@@ -13,6 +13,7 @@ image-ocp-openshift-apiserver-operator
 images
 telepresence
 test
+test-operator-integration
 test-unit
 update
 update-bindata
