@@ -242,7 +242,7 @@ github.com/openshift/api/template
 github.com/openshift/api/template/v1
 github.com/openshift/api/user
 github.com/openshift/api/user/v1
-# github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660
+# github.com/openshift/build-machinery-go v0.0.0-20240613134303-8359781da660 => github.com/bertinatto/build-machinery-go v0.0.0-20241023195559-8d7194c57e4f
 ## explicit; go 1.22.0
 github.com/openshift/build-machinery-go
 github.com/openshift/build-machinery-go/make
@@ -1471,3 +1471,4 @@ sigs.k8s.io/structured-merge-diff/v4/value
 ## explicit; go 1.12
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
+# github.com/openshift/build-machinery-go => github.com/bertinatto/build-machinery-go v0.0.0-20241023195559-8d7194c57e4f

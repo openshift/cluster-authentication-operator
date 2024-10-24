@@ -8,6 +8,7 @@ include $(addprefix ./vendor/github.com/openshift/build-machinery-go/make/, \
 	targets/openshift/images.mk \
 	targets/openshift/bindata.mk \
 	targets/openshift/operator/telepresence.mk \
+	targets/openshift/operator/mom.mk \
 )
 
 # Run core verification and all self contained tests.
