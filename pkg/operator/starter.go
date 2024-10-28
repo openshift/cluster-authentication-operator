@@ -328,10 +328,11 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, routerCertsController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, serviceCAController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, staticResourceController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, wellKnownReadyController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authRouteCheckController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceCheckController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceEndpointCheckController.Sync),
+		// moved to live
+		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, wellKnownReadyController.Sync),
+		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authRouteCheckController.Sync),
+		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceCheckController.Sync),
+		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceEndpointCheckController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, workersAvailableController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, proxyConfigController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, customRouteController.Sync),
@@ -375,6 +376,56 @@ func prepareOauthOperator(
 	}
 
 	return runOnceFns, runFns, nil
+}
+
+func prepareOauthOperatorLive(
+	ctx context.Context,
+	authOperatorInput *authenticationOperatorInput,
+	informerFactories authenticationOperatorInformerFactories,
+) ([]libraryapplyconfiguration.RunOnceFunc, error) {
+
+	systemCABundle, err := loadSystemCACertBundle()
+	if err != nil {
+		return nil, err
+	}
+
+	wellKnownReadyController := readiness.NewWellKnownReadyController(
+		"openshift-authentication",
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.eventRecorder,
+	)
+
+	authRouteCheckController := oauthendpoints.NewOAuthRouteCheckController(
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
+		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		systemCABundle,
+		authOperatorInput.eventRecorder,
+	)
+	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.eventRecorder,
+	)
+	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authOperatorInput.eventRecorder,
+	)
+
+	runOnceFns := []libraryapplyconfiguration.RunOnceFunc{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, wellKnownReadyController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authRouteCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceEndpointCheckController.Sync),
+	}
+
+	return runOnceFns, nil
 }
 
 func prepareOauthAPIServerOperator(
