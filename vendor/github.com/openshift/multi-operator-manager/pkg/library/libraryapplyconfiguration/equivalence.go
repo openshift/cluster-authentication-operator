@@ -3,20 +3,19 @@ package libraryapplyconfiguration
 import (
 	"bytes"
 	"fmt"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/openshift/library-go/pkg/manifestclient"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func EquivalentApplyConfigurationResult(lhs, rhs ApplyConfigurationResult) []string {
+func EquivalentApplyConfigurationResultIgnoringEvents(lhs, rhs ApplyConfigurationResult) []string {
 	reasons := []string{}
 	reasons = append(reasons, equivalentErrors("Error", lhs.Error(), rhs.Error())...)
 
 	for _, clusterType := range sets.List(AllClusterTypes) {
 		currLHS := lhs.MutationsForClusterType(clusterType)
 		currRHS := rhs.MutationsForClusterType(clusterType)
-		reasons = append(reasons, EquivalentClusterApplyResult(string(clusterType), currLHS, currRHS)...)
+		reasons = append(reasons, EquivalentClusterApplyResultIgnoringEvents(string(clusterType), currLHS, currRHS)...)
 	}
 
 	return reasons
@@ -37,19 +36,28 @@ func equivalentErrors(field string, lhs, rhs error) []string {
 	return reasons
 }
 
-func EquivalentClusterApplyResult(field string, lhs, rhs SingleClusterDesiredMutationGetter) []string {
-	lhsRequests := lhs.Requests()
-	rhsRequests := rhs.Requests()
+func EquivalentClusterApplyResultIgnoringEvents(field string, lhs, rhs SingleClusterDesiredMutationGetter) []string {
+	switch {
+	case lhs == nil && rhs == nil:
+		return nil
+	case lhs == nil && rhs != nil:
+		return []string{fmt.Sprintf("%v: lhs=nil, len(rhs)=%v", field, len(rhs.Requests().AllRequests()))}
+	case lhs != nil && rhs == nil:
+		return []string{fmt.Sprintf("%v: len(lhs)=%v, rhs=nil", field, len(lhs.Requests().AllRequests()))}
+	case lhs != nil && rhs != nil:
+		// check the rest
+	}
+
+	lhsAllRequests := RemoveEvents(lhs.Requests().AllRequests())
+	rhsAllRequests := RemoveEvents(rhs.Requests().AllRequests())
 
 	// TODO different method with prettier message
-	equivalent, missingInRHS, missingInLHS := manifestclient.AreAllSerializedRequestsEquivalentWithReasons(lhsRequests.AllRequests(), rhsRequests.AllRequests())
+	equivalent, missingInRHS, missingInLHS := manifestclient.AreAllSerializedRequestsEquivalentWithReasons(lhsAllRequests, rhsAllRequests)
 	if equivalent {
 		return nil
 	}
 
 	reasons := []string{}
-	lhsAllRequests := lhsRequests.AllRequests()
-	rhsAllRequests := rhsRequests.AllRequests()
 	reasons = append(reasons, reasonForDiff("rhs", missingInRHS, lhsAllRequests, rhsAllRequests)...)
 
 	uniquelyMissingInLHS := []manifestclient.SerializedRequest{}

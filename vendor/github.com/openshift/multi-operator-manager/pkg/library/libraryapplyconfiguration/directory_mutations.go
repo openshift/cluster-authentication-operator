@@ -10,6 +10,9 @@ import (
 type directoryBasedClusterApplyResult struct {
 	clusterType ClusterType
 
+	// outputDirectory is useful for debugging where content comes from
+	outputDirectory string
+
 	allRequests *manifestclient.AllActionsTracker[manifestclient.FileOriginatedSerializedRequest]
 }
 
@@ -36,7 +39,7 @@ func newApplyConfigurationFromDirectory(outputDirectory string) (*applyConfigura
 	errs := []error{}
 	var err error
 	for clusterType := range AllClusterTypes {
-		ret.desiredMutationsByClusterType[clusterType], err = newApplyResultFromDirectory(ClusterTypeConfiguration, outputDirectory)
+		ret.desiredMutationsByClusterType[clusterType], err = newApplyResultFromDirectory(clusterType, outputDirectory)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failure building %q result: %w", clusterType, err))
 		}
@@ -56,8 +59,9 @@ func newApplyResultFromDirectory(clusterType ClusterType, outputDirectory string
 	}
 
 	ret := &directoryBasedClusterApplyResult{
-		clusterType: clusterType,
-		allRequests: mutationRequests,
+		clusterType:     clusterType,
+		outputDirectory: outputDirectory,
+		allRequests:     mutationRequests,
 	}
 
 	return ret, nil

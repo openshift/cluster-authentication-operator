@@ -3,6 +3,7 @@ package libraryapplyconfiguration
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"os"
 	"path/filepath"
@@ -59,21 +60,27 @@ func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError 
 		stderrContent = stderrContent[indexToStart:]
 	}
 
-	if execError != nil {
+	outputContent, err := os.ReadDir(outputDirectory)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && execError != nil:
 		return &simpleApplyConfigurationResult{
 			stdout:          string(stdoutContent),
 			stderr:          string(stderrContent),
-			err:             execError,
 			outputDirectory: outputDirectory,
 
 			applyConfiguration: &applyConfiguration{},
 		}, execError
-	}
 
-	outputContent, err := os.ReadDir(outputDirectory)
-	if err != nil {
+	case errors.Is(err, fs.ErrNotExist) && execError == nil:
+		return nil, fmt.Errorf("unable to read output-dir content %q: %w", outputDirectory, err)
+
+	case err != nil:
 		return nil, fmt.Errorf("unable to read output-dir content %q: %w", outputDirectory, err)
 	}
+
+	// at this point we either
+	// 1. had an execError and we were able to read the directory
+	// 2. did not have an execError we were able to read the directory
 
 	ret := &simpleApplyConfigurationResult{
 		stdout:             string(stdoutContent),
@@ -103,6 +110,14 @@ func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError 
 			errs = append(errs, fmt.Errorf("unexpected file %q, only target cluster directories are: %v", filepath.Join(outputDirectory, currContent.Name()), sets.List(AllClusterTypes)))
 			continue
 		}
+	}
+
+	// if we had an exec error, be sure we add it to the list of failures.
+	if len(errs) == 0 && execError != nil {
+		return ret, execError
+	}
+	if len(errs) > 0 && execError != nil {
+		errs = append(errs, execError)
 	}
 
 	ret.err = errors.Join(errs...)
