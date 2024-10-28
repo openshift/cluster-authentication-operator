@@ -3,9 +3,12 @@ package libraryapplyconfiguration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/manifestclient"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 )
@@ -16,8 +19,8 @@ type OperatorStarter interface {
 }
 
 type SimpleOperatorStarter struct {
-	Informers            []SimplifiedInformerFactory
-	ControllerRunOnceFns []RunOnceFunc
+	Informers                 []SimplifiedInformerFactory
+	ControllerNamedRunOnceFns []NamedRunOnce
 	// ControllerRunFns is useful during a transition to coalesce the operator launching flow.
 	ControllerRunFns []RunFunc
 }
@@ -33,7 +36,7 @@ func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
 	for _, informer := range a.Informers {
 		informer.Start(ctx)
 	}
-	// wait for sync so that when RunOnce is called the listers will be ready.
+	// wait for sync so that when NamedRunOnce is called the listers will be ready.
 	// TODO add timeout
 	for _, informer := range a.Informers {
 		informer.WaitForCacheSync(ctx)
@@ -41,10 +44,16 @@ func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
 
 	errs := []error{}
 
-	for _, controllerRunOnceFn := range a.ControllerRunOnceFns {
+	for _, controllerRunner := range a.ControllerNamedRunOnceFns {
 		// TODO add timeout.
-		err := controllerRunOnceFn(ctx)
-		errs = append(errs, err)
+		func() {
+			localCtx, localCancel := context.WithTimeout(ctx, 1*time.Second)
+			defer localCancel()
+			localCtx = manifestclient.WithControllerNameInContext(localCtx, controllerRunner.ControllerInstanceName())
+			if err := controllerRunner.RunOnce(localCtx); err != nil {
+				errs = append(errs, fmt.Errorf("controller %q failed: %w", controllerRunner.ControllerInstanceName(), err))
+			}
+		}()
 	}
 	return errors.Join(errs...)
 }
@@ -65,7 +74,33 @@ type SimplifiedInformerFactory interface {
 	WaitForCacheSync(ctx context.Context)
 }
 
+type NamedRunOnce interface {
+	ControllerInstanceName() string
+	RunOnce(context.Context) error
+}
+
+type namedRunOnce struct {
+	controllerInstanceName string
+	runOnce                RunOnceFunc
+}
+
+func NewNamedRunOnce(controllerInstanceName string, runOnce RunOnceFunc) *namedRunOnce {
+	return &namedRunOnce{
+		controllerInstanceName: controllerInstanceName,
+		runOnce:                runOnce,
+	}
+}
+
+func (r *namedRunOnce) RunOnce(ctx context.Context) error {
+	return r.runOnce(ctx)
+}
+
+func (r *namedRunOnce) ControllerInstanceName() string {
+	return r.controllerInstanceName
+}
+
 type RunOnceFunc func(ctx context.Context) error
+
 type RunFunc func(ctx context.Context)
 
 type GeneratedInformerFactory interface {
@@ -91,11 +126,11 @@ func AdaptRunFn(fn func(ctx context.Context, workers int)) RunFunc {
 	}
 }
 
-func AdaptSyncFn(eventRecorder events.Recorder, originalRunOnce func(ctx context.Context, syncCtx factory.SyncContext) error) RunOnceFunc {
-	return func(ctx context.Context) error {
+func AdaptSyncFn(eventRecorder events.Recorder, controllerName string, originalRunOnce func(ctx context.Context, syncCtx factory.SyncContext) error) NamedRunOnce {
+	return NewNamedRunOnce(controllerName, func(ctx context.Context) error {
 		syncCtx := factory.NewSyncContext("run-once-sync-context", eventRecorder)
 		return originalRunOnce(ctx, syncCtx)
-	}
+	})
 }
 
 type generatedInformerFactory struct {

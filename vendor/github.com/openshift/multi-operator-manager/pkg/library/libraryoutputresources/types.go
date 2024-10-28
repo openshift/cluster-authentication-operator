@@ -6,38 +6,44 @@ type OutputResources struct {
 	// configurationResources are targeted at the cluster where configuration is held.
 	// On standalone, this is the one cluster.
 	// On HCP, this is logically a view into the resources in the namespace of the guest cluster.
-	ConfigurationResources ResourceList `json:"configurationResources"`
+	ConfigurationResources ResourceList `json:"configurationResources,omitempty"`
 	// managementResources are targeted at the cluster where management plane responsibility is held.
 	// On standalone, this is the one cluster.
 	// On HCP, this is logically resources in the namespace of the guest cluster: usually the control plane aspects.
-	ManagementResources ResourceList `json:"managementResources"`
+	ManagementResources ResourceList `json:"managementResources,omitempty"`
 	// UserWorkloadResources are targeted at the cluster where user workloads run.
 	// On standalone, this is the one cluster.
 	// On HCP, this is the guest cluster.
-	UserWorkloadResources ResourceList `json:"userWorkloadResources"`
+	UserWorkloadResources ResourceList `json:"userWorkloadResources,omitempty"`
 }
 
 type ResourceList struct {
 	// exactResources are lists of exact names that are mutated
-	ExactResources []ExactResource `json:"exactResources"`
+	ExactResources []ExactResourceID `json:"exactResources,omitempty"`
 
 	// generatedNameResource are lists of generatedNames that are mutated.
 	// These are also honored on non-creates, via prefix matching, but *only* on resource with generatedNames.
 	// This is not a cheat code for prefix matching.
-	GeneratedNameResources []GeneratedNameResource `json:"generatedNameResource"`
+	GeneratedNameResources []GeneratedResourceID `json:"generatedNameResource,omitempty"`
+
+	// eventingNamespaces holds a list of namespaces that the operator can output event into.
+	// This allows redirection of events to a particular cluster on a per-namespace level.
+	// For instance, the openshift-authentication-operator  can go to management, but openshift-authentication can go
+	// to the userWorkload cluster.
+	EventingNamespaces []string `json:"eventingNamespaces,omitempty"`
 
 	// TODO I bet this covers 95% of what we need, but maybe we need label selector.
 	// I'm a solid -1 on "pattern" based selection. We select in kube based on label selectors.
 }
 
-type ExactResource struct {
+type ExactResourceID struct {
 	OutputResourceTypeIdentifier `json:",inline"`
 
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
 }
 
-type GeneratedNameResource struct {
+type GeneratedResourceID struct {
 	OutputResourceTypeIdentifier `json:",inline"`
 
 	Namespace     string `json:"namespace,omitempty"`
