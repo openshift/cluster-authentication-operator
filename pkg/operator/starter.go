@@ -99,7 +99,7 @@ func prepareOauthOperator(
 	informerFactories authenticationOperatorInformerFactories,
 	resourceSyncController *resourcesynccontroller.ResourceSyncController,
 	versionRecorder status.VersionGetter,
-) ([]libraryapplyconfiguration.RunOnceFunc, []libraryapplyconfiguration.RunFunc, error) {
+) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 
 	clusterVersion, err := authOperatorInput.configClient.ConfigV1().ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
 	if err != nil {
@@ -318,26 +318,26 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
-	runOnceFns := []libraryapplyconfiguration.RunOnceFunc{
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configObserver.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, deploymentController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, managementStateController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, metadataController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, oauthClientsController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, payloadConfigController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, routerCertsController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, serviceCAController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, staticResourceController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, wellKnownReadyController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authRouteCheckController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceCheckController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authServiceEndpointCheckController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, workersAvailableController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, proxyConfigController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, customRouteController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, trustDistributionController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, staleConditions.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, ingressStateController.Sync),
+	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-configObserver", configObserver.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-deploymentController", deploymentController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-managementStateController", managementStateController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-metadataController", metadataController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsController", oauthClientsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-payloadConfigController", payloadConfigController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-routerCertsController", routerCertsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-serviceCAController", serviceCAController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-staticResourceController", staticResourceController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-wellKnownReadyController", wellKnownReadyController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authRouteCheckController", authRouteCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authServiceCheckController", authServiceCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authServiceEndpointCheckController", authServiceEndpointCheckController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-workersAvailableController", workersAvailableController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-proxyConfigController", proxyConfigController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-customRouteController", customRouteController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-trustDistributionController", trustDistributionController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-staleConditions", staleConditions.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-ingressStateController", ingressStateController.Sync),
 	}
 
 	runFns := []libraryapplyconfiguration.RunFunc{
@@ -370,7 +370,7 @@ func prepareOauthOperator(
 			informerFactories.operatorConfigInformer,
 			authOperatorInput.eventRecorder,
 		)
-		runOnceFns = append(runOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, terminationController.Sync))
+		runOnceFns = append(runOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-terminationController", terminationController.Sync))
 		runFns = append(runFns, libraryapplyconfiguration.AdaptRunFn(terminationController.Run))
 	}
 
@@ -383,7 +383,7 @@ func prepareOauthAPIServerOperator(
 	informerFactories authenticationOperatorInformerFactories,
 	resourceSyncController *resourcesynccontroller.ResourceSyncController,
 	versionRecorder status.VersionGetter,
-) ([]libraryapplyconfiguration.RunOnceFunc, []libraryapplyconfiguration.RunFunc, error) {
+) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 	eventRecorder := authOperatorInput.eventRecorder.ForComponent("oauth-apiserver")
 
 	// add syncing for etcd certs for oauthapi-server
@@ -651,11 +651,11 @@ func prepareOauthAPIServerOperator(
 		eventRecorder,
 	)
 
-	runOnceFns := []libraryapplyconfiguration.RunOnceFunc{
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configObserver.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, authenticatorCertRequester.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, webhookAuthController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, webhookCertsApprover.Sync),
+	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-other-configObserver", configObserver.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authenticatorCertRequester", authenticatorCertRequester.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-webhookAuthController", webhookAuthController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-webhookCertsApprover", webhookCertsApprover.Sync),
 		// TODO missing :(
 		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, apiServerControllers.Sync),
 	}

@@ -280,29 +280,29 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 		authOperatorInput.eventRecorder,
 	)
 	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(resourceSyncer.Run))
-	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, resourceSyncer.Sync))
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-resourceSyncer", resourceSyncer.Sync))
 
 	configOverridesController := unsupportedconfigoverridescontroller.NewUnsupportedConfigOverridesController("openshift-authentication", authOperatorInput.authenticationOperatorClient, authOperatorInput.eventRecorder)
 	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(configOverridesController.Run))
-	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, configOverridesController.Sync))
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-configOverridesController", configOverridesController.Sync))
 
 	logLevelController := loglevel.NewClusterOperatorLoggingController(authOperatorInput.authenticationOperatorClient, authOperatorInput.eventRecorder)
 	ret.ControllerRunFns = append(ret.ControllerRunFns, libraryapplyconfiguration.AdaptRunFn(logLevelController.Run))
-	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, logLevelController.Sync))
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-logLevelController", logLevelController.Sync))
 
 	oauthRunOnceFns, oauthRunFns, err := prepareOauthOperator(ctx, authOperatorInput, informerFactories, resourceSyncer, versionRecorder)
 	if err != nil {
 		return nil, fmt.Errorf("unable to prepare oauth server: %w", err)
 	}
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthRunFns...)
-	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, oauthRunOnceFns...)
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthRunOnceFns...)
 
 	oauthAPIServerRunOnceFns, oauthAPIServerRunFns, err := prepareOauthAPIServerOperator(ctx, authOperatorInput, informerFactories, resourceSyncer, versionRecorder)
 	if err != nil {
 		return nil, fmt.Errorf("unable to prepare oauth server: %w", err)
 	}
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
-	ret.ControllerRunOnceFns = append(ret.ControllerRunOnceFns, oauthAPIServerRunOnceFns...)
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthAPIServerRunOnceFns...)
 
 	return ret, nil
 }
