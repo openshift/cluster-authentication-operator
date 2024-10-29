@@ -32,13 +32,13 @@ var (
 	_ ApplyConfigurationResult  = &simpleApplyConfigurationResult{}
 )
 
-func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError error) (ApplyConfigurationResult, error) {
+func NewApplyConfigurationResultFromDirectory(inFS fs.FS, outputDirectory string, execError error) (ApplyConfigurationResult, error) {
 	errs := []error{}
 	var err error
 
 	stdoutContent := []byte{}
 	stdoutLocation := filepath.Join(outputDirectory, "stdout.log")
-	stdoutContent, err = os.ReadFile(stdoutLocation)
+	stdoutContent, err = fs.ReadFile(inFS, "stdout.log")
 	if err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("failed reading %q: %w", stdoutLocation, err))
 	}
@@ -50,7 +50,7 @@ func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError 
 
 	stderrContent := []byte{}
 	stderrLocation := filepath.Join(outputDirectory, "stderr.log")
-	stderrContent, err = os.ReadFile(stderrLocation)
+	stderrContent, err = fs.ReadFile(inFS, "stderr.log")
 	if err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("failed reading %q: %w", stderrLocation, err))
 	}
@@ -60,7 +60,7 @@ func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError 
 		stderrContent = stderrContent[indexToStart:]
 	}
 
-	outputContent, err := os.ReadDir(outputDirectory)
+	outputContent, err := fs.ReadDir(inFS, ".")
 	switch {
 	case errors.Is(err, fs.ErrNotExist) && execError != nil:
 		return &simpleApplyConfigurationResult{
@@ -88,7 +88,7 @@ func NewApplyConfigurationResultFromDirectory(outputDirectory string, execError 
 		outputDirectory:    outputDirectory,
 		applyConfiguration: &applyConfiguration{},
 	}
-	ret.applyConfiguration, err = newApplyConfigurationFromDirectory(outputDirectory)
+	ret.applyConfiguration, err = newApplyConfigurationFromDirectory(inFS, outputDirectory)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failure building applyConfiguration result: %w", err))
 	}

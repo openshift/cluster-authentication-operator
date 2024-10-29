@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/openshift/library-go/pkg/manifestclient"
+	"io/fs"
 	"path/filepath"
 )
 
@@ -31,7 +32,7 @@ func (s *directoryBasedClusterApplyResult) Requests() MutationActionReader {
 // newApplyConfigurationFromDirectory takes a standard output directory, selects the subdirectory for the clusterType, and consumes the
 // content inside that directory.
 // All files can be either json or yaml.
-func newApplyConfigurationFromDirectory(outputDirectory string) (*applyConfiguration, error) {
+func newApplyConfigurationFromDirectory(inFS fs.FS, outputDirectory string) (*applyConfiguration, error) {
 	ret := &applyConfiguration{
 		desiredMutationsByClusterType: map[ClusterType]SingleClusterDesiredMutationGetter{},
 	}
@@ -39,7 +40,7 @@ func newApplyConfigurationFromDirectory(outputDirectory string) (*applyConfigura
 	errs := []error{}
 	var err error
 	for clusterType := range AllClusterTypes {
-		ret.desiredMutationsByClusterType[clusterType], err = newApplyResultFromDirectory(clusterType, outputDirectory)
+		ret.desiredMutationsByClusterType[clusterType], err = newApplyResultFromDirectory(clusterType, inFS, outputDirectory)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failure building %q result: %w", clusterType, err))
 		}
@@ -51,11 +52,16 @@ func newApplyConfigurationFromDirectory(outputDirectory string) (*applyConfigura
 	return ret, nil
 }
 
-func newApplyResultFromDirectory(clusterType ClusterType, outputDirectory string) (*directoryBasedClusterApplyResult, error) {
-	clusterTypeDir := filepath.Join(outputDirectory, string(clusterType))
-	mutationRequests, err := manifestclient.ReadMutationDirectory(clusterTypeDir)
+func newApplyResultFromDirectory(clusterType ClusterType, inFS fs.FS, outputDirectory string) (*directoryBasedClusterApplyResult, error) {
+	clusterTypeDirName := filepath.Join(outputDirectory, string(clusterType))
+	clusterTypeDir, err := fs.Sub(inFS, string(clusterType))
 	if err != nil {
-		return nil, fmt.Errorf("unable to read actions for clusterType=%q in %q: %w", clusterType, clusterTypeDir, err)
+		return nil, fmt.Errorf("unable to get subDir: %w", err)
+	}
+
+	mutationRequests, err := manifestclient.ReadEmbeddedMutationDirectory(clusterTypeDir)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read actions for clusterType=%q in %q: %w", clusterType, clusterTypeDirName, err)
 	}
 
 	ret := &directoryBasedClusterApplyResult{
