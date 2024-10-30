@@ -1,0 +1,13 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-authServiceCheckController
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: service "oauth-openshift" not found
+    reason: ResourceNotFound
+    status: "False"
+    type: OAuthServerServiceEndpointAccessibleControllerAvailable

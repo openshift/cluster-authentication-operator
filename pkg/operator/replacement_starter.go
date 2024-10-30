@@ -59,31 +59,36 @@ type authenticationOperatorInput struct {
 const componentName = "cluster-authentication-operator"
 
 func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfiguration.ApplyConfigurationInput) (*authenticationOperatorInput, error) {
-	kubeClient, err := kubernetes.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	// TODO replace with the library-go function in https://github.com/openshift/library-go/pull/1857 once it merges
+	recommendedRESTConfig := &rest.Config{
+		QPS:   1000,
+		Burst: 10000,
+	}
+	kubeClient, err := kubernetes.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	configClient, err := configclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	configClient, err := configclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	operatorClient, err := operatorclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	operatorClient, err := operatorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	routeClient, err := routeclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	routeClient, err := routeclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	oauthClient, err := oauthclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	oauthClient, err := oauthclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	migrationClient, err := kubemigratorclient.NewForConfigAndClient(&rest.Config{}, momInput.MutationTrackingClient.GetHTTPClient())
+	migrationClient, err := kubemigratorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
@@ -100,16 +105,25 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		return nil, err
 	}
 
-	eventRecorder := events.NewKubeRecorderWithOptions(
-		kubeClient.CoreV1().Events("openshift-authentication-operator"),
-		events.RecommendedClusterSingletonCorrelatorOptions(),
+	//eventRecorder := events.NewKubeRecorderWithOptions(
+	//	kubeClient.CoreV1().Events("openshift-authentication-operator"),
+	//	events.RecommendedClusterSingletonCorrelatorOptions(),
+	//	componentName,
+	//	&corev1.ObjectReference{
+	//		Kind:      "Deployment",
+	//		Namespace: "openshift-authentication-operator",
+	//		Name:      "authentication-operator",
+	//	},
+	//)
+	// TODO figure out if we're better off using the event correlator (possible) and making a flush of some kind or if live write are better
+	// but for now don't lose it.
+	eventRecorder := events.NewRecorder(kubeClient.CoreV1().Events("openshift-authentication-operator"),
 		componentName,
 		&corev1.ObjectReference{
 			Kind:      "Deployment",
 			Namespace: "openshift-authentication-operator",
 			Name:      "authentication-operator",
-		},
-	)
+		})
 
 	return &authenticationOperatorInput{
 		kubeClient:                   kubeClient,
@@ -299,7 +313,7 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 
 	oauthAPIServerRunOnceFns, oauthAPIServerRunFns, err := prepareOauthAPIServerOperator(ctx, authOperatorInput, informerFactories, resourceSyncer, versionRecorder)
 	if err != nil {
-		return nil, fmt.Errorf("unable to prepare oauth server: %w", err)
+		return nil, fmt.Errorf("unable to prepare oauth apiserver: %w", err)
 	}
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
 	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthAPIServerRunOnceFns...)

@@ -1,0 +1,2 @@
+fieldManager: openshift-authentication-ServiceCA
+force: true

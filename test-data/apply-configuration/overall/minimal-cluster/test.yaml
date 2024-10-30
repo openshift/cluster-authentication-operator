@@ -1,0 +1,7 @@
+binaryName: ./authentication-operator
+testName: minimal cluster
+description: >
+  What does the operator create when the cluster is first created with as little input as possible.
+testType: ApplyConfiguration
+now: 2024-10-14T22:38:20Z
+desiredError: NonZeroReturn

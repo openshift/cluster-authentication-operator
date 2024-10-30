@@ -1,0 +1,17 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-configObserver
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: |-
+      infrastructure.config.openshift.io "cluster" not found
+      console.config.openshift.io "cluster" not found
+      secret "v4-0-config-system-router-certs" not found
+      oauth.config.openshift.io "cluster" not found
+    reason: Error
+    status: "True"
+    type: OAuthServerConfigObservationDegraded

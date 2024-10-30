@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/openshift/library-go/pkg/manifestclient"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
 func EquivalentApplyConfigurationResultIgnoringEvents(lhs, rhs ApplyConfigurationResult) []string {
@@ -58,14 +61,14 @@ func EquivalentClusterApplyResultIgnoringEvents(field string, lhs, rhs SingleClu
 	}
 
 	reasons := []string{}
-	reasons = append(reasons, reasonForDiff("rhs", missingInRHS, lhsAllRequests, rhsAllRequests)...)
+	reasons = append(reasons, reasonForDiff("rhs", missingInRHS, rhsAllRequests)...)
 
 	uniquelyMissingInLHS := []manifestclient.SerializedRequest{}
 	for _, currMissingInLHS := range missingInLHS {
-		lhsMetadata := currMissingInLHS.GetLookupMetadata()
+		lhsMetadata := expandedMetadataFor(currMissingInLHS.GetSerializedRequest())
 		found := false
 		for _, currMissingInRHS := range missingInRHS {
-			rhsMetadata := currMissingInRHS.GetLookupMetadata()
+			rhsMetadata := expandedMetadataFor(currMissingInRHS.GetSerializedRequest())
 			if lhsMetadata == rhsMetadata {
 				found = true
 				break
@@ -75,7 +78,7 @@ func EquivalentClusterApplyResultIgnoringEvents(field string, lhs, rhs SingleClu
 			uniquelyMissingInLHS = append(uniquelyMissingInLHS, currMissingInLHS)
 		}
 	}
-	reasons = append(reasons, reasonForDiff("lhs", uniquelyMissingInLHS, rhsAllRequests, lhsAllRequests)...)
+	reasons = append(reasons, reasonForDiff("lhs", uniquelyMissingInLHS, lhsAllRequests)...)
 
 	qualifiedReasons := []string{}
 	for _, curr := range reasons {
@@ -84,52 +87,117 @@ func EquivalentClusterApplyResultIgnoringEvents(field string, lhs, rhs SingleClu
 	return qualifiedReasons
 }
 
-func reasonForDiff(nameOfDestination string, missingInDestination []manifestclient.SerializedRequest, allSourceRequests, allDestinationRequests []manifestclient.SerializedRequestish) []string {
+// expandedMetadata is useful for describing diffs, potentially to get pushed into manifestclient
+type expandedMetadata struct {
+	metadata               manifestclient.ActionMetadata
+	fieldManager           string
+	controllerInstanceName string
+}
+
+func expandedMetadataFor(serializedRequest *manifestclient.SerializedRequest) expandedMetadata {
+	if serializedRequest == nil {
+		return expandedMetadata{}
+	}
+	metadata := serializedRequest.GetLookupMetadata()
+	fieldManager := ""
+	controllerInstanceName := ""
+
+	isApply := serializedRequest.Action == manifestclient.ActionApply || serializedRequest.Action == manifestclient.ActionApplyStatus
+	if isApply {
+		lhsOptions := &metav1.ApplyOptions{}
+		if err := yaml.Unmarshal(serializedRequest.Options, lhsOptions); err == nil {
+			// ignore err.  if it doesn't work we get the zero value and that's ok
+			fieldManager = lhsOptions.FieldManager
+		}
+	}
+
+	bodyObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{},
+	}
+	if err := yaml.Unmarshal(serializedRequest.Body, &bodyObj.Object); err == nil {
+		// ignore err.  if it doesn't work we get the zero value and that's ok
+		if bodyObj != nil && len(bodyObj.GetAnnotations()["operator.openshift.io/controller-name"]) > 0 {
+			controllerInstanceName = bodyObj.GetAnnotations()["operator.openshift.io/controller-name"]
+		}
+		if bodyObj != nil && len(bodyObj.GetAnnotations()["operator.openshift.io/controller-instance-name"]) > 0 {
+			controllerInstanceName = bodyObj.GetAnnotations()["operator.openshift.io/controller-instance-name"]
+		}
+	}
+
+	return expandedMetadata{
+		metadata:               metadata,
+		fieldManager:           fieldManager,
+		controllerInstanceName: controllerInstanceName,
+	}
+}
+
+func reasonForDiff(nameOfDestination string, sourceRequestsToCheck []manifestclient.SerializedRequest, allDestinationRequests []manifestclient.SerializedRequestish) []string {
 	reasons := []string{}
 
-	for _, currMissingInDestination := range missingInDestination {
-		currSourceRequests := manifestclient.RequestsForResource(allSourceRequests, currMissingInDestination.GetLookupMetadata())
-		currDestinationRequests := manifestclient.RequestsForResource(allDestinationRequests, currMissingInDestination.GetLookupMetadata())
+	for _, currSourceRequest := range sourceRequestsToCheck {
+		currDestinationRequests := manifestclient.RequestsForResource(allDestinationRequests, currSourceRequest.GetLookupMetadata())
 
 		if len(currDestinationRequests) == 0 {
-			reasons = append(reasons, fmt.Sprintf("%s is missing: %v", nameOfDestination, currMissingInDestination.StringID()))
+			reasons = append(reasons, fmt.Sprintf("%s is missing: %v", nameOfDestination, currSourceRequest.StringID()))
 			continue
 		}
 
-		for _, currLHS := range currSourceRequests {
-			found := false
-			mismatchReasons := []string{}
-			for i, currRHS := range currDestinationRequests {
-				if manifestclient.EquivalentSerializedRequests(currLHS, currRHS) {
-					found = true
-					mismatchReasons = nil
-					break
-				}
-				// we know the metadata is the same, something else doesn't match
-				if !bytes.Equal(currLHS.GetSerializedRequest().Body, currRHS.GetSerializedRequest().Body) {
-					mismatchReasons = append(mismatchReasons,
-						fmt.Sprintf("mutation: %v, rhs[%d]: body diff: %v",
-							currMissingInDestination.StringID(),
-							i,
-							cmp.Diff(currLHS.GetSerializedRequest().Body, currRHS.GetSerializedRequest().Body),
-						),
-					)
-				}
-				if !bytes.Equal(currLHS.GetSerializedRequest().Options, currRHS.GetSerializedRequest().Options) {
-					mismatchReasons = append(mismatchReasons,
-						fmt.Sprintf("mutation: %v, rhs[%d]: options diff: %v",
-							currMissingInDestination.StringID(),
-							i,
-							cmp.Diff(currLHS.GetSerializedRequest().Options, currRHS.GetSerializedRequest().Options),
-						),
-					)
+		isApply := currSourceRequest.GetSerializedRequest().Action == manifestclient.ActionApply || currSourceRequest.GetSerializedRequest().Action == manifestclient.ActionApplyStatus
+		lhsMetadata := expandedMetadataFor(currSourceRequest.GetSerializedRequest())
+
+		found := false
+		mismatchReasons := []string{}
+		for i, currDestinationRequest := range currDestinationRequests {
+			if manifestclient.EquivalentSerializedRequests(currSourceRequest, currDestinationRequest) {
+				found = true
+				mismatchReasons = nil
+				break
+			}
+			// if we're doing an apply and the field manager doesn't match, then it's just a case of "content isn't here" versus a diff
+			// actions match because the metadata (which contains action) matched
+			if isApply {
+				lhsOptions := currSourceRequest.GetSerializedRequest().Options
+				rhsOptions := currDestinationRequest.GetSerializedRequest().Options
+				if !bytes.Equal(lhsOptions, rhsOptions) {
+					// if the options for apply (which contains the field manager) aren't the same, then the requests
+					// are logically different requests and incomparable
+					continue
 				}
 			}
-			if found {
-				continue
+
+			// we know the metadata is the same, something else doesn't match
+			if !bytes.Equal(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body) {
+				mismatchReasons = append(mismatchReasons,
+					fmt.Sprintf("mutation: %v, fieldManager=%v, controllerInstanceName=%v, %v[%d]: body diff: %v",
+						currSourceRequest.GetSerializedRequest().StringID(),
+						lhsMetadata.fieldManager,
+						lhsMetadata.controllerInstanceName,
+						nameOfDestination,
+						i,
+						cmp.Diff(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body),
+					),
+				)
 			}
-			reasons = append(reasons, mismatchReasons...)
+			if !bytes.Equal(currSourceRequest.GetSerializedRequest().Options, currDestinationRequest.GetSerializedRequest().Options) {
+				mismatchReasons = append(mismatchReasons,
+					fmt.Sprintf("mutation: %v, fieldManager=%v, controllerInstanceName=%v, %v[%d]: options diff: %v",
+						currSourceRequest.GetSerializedRequest().StringID(),
+						lhsMetadata.fieldManager,
+						lhsMetadata.controllerInstanceName,
+						nameOfDestination,
+						i,
+						cmp.Diff(currSourceRequest.GetSerializedRequest().Options, currDestinationRequest.GetSerializedRequest().Options),
+					),
+				)
+			}
 		}
+		if found {
+			continue
+		}
+		if !found && len(mismatchReasons) == 0 {
+			mismatchReasons = append(mismatchReasons, fmt.Sprintf("%s is missing equivalent request for fieldManager=%v controllerInstanceName=%v: %v", nameOfDestination, lhsMetadata.fieldManager, lhsMetadata.controllerInstanceName, currSourceRequest.StringID()))
+		}
+		reasons = append(reasons, mismatchReasons...)
 	}
 	return reasons
 }

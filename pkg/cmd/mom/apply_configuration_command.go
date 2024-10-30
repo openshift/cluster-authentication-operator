@@ -15,8 +15,6 @@ func NewApplyConfigurationCommand(streams genericiooptions.IOStreams) *cobra.Com
 }
 
 func RunApplyConfiguration(ctx context.Context, input libraryapplyconfiguration.ApplyConfigurationInput) (libraryapplyconfiguration.AllDesiredMutationsGetter, error) {
-	// TODO initialize dynamic clients, informers, operator clients, and kubeclients from the input to demonstrate.
-
 	authenticationOperatorInput, err := operator.CreateOperatorInputFromMOM(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("unable to configure operator input: %w", err)

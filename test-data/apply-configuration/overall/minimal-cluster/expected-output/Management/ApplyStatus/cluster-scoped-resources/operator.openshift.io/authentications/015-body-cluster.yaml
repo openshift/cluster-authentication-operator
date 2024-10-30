@@ -1,0 +1,14 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    operator.openshift.io/controller-name: TODO-routerCertsController
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: 'ingresses.config.openshift.io/cluster could not be retrieved: ingress.config.openshift.io
+      "cluster" not found'
+    reason: NoIngressConfig
+    status: "True"
+    type: RouterCertsDegraded
