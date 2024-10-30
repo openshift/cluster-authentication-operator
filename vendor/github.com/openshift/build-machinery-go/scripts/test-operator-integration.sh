@@ -8,7 +8,7 @@ set -x
 # Install multi-operator-manager. This will make sure the latest binary is installed
 # If the installation failed, keep going, maybe the binary is available in the system
 echo "Installing latest version of multi-operator-manager..."
-if ! go install github.com/openshift/multi-operator-manager/cmd/multi-operator-manager@latest; then
+if ! go install -mod=readonly github.com/openshift/multi-operator-manager/cmd/multi-operator-manager@latest; then
     echo "Error: Failed to install multi-operator-manager."
 fi
 
