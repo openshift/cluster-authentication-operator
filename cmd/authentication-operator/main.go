@@ -32,6 +32,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 
 	cmd.AddCommand(operator.NewOperator())
 	cmd.AddCommand(mom.NewApplyConfigurationCommand(ioStreams))
+	cmd.AddCommand(mom.NewInputResourcesCommand(ioStreams))
 	cmd.AddCommand(mom.NewOutputResourcesCommand(ioStreams))
 
 	return cmd
