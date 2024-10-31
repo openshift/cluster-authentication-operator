@@ -3,8 +3,9 @@ package readiness
 import (
 	"bytes"
 	"encoding/json"
-	configv1 "github.com/openshift/api/config/v1"
 	"strconv"
+
+	configv1 "github.com/openshift/api/config/v1"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
@@ -60,6 +61,8 @@ func getExpectedMinimumNumberOfMasters(spec *operatorv1.OperatorSpec, topologyMo
 	switch {
 	case topologyMode == configv1.SingleReplicaTopologyMode:
 		return 1
+	case topologyMode == configv1.HighlyAvailableArbiterMode:
+		return 2
 	case err != nil:
 		utilruntime.HandleError(err)
 		return 3

@@ -6,7 +6,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/ghodss/yaml v1.0.0
 	github.com/google/go-cmp v0.6.0
-	github.com/openshift/api v0.0.0-20241203091751-58d4ac495429
+	github.com/openshift/api v0.0.0-20241211151016-1a7b90faeadf
 	github.com/openshift/build-machinery-go v0.0.0-20241126220845-0de670012c09
 	github.com/openshift/client-go v0.0.0-20241203091221-452dfb8fa071
 	github.com/openshift/library-go v0.0.0-20250113163708-355465391f40
