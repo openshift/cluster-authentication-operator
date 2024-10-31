@@ -23,7 +23,7 @@ MOM_CMD="${MOM_CMD:-multi-operator-manager}"
 
 # Define input and output directories (can be overridden if necessary)
 APPLY_CONFIG_INPUT_DIR="${APPLY_CONFIG_INPUT_DIR:-./test-data/apply-configuration}"
-APPLY_CONFIG_OUTPUT_DIR="${APPLY_CONFIG_OUTPUT_DIR:-./test-output}"
+APPLY_CONFIG_OUTPUT_DIR="${ARTIFACT_DIR:-./test-output}"
 
 # Make sure the output-dir is clean
 if [ -d "${APPLY_CONFIG_OUTPUT_DIR}" ]; then
