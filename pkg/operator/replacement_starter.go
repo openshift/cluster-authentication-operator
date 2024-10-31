@@ -25,6 +25,7 @@ import (
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/manifestclient"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
@@ -38,7 +39,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/utils/clock"
 )
 
@@ -59,36 +59,31 @@ type authenticationOperatorInput struct {
 const componentName = "cluster-authentication-operator"
 
 func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfiguration.ApplyConfigurationInput) (*authenticationOperatorInput, error) {
-	// TODO replace with the library-go function in https://github.com/openshift/library-go/pull/1857 once it merges
-	recommendedRESTConfig := &rest.Config{
-		QPS:   1000,
-		Burst: 10000,
-	}
-	kubeClient, err := kubernetes.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	kubeClient, err := kubernetes.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	configClient, err := configclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	configClient, err := configclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	operatorClient, err := operatorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	operatorClient, err := operatorclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	routeClient, err := routeclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	routeClient, err := routeclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	oauthClient, err := oauthclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	oauthClient, err := oauthclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	apiregistrationv1Client, err := apiregistrationclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
-	migrationClient, err := kubemigratorclient.NewForConfigAndClient(recommendedRESTConfig, momInput.MutationTrackingClient.GetHTTPClient())
+	migrationClient, err := kubemigratorclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
