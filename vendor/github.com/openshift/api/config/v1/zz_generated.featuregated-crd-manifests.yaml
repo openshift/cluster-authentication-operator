@@ -310,9 +310,11 @@ infrastructures.config.openshift.io:
   Capability: ""
   Category: ""
   FeatureGates:
+  - AWSClusterHostedDNS
   - BareMetalLoadBalancer
   - GCPClusterHostedDNS
   - GCPLabelsTags
+  - HighlyAvailableArbiter
   - VSphereControlPlaneMachineSet
   - VSphereMultiNetworks
   - VSphereMultiVCenters
