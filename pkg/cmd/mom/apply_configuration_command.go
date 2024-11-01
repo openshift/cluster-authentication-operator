@@ -11,7 +11,7 @@ import (
 )
 
 func NewApplyConfigurationCommand(streams genericiooptions.IOStreams) *cobra.Command {
-	return libraryapplyconfiguration.NewApplyConfigurationCommand(RunApplyConfiguration, RunOutputResources, streams)
+	return libraryapplyconfiguration.NewApplyConfigurationCommand(RunApplyConfiguration, runOutputResources, streams)
 }
 
 func RunApplyConfiguration(ctx context.Context, input libraryapplyconfiguration.ApplyConfigurationInput) (libraryapplyconfiguration.AllDesiredMutationsGetter, error) {

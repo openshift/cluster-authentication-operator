@@ -9,10 +9,10 @@ import (
 )
 
 func NewOutputResourcesCommand(streams genericiooptions.IOStreams) *cobra.Command {
-	return libraryoutputresources.NewOutputResourcesCommand(RunOutputResources, streams)
+	return libraryoutputresources.NewOutputResourcesCommand(runOutputResources, streams)
 }
 
-func RunOutputResources(ctx context.Context) (*libraryoutputresources.OutputResources, error) {
+func runOutputResources(ctx context.Context) (*libraryoutputresources.OutputResources, error) {
 	return &libraryoutputresources.OutputResources{
 		ConfigurationResources: libraryoutputresources.ResourceList{
 			ExactResources: []libraryoutputresources.ExactResourceID{
