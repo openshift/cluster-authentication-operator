@@ -2,6 +2,7 @@ package libraryinputresources
 
 import (
 	"context"
+	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -9,12 +10,13 @@ import (
 
 type InputResourcesFunc func(ctx context.Context) (*InputResources, error)
 
-func NewInputResourcesCommand(inputResourcesFn InputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
-	return newInputResourcesCommand(inputResourcesFn, streams)
+func NewInputResourcesCommand(inputResourcesFn InputResourcesFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
+	return newInputResourcesCommand(inputResourcesFn, outputResourcesFn, streams)
 }
 
 type inputResourcesFlags struct {
-	inputResources InputResourcesFunc
+	inputResourcesFn  InputResourcesFunc
+	outputResourcesFn libraryoutputresources.OutputResourcesFunc
 
 	streams genericiooptions.IOStreams
 }
@@ -25,9 +27,10 @@ func newInputResourcesFlags(streams genericiooptions.IOStreams) *inputResourcesF
 	}
 }
 
-func newInputResourcesCommand(inputResources InputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
+func newInputResourcesCommand(inputResourcesFn InputResourcesFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
 	f := newInputResourcesFlags(streams)
-	f.inputResources = inputResources
+	f.inputResourcesFn = inputResourcesFn
+	f.outputResourcesFn = outputResourcesFn
 
 	cmd := &cobra.Command{
 		Use:   "input-resources",
@@ -67,7 +70,8 @@ func (f *inputResourcesFlags) Validate() error {
 
 func (f *inputResourcesFlags) ToOptions(ctx context.Context) (*inputResourcesOptions, error) {
 	return newInputResourcesOptions(
-			f.inputResources,
+			f.inputResourcesFn,
+			f.outputResourcesFn,
 			f.streams,
 		),
 		nil
