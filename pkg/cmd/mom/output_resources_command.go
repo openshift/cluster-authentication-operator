@@ -9,14 +9,14 @@ import (
 )
 
 func NewOutputResourcesCommand(streams genericiooptions.IOStreams) *cobra.Command {
-	return libraryoutputresources.NewOutputResourcesCommand(RunOutputResources, streams)
+	return libraryoutputresources.NewOutputResourcesCommand(runOutputResources, streams)
 }
 
-func RunOutputResources(ctx context.Context) (*libraryoutputresources.OutputResources, error) {
+func runOutputResources(ctx context.Context) (*libraryoutputresources.OutputResources, error) {
 	return &libraryoutputresources.OutputResources{
 		ConfigurationResources: libraryoutputresources.ResourceList{
 			ExactResources: []libraryoutputresources.ExactResourceID{
-				libraryoutputresources.ExactResource("config.openshift.io", "ingresses", "", "cluster"),
+				libraryoutputresources.ExactConfigResource("ingresses"),
 			},
 		},
 		ManagementResources: libraryoutputresources.ResourceList{
@@ -53,21 +53,21 @@ func RunOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 }
 
 func exactOAuthClient(name string) libraryoutputresources.ExactResourceID {
-	return libraryoutputresources.ExactResource("oauth.openshift.io", "oauthclients", "", name)
+	return libraryoutputresources.ExactResource("oauth.openshift.io", "v1", "oauthclients", "", name)
 }
 
 func exactNamespace(name string) libraryoutputresources.ExactResourceID {
-	return libraryoutputresources.ExactResource("", "namespaces", "", name)
+	return libraryoutputresources.ExactNamespace(name)
 }
 
 func exactService(namespace, name string) libraryoutputresources.ExactResourceID {
-	return libraryoutputresources.ExactResource("", "services", namespace, name)
+	return libraryoutputresources.ExactResource("", "v1", "services", namespace, name)
 }
 
 func exactRole(namespace, name string) libraryoutputresources.ExactResourceID {
-	return libraryoutputresources.ExactResource("rbac.authorization.k8s.io", "roles", namespace, name)
+	return libraryoutputresources.ExactRole(namespace, name)
 }
 
 func exactRoleBinding(namespace, name string) libraryoutputresources.ExactResourceID {
-	return libraryoutputresources.ExactResource("rbac.authorization.k8s.io", "rolebindings", namespace, name)
+	return libraryoutputresources.ExactRoleBinding(namespace, name)
 }

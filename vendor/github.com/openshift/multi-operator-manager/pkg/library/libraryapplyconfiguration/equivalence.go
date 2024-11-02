@@ -116,8 +116,8 @@ func expandedMetadataFor(serializedRequest *manifestclient.SerializedRequest) ex
 	}
 	if err := yaml.Unmarshal(serializedRequest.Body, &bodyObj.Object); err == nil {
 		// ignore err.  if it doesn't work we get the zero value and that's ok
-		if bodyObj != nil && len(bodyObj.GetAnnotations()["operator.openshift.io/controller-name"]) > 0 {
-			controllerInstanceName = bodyObj.GetAnnotations()["operator.openshift.io/controller-name"]
+		if bodyObj != nil && len(bodyObj.GetAnnotations()["synthetic.mom.openshift.io/controller-instance-name"]) > 0 {
+			controllerInstanceName = bodyObj.GetAnnotations()["synthetic.mom.openshift.io/controller-instance-name"]
 		}
 		if bodyObj != nil && len(bodyObj.GetAnnotations()["operator.openshift.io/controller-instance-name"]) > 0 {
 			controllerInstanceName = bodyObj.GetAnnotations()["operator.openshift.io/controller-instance-name"]

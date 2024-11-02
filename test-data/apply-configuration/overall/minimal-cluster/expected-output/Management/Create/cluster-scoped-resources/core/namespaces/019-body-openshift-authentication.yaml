@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   annotations:
     openshift.io/node-selector: ""
-    operator.openshift.io/controller-name: TODO-staticResourceController
+    synthetic.mom.openshift.io/controller-instance-name: TODO-staticResourceController
     workload.openshift.io/allowed: management
   creationTimestamp: null
   labels:

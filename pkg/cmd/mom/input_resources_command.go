@@ -9,7 +9,7 @@ import (
 )
 
 func NewInputResourcesCommand(streams genericiooptions.IOStreams) *cobra.Command {
-	return libraryinputresources.NewInputResourcesCommand(runInputResources, streams)
+	return libraryinputresources.NewInputResourcesCommand(runInputResources, runOutputResources, streams)
 }
 
 func runInputResources(ctx context.Context) (*libraryinputresources.InputResources, error) {

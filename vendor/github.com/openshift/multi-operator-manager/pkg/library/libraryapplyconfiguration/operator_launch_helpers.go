@@ -10,6 +10,8 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/manifestclient"
 	"github.com/openshift/library-go/pkg/operator/events"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 )
 
@@ -23,6 +25,9 @@ type SimpleOperatorStarter struct {
 	ControllerNamedRunOnceFns []NamedRunOnce
 	// ControllerRunFns is useful during a transition to coalesce the operator launching flow.
 	ControllerRunFns []RunFunc
+	// Controllers hold an optional list of controller names to run.
+	// By default, all controllers are run.
+	Controllers []string
 }
 
 var (
@@ -42,14 +47,36 @@ func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
 		informer.WaitForCacheSync(ctx)
 	}
 
-	errs := []error{}
-
+	knownControllersSet := sets.NewString()
+	duplicateControllerNames := []string{}
 	for _, controllerRunner := range a.ControllerNamedRunOnceFns {
-		// TODO add timeout.
+		if knownControllersSet.Has(controllerRunner.ControllerInstanceName()) {
+			duplicateControllerNames = append(duplicateControllerNames, controllerRunner.ControllerInstanceName())
+			continue
+		}
+		knownControllersSet.Insert(controllerRunner.ControllerInstanceName())
+	}
+	if len(duplicateControllerNames) > 0 {
+		return fmt.Errorf("the following controllers were requested to run multiple times: %v", duplicateControllerNames)
+	}
+
+	controllersToRunSet := sets.NewString(a.Controllers...)
+	if controllersToRunSet.Len() == 0 {
+		controllersToRunSet = knownControllersSet
+	}
+	if unknownControllersToRun := controllersToRunSet.Difference(knownControllersSet); len(unknownControllersToRun) > 0 {
+		return fmt.Errorf("requested unknown controllers to be run: %v, known controllers: %v", unknownControllersToRun.List(), knownControllersSet.List())
+	}
+
+	errs := []error{}
+	for _, controllerRunner := range a.ControllerNamedRunOnceFns {
 		func() {
+			if !controllersToRunSet.Has(controllerRunner.ControllerInstanceName()) {
+				return
+			}
 			localCtx, localCancel := context.WithTimeout(ctx, 1*time.Second)
 			defer localCancel()
-			localCtx = manifestclient.WithControllerNameInContext(localCtx, controllerRunner.ControllerInstanceName())
+			localCtx = manifestclient.WithControllerInstanceNameFromContext(localCtx, controllerRunner.ControllerInstanceName())
 			if err := controllerRunner.RunOnce(localCtx); err != nil {
 				errs = append(errs, fmt.Errorf("controller %q failed: %w", controllerRunner.ControllerInstanceName(), err))
 			}

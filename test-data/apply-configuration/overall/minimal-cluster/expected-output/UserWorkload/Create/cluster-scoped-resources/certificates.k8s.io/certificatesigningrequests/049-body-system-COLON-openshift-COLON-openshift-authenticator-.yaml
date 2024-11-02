@@ -2,7 +2,7 @@ apiVersion: certificates.k8s.io/v1
 kind: CertificateSigningRequest
 metadata:
   annotations:
-    operator.openshift.io/controller-name: TODO-authenticatorCertRequester
+    synthetic.mom.openshift.io/controller-instance-name: TODO-authenticatorCertRequester
   creationTimestamp: null
   generateName: system:openshift:openshift-authenticator-
   labels:

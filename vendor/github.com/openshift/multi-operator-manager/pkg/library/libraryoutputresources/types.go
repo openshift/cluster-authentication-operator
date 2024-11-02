@@ -54,5 +54,6 @@ type GeneratedResourceID struct {
 // We'll be able to read the file and see how it is serialized.
 type OutputResourceTypeIdentifier struct {
 	Group    string `json:"group"`
+	Version  string `json:"version"`
 	Resource string `json:"resource"`
 }

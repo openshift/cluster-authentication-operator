@@ -2,7 +2,7 @@ apiVersion: operator.openshift.io/v1
 kind: Authentication
 metadata:
   annotations:
-    operator.openshift.io/controller-name: TODO-metadataController
+    synthetic.mom.openshift.io/controller-instance-name: TODO-metadataController
   name: cluster
 status:
   conditions:
