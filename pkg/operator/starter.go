@@ -657,8 +657,9 @@ func prepareOauthAPIServerOperator(
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authenticatorCertRequester", authenticatorCertRequester.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-webhookAuthController", webhookAuthController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-webhookCertsApprover", webhookCertsApprover.Sync),
-		// TODO missing :(
-		//libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, apiServerControllers.Sync),
+	}
+	for _, apiServerController := range apiServerControllers.Controllers() {
+		runOnceFns = append(runOnceFns, libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, apiServerController.Name(), apiServerController.Sync))
 	}
 
 	runFns := []libraryapplyconfiguration.RunFunc{
