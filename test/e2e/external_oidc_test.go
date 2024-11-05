@@ -2,13 +2,17 @@ package e2e
 
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +29,8 @@ import (
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -54,6 +60,12 @@ type oidcAuthResponse struct {
 	NotBeforePolicy  int    `json:"not_before_policy"`
 	SessionState     string `json:"session_state"`
 	Scope            string `json:"scope"`
+}
+
+type expectedClaims struct {
+	jwt.RegisteredClaims
+	Email string `json:"email"`
+	Type  string `json:"typ"`
 }
 
 func TestExternalOIDCWithKeycloak(t *testing.T) {
@@ -91,9 +103,26 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		kcClient = tc.setupKeycloakClient(testCtx, keycloakURL)
 
 	} else {
-		t.Logf("no existing keycloak deployment found; will create new")
+		var idpName string
 		var cleanups []func()
-		kcClient, cleanups = tc.setupExternalOIDCWithKeycloak(testCtx)
+		kcClient, idpName, cleanups = test.AddKeycloakIDP(tc.t, tc.kubeConfig, true)
+
+		// default-ingress-cert is copied to openshift-config and used as the CA for the IdP
+		// see test/library/idpdeployment.go:334
+		caBundleName := idpName + "-ca"
+
+		// update the authentication CR with the external OIDC configuration
+		authConfig, c, err := tc.updateAuthForOIDC(testCtx, kcClient.IssuerURL(), idpName, caBundleName)
+		cleanups = append(cleanups, c...)
+		require.NoError(tc.t, err)
+		require.NotNil(tc.t, authConfig)
+		require.Equal(tc.t, configv1.AuthenticationTypeOIDC, authConfig.Spec.Type)
+		require.NotEmpty(tc.t, authConfig.Spec.OIDCProviders)
+
+		kasRevision := tc.validateKASConfig(testCtx)
+
+		tc.validateAuthConfigJSON(testCtx, kcClient.IssuerURL(), caBundleName, kasRevision)
+
 		defer test.IDPCleanupWrapper(func() {
 			for _, c := range cleanups {
 				c()
@@ -139,6 +168,27 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	require.NotEmpty(t, authResponse.AccessToken)
 	require.NotEmpty(t, authResponse.IdToken)
 
+	// ========================================
+	// Validate the contents of the OIDC tokens
+	// ========================================
+	accessToken, idToken, err := parseOIDCTokens(kcClient.IssuerURL(), authResponse.AccessToken, authResponse.IdToken)
+	require.NoError(t, err)
+	require.NotNil(t, accessToken)
+	require.NotNil(t, idToken)
+
+	actualAccessTokenClaims := accessToken.Claims.(*expectedClaims)
+	require.True(t, accessToken.Valid)
+	require.Equal(t, kcClient.IssuerURL(), actualAccessTokenClaims.Issuer)
+	require.Equal(t, email, actualAccessTokenClaims.Email)
+	require.Equal(t, "Bearer", actualAccessTokenClaims.Type)
+
+	actualIDTokenClaims := idToken.Claims.(*expectedClaims)
+	require.True(t, idToken.Valid)
+	require.Equal(t, kcClient.IssuerURL(), actualIDTokenClaims.Issuer)
+	require.Equal(t, email, actualIDTokenClaims.Email)
+	require.Equal(t, "ID", actualIDTokenClaims.Type)
+	require.Equal(t, jwt.ClaimStrings{oidcClientId}, actualIDTokenClaims.Audience)
+
 	// ==========================================
 	// Test authentication via the kube-apiserver
 	// ==========================================
@@ -182,6 +232,106 @@ func newTestClient(t *testing.T) (*testClient, error) {
 	return tc, nil
 }
 
+func parseOIDCTokens(issuerURL string, accessToken, idToken string) (*jwt.Token, *jwt.Token, error) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+
+	// grab openid-configuration JSON which contains the URL of the provider's JWKS
+	resp, err := client.Get(issuerURL + "/.well-known/openid-configuration")
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not get issuer OpenID well-known configuration: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not parse well-known response body: %v", err)
+	}
+
+	type openidConfig struct {
+		JwksURL string `json:"jwks_uri"`
+	}
+
+	var oidcConfig openidConfig
+	if err := json.Unmarshal(respBytes, &oidcConfig); err != nil {
+		return nil, nil, fmt.Errorf("could not unmarshal OpenID config: %v", err)
+	}
+
+	// grab the provider's JWKS which contains the pubkey to verify token signatures
+	resp, err = client.Get(oidcConfig.JwksURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not get issuer OpenID well-known JWKS configuration: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not parse well-known JWKS response body: %v", err)
+	}
+
+	type jwks struct {
+		Keys []struct {
+			KID string `json:"kid"`
+			Use string `json:"use"`
+			KTY string `json:"kty"`
+			Alg string `json:"alg"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+
+	var issuerJWKS jwks
+	if err := json.Unmarshal(respBytes, &issuerJWKS); err != nil {
+		return nil, nil, fmt.Errorf("could not unmarshal JWKS: %v", err)
+	}
+
+	keyfunc := func(token *jwt.Token) (interface{}, error) {
+		for _, key := range issuerJWKS.Keys {
+			if key.KID == token.Header["kid"] {
+				switch key.Alg {
+				case "RS256":
+					n, err := base64.RawURLEncoding.DecodeString(key.N)
+					if err != nil {
+						return nil, fmt.Errorf("could not decode N: %v", err)
+					}
+					e, err := base64.RawURLEncoding.DecodeString(key.E)
+					if err != nil {
+						return nil, fmt.Errorf("could not decode E: %v", err)
+					}
+
+					pubkey := &rsa.PublicKey{
+						N: new(big.Int).SetBytes(n),
+						E: int(new(big.Int).SetBytes(e).Int64()),
+					}
+
+					return pubkey, nil
+				}
+
+				return nil, fmt.Errorf("unexpected signing algorithm for key '%s': %s", key.KID, key.Alg)
+			}
+		}
+
+		return nil, fmt.Errorf("could not find an RSA key for signing use in the provided JWKS")
+	}
+
+	parsedAccessToken, err := jwt.ParseWithClaims(accessToken, &expectedClaims{}, keyfunc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not parse access token: %v", err)
+	}
+
+	parsedIDToken, err := jwt.ParseWithClaims(idToken, &expectedClaims{}, keyfunc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not parse ID token: %v", err)
+	}
+
+	return parsedAccessToken, parsedIDToken, nil
+}
+
 func (tc *testClient) setupKeycloakClient(ctx context.Context, keycloakURL string) *test.KeycloakClient {
 	transport, err := rest.TransportFor(tc.kubeConfig)
 	require.NoError(tc.t, err)
@@ -200,25 +350,6 @@ func (tc *testClient) setupKeycloakClient(ctx context.Context, keycloakURL strin
 	return kcClient
 }
 
-func (tc *testClient) setupExternalOIDCWithKeycloak(ctx context.Context) (kcClient *test.KeycloakClient, cleanups []func()) {
-	kcClient, idpName, c := test.AddKeycloakIDP(tc.t, tc.kubeConfig, true)
-	cleanups = append(cleanups, c...)
-
-	// default-ingress-cert is copied to openshift-config and used as the CA for the IdP
-	// see test/library/idpdeployment.go:334
-	caBundleName := idpName + "-ca"
-
-	// update the authentication CR with the external OIDC configuration
-	authConfig, c, err := tc.updateAuthForOIDC(ctx, kcClient.IssuerURL(), idpName, caBundleName)
-	cleanups = append(cleanups, c...)
-	require.NoError(tc.t, err)
-	require.NotNil(tc.t, authConfig)
-	require.Equal(tc.t, configv1.AuthenticationTypeOIDC, authConfig.Spec.Type)
-	require.NotEmpty(tc.t, authConfig.Spec.OIDCProviders)
-
-	return
-}
-
 func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, caBundleName string) (auth *configv1.Authentication, cleanups []func(), err error) {
 	tc.t.Log("will update auth CR for OIDC")
 
@@ -227,7 +358,7 @@ func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, ca
 		return nil, cleanups, fmt.Errorf("get auth cluster error: %v", err)
 	}
 
-	origSpec := auth.Spec.DeepCopy()
+	origSpec := (*auth).Spec.DeepCopy()
 	auth.Spec = configv1.AuthenticationSpec{
 		Type:                      configv1.AuthenticationTypeOIDC,
 		WebhookTokenAuthenticator: nil,
@@ -301,4 +432,57 @@ func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, ca
 	}
 
 	return
+}
+
+func (tc *testClient) validateKASConfig(ctx context.Context) int32 {
+	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(tc.t, err)
+
+	var observedConfig map[string]interface{}
+	err = json.Unmarshal(kas.Spec.ObservedConfig.Raw, &observedConfig)
+	require.NoError(tc.t, err)
+
+	apiServerArguments := observedConfig["apiServerArguments"].(map[string]interface{})
+
+	require.Nil(tc.t, apiServerArguments["authentication-token-webhook-config-file"])
+	require.Nil(tc.t, apiServerArguments["authentication-token-webhook-version"])
+	require.Nil(tc.t, observedConfig["authConfig"])
+
+	authConfigArg := apiServerArguments["authentication-config"].([]interface{})
+	require.NotEmpty(tc.t, authConfigArg)
+	require.Equal(tc.t, authConfigArg[0].(string), "/etc/kubernetes/static-pod-resources/configmaps/auth-config/auth-config.json")
+
+	return kas.Status.LatestAvailableRevision
+}
+
+func (tc *testClient) validateAuthConfigJSON(ctx context.Context, idpURL, caBundleName string, kasRevision int32) {
+	certData := ""
+	if len(caBundleName) > 0 {
+		cm, err := tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Get(ctx, caBundleName, metav1.GetOptions{})
+		require.NoError(tc.t, err)
+		certData = cm.Data["ca-bundle.crt"]
+	}
+
+	expectedAuthConfigJSON := fmt.Sprintf(`{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{}}}]}`,
+		idpURL,
+		strings.ReplaceAll(certData, "\n", "\\n"),
+		strings.Join([]string{fmt.Sprintf(`"%s"`, oidcClientId)}, ","),
+		oidcUsernameClaim,
+		"",
+		oidcGroupsClaim,
+		"",
+	)
+
+	for _, cm := range []struct {
+		ns   string
+		name string
+	}{
+		{"openshift-config-managed", "auth-config"},
+		{"openshift-kube-apiserver", "auth-config"},
+		{"openshift-kube-apiserver", fmt.Sprintf("auth-config-%d", kasRevision)},
+	} {
+		actualCM, err := tc.kubeClient.CoreV1().ConfigMaps(cm.ns).Get(ctx, cm.name, metav1.GetOptions{})
+		require.NoError(tc.t, err)
+		require.Equal(tc.t, expectedAuthConfigJSON, actualCM.Data["auth-config.json"], "unexpected auth-config.json contents in %s/%s", actualCM.Namespace, actualCM.Name)
+	}
 }
