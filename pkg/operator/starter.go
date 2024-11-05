@@ -120,6 +120,7 @@ func prepareOauthOperator(
 	}
 
 	staleConditions := staleconditions.NewRemoveStaleConditionsController(
+		"openshift-authentication",
 		[]string{
 			// condition type removed in 4.17.z
 			"",
