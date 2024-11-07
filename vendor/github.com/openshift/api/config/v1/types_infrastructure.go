@@ -100,6 +100,7 @@ type InfrastructureStatus struct {
 	// its components are not visible within the cluster.
 	// +kubebuilder:default=HighlyAvailable
 	// +kubebuilder:validation:Enum=HighlyAvailable;SingleReplica;External
+	// +openshift:validation:FeatureGateAwareEnum:featureGate=HighlyAvailableArbiter,enum=HighlyAvailable;HighlyAvailableArbiter;SingleReplica;External
 	ControlPlaneTopology TopologyMode `json:"controlPlaneTopology"`
 
 	// infrastructureTopology expresses the expectations for infrastructure services that do not run on control
@@ -135,6 +136,9 @@ type TopologyMode string
 const (
 	// "HighlyAvailable" is for operators to configure high-availability as much as possible.
 	HighlyAvailableTopologyMode TopologyMode = "HighlyAvailable"
+
+	// "HighlyAvailableArbiter" is for operators to configure for an arbiter HA deployment.
+	HighlyAvailableArbiter TopologyMode = "HighlyAvailableArbiter"
 
 	// "SingleReplica" is for operators to avoid spending resources for high-availability purpose.
 	SingleReplicaTopologyMode TopologyMode = "SingleReplica"
@@ -507,6 +511,20 @@ type AWSPlatformStatus struct {
 	// +listType=atomic
 	// +optional
 	ResourceTags []AWSResourceTag `json:"resourceTags,omitempty"`
+
+	// cloudLoadBalancerConfig holds configuration related to DNS and cloud
+	// load balancers. It allows configuration of in-cluster DNS as an alternative
+	// to the platform default DNS implementation.
+	// When using the ClusterHosted DNS type, Load Balancer IP addresses
+	// must be provided for the API and internal API load balancers as well as the
+	// ingress load balancer.
+	//
+	// +default={"dnsType": "PlatformDefault"}
+	// +kubebuilder:default={"dnsType": "PlatformDefault"}
+	// +openshift:enable:FeatureGate=AWSClusterHostedDNS
+	// +optional
+	// +nullable
+	CloudLoadBalancerConfig *CloudLoadBalancerConfig `json:"cloudLoadBalancerConfig,omitempty"`
 }
 
 // AWSResourceTag is a tag to apply to AWS resources created for the cluster.
@@ -647,12 +665,12 @@ type GCPPlatformStatus struct {
 	// Tombstone the field as a reminder.
 	// ClusterHostedDNS ClusterHostedDNS `json:"clusterHostedDNS,omitempty"`
 
-	// cloudLoadBalancerConfig is a union that contains the IP addresses of API,
-	// API-Int and Ingress Load Balancers created on the cloud platform. These
-	// values would not be populated on on-prem platforms. These Load Balancer
-	// IPs are used to configure the in-cluster DNS instances for API, API-Int
-	// and Ingress services. `dnsType` is expected to be set to `ClusterHosted`
-	// when these Load Balancer IP addresses are populated and used.
+	// cloudLoadBalancerConfig holds configuration related to DNS and cloud
+	// load balancers. It allows configuration of in-cluster DNS as an alternative
+	// to the platform default DNS implementation.
+	// When using the ClusterHosted DNS type, Load Balancer IP addresses
+	// must be provided for the API and internal API load balancers as well as the
+	// ingress load balancer.
 	//
 	// +default={"dnsType": "PlatformDefault"}
 	// +kubebuilder:default={"dnsType": "PlatformDefault"}
