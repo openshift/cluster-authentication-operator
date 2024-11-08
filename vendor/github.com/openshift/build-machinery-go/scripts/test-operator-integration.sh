@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-set -o errexit
 set -o nounset
 set -o pipefail
 set -x
@@ -40,4 +39,12 @@ APPLY_CONFIG_ARGS=(
 )
 
 # Run the apply-configuration command from the operator
-"${MOM_CMD}" "${APPLY_CONFIG_ARGS[@]}"
+if ! "${MOM_CMD}" "${APPLY_CONFIG_ARGS[@]}"; then
+    # If the command fails, create an archive for easy downloading
+    TMP_DIR="$(mktemp -d)"
+    ARCHIVE_PATH="${TMP_DIR}/archive.tar.gz"
+    tar -czf "${ARCHIVE_PATH}" -C "${APPLY_CONFIG_OUTPUT_DIR}" .
+    mv "${ARCHIVE_PATH}" "${APPLY_CONFIG_OUTPUT_DIR}"
+    rmdir "${TMP_DIR}"
+    exit 1
+fi
