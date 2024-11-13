@@ -251,6 +251,7 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 			"openshift-config-managed",
 			"openshift-oauth-apiserver",
 			"openshift-authentication-operator",
+			"openshift-kube-apiserver",
 			"", // an informer for non-namespaced resources
 			"kube-system",
 			libgoetcd.EtcdEndpointNamespace,
