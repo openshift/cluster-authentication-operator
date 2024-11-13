@@ -284,6 +284,9 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		informerFactories.operatorConfigInformer,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 		systemCABundle,
 		authOperatorInput.eventRecorder,
 	)
@@ -291,12 +294,18 @@ func prepareOauthOperator(
 	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.operatorConfigInformer,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 		authOperatorInput.eventRecorder,
 	)
 
 	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.operatorConfigInformer,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 		authOperatorInput.eventRecorder,
 	)
 
