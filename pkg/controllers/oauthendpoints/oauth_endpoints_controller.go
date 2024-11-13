@@ -34,6 +34,7 @@ func NewOAuthRouteCheckController(
 	kubeInformersForConfigManagedNS informers.SharedInformerFactory,
 	routeInformerNamespaces routev1informers.RouteInformer,
 	ingressInformerAllNamespaces configv1informers.IngressInformer,
+	authConfigChecker common.AuthConfigChecker,
 	systemCABundle []byte,
 	recorder events.Recorder,
 ) factory.Controller {
@@ -55,10 +56,12 @@ func NewOAuthRouteCheckController(
 		return getOAuthRouteTLSConfig(cmLister, secretLister, ingressLister, systemCABundle)
 	}
 
+	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerRoute",
 		operatorClient,
-		endpointListFunc, getTLSConfigFunc,
+		endpointListFunc, getTLSConfigFunc, endpointCheckDisabledFunc,
 		[]factory.Informer{
 			cmInformer,
 			secretInformer,
@@ -72,6 +75,7 @@ func NewOAuthRouteCheckController(
 func NewOAuthServiceCheckController(
 	operatorClient v1helpers.OperatorClient,
 	kubeInformersForTargetNS informers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 	recorder events.Recorder,
 ) factory.Controller {
 	endpointsListFunc := func() ([]string, error) {
@@ -82,10 +86,12 @@ func NewOAuthServiceCheckController(
 		return getOAuthEndpointTLSConfig(kubeInformersForTargetNS.Core().V1().ConfigMaps().Lister())
 	}
 
+	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerService",
 		operatorClient,
-		endpointsListFunc, getTLSConfigFunc,
+		endpointsListFunc, getTLSConfigFunc, endpointCheckDisabledFunc,
 		[]factory.Informer{
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 			kubeInformersForTargetNS.Core().V1().Services().Informer(),
@@ -98,6 +104,7 @@ func NewOAuthServiceCheckController(
 func NewOAuthServiceEndpointsCheckController(
 	operatorClient v1helpers.OperatorClient,
 	kubeInformersForTargetNS informers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 	recorder events.Recorder,
 ) factory.Controller {
 	endpointsListFn := func() ([]string, error) {
@@ -108,10 +115,12 @@ func NewOAuthServiceEndpointsCheckController(
 		return getOAuthEndpointTLSConfig(kubeInformersForTargetNS.Core().V1().ConfigMaps().Lister())
 	}
 
+	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerServiceEndpoints",
 		operatorClient,
-		endpointsListFn, getTLSConfigFunc,
+		endpointsListFn, getTLSConfigFunc, endpointCheckDisabledFunc,
 		[]factory.Informer{
 			kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
 			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
