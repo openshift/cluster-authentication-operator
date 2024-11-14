@@ -6,12 +6,14 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +34,7 @@ type ingressNodesAvailableController struct {
 	operatorClient         v1helpers.OperatorClient
 	ingressLister          operatorv1listers.IngressControllerLister
 	nodeLister             corev1listers.NodeLister
+	authConfigChecker      common.AuthConfigChecker
 }
 
 func NewIngressNodesAvailableController(
@@ -40,12 +43,14 @@ func NewIngressNodesAvailableController(
 	ingressControllerInformer operatorv1informers.IngressControllerInformer,
 	eventRecorder events.Recorder,
 	nodeInformer corev1informers.NodeInformer,
+	authConfigChecker common.AuthConfigChecker,
 ) factory.Controller {
 	controller := &ingressNodesAvailableController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressNodesAvailable"),
 		operatorClient:         operatorClient,
 		ingressLister:          ingressControllerInformer.Lister(),
 		nodeLister:             nodeInformer.Lister(),
+		authConfigChecker:      authConfigChecker,
 	}
 
 	return factory.New().
@@ -72,6 +77,15 @@ func countReadyWorkerNodes(nodes []*corev1.Node) int {
 }
 
 func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		// Server-Side-Apply with an empty operator status for the specific field manager
+		// will effectively remove any conditions owned by it since the list type in the
+		// API definition is 'map'
+		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+	}
+
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	workers, err := c.nodeLister.List(labels.SelectorFromSet(labels.Set{"node-role.kubernetes.io/worker": ""}))

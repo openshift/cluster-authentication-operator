@@ -279,6 +279,7 @@ func prepareOauthOperator(
 		informerFactories.operatorInformer.Operator().V1().IngressControllers(),
 		authOperatorInput.eventRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		authConfigChecker,
 	)
 
 	systemCABundle, err := loadSystemCACertBundle()
