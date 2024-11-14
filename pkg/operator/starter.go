@@ -314,6 +314,7 @@ func prepareOauthOperator(
 	proxyConfigController := proxyconfig.NewProxyConfigChecker(
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		informerFactories.kubeInformersForNamespaces,
+		authConfigChecker,
 		"openshift-authentication",
 		"oauth-openshift",
 		map[string][]string{
