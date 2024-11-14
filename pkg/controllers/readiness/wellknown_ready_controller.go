@@ -19,6 +19,8 @@ import (
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1lister "github.com/openshift/client-go/config/listers/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
@@ -26,12 +28,14 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
@@ -58,12 +62,23 @@ type wellKnownReadyController struct {
 	configMapLister        corev1lister.ConfigMapLister
 	routeLister            routev1lister.RouteLister
 	infrastructureLister   configv1lister.InfrastructureLister
+
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1lister.ConfigMapLister
 }
 
 const controllerName = "WellKnownReadyController"
 
-func NewWellKnownReadyController(instanceName string, kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
-	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
+func NewWellKnownReadyController(
+	instanceName string,
+	kubeInformers v1helpers.KubeInformersForNamespaces,
+	configInformers configinformer.SharedInformerFactory,
+	routeInformer routeinformer.RouteInformer,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
+	operatorClient v1helpers.OperatorClient,
+	recorder events.Recorder,
+) factory.Controller {
 
 	nsOpenshiftConfigManagedInformers := kubeInformers.InformersFor("openshift-config-managed")
 	nsDefaultInformers := kubeInformers.InformersFor("default")
@@ -77,6 +92,9 @@ func NewWellKnownReadyController(instanceName string, kubeInformers v1helpers.Ku
 		configMapLister:        nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
 		routeLister:            routeInformer.Lister(),
 		operatorClient:         operatorClient,
+
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 	}
 
 	return factory.New().WithInformers(
@@ -127,6 +145,19 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 			utilruntime.HandleError(updateErr)
 		}
 	}()
+
+	// if OIDC is enabled, clear operator conditions and skip checks
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		available = available.
+			WithStatus(operatorv1.ConditionFalse).
+			WithMessage("well-known endpoint checks skipped.").
+			WithReason("NotAvailableForOIDC")
+		progressing = progressing.
+			WithStatus(operatorv1.ConditionFalse)
+		return nil
+	}
 
 	// the well-known endpoint cannot be ready until we know the oauth-server's hostname
 	_, err = c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
@@ -185,7 +216,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context
 		return nil
 	}
 
-	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	if err != nil {
 		return fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
