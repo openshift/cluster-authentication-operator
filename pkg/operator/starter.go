@@ -218,6 +218,8 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		informerFactories.operatorConfigInformer,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
 		authOperatorInput.configClient.ConfigV1().Authentications(),
