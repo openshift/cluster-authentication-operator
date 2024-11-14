@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/retry"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -20,6 +23,8 @@ import (
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
 	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -38,6 +43,10 @@ type oauthsClientsController struct {
 	oauthClientLister oauthv1listers.OAuthClientLister
 	routeLister       routev1listers.RouteLister
 	ingressLister     configv1listers.IngressLister
+
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1listers.ConfigMapLister
 }
 
 func NewOAuthClientsController(
@@ -45,7 +54,9 @@ func NewOAuthClientsController(
 	oauthsClientClient oauthclient.OAuthClientInterface,
 	oauthInformers oauthinformers.SharedInformerFactory,
 	routeInformers routeinformers.SharedInformerFactory,
-	ingressInformers configinformers.SharedInformerFactory,
+	operatorConfigInformers configinformers.SharedInformerFactory,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
 	eventRecorder events.Recorder,
 ) factory.Controller {
 	c := &oauthsClientsController{
@@ -53,7 +64,11 @@ func NewOAuthClientsController(
 
 		oauthClientLister: oauthInformers.Oauth().V1().OAuthClients().Lister(),
 		routeLister:       routeInformers.Route().V1().Routes().Lister(),
-		ingressLister:     ingressInformers.Config().V1().Ingresses().Lister(),
+		ingressLister:     operatorConfigInformers.Config().V1().Ingresses().Lister(),
+
+		authLister:         operatorConfigInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 	}
 
 	return factory.New().
@@ -67,12 +82,22 @@ func NewOAuthClientsController(
 			factory.NamesFilter("oauth-openshift"),
 			routeInformers.Route().V1().Routes().Informer(),
 		).
-		WithInformers(ingressInformers.Config().V1().Ingresses().Informer()).
+		WithInformers(
+			operatorConfigInformers.Config().V1().Ingresses().Informer(),
+			operatorConfigInformers.Config().V1().Authentications().Informer(),
+			kasInformer.Informer(),
+		).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("OAuthClientsController", eventRecorder.WithComponentSuffix("oauth-clients-controller"))
 }
 
 func (c *oauthsClientsController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		return c.ensureBootstrappedOAuthClientsMissing(ctx)
+	}
+
 	ingress, err := c.getIngressConfig()
 	if err != nil {
 		return err
@@ -140,6 +165,27 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 	} {
 		if err := ensureOAuthClient(ctx, c.oauthClientClient, client); err != nil {
 			return fmt.Errorf("unable to ensure existence of a bootstrapped OAuth client %q: %w", client.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (c *oauthsClientsController) ensureBootstrappedOAuthClientsMissing(ctx context.Context) error {
+	for _, clientName := range []string{
+		"openshift-browser-client",
+		"openshift-challenging-client",
+		"openshift-cli-client",
+	} {
+		_, err := c.oauthClientLister.Get(clientName)
+		if errors.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+
+		if err := c.oauthClientClient.Delete(ctx, clientName, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return err
 		}
 	}
 
