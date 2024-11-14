@@ -228,6 +228,7 @@ func prepareOauthOperator(
 		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
 		authOperatorInput.configClient.ConfigV1().Authentications(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
