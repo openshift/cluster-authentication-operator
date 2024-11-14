@@ -260,6 +260,8 @@ func prepareOauthOperator(
 		informerFactories.oauthInformers,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
 		informerFactories.operatorConfigInformer,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 		authOperatorInput.eventRecorder,
 	)
 

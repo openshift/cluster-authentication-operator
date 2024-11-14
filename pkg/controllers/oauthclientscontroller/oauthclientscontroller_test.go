@@ -104,6 +104,19 @@ func newRouteLister(t *testing.T, routes ...*routev1.Route) routev1listers.Route
 	return routev1listers.NewRouteLister(routeIndexer)
 }
 
+func newAuthLister(t *testing.T) configv1listers.AuthenticationLister {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	indexer.Add(&configv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.AuthenticationSpec{
+			Type: configv1.AuthenticationTypeIntegratedOAuth,
+		},
+	})
+	return configv1listers.NewAuthenticationLister(indexer)
+}
+
 func newTestOAuthsClientsController(t *testing.T) (*oauthsClientsController, cache.Indexer) {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	return &oauthsClientsController{
@@ -111,6 +124,7 @@ func newTestOAuthsClientsController(t *testing.T) (*oauthsClientsController, cac
 		oauthClientLister: oauthv1listers.NewOAuthClientLister(indexer),
 		routeLister:       newRouteLister(t, defaultRoute),
 		ingressLister:     newIngressLister(t, defaultIngress),
+		authLister:        newAuthLister(t),
 	}, indexer
 }
 
