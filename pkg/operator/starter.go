@@ -265,6 +265,9 @@ func prepareOauthOperator(
 		informerFactories.operatorInformer.Operator().V1().IngressControllers(),
 		authOperatorInput.eventRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		informerFactories.operatorConfigInformer,
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 	)
 
 	systemCABundle, err := loadSystemCACertBundle()
