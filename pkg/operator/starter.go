@@ -253,12 +253,12 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
-	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
+	oauthClientsSwitchedController := oauthclientscontroller.NewOAuthClientsSwitchedController(
 		authOperatorInput.authenticationOperatorClient,
-		authOperatorInput.oauthClient.OauthV1().OAuthClients(),
-		informerFactories.oauthInformers,
+		authOperatorInput.oauthClient,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
 		informerFactories.operatorConfigInformer,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
@@ -363,7 +363,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-deploymentController", deploymentController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-managementStateController", managementStateController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-metadataController", metadataController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsController", oauthClientsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsSwitchedController", oauthClientsSwitchedController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-payloadConfigController", payloadConfigController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-routerCertsController", routerCertsController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-serviceCAController", serviceCAController.Sync),
@@ -385,7 +385,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptRunFn(deploymentController.Run),
 		libraryapplyconfiguration.AdaptRunFn(managementStateController.Run),
 		libraryapplyconfiguration.AdaptRunFn(metadataController.Run),
-		libraryapplyconfiguration.AdaptRunFn(oauthClientsController.Run),
+		libraryapplyconfiguration.AdaptRunFn(oauthClientsSwitchedController.Run),
 		libraryapplyconfiguration.AdaptRunFn(payloadConfigController.Run),
 		libraryapplyconfiguration.AdaptRunFn(routerCertsController.Run),
 		libraryapplyconfiguration.AdaptRunFn(serviceCAController.Run),

@@ -24,7 +24,6 @@ import (
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
-	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	operatorinformer "github.com/openshift/client-go/operator/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -232,7 +231,6 @@ type authenticationOperatorInformerFactories struct {
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces
 	operatorConfigInformer     configinformer.SharedInformerFactory
 	operatorInformer           operatorinformer.SharedInformerFactory
-	oauthInformers             oauthinformers.SharedInformerFactory
 	apiregistrationInformers   apiregistrationinformers.SharedInformerFactory
 	migrationInformer          migrationv1alpha1informer.SharedInformerFactory
 	// TODO remove
@@ -258,7 +256,6 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 		),
 		operatorConfigInformer:   configinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.configClient, resync),
 		operatorInformer:         operatorinformer.NewSharedInformerFactory(authOperatorInput.operatorClient, 24*time.Hour),
-		oauthInformers:           oauthinformers.NewSharedInformerFactory(authOperatorInput.oauthClient, resync),
 		apiregistrationInformers: apiregistrationinformers.NewSharedInformerFactory(authOperatorInput.apiregistrationv1Client, 10*time.Minute),
 		migrationInformer:        migrationv1alpha1informer.NewSharedInformerFactory(authOperatorInput.migrationClient, time.Minute*30),
 		kubeInformers:            kubeinformers.NewSharedInformerFactory(authOperatorInput.kubeClient, resync),
@@ -275,7 +272,6 @@ func (a authenticationOperatorInformerFactories) simplifiedInformerFactories() [
 		libraryapplyconfiguration.GeneratedNamespacedInformerFactoryAdapter(a.kubeInformersForNamespaces),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.operatorInformer),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.operatorConfigInformer),
-		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.oauthInformers),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.apiregistrationInformers),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.migrationInformer),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.kubeInformers),
