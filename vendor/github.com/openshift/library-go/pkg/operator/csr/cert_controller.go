@@ -53,6 +53,8 @@ type CSROption struct {
 
 	// EventFilterFunc matches csrs created with above options
 	EventFilterFunc factory.EventFilterFunc
+
+	CertificateDuration *time.Duration
 }
 
 // ClientCertOption includes options that is used to create client certificate
@@ -299,6 +301,10 @@ func (c *clientCertificateController) createCSR(ctx context.Context) (string, er
 			},
 			SignerName: c.SignerName,
 		},
+	}
+	if c.CertificateDuration != nil {
+		expirationSeconds := int32(c.CertificateDuration.Seconds())
+		csr.Spec.ExpirationSeconds = &expirationSeconds
 	}
 
 	req, err := c.hubCSRClient.Create(ctx, csr, metav1.CreateOptions{})

@@ -605,6 +605,7 @@ func prepareOauthAPIServerOperator(
 		eventRecorder,
 	)
 
+	csrDuration := time.Hour * 24 * 30
 	authenticatorCertRequester, err := csr.NewClientCertificateController(
 		csr.ClientCertOption{
 			SecretNamespace: "openshift-oauth-apiserver",
@@ -618,8 +619,9 @@ func prepareOauthAPIServerOperator(
 				GenerateName: "system:openshift:openshift-authenticator-",
 				Labels:       map[string]string{"authentication.openshift.io/csr": "openshift-authenticator"},
 			},
-			Subject:    &pkix.Name{CommonName: "system:serviceaccount:openshift-oauth-apiserver:openshift-authenticator"},
-			SignerName: certapiv1.KubeAPIServerClientSignerName,
+			Subject:             &pkix.Name{CommonName: "system:serviceaccount:openshift-oauth-apiserver:openshift-authenticator"},
+			SignerName:          certapiv1.KubeAPIServerClientSignerName,
+			CertificateDuration: &csrDuration,
 		},
 		informerFactories.kubeInformers.Certificates().V1().CertificateSigningRequests(),
 		authOperatorInput.kubeClient.CertificatesV1().CertificateSigningRequests(),
