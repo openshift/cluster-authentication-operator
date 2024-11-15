@@ -193,6 +193,7 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
+		authConfigChecker,
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"v4-0-config-system-custom-router-certs",
