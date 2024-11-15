@@ -237,11 +237,21 @@ func TestValidateRouterCertificates(t *testing.T) {
 				secretsClient = fake.NewSimpleClientset()
 			}
 
+			authIndexer := cache.NewIndexer(func(_ interface{}) (string, error) {
+				return "cluster", nil
+			}, cache.Indexers{})
+			authIndexer.Add(&configv1.Authentication{
+				Spec: configv1.AuthenticationSpec{
+					Type: configv1.AuthenticationTypeIntegratedOAuth,
+				},
+			})
+
 			controller := routerCertsDomainValidationController{
 				operatorClient:    operatorClient,
 				ingressLister:     configv1listers.NewIngressLister(ingresses),
 				secretLister:      corev1listers.NewSecretLister(secrets),
 				configMapLister:   corev1listers.NewConfigMapLister(configMapsIndexer),
+				authLister:        configv1listers.NewAuthenticationLister(authIndexer),
 				secretNamespace:   "openshift-authentication",
 				defaultSecretName: "v4-0-config-system-router-certs",
 				customSecretName:  "v4-0-config-system-custom-router-certs",
