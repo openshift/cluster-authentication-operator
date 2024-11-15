@@ -249,6 +249,7 @@ func prepareOauthOperator(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
