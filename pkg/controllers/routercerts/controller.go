@@ -15,9 +15,12 @@ import (
 	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -45,6 +48,10 @@ type routerCertsDomainValidationController struct {
 	customSecretName       string
 	routeName              string
 
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1listers.ConfigMapLister
+
 	systemCertPool func() (*x509.CertPool, error) // enables unit testing
 }
 
@@ -57,6 +64,9 @@ func NewRouterCertsDomainValidationController(
 	targetNSsecretInformer corev1informers.SecretInformer,
 	machineConfigNSSecretInformer corev1informers.SecretInformer,
 	configMapInformer corev1informers.ConfigMapInformer,
+	operatorConfigInformers configinformers.SharedInformerFactory,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer corev1informers.ConfigMapInformer,
 	secretNamespace string,
 	defaultSecretName string,
 	customSecretName string,
@@ -74,6 +84,10 @@ func NewRouterCertsDomainValidationController(
 		customSecretName:       customSecretName,
 		routeName:              routeName,
 		systemCertPool:         x509.SystemCertPool,
+
+		authLister:         operatorConfigInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Lister(),
 	}
 
 	return factory.New().
@@ -81,7 +95,9 @@ func NewRouterCertsDomainValidationController(
 			operatorClient.Informer(),
 			ingressInformer.Informer(),
 			targetNSsecretInformer.Informer(),
-			configMapInformer.Informer()).
+			configMapInformer.Informer(),
+			operatorConfigInformers.Config().V1().Authentications().Informer(),
+			kasInformer.Informer()).
 		WithFilteredEventsInformers(
 			factory.NamesFilter("router-certs"),
 			machineConfigNSSecretInformer.Informer(),
@@ -116,6 +132,14 @@ func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCt
 				WithReason(condition.Reason).
 				WithMessage(condition.Message)))
 	}()
+
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		// do not remove secret "v4-0-config-system-router-certs" as the ConfigObserver controller
+		// monitors it and it will go degraded if missing
+		return nil
+	}
 
 	// get ingress
 	ingress, err := c.ingressLister.Get("cluster")
