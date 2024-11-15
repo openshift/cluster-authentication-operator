@@ -236,9 +236,9 @@ func prepareOauthOperator(
 	serviceCAController := serviceca.NewServiceCAController(
 		"openshift-authentication",
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		informerFactories.operatorConfigInformer,
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
