@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -25,6 +26,10 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	configinformers "github.com/openshift/client-go/config/informers/externalversions"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	routev1lister "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -66,11 +71,18 @@ type payloadConfigController struct {
 	configMaps     corev1client.ConfigMapsGetter
 	secrets        corev1client.SecretsGetter
 	operatorClient v1helpers.OperatorClient
+
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1lister.ConfigMapLister
 }
 
 func NewPayloadConfigController(
 	instanceName string,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	operatorConfigInformers configinformers.SharedInformerFactory,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
 	configMaps corev1client.ConfigMapsGetter,
 	operatorClient v1helpers.OperatorClient,
@@ -83,6 +95,10 @@ func NewPayloadConfigController(
 		secrets:                secrets,
 		configMaps:             configMaps,
 		operatorClient:         operatorClient,
+
+		authLister:         operatorConfigInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -90,6 +106,8 @@ func NewPayloadConfigController(
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 		operatorClient.Informer(),
+		operatorConfigInformers.Config().V1().Authentications().Informer(),
+		kasInformer.Informer(),
 	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).WithSync(c.sync).ToController(c.controllerInstanceName, recorder.WithComponentSuffix("payload-config-controller"))
 }
 
@@ -138,6 +156,16 @@ func (c *payloadConfigController) getSessionSecret(ctx context.Context, recorder
 }
 
 func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.SyncContext) error {
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		if err := c.removeOperands(ctx); err != nil {
+			return err
+		}
+
+		return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, nil)
+	}
+
 	foundConditions := []operatorv1.OperatorCondition{}
 	foundConditions = append(foundConditions, c.getSessionSecret(ctx, syncContext.Recorder())...)
 
@@ -157,6 +185,18 @@ func (c *payloadConfigController) sync(ctx context.Context, syncContext factory.
 	}
 
 	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
+}
+
+func (c *payloadConfigController) removeOperands(ctx context.Context) error {
+	if err := c.secrets.Secrets("openshift-authentication").Delete(ctx, "v4-0-config-system-session", metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	if err := c.configMaps.ConfigMaps("openshift-authentication").Delete(ctx, "v4-0-config-system-cliconfig", metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
 }
 
 func (c *payloadConfigController) handleOAuthConfig(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, route *routev1.Route, service *corev1.Service, recorder events.Recorder) []operatorv1.OperatorCondition {
