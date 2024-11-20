@@ -18,6 +18,7 @@ import (
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -140,21 +141,30 @@ func prepareOauthOperator(
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
 		bindata.Asset,
-		[]string{
+		[]string{ // always created, never deleted
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
 			"oauth-openshift/authentication-clusterrolebinding.yaml",
-			"oauth-openshift/cabundle.yaml",
-			"oauth-openshift/branding-secret.yaml",
 			"oauth-openshift/serviceaccount.yaml",
-			"oauth-openshift/oauth-service.yaml",
 			"oauth-openshift/trust_distribution_role.yaml",
 			"oauth-openshift/trust_distribution_rolebinding.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient),
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
-	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
+	).AddKubeInformers(informerFactories.kubeInformersForNamespaces).
+		WithConditionalResources(bindata.Asset,
+			[]string{ // created if external OIDC disabled, deleted otherwise
+				"oauth-openshift/cabundle.yaml",
+				"oauth-openshift/branding-secret.yaml",
+				"oauth-openshift/oauth-service.yaml",
+			},
+			func() bool {
+				oidcAvailable, _ := common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister)
+				return !oidcAvailable
+			},
+			nil,
+		)
 
 	configObserver := configobservercontroller.NewConfigObserver(
 		authOperatorInput.authenticationOperatorClient,
