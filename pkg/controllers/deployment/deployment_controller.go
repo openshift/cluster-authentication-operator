@@ -23,6 +23,7 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -60,6 +61,7 @@ type oauthServerDeploymentSyncer struct {
 	proxyLister     configv1listers.ProxyLister
 	routeLister     routev1listers.RouteLister
 
+	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
 }
@@ -77,6 +79,7 @@ func NewOAuthServerWorkloadController(
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -94,6 +97,7 @@ func NewOAuthServerWorkloadController(
 		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
 		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
 
+		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
 
@@ -135,6 +139,13 @@ func NewOAuthServerWorkloadController(
 }
 
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return false, fmt.Errorf("checking if authentication mode is OIDC: %v", err)
+	} else if oidcAvailable {
+		// the route is no longer a pre-requisite
+		return true, nil
+	}
+
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)
