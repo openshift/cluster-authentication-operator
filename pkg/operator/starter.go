@@ -586,9 +586,7 @@ func prepareOauthAPIServerOperator(
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
-		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
-			return apiServices(), nil, nil
-		},
+		apiServicesFuncWrapper(authLister, kasLister, kasConfigMapLister),
 		informerFactories.apiregistrationInformers,
 		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
 		informerFactories.kubeInformersForNamespaces,
@@ -835,6 +833,20 @@ func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) 
 		return nil, nil
 	}
 	return &ret.Status.OperatorStatusApplyConfiguration, nil
+}
+
+func apiServicesFuncWrapper(authLister configv1listers.AuthenticationLister, kasLister operatorv1listers.KubeAPIServerLister, kasConfigMapLister corev1listers.ConfigMapLister) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+	return func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+		apiServices := apiServices()
+		if oidcAvailable, err := common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister); err != nil {
+			return nil, nil, err
+		} else if oidcAvailable {
+			// return apiServices as disabled
+			return nil, apiServices, nil
+		}
+
+		return apiServices, nil, nil
+	}
 }
 
 func countNodesFuncWrapper(nodeLister corev1listers.NodeLister, authLister configv1listers.AuthenticationLister, kasLister operatorv1listers.KubeAPIServerLister, kasConfigMapLister corev1listers.ConfigMapLister) func(nodeSelector map[string]string) (*int32, error) {
