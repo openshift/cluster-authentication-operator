@@ -8,12 +8,15 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
-	"sigs.k8s.io/yaml"
 	"strings"
 
+	"sigs.k8s.io/yaml"
+
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // TODO this is a good target to move to library-go so we all agree how to reference these.
@@ -23,10 +26,29 @@ type Resource struct {
 	Content      *unstructured.Unstructured
 }
 
+func (r Resource) ID() string {
+	name := r.Content.GetName()
+	namespace := r.Content.GetNamespace()
+	if namespace == "" {
+		namespace = "_cluster_scoped_resource_"
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", r.ResourceType.Group, r.ResourceType.Resource, namespace, name)
+}
+
 func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
+	discoveryClient, err := NewDiscoveryClientFromMustGather(location)
+	if err != nil {
+		return nil, err
+	}
+
+	_, apiResourceList, _, err := discoveryClient.GroupsAndMaybeResources()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get api resource list: %w", err)
+	}
+
 	currResourceList := []*Resource{}
 	errs := []error{}
-	err := filepath.WalkDir(location, func(currLocation string, currFile fs.DirEntry, err error) error {
+	err = filepath.WalkDir(location, func(currLocation string, currFile fs.DirEntry, err error) error {
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -37,11 +59,11 @@ func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
 		if !strings.HasSuffix(currFile.Name(), ".yaml") && !strings.HasSuffix(currFile.Name(), ".json") {
 			return nil
 		}
-		currResource, err := ResourceFromFile(currLocation, location)
+		currResource, err := ResourcesFromFile(apiResourceList, currLocation, location)
 		if err != nil {
 			return fmt.Errorf("error deserializing %q: %w", currLocation, err)
 		}
-		currResourceList = append(currResourceList, currResource)
+		currResourceList = append(currResourceList, currResource...)
 
 		return nil
 	})
@@ -52,7 +74,37 @@ func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
 	return currResourceList, errors.Join(errs...)
 }
 
-func ResourceFromFile(location, fileTrimPrefix string) (*Resource, error) {
+func findGVR(resources map[schema.GroupVersion]*metav1.APIResourceList, gvk schema.GroupVersionKind) (*schema.GroupVersionResource, error) {
+	apiResourceList, ok := resources[gvk.GroupVersion()]
+	if !ok {
+		return nil, fmt.Errorf("failed to find api resource list for gvk %s", gvk)
+	}
+
+	var matches []*schema.GroupVersionResource
+	for _, apiResource := range apiResourceList.APIResources {
+		if strings.Contains(apiResource.Name, "/") {
+			// Skip subresources
+			continue
+		}
+		if apiResource.Kind == gvk.Kind {
+			matches = append(matches, &schema.GroupVersionResource{
+				Group:    gvk.Group,
+				Version:  gvk.Version,
+				Resource: apiResource.Name,
+			})
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return nil, fmt.Errorf("failed to find resource for gvk %s", gvk)
+	default:
+		return nil, fmt.Errorf("multiple resources found for gvk %v", matches)
+	}
+}
+
+func ResourcesFromFile(apiResourceList map[schema.GroupVersion]*metav1.APIResourceList, location, fileTrimPrefix string) ([]*Resource, error) {
 	content, err := os.ReadFile(location)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read %q: %w", location, err)
@@ -73,11 +125,44 @@ func ResourceFromFile(location, fileTrimPrefix string) (*Resource, error) {
 
 	retFilename := strings.TrimPrefix(location, fileTrimPrefix)
 	retFilename = strings.TrimPrefix(retFilename, "/")
+	retContent := ret.(*unstructured.Unstructured)
 
-	return &Resource{
+	resource := &Resource{
 		Filename: retFilename,
-		Content:  ret.(*unstructured.Unstructured),
-	}, nil
+		Content:  retContent,
+	}
+
+	// Short-circuit if the file contains a single resource
+	if !resource.Content.IsList() {
+		gvk := retContent.GroupVersionKind()
+		gvr, err := findGVR(apiResourceList, gvk)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find gvr: %w", err)
+		}
+		resource.ResourceType = *gvr
+		return []*Resource{resource}, nil
+	}
+
+	// Unpack if the file contains a list of resources
+	list, err := resource.Content.ToList()
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert resource content to list: %w", err)
+	}
+
+	resources := make([]*Resource, 0, len(list.Items))
+	for _, item := range list.Items {
+		gvr, err := findGVR(apiResourceList, item.GroupVersionKind())
+		if err != nil {
+			return nil, fmt.Errorf("failed to find gvr: %w", err)
+		}
+		resources = append(resources, &Resource{
+			Filename:     resource.Filename,
+			Content:      &item,
+			ResourceType: *gvr,
+		})
+	}
+
+	return resources, nil
 }
 
 func IdentifyResource(in *Resource) string {
@@ -145,4 +230,35 @@ func findResource(in []*Resource, filename string) *Resource {
 	}
 
 	return nil
+}
+
+func NewUniqueResourceSet(resources ...*Resource) *UniqueResourceSet {
+	u := &UniqueResourceSet{
+		seen:      sets.New[string](),
+		resources: []*Resource{},
+	}
+	u.Insert(resources...)
+	return u
+}
+
+type UniqueResourceSet struct {
+	seen      sets.Set[string]
+	resources []*Resource
+}
+
+func (u *UniqueResourceSet) Insert(resources ...*Resource) {
+	for _, resource := range resources {
+		if resource == nil {
+			continue
+		}
+		if u.seen.Has(resource.ID()) {
+			continue
+		}
+		u.resources = append(u.resources, resource)
+		u.seen.Insert(resource.ID())
+	}
+}
+
+func (u *UniqueResourceSet) List() []*Resource {
+	return u.resources
 }
