@@ -14,7 +14,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
@@ -64,9 +66,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	utilpointer "k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -127,6 +131,10 @@ func prepareOauthOperator(
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
 	)
+
+	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
+	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
+	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
@@ -231,7 +239,12 @@ func prepareOauthOperator(
 
 	deploymentController := deployment.NewOAuthServerWorkloadController(
 		authOperatorInput.authenticationOperatorClient,
-		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		countNodesFuncWrapper(
+			informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister(),
+			authLister,
+			kasLister,
+			kasConfigMapLister,
+		),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
@@ -407,9 +420,18 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
+	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
+	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
-		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
+		countNodesFuncWrapper(
+			informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister(),
+			authLister,
+			kasLister,
+			kasConfigMapLister,
+		),
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		"openshift-oauth-apiserver",
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
@@ -764,4 +786,17 @@ func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) 
 		return nil, nil
 	}
 	return &ret.Status.OperatorStatusApplyConfiguration, nil
+}
+
+func countNodesFuncWrapper(nodeLister corev1listers.NodeLister, authLister configv1listers.AuthenticationLister, kasLister operatorv1listers.KubeAPIServerLister, kasConfigMapLister corev1listers.ConfigMapLister) func(nodeSelector map[string]string) (*int32, error) {
+	return func(nodeSelector map[string]string) (*int32, error) {
+		if oidcAvailable, err := common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister); err != nil {
+			return nil, err
+		} else if oidcAvailable {
+			return ptr.To(int32(0)), nil
+		}
+
+		defaultFunc := workloadcontroller.CountNodesFuncWrapper(nodeLister)
+		return defaultFunc(nodeSelector)
+	}
 }

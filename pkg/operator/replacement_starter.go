@@ -236,6 +236,7 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 			"", // an informer for non-namespaced resources
 			"kube-system",
 			libgoetcd.EtcdEndpointNamespace,
+			"openshift-kube-apiserver",
 		),
 		operatorConfigInformer:   configinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.configClient, resync),
 		operatorInformer:         operatorinformer.NewSharedInformerFactory(authOperatorInput.operatorClient, 24*time.Hour),
