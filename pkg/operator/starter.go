@@ -14,7 +14,9 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
@@ -66,6 +68,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"k8s.io/utils/ptr"
@@ -446,6 +449,10 @@ func prepareOauthAPIServerOperator(
 
 	const apiServerConditionsPrefix = "APIServer"
 
+	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
+	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
+	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",
 		authOperatorInput.authenticationOperatorClient,
@@ -532,9 +539,7 @@ func prepareOauthAPIServerOperator(
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
-		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
-			return apiServices(), nil, nil
-		},
+		apiServicesFuncWrapper(authLister, kasLister, kasConfigMapLister),
 		informerFactories.apiregistrationInformers,
 		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
 		informerFactories.kubeInformersForNamespaces,
@@ -813,4 +818,18 @@ func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) 
 		return nil, nil
 	}
 	return &ret.Status.OperatorStatusApplyConfiguration, nil
+}
+
+func apiServicesFuncWrapper(authLister configv1listers.AuthenticationLister, kasLister operatorv1listers.KubeAPIServerLister, kasConfigMapLister corev1listers.ConfigMapLister) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+	return func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+		apiServices := apiServices()
+		if oidcAvailable, err := common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister); err != nil {
+			return nil, nil, err
+		} else if oidcAvailable {
+			// return apiServices as disabled
+			return nil, apiServices, nil
+		}
+
+		return apiServices, nil, nil
+	}
 }
