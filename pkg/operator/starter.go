@@ -256,6 +256,8 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 		versionRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver"),
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
