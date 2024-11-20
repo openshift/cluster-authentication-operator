@@ -16,6 +16,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -129,25 +130,38 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
+	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
+	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
+
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
 		bindata.Asset,
-		[]string{
+		[]string{ // required resources
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
 			"oauth-openshift/authentication-clusterrolebinding.yaml",
-			"oauth-openshift/cabundle.yaml",
-			"oauth-openshift/branding-secret.yaml",
 			"oauth-openshift/serviceaccount.yaml",
-			"oauth-openshift/oauth-service.yaml",
-			"oauth-openshift/trust_distribution_role.yaml",
-			"oauth-openshift/trust_distribution_rolebinding.yaml",
-			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
-	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
+	).AddKubeInformers(informerFactories.kubeInformersForNamespaces).
+		WithConditionalResources(bindata.Asset,
+			[]string{ // OAuth specific resources; deleted when OIDC is enabled
+				"oauth-openshift/cabundle.yaml",
+				"oauth-openshift/branding-secret.yaml",
+				"oauth-openshift/oauth-service.yaml",
+				"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
+				"oauth-openshift/trust_distribution_role.yaml",
+				"oauth-openshift/trust_distribution_rolebinding.yaml",
+			},
+			func() bool {
+				oidcAvailable, _ := common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister)
+				return !oidcAvailable
+			},
+			nil,
+		)
 
 	configObserver := configobservercontroller.NewConfigObserver(
 		authOperatorInput.authenticationOperatorClient,
