@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -9,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -88,7 +90,7 @@ func TestObserveTemplates(t *testing.T) {
 				ConfigMapLister: corelistersv1.NewConfigMapLister(indexer),
 				ResourceSync:    &mockResourceSyncer{t: t, synced: syncerData},
 			}
-			got, errs := ObserveTemplates(listers, events.NewInMemoryRecorder(t.Name()), tt.previouslyObservedConfig)
+			got, errs := ObserveTemplates(listers, events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now())), tt.previouslyObservedConfig)
 			if len(errs) > 0 {
 				t.Errorf("Expected 0 errors, got %v.", len(errs))
 			}

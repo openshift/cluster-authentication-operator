@@ -3,6 +3,7 @@ package routersecret
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -10,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -180,7 +182,7 @@ func TestObserveRouterSecret(t *testing.T) {
 				IngressLister: configlistersv1.NewIngressLister(indexer),
 			}
 
-			eventRecorder := events.NewInMemoryRecorder(tt.name)
+			eventRecorder := events.NewInMemoryRecorder(tt.name, clocktesting.NewFakePassiveClock(time.Now()))
 			gotConfig, errs := ObserveRouterSecret(listers, eventRecorder, tt.existingConfig)
 			if !reflect.DeepEqual(gotConfig, tt.expectedConfig) {
 				t.Errorf("ObserveRouterSecret() gotConfig = %v, want %v", gotConfig, tt.expectedConfig)

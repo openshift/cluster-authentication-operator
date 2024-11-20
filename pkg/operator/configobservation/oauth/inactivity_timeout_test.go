@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -181,7 +182,7 @@ func TestObserveAccessTokenInactivityTimeout(t *testing.T) {
 
 			lister := testLister{lister: configlistersv1.NewOAuthLister(indexer)}
 
-			got, errs := ObserveAccessTokenInactivityTimeout(lister, events.NewInMemoryRecorder(t.Name()), tt.previouslyObservedConfig)
+			got, errs := ObserveAccessTokenInactivityTimeout(lister, events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now())), tt.previouslyObservedConfig)
 			if len(errs) != len(tt.errors) {
 				t.Errorf("Expected %d errors, got %d.", len(tt.errors), errs)
 			}
@@ -197,7 +198,7 @@ func TestObserveAccessTokenInactivityTimeout(t *testing.T) {
 		},
 	}
 
-	got, errs := ObserveAccessTokenInactivityTimeout(invalidLister{}, events.NewInMemoryRecorder("fakeRecorder"), existingConfig)
+	got, errs := ObserveAccessTokenInactivityTimeout(invalidLister{}, events.NewInMemoryRecorder("fakeRecorder", clocktesting.NewFakePassiveClock(time.Now())), existingConfig)
 
 	// There must be only one kind of error asserting the lister type.
 	if len(errs) != 1 {

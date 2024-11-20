@@ -2,12 +2,14 @@ package oauth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -119,7 +121,7 @@ func TestObserveTokenConfig(t *testing.T) {
 			listers := configobservation.Listers{
 				OAuthLister_: configlistersv1.NewOAuthLister(indexer),
 			}
-			got, errs := ObserveTokenConfig(listers, events.NewInMemoryRecorder(t.Name()), tt.previouslyObservedConfig)
+			got, errs := ObserveTokenConfig(listers, events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now())), tt.previouslyObservedConfig)
 			if len(errs) > 0 {
 				t.Errorf("Expected 0 errors, got %v.", len(errs))
 			}
