@@ -17,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -608,7 +607,7 @@ func TestExternalOIDCController_validateAuthenticationConfiguration(t *testing.T
 		{
 			name:        "empty config",
 			authConfig:  apiserverv1beta1.AuthenticationConfiguration{},
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "issuer with empty URL",
@@ -629,135 +628,10 @@ func TestExternalOIDCController_validateAuthenticationConfiguration(t *testing.T
 			expectError: true,
 		},
 		{
-			name: "issuer with user in URL",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.URL = "https://username:password@secure.com"
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with query in URL",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.URL = "https://secure.com?query=true"
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with fragment in URL",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.URL = "https://secure.com/index.html#fragment"
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer without audiences",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.Audiences = []string{}
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with empty audience",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.Audiences = []string{
-						"aud1",
-						"",
-					}
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with duplicate audience",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].Issuer.Audiences = []string{
-						"aud1",
-						"aud2",
-						"aud1",
-					}
-				},
-			}),
-			expectError: true,
-		},
-		{
 			name: "issuer with invalid CA",
 			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
 				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
 					authConfig.JWT[0].Issuer.CertificateAuthority = "invalid CA"
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with empty claim validation rule",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].ClaimValidationRules = []apiserverv1beta1.ClaimValidationRule{
-						{
-							Claim: "",
-						},
-					}
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with duplicate claim validation rule",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].ClaimValidationRules = []apiserverv1beta1.ClaimValidationRule{
-						{
-							Claim:         "claim1",
-							RequiredValue: "val",
-						},
-						{
-							Claim:         "claim2",
-							RequiredValue: "val",
-						},
-						{
-							Claim:         "claim1",
-							RequiredValue: "val",
-						},
-					}
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with empty username claim",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].ClaimMappings.Username.Claim = ""
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with empty username prefix while claim exists",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].ClaimMappings.Username.Claim = "claim"
-					authConfig.JWT[0].ClaimMappings.Username.Prefix = nil
-				},
-			}),
-			expectError: true,
-		},
-		{
-			name: "issuer with empty groups prefix while claim exists",
-			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-					authConfig.JWT[0].ClaimMappings.Groups.Claim = "claim"
-					authConfig.JWT[0].ClaimMappings.Groups.Prefix = nil
 				},
 			}),
 			expectError: true,
@@ -773,13 +647,13 @@ func TestExternalOIDCController_validateAuthenticationConfiguration(t *testing.T
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := validateAuthenticationConfiguration(tt.authConfig)
-			if tt.expectError && len(errs) == 0 {
+			err := validateAuthenticationConfiguration(tt.authConfig)
+			if tt.expectError && err == nil {
 				t.Errorf("expected error but didn't get any")
 			}
 
-			if !tt.expectError && len(errs) > 0 {
-				t.Errorf("did not expect any error but got: %v", errs)
+			if !tt.expectError && err != nil {
+				t.Errorf("did not expect any error but got: %v", err)
 			}
 
 		})
@@ -796,20 +670,16 @@ func TestExternalOIDCController_validateCACert(t *testing.T) {
 	}
 	defer testServer.Close()
 	testServer.StartTLS()
-	serverURL, err := url.Parse(testServer.URL)
-	if err != nil {
-		t.Fatalf("could not parse test server URL: %v", err)
-	}
 
 	t.Run("nil CA cert to use system CAs", func(t *testing.T) {
-		err := validateCACert(*serverURL, nil)
+		err := validateCACert(testServer.URL, nil)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
 	})
 
 	t.Run("valid CA cert", func(t *testing.T) {
-		err := validateCACert(*serverURL, certPool)
+		err := validateCACert(testServer.URL, certPool)
 		if err != nil {
 			t.Errorf("got error while not expecting one: %v", err)
 		}
@@ -822,32 +692,28 @@ func TestExternalOIDCController_validateCACert(t *testing.T) {
 		}
 		certPool := x509.NewCertPool()
 		certPool.AddCert(anotherCACert)
-		err = validateCACert(*serverURL, certPool)
+		err = validateCACert(testServer.URL, certPool)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
 	})
 
 	t.Run("unknown URL", func(t *testing.T) {
-		u, err := url.Parse("https://does-not-exist.com")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		err = validateCACert(*u, certPool)
+		err = validateCACert("https://does-not-exist.com", certPool)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
 	})
 
 	t.Run("nil cert pool", func(t *testing.T) {
-		err := validateCACert(*serverURL, nil)
+		err := validateCACert(testServer.URL, nil)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
 	})
 
 	t.Run("empty cert pool", func(t *testing.T) {
-		err := validateCACert(*serverURL, x509.NewCertPool())
+		err := validateCACert(testServer.URL, x509.NewCertPool())
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
@@ -865,12 +731,8 @@ func TestExternalOIDCController_validateCACert(t *testing.T) {
 		}
 		defer testServer.Close()
 		testServer.StartTLS()
-		serverURL, err := url.Parse(testServer.URL)
-		if err != nil {
-			t.Fatalf("could not parse test server URL: %v", err)
-		}
 
-		err = validateCACert(*serverURL, certPool)
+		err = validateCACert(testServer.URL, certPool)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}
@@ -887,12 +749,8 @@ func TestExternalOIDCController_validateCACert(t *testing.T) {
 		}
 		defer testServer.Close()
 		testServer.StartTLS()
-		serverURL, err := url.Parse(testServer.URL)
-		if err != nil {
-			t.Fatalf("could not parse test server URL: %v", err)
-		}
 
-		err = validateCACert(*serverURL, certPool)
+		err = validateCACert(testServer.URL, certPool)
 		if err == nil {
 			t.Errorf("did not get an error while expecting one")
 		}

@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -124,9 +123,8 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return nil
 	}
 
-	errList := validateAuthenticationConfiguration(*authConfig)
-	if len(errList) > 0 {
-		return fmt.Errorf("auth config validation failed: %v", errList)
+	if err := validateAuthenticationConfiguration(*authConfig); err != nil {
+		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
 	cm := corev1ac.ConfigMap(targetAuthConfigCMName, managedNamespace).WithData(map[string]string{authConfigDataKey: authConfigJSON})
@@ -219,114 +217,36 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 	return &authConfig, nil
 }
 
-// validateAuthenticationConfiguration runs as many validations as possible
-// on the AuthenticationConfiguration in order to catch validation errors early in the process
-// instead of waiting for the KAS pods to roll out and consume the configuration
-func validateAuthenticationConfiguration(auth apiserverv1beta1.AuthenticationConfiguration) (errs []error) {
-	// TODO currently validations from k8s.io/apiserver/pkg/apis/apiserver/validation cannot be used here
-	// since they aren't defined for the beta type; once the feature goes out of beta, we should replace
-	// this func with the upstream validations (but keep CA cert validation)
-
-	if len(auth.JWT) == 0 {
-		errs = append(errs, fmt.Errorf("no JWT issuers defined"))
-	}
-
+// validateAuthenticationConfiguration performs validations that are not done at the server-side,
+// including validation that the provided CA cert (or system CAs if not specified) can be used for
+// TLS cert verification
+func validateAuthenticationConfiguration(auth apiserverv1beta1.AuthenticationConfiguration) error {
 	for _, jwt := range auth.JWT {
-		var issuerURL *url.URL
-		issuerURLValid := true
-		if len(jwt.Issuer.URL) == 0 {
-			errs = append(errs, fmt.Errorf("issuer URL must not be empty"))
-			issuerURLValid = false
-		} else {
-			var err error
-			issuerURL, err = url.Parse(jwt.Issuer.URL)
-			if err != nil {
-				errs = append(errs, err)
-				issuerURLValid = false
-			} else {
-				if issuerURL.Scheme != "https" {
-					errs = append(errs, fmt.Errorf("issuer URL must use HTTPS"))
-					issuerURLValid = false
-				}
-				if issuerURL.User != nil {
-					errs = append(errs, fmt.Errorf("URL must not contain a username or password"))
-					issuerURLValid = false
-				}
-				if len(issuerURL.RawQuery) > 0 {
-					errs = append(errs, fmt.Errorf("URL must not contain a query"))
-					issuerURLValid = false
-				}
-				if len(issuerURL.Fragment) > 0 {
-					errs = append(errs, fmt.Errorf("URL must not contain a fragment"))
-					issuerURLValid = false
-				}
-			}
-		}
-
-		if len(jwt.Issuer.Audiences) == 0 {
-			errs = append(errs, fmt.Errorf("at least one audience must be defined"))
-		}
-		seenAudiences := sets.NewString()
-		for i, aud := range jwt.Issuer.Audiences {
-			if len(aud) == 0 {
-				errs = append(errs, fmt.Errorf("audience must not be empty (at index %d)", i))
-			} else if seenAudiences.Has(aud) {
-				errs = append(errs, fmt.Errorf("duplicate audience: %s", aud))
-			}
-
-			seenAudiences.Insert(aud)
-		}
-
 		var caCertPool *x509.CertPool
-		caCertPoolValid := true
+		var err error
 		if len(jwt.Issuer.CertificateAuthority) > 0 {
-			var err error
 			caCertPool, err = cert.NewPoolFromBytes([]byte(jwt.Issuer.CertificateAuthority))
 			if err != nil {
-				caCertPoolValid = false
-				errs = append(errs, fmt.Errorf("issuer CA is invalid: %v", err))
+				return fmt.Errorf("issuer CA is invalid: %v", err)
 			}
 		}
 
-		if issuerURL != nil && issuerURLValid && caCertPoolValid {
-			// make sure we can access the issuer with the given cert pool (system CAs used if pool is empty)
-			if err := validateCACert(*issuerURL, caCertPool); err != nil {
-				certMessage := "using the specified CA cert"
-				if caCertPool == nil {
-					certMessage = "using the system CAs"
-				}
-				errs = append(errs, fmt.Errorf("could not validate IDP URL %s: %v", certMessage, err))
+		// make sure we can access the issuer with the given cert pool (system CAs used if pool is empty)
+		if err := validateCACert(jwt.Issuer.URL, caCertPool); err != nil {
+			certMessage := "using the specified CA cert"
+			if caCertPool == nil {
+				certMessage = "using the system CAs"
 			}
-		}
-
-		seenClaims := sets.NewString()
-		for i, rule := range jwt.ClaimValidationRules {
-			if len(rule.Claim) == 0 {
-				errs = append(errs, fmt.Errorf("claim must not be empty for claim validation rule at index %d", i))
-			} else if seenClaims.Has(rule.Claim) {
-				errs = append(errs, fmt.Errorf("duplicate claim validation rule: %s", rule.Claim))
-			}
-
-			seenClaims.Insert(rule.Claim)
-		}
-
-		if len(jwt.ClaimMappings.Username.Claim) == 0 {
-			errs = append(errs, fmt.Errorf("username claim must not be empty"))
-		} else if jwt.ClaimMappings.Username.Prefix == nil {
-			errs = append(errs, fmt.Errorf("username prefix must not be nil when claim is set"))
-		}
-
-		if len(jwt.ClaimMappings.Groups.Claim) > 0 && jwt.ClaimMappings.Groups.Prefix == nil {
-			errs = append(errs, fmt.Errorf("group prefix must not be nil when claim is set"))
+			return fmt.Errorf("could not validate IDP URL %s: %v", certMessage, err)
 		}
 	}
 
-	return
+	return nil
 }
 
 // validateCACert makes a request to the provider's well-known endpoint using the
 // specified CA cert pool to validate that the certs in the pool match the host
-func validateCACert(hostURL url.URL, caCertPool *x509.CertPool) error {
+func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: caCertPool},
@@ -340,7 +260,7 @@ func validateCACert(hostURL url.URL, caCertPool *x509.CertPool) error {
 		Timeout: 5 * time.Second,
 	}
 
-	wellKnown := strings.TrimSuffix(hostURL.String(), "/") + oidcDiscoveryEndpointPath
+	wellKnown := strings.TrimSuffix(hostURL, "/") + oidcDiscoveryEndpointPath
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
 	if err != nil {
 		return fmt.Errorf("could not create well-known HTTP request: %v", err)
