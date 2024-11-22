@@ -15,6 +15,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
@@ -26,6 +27,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientscontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientsswitchedinformer"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
@@ -39,6 +41,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
@@ -254,10 +257,25 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	oauthClientsSwitchedInformer := oauthclientsswitchedinformer.NewSwitchedInformer(
+		"OAuthClientsInformerWithSwitchController",
+		ctx,
+		func() (bool, error) {
+			return common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister)
+		},
+		oauthinformers.NewSharedInformerFactoryWithOptions(authOperatorInput.oauthClient, 1*time.Minute).Oauth().V1().OAuthClients().Informer(),
+		0,
+		[]factory.Informer{
+			informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Informer(),
+			informerFactories.operatorConfigInformer.Config().V1().Authentications().Informer(),
+		},
+		authOperatorInput.eventRecorder,
+	)
+
 	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.oauthClient.OauthV1().OAuthClients(),
-		informerFactories.oauthInformers,
+		oauthClientsSwitchedInformer,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
 		informerFactories.operatorConfigInformer,
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
@@ -384,6 +402,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-deploymentController", deploymentController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-managementStateController", managementStateController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-metadataController", metadataController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsSwitchedInformerController", oauthClientsSwitchedInformer.Controller().Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsController", oauthClientsController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-payloadConfigController", payloadConfigController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-routerCertsController", routerCertsController.Sync),
@@ -406,6 +425,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptRunFn(deploymentController.Run),
 		libraryapplyconfiguration.AdaptRunFn(managementStateController.Run),
 		libraryapplyconfiguration.AdaptRunFn(metadataController.Run),
+		libraryapplyconfiguration.AdaptRunFn(oauthClientsSwitchedInformer.Controller().Run),
 		libraryapplyconfiguration.AdaptRunFn(oauthClientsController.Run),
 		libraryapplyconfiguration.AdaptRunFn(payloadConfigController.Run),
 		libraryapplyconfiguration.AdaptRunFn(routerCertsController.Run),
