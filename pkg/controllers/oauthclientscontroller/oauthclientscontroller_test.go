@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -14,14 +15,17 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	fakeoauthclient "github.com/openshift/client-go/oauth/clientset/versioned/fake"
+	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientsswitchedinformer"
 	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
 	"github.com/openshift/library-go/pkg/operator/events"
 )
@@ -119,12 +123,24 @@ func newAuthLister(t *testing.T) configv1listers.AuthenticationLister {
 
 func newTestOAuthsClientsController(t *testing.T) (*oauthsClientsController, cache.Indexer) {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	oauthClientset := fakeoauthclient.NewSimpleClientset()
+	switchedInformer := oauthclientsswitchedinformer.NewSwitchedInformer(
+		"TestOAuthClientsInformerWithSwitchController",
+		context.TODO(),
+		func() (bool, error) { return false, nil },
+		oauthinformers.NewSharedInformerFactoryWithOptions(oauthClientset, 1*time.Minute).Oauth().V1().OAuthClients(),
+		0,
+		nil,
+		events.NewInMemoryRecorder("oauthclientscontroller_test", clocktesting.NewFakePassiveClock(time.Now())),
+	)
+
 	return &oauthsClientsController{
-		oauthClientClient: fakeoauthclient.NewSimpleClientset().OauthV1().OAuthClients(),
-		oauthClientLister: oauthv1listers.NewOAuthClientLister(indexer),
-		routeLister:       newRouteLister(t, defaultRoute),
-		ingressLister:     newIngressLister(t, defaultIngress),
-		authLister:        newAuthLister(t),
+		authLister:          newAuthLister(t),
+		ingressLister:       newIngressLister(t, defaultIngress),
+		oauthClientClient:   oauthClientset.OauthV1().OAuthClients(),
+		oauthClientInformer: switchedInformer.Informer(),
+		oauthClientLister:   oauthv1listers.NewOAuthClientLister(indexer),
+		routeLister:         newRouteLister(t, defaultRoute),
 	}, indexer
 }
 
