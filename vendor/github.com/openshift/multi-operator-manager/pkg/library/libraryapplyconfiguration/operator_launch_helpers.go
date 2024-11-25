@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -26,7 +28,9 @@ type SimpleOperatorStarter struct {
 	// ControllerRunFns is useful during a transition to coalesce the operator launching flow.
 	ControllerRunFns []RunFunc
 	// Controllers hold an optional list of controller names to run.
-	// By default, all controllers are run.
+	// '*' means "all controllersFromFlags are enabled by default"
+	// 'foo' means "enable 'foo'"
+	// '-foo' means "disable 'foo'"
 	Controllers []string
 }
 
@@ -60,18 +64,15 @@ func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
 		return fmt.Errorf("the following controllers were requested to run multiple times: %v", duplicateControllerNames)
 	}
 
-	controllersToRunSet := sets.NewString(a.Controllers...)
-	if controllersToRunSet.Len() == 0 {
-		controllersToRunSet = knownControllersSet
-	}
-	if unknownControllersToRun := controllersToRunSet.Difference(knownControllersSet); len(unknownControllersToRun) > 0 {
-		return fmt.Errorf("requested unknown controllers to be run: %v, known controllers: %v", unknownControllersToRun.List(), knownControllersSet.List())
+	if errs := validateControllersFromFlags(knownControllersSet, a.Controllers); len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
+	shuffleNamedRunOnce(a.ControllerNamedRunOnceFns)
 	errs := []error{}
 	for _, controllerRunner := range a.ControllerNamedRunOnceFns {
 		func() {
-			if !controllersToRunSet.Has(controllerRunner.ControllerInstanceName()) {
+			if !isControllerEnabled(controllerRunner.ControllerInstanceName(), a.Controllers) {
 				return
 			}
 			localCtx, localCancel := context.WithTimeout(ctx, 1*time.Second)
@@ -160,6 +161,30 @@ func AdaptSyncFn(eventRecorder events.Recorder, controllerName string, originalR
 	})
 }
 
+type Syncer interface {
+	Sync(ctx context.Context, controllerContext factory.SyncContext) error
+}
+
+type ControllerWithInstanceName interface {
+	ControllerInstanceName() string
+}
+
+func AdaptNamedController(eventRecorder events.Recorder, controller Syncer) NamedRunOnce {
+	controllerWithInstanceName, ok := controller.(ControllerWithInstanceName)
+	if !ok {
+		panic(fmt.Sprintf("%T doesn't expose ControllerInstanceName() method which is required", controller))
+	}
+	controllerInstanceName := controllerWithInstanceName.ControllerInstanceName()
+	if len(controllerInstanceName) == 0 {
+		panic(fmt.Sprintf("%T cannot return an empty ControllerInstanceName", controller))
+	}
+
+	return NewNamedRunOnce(controllerInstanceName, func(ctx context.Context) error {
+		syncCtx := factory.NewSyncContext("run-named-once-sync-context", eventRecorder)
+		return controller.Sync(ctx, syncCtx)
+	})
+}
+
 type generatedInformerFactory struct {
 	delegate GeneratedInformerFactory
 }
@@ -199,4 +224,43 @@ func (g generatedNamespacedInformerFactory) Start(ctx context.Context) {
 
 func (g generatedNamespacedInformerFactory) WaitForCacheSync(ctx context.Context) {
 	g.delegate.WaitForCacheSync(ctx.Done())
+}
+
+func shuffleNamedRunOnce(controllers []NamedRunOnce) {
+	rand.Shuffle(len(controllers), func(i, j int) {
+		controllers[i], controllers[j] = controllers[j], controllers[i]
+	})
+}
+
+func isControllerEnabled(name string, controllers []string) bool {
+	hasStar := false
+	for _, ctrl := range controllers {
+		if ctrl == name {
+			return true
+		}
+		if ctrl == "-"+name {
+			return false
+		}
+		if ctrl == "*" {
+			hasStar = true
+		}
+	}
+
+	return hasStar
+}
+
+func validateControllersFromFlags(allKnownControllersSet sets.String, controllersToRunFromFlags []string) []error {
+	var errs []error
+	for _, initialName := range controllersToRunFromFlags {
+		if initialName == "*" {
+			continue
+		}
+		initialNameWithoutPrefix := strings.TrimPrefix(initialName, "-")
+		controllerName := initialNameWithoutPrefix
+		if !allKnownControllersSet.Has(controllerName) {
+			errs = append(errs, fmt.Errorf("%q is not in the list of known controllers", initialNameWithoutPrefix))
+		}
+	}
+
+	return errs
 }

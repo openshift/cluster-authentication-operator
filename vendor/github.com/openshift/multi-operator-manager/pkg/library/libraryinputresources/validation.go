@@ -27,7 +27,10 @@ func validateResourceList(path *field.Path, obj ResourceList) []error {
 	for i, curr := range obj.ExactResources {
 		errs = append(errs, validateExactResourceID(path.Child("exactResources").Index(i), curr)...)
 	}
-	for i, curr := range obj.ResourceReference {
+	for i, curr := range obj.LabelSelectedResources {
+		errs = append(errs, validateLabelSelectedResources(path.Child("labelSelectedResources").Index(i), curr)...)
+	}
+	for i, curr := range obj.ResourceReferences {
 		errs = append(errs, validateResourceReference(path.Child("resourceReferences").Index(i), curr)...)
 	}
 
@@ -42,6 +45,16 @@ func validateExactResourceID(path *field.Path, obj ExactResourceID) []error {
 		errs = append(errs, field.Required(path.Child("name"), "must be present"))
 	}
 
+	return errs
+}
+
+func validateLabelSelectedResources(path *field.Path, obj LabelSelectedResource) []error {
+	errs := []error{}
+
+	errs = append(errs, validateInputResourceTypeIdentifier(path, obj.InputResourceTypeIdentifier)...)
+	if len(obj.LabelSelector.MatchExpressions) > 0 {
+		errs = append(errs, field.Forbidden(path.Child("matchExpressions"), "not supported"))
+	}
 	return errs
 }
 

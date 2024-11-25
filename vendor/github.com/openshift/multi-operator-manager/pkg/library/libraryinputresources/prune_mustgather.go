@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -56,23 +57,34 @@ func GetRequiredInputResourcesFromMustGather(ctx context.Context, inputResources
 }
 
 func NewDynamicClientFromMustGather(mustGatherDir string) (dynamic.Interface, error) {
-	roundTripper := manifestclient.NewRoundTripper(mustGatherDir)
-	httpClient := &http.Client{
-		Transport: roundTripper,
-	}
-
+	httpClient := newHTTPClientFromMustGather(mustGatherDir)
 	dynamicClient, err := dynamic.NewForConfigAndClient(&rest.Config{}, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("failure creating dynamicClient for NewDynamicClientFromMustGather: %w", err)
 	}
-
 	return dynamicClient, nil
+}
+
+func NewDiscoveryClientFromMustGather(mustGatherDir string) (discovery.AggregatedDiscoveryInterface, error) {
+	httpClient := newHTTPClientFromMustGather(mustGatherDir)
+	discoveryClient, err := discovery.NewDiscoveryClientForConfigAndClient(manifestclient.RecommendedRESTConfig(), httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("failure creating discoveryClient for NewDiscoveryClientFromMustGather: %w", err)
+	}
+	return discoveryClient, nil
+}
+
+func newHTTPClientFromMustGather(mustGatherDir string) *http.Client {
+	roundTripper := manifestclient.NewRoundTripper(mustGatherDir)
+	return &http.Client{
+		Transport: roundTripper,
+	}
 }
 
 var builder = gval.Full(jsonpath.Language())
 
 func GetRequiredInputResourcesForResourceList(ctx context.Context, resourceList ResourceList, dynamicClient dynamic.Interface) ([]*Resource, error) {
-	instances := []*Resource{}
+	instances := NewUniqueResourceSet()
 	errs := []error{}
 
 	for _, currResource := range resourceList.ExactResources {
@@ -84,15 +96,26 @@ func GetRequiredInputResourcesForResourceList(ctx context.Context, resourceList 
 			errs = append(errs, err)
 			continue
 		}
-		instances = append(instances, resourceInstance)
+		instances.Insert(resourceInstance)
+	}
+
+	for _, currResource := range resourceList.LabelSelectedResources {
+		resourceList, err := getResourcesByLabelSelector(ctx, dynamicClient, currResource)
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		instances.Insert(resourceList...)
 	}
 
 	path := field.NewPath(".")
-	for i, currResourceRef := range resourceList.ResourceReference {
+	for i, currResourceRef := range resourceList.ResourceReferences {
 		currFieldPath := path.Child("resourceReference").Index(i)
 
-		referringGVR := schema.GroupVersionResource{Group: currResourceRef.ReferringResource.Group, Version: currResourceRef.ReferringResource.Version, Resource: currResourceRef.ReferringResource.Resource}
-		referringResourceInstance, err := dynamicClient.Resource(referringGVR).Namespace(currResourceRef.ReferringResource.Namespace).Get(ctx, currResourceRef.ReferringResource.Name, metav1.GetOptions{})
+		referringResourceInstance, err := getExactResource(ctx, dynamicClient, currResourceRef.ReferringResource)
 		if apierrors.IsNotFound(err) {
 			continue
 		}
@@ -100,6 +123,7 @@ func GetRequiredInputResourcesForResourceList(ctx context.Context, resourceList 
 			errs = append(errs, fmt.Errorf("failed reading referringResource [%v] %#v: %w", currFieldPath, currResourceRef.ReferringResource, err))
 			continue
 		}
+		instances.Insert(referringResourceInstance)
 
 		switch {
 		case currResourceRef.ImplicitNamespacedReference != nil:
@@ -109,7 +133,7 @@ func GetRequiredInputResourcesForResourceList(ctx context.Context, resourceList 
 				continue
 			}
 
-			results, err := fieldPathEvaluator(ctx, referringResourceInstance.UnstructuredContent())
+			results, err := fieldPathEvaluator(ctx, referringResourceInstance.Content.UnstructuredContent())
 			if err != nil {
 				errs = append(errs, fmt.Errorf("unexpected error finding value for %v from %v with jsonPath: %w", currFieldPath, "TODO", err))
 				continue
@@ -145,12 +169,12 @@ func GetRequiredInputResourcesForResourceList(ctx context.Context, resourceList 
 					continue
 				}
 
-				instances = append(instances, resourceInstance)
+				instances.Insert(resourceInstance)
 			}
 		}
 	}
 
-	return instances, errors.Join(errs...)
+	return instances.List(), errors.Join(errs...)
 }
 
 func getExactResource(ctx context.Context, dynamicClient dynamic.Interface, resourceReference ExactResourceID) (*Resource, error) {
@@ -165,6 +189,40 @@ func getExactResource(ctx context.Context, dynamicClient dynamic.Interface, reso
 		Content:      unstructuredInstance,
 	}
 	return resourceInstance, nil
+}
+
+func getResourcesByLabelSelector(ctx context.Context, dynamicClient dynamic.Interface, labelSelectedResource LabelSelectedResource) ([]*Resource, error) {
+	gvr := schema.GroupVersionResource{
+		Group:    labelSelectedResource.Group,
+		Version:  labelSelectedResource.Version,
+		Resource: labelSelectedResource.Resource,
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(&labelSelectedResource.LabelSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	namespace := labelSelectedResource.Namespace
+	if namespace == "" {
+		namespace = metav1.NamespaceAll
+	}
+
+	unstructuredList, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		return nil, fmt.Errorf("failed getting list of resources with labelSelector %q: %w", selector, err)
+	}
+
+	var resources []*Resource
+	for _, item := range unstructuredList.Items {
+		resourceInstance := &Resource{
+			ResourceType: gvr,
+			Content:      &item,
+		}
+		resources = append(resources, resourceInstance)
+	}
+
+	return resources, nil
 }
 
 func IdentifierForExactResourceRef(resourceReference *ExactResourceID) string {
@@ -234,8 +292,9 @@ func unstructuredToMustGatherFormat(in []*Resource) ([]*Resource, error) {
 		listAsUnstructured := &unstructured.Unstructured{Object: list.UnstructuredContent()}
 		resourceType := groupKindToResource[mustGatherKey.gk]
 		ret = append(ret, &Resource{
-			Filename: path.Join(namespacedString, mustGatherKey.namespace, groupString, fmt.Sprintf("%s.yaml", resourceType.Resource)),
-			Content:  listAsUnstructured,
+			Filename:     path.Join(namespacedString, mustGatherKey.namespace, groupString, fmt.Sprintf("%s.yaml", resourceType.Resource)),
+			Content:      listAsUnstructured,
+			ResourceType: resourceType,
 		})
 	}
 

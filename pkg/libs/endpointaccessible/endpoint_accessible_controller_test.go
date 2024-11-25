@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	clocktesting "k8s.io/utils/clock/testing"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -52,7 +55,7 @@ func Test_endpointAccessibleController_sync(t *testing.T) {
 				operatorClient: v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
 				endpointListFn: tt.endpointListFn,
 			}
-			if err := c.sync(context.Background(), factory.NewSyncContext(tt.name, events.NewInMemoryRecorder(tt.name))); (err != nil) != tt.wantErr {
+			if err := c.sync(context.Background(), factory.NewSyncContext(tt.name, events.NewInMemoryRecorder(tt.name, clocktesting.NewFakePassiveClock(time.Now())))); (err != nil) != tt.wantErr {
 				t.Errorf("sync() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

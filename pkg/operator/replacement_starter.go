@@ -39,7 +39,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/utils/clock"
 )
 
 type authenticationOperatorInput struct {
@@ -118,7 +117,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 			Kind:      "Deployment",
 			Namespace: "openshift-authentication-operator",
 			Name:      "authentication-operator",
-		})
+		}, momInput.Clock)
 
 	return &authenticationOperatorInput{
 		kubeClient:                   kubeClient,
@@ -167,7 +166,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 	}
 
 	authenticationOperatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
-		clock.RealClock{},
+		controllerContext.Clock,
 		controllerContext.KubeConfig,
 		operatorv1.GroupVersion.WithResource("authentications"),
 		operatorv1.GroupVersion.WithKind("Authentication"),
@@ -187,6 +186,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 			Namespace: "openshift-authentication-operator",
 			Name:      "authentication-operator",
 		},
+		controllerContext.Clock,
 	)
 
 	return &authenticationOperatorInput{

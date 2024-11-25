@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -249,7 +250,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 				systemCertPool:    tc.systemCertPool,
 				secretsClient:     secretsClient.CoreV1(),
 			}
-			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder")))
+			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder", clocktesting.NewFakePassiveClock(time.Now()))))
 			require.NoError(t, err)
 			_, s, _, _ := operatorClient.GetOperatorState()
 			require.Len(t, s.Conditions, 1)

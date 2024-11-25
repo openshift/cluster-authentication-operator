@@ -116,7 +116,7 @@ func RemoveEvents(requests []manifestclient.SerializedRequestish) []manifestclie
 
 	for _, curr := range requests {
 		metadata := curr.GetSerializedRequest().GetLookupMetadata()
-		if metadata.GVR.GroupResource() == coreEventGR || metadata.GVR.GroupResource() == eventGR {
+		if metadata.ResourceType.GroupResource() == coreEventGR || metadata.ResourceType.GroupResource() == eventGR {
 			continue
 		}
 		filteredRequests = append(filteredRequests, curr)
@@ -152,7 +152,7 @@ func metadataMatchesFilter(metadata manifestclient.ActionMetadata, allowedResour
 		return true
 	}
 
-	gr := metadata.GVR.GroupResource()
+	gr := metadata.ResourceType.GroupResource()
 	if gr == coreEventGR || gr == eventGR {
 		for _, curr := range allowedResources.EventingNamespaces {
 			if metadata.Namespace == curr {
@@ -165,8 +165,8 @@ func metadataMatchesFilter(metadata manifestclient.ActionMetadata, allowedResour
 		if len(metadata.GenerateName) > 0 {
 			continue
 		}
-		if metadata.GVR.Group == curr.Group &&
-			metadata.GVR.Resource == curr.Resource &&
+		if metadata.ResourceType.Group == curr.Group &&
+			metadata.ResourceType.Resource == curr.Resource &&
 			metadata.Namespace == curr.Namespace &&
 			metadata.Name == curr.Name {
 			return true
@@ -176,8 +176,8 @@ func metadataMatchesFilter(metadata manifestclient.ActionMetadata, allowedResour
 		if len(metadata.Name) > 0 {
 			continue
 		}
-		if metadata.GVR.Group == curr.Group &&
-			metadata.GVR.Resource == curr.Resource &&
+		if metadata.ResourceType.Group == curr.Group &&
+			metadata.ResourceType.Resource == curr.Resource &&
 			metadata.Namespace == curr.Namespace &&
 			metadata.GenerateName == curr.GeneratedName {
 			return true
