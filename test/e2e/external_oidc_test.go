@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/storage/names"
@@ -112,12 +113,9 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		caBundleName := idpName + "-ca"
 
 		// update the authentication CR with the external OIDC configuration
-		authConfig, c, err := tc.updateAuthForOIDC(testCtx, kcClient.IssuerURL(), idpName, caBundleName)
+		authConfig, c := tc.updateAuthForOIDC(testCtx, kcClient.IssuerURL(), idpName, caBundleName)
 		cleanups = append(cleanups, c...)
-		require.NoError(tc.t, err)
 		require.NotNil(tc.t, authConfig)
-		require.Equal(tc.t, configv1.AuthenticationTypeOIDC, authConfig.Spec.Type)
-		require.NotEmpty(tc.t, authConfig.Spec.OIDCProviders)
 
 		kasRevision := tc.validateKASConfig(testCtx)
 
@@ -350,16 +348,93 @@ func (tc *testClient) setupKeycloakClient(ctx context.Context, keycloakURL strin
 	return kcClient
 }
 
-func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, caBundleName string) (auth *configv1.Authentication, cleanups []func(), err error) {
+func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, caBundleName string) (auth *configv1.Authentication, cleanups []func()) {
 	tc.t.Log("will update auth CR for OIDC")
 
-	auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-	if err != nil {
-		return nil, cleanups, fmt.Errorf("get auth cluster error: %v", err)
-	}
+	auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(tc.t, err, "failed to get authentication/cluster")
 
+	// TODO add more claims, rules, etc
 	origSpec := (*auth).Spec.DeepCopy()
-	auth.Spec = configv1.AuthenticationSpec{
+
+	// first, make an invalid change to the Auth CR and make sure that the operator will become degraded
+	invalidCABundleName := caBundleName + "_invalid"
+	auth.Spec = getAuthSpecForOIDCProvider(idpName, idpURL, invalidCABundleName)
+	auth, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
+	cleanups = append(cleanups, func() {
+		auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
+		}
+
+		auth.Spec = *origSpec
+		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
+			tc.t.Fatalf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
+		}
+	})
+	require.NoError(tc.t, err, "failed to update authentication/cluster")
+
+	// test that the auth CR has been indeed updated successfully
+	require.NotEqual(tc.t, origSpec.Type, auth.Spec.Type)
+	require.Equal(tc.t, configv1.AuthenticationTypeOIDC, auth.Spec.Type)
+	require.NotEmpty(tc.t, auth.Spec.OIDCProviders)
+	require.Equal(tc.t, invalidCABundleName, auth.Spec.OIDCProviders[0].Issuer.CertificateAuthority.Name)
+
+	// however, the operator must be degraded as the change is invalid
+	tc.t.Logf("will wait for auth operator to become degraded")
+	err = test.WaitForClusterOperatorDegraded(tc.t, tc.configClient.ConfigV1(), "authentication")
+	require.NoError(tc.t, err, "failed to wait for cluster operator to get degraded")
+
+	// therefore no auth-config CM should exist in openshift-config-managed
+	_, err = tc.kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(ctx, "auth-config", metav1.GetOptions{})
+	require.True(tc.t, errors.IsNotFound(err), fmt.Sprintf("get openshift-config-managed/auth-config error: %v", err))
+
+	// now correct the invalid URL and make sure the operator becomes available
+	auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(tc.t, err, "failed to get authentication/cluster")
+	auth.Spec = getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName)
+
+	// record current KAS revision
+	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(tc.t, err, "failed to get kubeapiserver/cluster")
+	kasOriginalRevision := kas.Status.LatestAvailableRevision
+
+	auth, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
+	cleanups = append(cleanups, func() {
+		// add a wait for KAS rollout to the cleanups because at this stage we have had a valid OIDC config
+		// which needs to be rolled back
+		kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving kubeapiservers/cluster: %v", auth.Name, err)
+		}
+		kasOriginalCleanupRevision := kas.Status.LatestAvailableRevision
+
+		if kasOriginalCleanupRevision > kasOriginalRevision {
+			// a new rollout occured because of this test; cleanup will therefore cause another rollout
+			tc.t.Log("cleanup waiting for KAS rollout for original auth config")
+			if err := test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalCleanupRevision); err != nil {
+				tc.t.Fatalf("cleanup failed for authentication '%s' while waiting for KAS rollout: %v", auth.Name, err)
+			}
+		}
+	})
+	require.NoError(tc.t, err, "failed to update authentication/cluster")
+
+	// the issuer URL should now be the valid one
+	require.Equal(tc.t, idpURL, auth.Spec.OIDCProviders[0].Issuer.URL)
+
+	tc.t.Logf("will wait for auth operator to become available again")
+	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(tc.t, tc.configClient.ConfigV1(), "authentication")
+	require.NoError(tc.t, err, "failed to wait for cluster operator to become available")
+
+	tc.t.Log("will wait for KAS rollout for new auth config")
+	err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
+	require.NoError(tc.t, err, "failed to wait for KAS rollout")
+
+	return
+}
+
+func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string) configv1.AuthenticationSpec {
+	return configv1.AuthenticationSpec{
 		Type:                      configv1.AuthenticationTypeOIDC,
 		WebhookTokenAuthenticator: nil,
 		OIDCProviders: []configv1.OIDCProvider{
@@ -387,51 +462,6 @@ func (tc *testClient) updateAuthForOIDC(ctx context.Context, idpURL, idpName, ca
 			},
 		},
 	}
-
-	// record current KAS revision
-	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-	if err != nil {
-		return nil, cleanups, fmt.Errorf("get kubeapiserver cluster error: %v", err)
-	}
-	kasOriginalRevision := kas.Status.LatestAvailableRevision
-
-	_, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
-	cleanups = append(cleanups, func() {
-		kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving kubeapiservers/cluster: %v", auth.Name, err)
-		}
-		kasOriginalCleanupRevision := kas.Status.LatestAvailableRevision
-
-		auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
-		}
-
-		auth.Spec = *origSpec
-		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
-		}
-
-		if kasOriginalCleanupRevision > kasOriginalRevision {
-			// a new rollout occured because of this test; cleanup will therefore cause another rollout
-			tc.t.Log("cleanup waiting for KAS rollout for original auth config")
-			if err := test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalCleanupRevision); err != nil {
-				tc.t.Fatalf("cleanup failed for authentication '%s' while waiting for KAS rollout: %v", auth.Name, err)
-			}
-		}
-	})
-	if err != nil {
-		return nil, cleanups, fmt.Errorf("auth apply error: %v", err)
-	}
-
-	tc.t.Log("will wait for KAS rollout for new auth config")
-	err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
-	if err != nil {
-		return nil, cleanups, fmt.Errorf("KAS rollout wait error: %v", err)
-	}
-
-	return
 }
 
 func (tc *testClient) validateKASConfig(ctx context.Context) int32 {
