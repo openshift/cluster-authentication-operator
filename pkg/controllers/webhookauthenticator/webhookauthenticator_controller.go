@@ -2,7 +2,10 @@ package webhookauthenticator
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -28,6 +31,7 @@ import (
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/certrotation"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/status"
@@ -173,12 +177,29 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 
 	kubeconfigComplete := replacer.Replace(string(kubeconfigBytes))
 
+	_, err = tls.X509KeyPair(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("private key doesn't match the certificate of authenticator secret")
+	}
+	// extract not-before/not-after timestamps valid x509 certificate
+	var block *pem.Block
+	block, _ = pem.Decode(cert)
+	if block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+		return nil, fmt.Errorf("invalid first block found in the certificate of authenticator secret")
+	}
+	parsedCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse the certificate of authenticator secret")
+	}
+
 	requiredSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "webhook-authentication-integrated-oauth",
 			Namespace: "openshift-config",
 			Annotations: map[string]string{
-				annotations.OpenShiftComponent: "apiserver-auth",
+				annotations.OpenShiftComponent:              "apiserver-auth",
+				certrotation.CertificateNotBeforeAnnotation: parsedCert.NotBefore.Format(time.RFC3339),
+				certrotation.CertificateNotAfterAnnotation:  parsedCert.NotAfter.Format(time.RFC3339),
 			},
 		},
 		Data: map[string][]byte{
