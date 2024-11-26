@@ -1,0 +1,8 @@
+apiVersion: config.openshift.io/v1
+kind: ClusterOperator
+metadata:
+  creationTimestamp: null
+  name: authentication
+spec: {}
+status:
+  extension: null

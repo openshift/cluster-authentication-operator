@@ -1,0 +1,8 @@
+action: Create
+controllerInstanceName: APIServerStaticResources-StaticResources
+generateName: ""
+mame: system:openshift:oauth-apiserver
+resourceType:
+  Group: rbac.authorization.k8s.io
+  Resource: clusterrolebindings
+  Version: v1

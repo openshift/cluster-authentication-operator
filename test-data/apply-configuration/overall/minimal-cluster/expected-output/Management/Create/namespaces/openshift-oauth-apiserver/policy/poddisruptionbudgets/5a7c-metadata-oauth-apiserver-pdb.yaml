@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: APIServerStaticResources-StaticResources
+generateName: ""
+mame: oauth-apiserver-pdb
+namespace: openshift-oauth-apiserver
+resourceType:
+  Group: policy
+  Resource: poddisruptionbudgets
+  Version: v1

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    operator.openshift.io/spec-hash: 9c74227d7f96d723d980c50373a5e91f08c5893365bfd5a5040449b1b6585a23
+    prometheus.io/scheme: https
+    prometheus.io/scrape: "true"
+    service.alpha.openshift.io/serving-cert-secret-name: serving-cert
+  creationTimestamp: null
+  labels:
+    app: openshift-oauth-apiserver
+  name: api
+  namespace: openshift-oauth-apiserver
+spec:
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+  selector:
+    apiserver: "true"
+status:
+  loadBalancer: {}

@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+mame: system:openshift:oauth-servercert-trust
+namespace: openshift-config-managed
+resourceType:
+  Group: rbac.authorization.k8s.io
+  Resource: rolebindings
+  Version: v1

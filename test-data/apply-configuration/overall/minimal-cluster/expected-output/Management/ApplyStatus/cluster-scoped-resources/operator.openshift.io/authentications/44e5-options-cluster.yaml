@@ -1,0 +1,2 @@
+fieldManager: openshift-oauth-apiserver-EncryptionKey
+force: true
