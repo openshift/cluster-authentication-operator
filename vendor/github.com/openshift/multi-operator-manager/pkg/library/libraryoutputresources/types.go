@@ -21,10 +21,10 @@ type ResourceList struct {
 	// exactResources are lists of exact names that are mutated
 	ExactResources []ExactResourceID `json:"exactResources,omitempty"`
 
-	// generatedNameResource are lists of generatedNames that are mutated.
+	// generatedNameResources are lists of generatedNames that are mutated.
 	// These are also honored on non-creates, via prefix matching, but *only* on resource with generatedNames.
 	// This is not a cheat code for prefix matching.
-	GeneratedNameResources []GeneratedResourceID `json:"generatedNameResource,omitempty"`
+	GeneratedNameResources []GeneratedResourceID `json:"generatedNameResources,omitempty"`
 
 	// eventingNamespaces holds a list of namespaces that the operator can output event into.
 	// This allows redirection of events to a particular cluster on a per-namespace level.
