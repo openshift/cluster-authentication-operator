@@ -38,9 +38,11 @@ import (
 )
 
 const (
-	oidcClientId      = "admin-cli"
-	oidcGroupsClaim   = "groups"
-	oidcUsernameClaim = "email"
+	oidcClientId       = "admin-cli"
+	oidcGroupsClaim    = "groups"
+	oidcGroupsPrefix   = ""
+	oidcUsernameClaim  = "email"
+	oidcUsernamePrefix = "oidc-test:"
 
 	kasNamespace = "openshift-kube-apiserver"
 )
@@ -71,8 +73,11 @@ type oidcAuthResponse struct {
 
 type expectedClaims struct {
 	jwt.RegisteredClaims
-	Email string `json:"email"`
-	Type  string `json:"typ"`
+	Email      string `json:"email"`
+	Type       string `json:"typ"`
+	Name       string `json:"name"`
+	GivenName  string `json:"given_name"`
+	FamilyName string `json:"family_name"`
 }
 
 func TestExternalOIDCWithKeycloak(t *testing.T) {
@@ -167,7 +172,18 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	user := names.SimpleNameGenerator.GenerateName("e2e-keycloak-user-")
 	email := fmt.Sprintf("%s@test.dev", user)
 	password := "password"
-	err = kcClient.CreateUser(user, email, password, []string{group})
+	firstName := "Homer"
+	lastName := "Simpson"
+	err = kcClient.CreateUser(
+		user,
+		email,
+		password,
+		[]string{group},
+		map[string]string{
+			"firstName": firstName,
+			"lastName":  lastName,
+		},
+	)
 	require.NoError(t, err)
 
 	httpClient := &http.Client{Transport: &http.Transport{
@@ -210,6 +226,9 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	require.Equal(t, kcClient.IssuerURL(), actualAccessTokenClaims.Issuer)
 	require.Equal(t, email, actualAccessTokenClaims.Email)
 	require.Equal(t, "Bearer", actualAccessTokenClaims.Type)
+	require.Equal(t, firstName, actualAccessTokenClaims.GivenName)
+	require.Equal(t, lastName, actualAccessTokenClaims.FamilyName)
+	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualAccessTokenClaims.Name)
 
 	actualIDTokenClaims := idToken.Claims.(*expectedClaims)
 	require.True(t, idToken.Valid)
@@ -217,6 +236,9 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	require.Equal(t, email, actualIDTokenClaims.Email)
 	require.Equal(t, "ID", actualIDTokenClaims.Type)
 	require.Equal(t, jwt.ClaimStrings{oidcClientId}, actualIDTokenClaims.Audience)
+	require.Equal(t, firstName, actualIDTokenClaims.GivenName)
+	require.Equal(t, lastName, actualIDTokenClaims.FamilyName)
+	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualIDTokenClaims.Name)
 
 	// ==========================================
 	// Test authentication via the kube-apiserver
@@ -233,7 +255,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	require.NoError(tc.t, err)
 	require.NotNil(tc.t, ssr)
 	require.Contains(t, ssr.Status.UserInfo.Groups, "system:authenticated")
-	require.Equal(t, email, ssr.Status.UserInfo.Username)
+	require.Equal(t, oidcUsernamePrefix+email, ssr.Status.UserInfo.Username)
 }
 
 func newTestClient(t *testing.T) (*testClient, error) {
@@ -501,6 +523,10 @@ func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string) configv1.A
 						TokenClaimMapping: configv1.TokenClaimMapping{
 							Claim: oidcUsernameClaim,
 						},
+						PrefixPolicy: configv1.Prefix,
+						Prefix: &configv1.UsernamePrefix{
+							PrefixString: oidcUsernamePrefix,
+						},
 					},
 					Groups: configv1.PrefixedClaimMapping{
 						TokenClaimMapping: configv1.TokenClaimMapping{
@@ -547,9 +573,9 @@ func (tc *testClient) validateAuthConfigJSON(ctx context.Context, idpURL, caBund
 		strings.ReplaceAll(certData, "\n", "\\n"),
 		strings.Join([]string{fmt.Sprintf(`"%s"`, oidcClientId)}, ","),
 		oidcUsernameClaim,
-		"",
+		oidcUsernamePrefix,
 		oidcGroupsClaim,
-		"",
+		oidcGroupsPrefix,
 	)
 
 	for _, cm := range []struct {
