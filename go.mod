@@ -121,3 +121,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace github.com/openshift/library-go => github.com/vrutkovs/library-go v0.0.0-20241125144145-91216c7c764f
