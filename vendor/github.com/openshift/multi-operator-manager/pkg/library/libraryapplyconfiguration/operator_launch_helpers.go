@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 )
 
 type OperatorStarter interface {
-	RunOnce(ctx context.Context) error
+	RunOnce(ctx context.Context, input ApplyConfigurationInput) (*ApplyConfigurationRunResult, AllDesiredMutationsGetter, error)
 	Start(ctx context.Context) error
 }
 
@@ -27,11 +28,6 @@ type SimpleOperatorStarter struct {
 	ControllerNamedRunOnceFns []NamedRunOnce
 	// ControllerRunFns is useful during a transition to coalesce the operator launching flow.
 	ControllerRunFns []RunFunc
-	// Controllers hold an optional list of controller names to run.
-	// '*' means "all controllersFromFlags are enabled by default"
-	// 'foo' means "enable 'foo'"
-	// '-foo' means "disable 'foo'"
-	Controllers []string
 }
 
 var (
@@ -41,7 +37,7 @@ var (
 	_ SimplifiedInformerFactory = generatedNamespacedInformerFactory{}
 )
 
-func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
+func (a SimpleOperatorStarter) RunOnce(ctx context.Context, input ApplyConfigurationInput) (*ApplyConfigurationRunResult, AllDesiredMutationsGetter, error) {
 	for _, informer := range a.Informers {
 		informer.Start(ctx)
 	}
@@ -61,29 +57,53 @@ func (a SimpleOperatorStarter) RunOnce(ctx context.Context) error {
 		knownControllersSet.Insert(controllerRunner.ControllerInstanceName())
 	}
 	if len(duplicateControllerNames) > 0 {
-		return fmt.Errorf("the following controllers were requested to run multiple times: %v", duplicateControllerNames)
+		return nil, nil, fmt.Errorf("the following controllers were requested to run multiple times: %v", duplicateControllerNames)
 	}
 
-	if errs := validateControllersFromFlags(knownControllersSet, a.Controllers); len(errs) > 0 {
-		return errors.Join(errs...)
+	if errs := validateControllersFromFlags(knownControllersSet, input.Controllers); len(errs) > 0 {
+		return nil, nil, errors.Join(errs...)
 	}
+
+	allControllersRunResult := &ApplyConfigurationRunResult{}
 
 	shuffleNamedRunOnce(a.ControllerNamedRunOnceFns)
 	errs := []error{}
 	for _, controllerRunner := range a.ControllerNamedRunOnceFns {
 		func() {
-			if !isControllerEnabled(controllerRunner.ControllerInstanceName(), a.Controllers) {
+			currControllerResult := ControllerRunResult{
+				ControllerName: controllerRunner.ControllerInstanceName(),
+				Status:         ControllerRunStatusUnknown,
+			}
+			defer func() {
+				if r := recover(); r != nil {
+					currControllerResult.Status = ControllerRunStatusPanicked
+					currControllerResult.PanicStack = fmt.Sprintf("%s\n%s", r, string(debug.Stack()))
+				}
+				allControllersRunResult.ControllerResults = append(allControllersRunResult.ControllerResults, currControllerResult)
+			}()
+
+			if !isControllerEnabled(controllerRunner.ControllerInstanceName(), input.Controllers) {
+				currControllerResult.Status = ControllerRunStatusSkipped
 				return
 			}
 			localCtx, localCancel := context.WithTimeout(ctx, 1*time.Second)
 			defer localCancel()
+
 			localCtx = manifestclient.WithControllerInstanceNameFromContext(localCtx, controllerRunner.ControllerInstanceName())
 			if err := controllerRunner.RunOnce(localCtx); err != nil {
+				currControllerResult.Status = ControllerRunStatusFailed
+				currControllerResult.Errors = append(currControllerResult.Errors, ErrorDetails{Message: err.Error()})
 				errs = append(errs, fmt.Errorf("controller %q failed: %w", controllerRunner.ControllerInstanceName(), err))
+			} else {
+				currControllerResult.Status = ControllerRunStatusSucceeded
 			}
 		}()
 	}
-	return errors.Join(errs...)
+
+	// canonicalize
+	CanonicalizeApplyConfigurationRunResult(allControllersRunResult)
+
+	return allControllersRunResult, NewApplyConfigurationFromClient(input.MutationTrackingClient.GetMutations()), errors.Join(errs...)
 }
 
 func (a SimpleOperatorStarter) Start(ctx context.Context) error {

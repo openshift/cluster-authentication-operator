@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path/filepath"
 )
@@ -14,15 +16,17 @@ type ApplyConfigurationResult interface {
 	OutputDirectory() (string, error)
 	Stdout() string
 	Stderr() string
+	ControllerResults() *ApplyConfigurationRunResult
 
 	AllDesiredMutationsGetter
 }
 
 type simpleApplyConfigurationResult struct {
-	err             error
-	outputDirectory string
-	stdout          string
-	stderr          string
+	err               error
+	outputDirectory   string
+	stdout            string
+	stderr            string
+	controllerResults *ApplyConfigurationRunResult
 
 	applyConfiguration *applyConfiguration
 }
@@ -60,6 +64,26 @@ func NewApplyConfigurationResultFromDirectory(inFS fs.FS, outputDirectory string
 		stderrContent = stderrContent[indexToStart:]
 	}
 
+	var controllerResults *ApplyConfigurationRunResult
+	controllerResultsContent := []byte{}
+	controllerResultsLocation := filepath.Join(outputDirectory, "controller-results.yaml")
+	controllerResultsContent, err = fs.ReadFile(inFS, "controller-results.yaml")
+	if err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("failed reading %q: %w", controllerResultsLocation, err))
+	}
+	if len(controllerResultsContent) > 0 {
+		if asJSON, err := yaml.ToJSON(controllerResultsContent); err != nil {
+			errs = append(errs, fmt.Errorf("unable to convert controller-results.yaml to json: %w", err))
+		} else {
+			localControllerResults := &ApplyConfigurationRunResult{}
+			if err := json.Unmarshal(asJSON, localControllerResults); err != nil {
+				errs = append(errs, fmt.Errorf("unable to parse controller-results.yaml: %w", err))
+			} else {
+				controllerResults = localControllerResults
+			}
+		}
+	}
+
 	outputContent, err := fs.ReadDir(inFS, ".")
 	switch {
 	case errors.Is(err, fs.ErrNotExist) && execError != nil:
@@ -85,6 +109,7 @@ func NewApplyConfigurationResultFromDirectory(inFS fs.FS, outputDirectory string
 	ret := &simpleApplyConfigurationResult{
 		stdout:             string(stdoutContent),
 		stderr:             string(stderrContent),
+		controllerResults:  controllerResults,
 		outputDirectory:    outputDirectory,
 		applyConfiguration: &applyConfiguration{},
 	}
@@ -99,6 +124,9 @@ func NewApplyConfigurationResultFromDirectory(inFS fs.FS, outputDirectory string
 			continue
 		}
 		if currContent.Name() == "stderr.log" {
+			continue
+		}
+		if currContent.Name() == "controller-results.yaml" {
 			continue
 		}
 
@@ -138,6 +166,10 @@ func (s *simpleApplyConfigurationResult) Stderr() string {
 
 func (s *simpleApplyConfigurationResult) Error() error {
 	return s.err
+}
+
+func (s *simpleApplyConfigurationResult) ControllerResults() *ApplyConfigurationRunResult {
+	return s.controllerResults
 }
 
 func (s *simpleApplyConfigurationResult) OutputDirectory() (string, error) {
