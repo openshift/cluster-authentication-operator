@@ -2,11 +2,13 @@ package auth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -82,7 +84,7 @@ func TestObservedConfig(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			testRecorder := events.NewInMemoryRecorder("APIAudiencesTest")
+			testRecorder := events.NewInMemoryRecorder("APIAudiencesTest", clocktesting.NewFakePassiveClock(time.Now()))
 			listers := configobservation.Listers{
 				AuthConfigLister_: configlistersv1.NewAuthenticationLister(indexer),
 			}

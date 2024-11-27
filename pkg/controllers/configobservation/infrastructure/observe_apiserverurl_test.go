@@ -4,9 +4,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
@@ -73,7 +75,7 @@ func TestObserveAPIServerURL(t *testing.T) {
 				InfrastructureLister: configlistersv1.NewInfrastructureLister(indexer),
 			}
 
-			eventRecorder := events.NewInMemoryRecorder(tt.name)
+			eventRecorder := events.NewInMemoryRecorder(tt.name, clocktesting.NewFakePassiveClock(time.Now()))
 			gotConfig, errs := ObserveAPIServerURL(listers, eventRecorder, tt.existingConfig)
 			if !reflect.DeepEqual(gotConfig, tt.expectedConfig) {
 				t.Errorf("ObserveAPIServerURL() gotConfig = %v, want %v", gotConfig, tt.expectedConfig)

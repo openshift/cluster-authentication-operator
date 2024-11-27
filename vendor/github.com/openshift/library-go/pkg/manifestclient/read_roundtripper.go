@@ -6,20 +6,29 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	apidiscoveryv2 "k8s.io/api/apidiscovery/v2"
-	"k8s.io/apimachinery/pkg/util/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	apidiscoveryv2 "k8s.io/api/apidiscovery/v2"
+	"k8s.io/apimachinery/pkg/util/json"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/server"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 )
+
+func init() {
+	// This feature gate is needed to set requestInfo.LabelSelector
+	utilruntime.Must(utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=true", features.AuthorizeWithSelectors)))
+}
 
 type manifestRoundTripper struct {
 	sourceFS fs.FS
@@ -58,7 +67,7 @@ func (mrt *manifestRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	isDiscovery := isServerGroupResourceDiscovery(requestInfo.Path)
 	if !requestInfo.IsResourceRequest && !isDiscovery {
-		return nil, fmt.Errorf("non-resource requests are not supported by this implementation")
+		return nil, fmt.Errorf("non-resource requests are not supported by this implementation: %q", requestInfo.Path)
 	}
 	if len(requestInfo.Subresource) != 0 {
 		return nil, fmt.Errorf("subresource %v is not supported by this implementation", requestInfo.Subresource)
@@ -104,7 +113,9 @@ func (mrt *manifestRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		return nil, fmt.Errorf("verb %v is not supported by this implementation", requestInfo.Verb)
 	}
 
-	resp := &http.Response{}
+	resp := &http.Response{
+		Header: map[string][]string{},
+	}
 	switch {
 	case apierrors.IsNotFound(returnErr):
 		resp.StatusCode = http.StatusNotFound
@@ -120,7 +131,11 @@ func (mrt *manifestRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		resp.Body = io.NopCloser(bytes.NewReader(returnBody))
 		// We always return application/json. Avoid clients expecting proto for built-ins.
 		resp.Header = make(http.Header)
-		resp.Header.Set("Content-Type", "application/json")
+		if isDiscovery {
+			resp.Header.Set("Content-Type", "application/json;as=APIGroupDiscoveryList;v=v2;g=apidiscovery.k8s.io")
+		} else {
+			resp.Header.Set("Content-Type", "application/json")
+		}
 	}
 
 	return resp, nil
@@ -141,6 +156,9 @@ func isServerGroupResourceDiscovery(path string) bool {
 		return true
 	}
 	if path == "/api" {
+		return true
+	}
+	if path == "/apis" {
 		return true
 	}
 
