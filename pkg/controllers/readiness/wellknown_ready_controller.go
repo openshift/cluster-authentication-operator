@@ -150,12 +150,8 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
 		return err
 	} else if oidcAvailable {
-		available = available.
-			WithStatus(operatorv1.ConditionFalse).
-			WithMessage("well-known endpoint checks skipped.").
-			WithReason("NotAvailableForOIDC")
-		progressing = progressing.
-			WithStatus(operatorv1.ConditionFalse)
+		available = available.WithStatus(operatorv1.ConditionTrue)
+		progressing = progressing.WithStatus(operatorv1.ConditionFalse)
 		return nil
 	}
 
