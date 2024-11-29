@@ -123,6 +123,12 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 
 	ingressConfigCopy := ingressConfig.DeepCopy()
 
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		return c.removeOperands(ctx, ingressConfigCopy)
+	}
+
 	// configure the expected route
 	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfigCopy)
 	if errors != nil {
@@ -131,12 +137,6 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 			klog.Infof("Error updating ingress with custom route status: %v", err)
 		}
 		return fmt.Errorf("custom route configuration failed verification: %v", errors)
-	}
-
-	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
-		return err
-	} else if oidcAvailable {
-		return c.removeOperands(ctx, ingressConfigCopy, secretName)
 	}
 
 	// create or modify the existing route
@@ -313,7 +313,7 @@ func (c *customRouteController) getFieldManager() string {
 	return "AuthenticationCustomRouteController"
 }
 
-func (c *customRouteController) removeOperands(ctx context.Context, ingressConfig *configv1.Ingress, secretName string) error {
+func (c *customRouteController) removeOperands(ctx context.Context, ingressConfig *configv1.Ingress) error {
 	if _, err := c.routeLister.Routes(c.componentRoute.Namespace).Get(c.componentRoute.Name); err != nil && !errors.IsNotFound(err) {
 		return err
 	} else if !errors.IsNotFound(err) {
