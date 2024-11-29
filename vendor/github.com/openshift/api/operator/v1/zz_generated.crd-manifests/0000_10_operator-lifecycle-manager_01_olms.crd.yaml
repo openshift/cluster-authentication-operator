@@ -2,25 +2,25 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    api-approved.openshift.io: https://github.com/openshift/api/pull/475
+    api-approved.openshift.io: https://github.com/openshift/api/pull/1504
     api.openshift.io/merged-by-featuregates: "true"
-    include.release.openshift.io/ibm-cloud-managed: "true"
+    capability.openshift.io/name: OperatorLifecycleManagerV1
     include.release.openshift.io/self-managed-high-availability: "true"
-  name: servicecas.operator.openshift.io
+  name: olms.operator.openshift.io
 spec:
   group: operator.openshift.io
   names:
-    kind: ServiceCA
-    listKind: ServiceCAList
-    plural: servicecas
-    singular: serviceca
+    kind: OLM
+    listKind: OLMList
+    plural: olms
+    singular: olm
   scope: Cluster
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
         description: |-
-          ServiceCA provides information to configure an operator to manage the service cert controllers
+          OLM provides information to configure an operator to manage the OLM controllers
 
           Compatibility level 1: Stable within a major release for a minimum of 12 months or 3 minor releases (whichever is longer).
         properties:
@@ -205,6 +205,9 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: olm is a singleton, .metadata.name must be 'cluster'
+          rule: self.metadata.name == 'cluster'
     served: true
     storage: true
     subresources:
