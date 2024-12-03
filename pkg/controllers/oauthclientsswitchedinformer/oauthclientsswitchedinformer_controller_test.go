@@ -31,7 +31,7 @@ func TestSync(t *testing.T) {
 		"TestInformerWithSwitchController",
 		testCtx,
 		shouldStopFn,
-		testInformer.Informer(),
+		testInformer,
 		0,
 		nil,
 		events.NewInMemoryRecorder("oauthclientscontroller_test"),

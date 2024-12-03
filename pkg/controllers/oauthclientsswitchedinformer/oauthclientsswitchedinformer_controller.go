@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	oauthinformersv1 "github.com/openshift/client-go/oauth/informers/externalversions/oauth/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 
@@ -17,7 +18,7 @@ import (
 // is returned, then the controller stops/starts the informer based on the bool value
 // (true means stop).
 type InformerWithSwitch struct {
-	delegateInformer cache.SharedIndexInformer
+	delegateInformer oauthinformersv1.OAuthClientInformer
 	switchController factory.Controller
 	shouldStopFn     func() (bool, error)
 	parentCtx        context.Context
@@ -45,7 +46,7 @@ func NewSwitchedInformer(
 	name string,
 	ctx context.Context,
 	shouldStopFn func() (bool, error),
-	delegateInformer cache.SharedIndexInformer,
+	delegateInformer oauthinformersv1.OAuthClientInformer,
 	resync time.Duration,
 	informers []factory.Informer,
 	recorder events.Recorder,
@@ -78,7 +79,7 @@ func (s *InformerWithSwitch) Controller() factory.Controller {
 func (s *InformerWithSwitch) Informer() cache.SharedIndexInformer {
 	return &alwaysSyncedInformer{
 		isRunning:           func() bool { return s.runCtx != nil },
-		SharedIndexInformer: s.delegateInformer,
+		SharedIndexInformer: s.delegateInformer.Informer(),
 	}
 }
 
@@ -97,7 +98,7 @@ func (s *InformerWithSwitch) ensureRunning() {
 
 	klog.Infof("%s delegate informer starting", s.switchController.Name())
 	s.runCtx, s.stopFunc = context.WithCancel(s.parentCtx)
-	go s.delegateInformer.Run(s.runCtx.Done())
+	go s.delegateInformer.Informer().Run(s.runCtx.Done())
 }
 
 func (s *InformerWithSwitch) stop() {
