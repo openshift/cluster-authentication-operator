@@ -126,7 +126,7 @@ func newTestOAuthsClientsController(t *testing.T) *oauthsClientsController {
 		"TestOAuthClientsInformerWithSwitchController",
 		context.TODO(),
 		func() (bool, error) { return false, nil },
-		oauthinformers.NewSharedInformerFactoryWithOptions(oauthClientset, 1*time.Minute).Oauth().V1().OAuthClients().Informer(),
+		oauthinformers.NewSharedInformerFactoryWithOptions(oauthClientset, 1*time.Minute).Oauth().V1().OAuthClients(),
 		0,
 		nil,
 		events.NewInMemoryRecorder("oauthclientscontroller_test"),
