@@ -262,7 +262,7 @@ func prepareOauthOperator(
 		func() (bool, error) {
 			return common.ExternalOIDCConfigAvailable(authLister, kasLister, kasConfigMapLister)
 		},
-		oauthinformers.NewSharedInformerFactoryWithOptions(authOperatorInput.oauthClient, 1*time.Minute).Oauth().V1().OAuthClients().Informer(),
+		oauthinformers.NewSharedInformerFactoryWithOptions(authOperatorInput.oauthClient, 1*time.Minute).Oauth().V1().OAuthClients(),
 		0,
 		[]factory.Informer{
 			informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Informer(),
