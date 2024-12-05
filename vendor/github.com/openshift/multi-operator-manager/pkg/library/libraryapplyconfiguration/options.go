@@ -7,6 +7,7 @@ import (
 	"github.com/openshift/library-go/pkg/manifestclient"
 	"os"
 	"path/filepath"
+	"sigs.k8s.io/yaml"
 
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 )
@@ -44,19 +45,19 @@ func (o *applyConfigurationOptions) Run(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	result, err := o.applyConfigurationFn(ctx, o.input)
+	controllerResults, mutations, err := o.applyConfigurationFn(ctx, o.input)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	// also validate the raw results because filtering may have eliminated "bad" output.
-	unspecifiedOutputResources := UnspecifiedOutputResources(result, allAllowedOutputResources)
-	if err := ValidateAllDesiredMutationsGetter(result, allAllowedOutputResources); err != nil {
+	unspecifiedOutputResources := UnspecifiedOutputResources(mutations, allAllowedOutputResources)
+	if err := ValidateAllDesiredMutationsGetter(mutations, allAllowedOutputResources); err != nil {
 		errs = append(errs, err)
 	}
 
 	// now filter the results and check them
-	filteredResult := FilterAllDesiredMutationsGetter(result, allAllowedOutputResources)
+	filteredResult := FilterAllDesiredMutationsGetter(mutations, allAllowedOutputResources)
 	if err := ValidateAllDesiredMutationsGetter(filteredResult, allAllowedOutputResources); err != nil {
 		errs = append(errs, err)
 	}
@@ -67,6 +68,14 @@ func (o *applyConfigurationOptions) Run(ctx context.Context) error {
 	if len(unspecifiedOutputResources) > 0 {
 		if err := manifestclient.WriteMutationDirectory(filepath.Join(o.outputDirectory, "Unspecified"), unspecifiedOutputResources...); err != nil {
 			errs = append(errs, err)
+		}
+	}
+
+	if controllerResultBytes, err := yaml.Marshal(controllerResults); err != nil {
+		errs = append(errs, fmt.Errorf("failed marshalling controller results: %w", err))
+	} else {
+		if err := os.WriteFile(filepath.Join(o.outputDirectory, "controller-results.yaml"), controllerResultBytes, 0644); err != nil {
+			errs = append(errs, fmt.Errorf("failed writing controller results: %w", err))
 		}
 	}
 

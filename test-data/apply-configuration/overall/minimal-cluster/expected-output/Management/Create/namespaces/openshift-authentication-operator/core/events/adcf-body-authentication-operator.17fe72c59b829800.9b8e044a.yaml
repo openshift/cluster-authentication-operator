@@ -1,0 +1,21 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2024-10-14T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2024-10-14T22:38:20Z"
+message: Created Namespace/openshift-oauth-apiserver because it was missing
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.17fe72c59b829800.9b8e044a
+  namespace: openshift-authentication-operator
+reason: NamespaceCreated
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal

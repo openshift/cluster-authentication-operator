@@ -1,0 +1,26 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    reason: PreconditionNotFulfilled
+    status: "False"
+    type: APIServerDeploymentAvailable
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: |
+      waiting for .status.latestAvailableRevision to be available
+    reason: PreconditionNotFulfilled
+    status: "True"
+    type: APIServerDeploymentDegraded
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    reason: PreconditionNotFulfilled
+    status: "False"
+    type: APIServerDeploymentProgressing
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: |
+      waiting for .status.latestAvailableRevision to be available
+    reason: PreconditionNotFulfilled
+    status: "True"
+    type: APIServerWorkloadDegraded

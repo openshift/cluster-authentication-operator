@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: TODO-staticResourceController
+fieldManager: OpenshiftAuthenticationStaticResources-StaticResources
+generateName: ""
+mame: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1

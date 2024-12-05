@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: APIServerStaticResources-StaticResources
+fieldManager: APIServerStaticResources-StaticResources
+generateName: ""
+mame: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1

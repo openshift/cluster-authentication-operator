@@ -1,0 +1,8 @@
+action: UpdateStatus
+controllerInstanceName: authentication
+generateName: ""
+mame: authentication
+resourceType:
+  Group: config.openshift.io
+  Resource: clusteroperators
+  Version: v1

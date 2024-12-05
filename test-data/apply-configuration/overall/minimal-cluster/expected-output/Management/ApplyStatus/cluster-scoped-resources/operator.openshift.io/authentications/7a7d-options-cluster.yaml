@@ -1,0 +1,2 @@
+fieldManager: openshift-oauth-apiserver-EncryptionMigration
+force: true

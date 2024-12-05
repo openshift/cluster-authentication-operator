@@ -551,7 +551,6 @@ func prepareOauthAPIServerOperator(
 	).WithAuditPolicyController(
 		"openshift-oauth-apiserver",
 		"audit",
-		informerFactories.operatorConfigInformer.Config().V1().APIServers().Lister(),
 		informerFactories.operatorConfigInformer,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		authOperatorInput.kubeClient,

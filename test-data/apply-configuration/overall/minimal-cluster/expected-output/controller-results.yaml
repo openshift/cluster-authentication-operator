@@ -1,0 +1,112 @@
+controllerResults:
+- controllerName: APIServerStaticResources-StaticResources
+  status: Succeeded
+- controllerName: NamespaceFinalizerController_openshift-oauth-apiserver
+  status: Succeeded
+- controllerName: OAuthAPIServerController-WorkloadWorkloadController
+  errors:
+  - message: waiting for .status.latestAvailableRevision to be available
+  status: Failed
+- controllerName: RevisionController
+  errors:
+  - message: synthetic requeue request
+  status: Failed
+- controllerName: SecretRevisionPruneController
+  status: Succeeded
+- controllerName: TODO-authRouteCheckController
+  status: Succeeded
+- controllerName: TODO-authServiceCheckController
+  status: Succeeded
+- controllerName: TODO-authServiceEndpointCheckController
+  status: Succeeded
+- controllerName: TODO-authenticatorCertRequester
+  status: Succeeded
+- controllerName: TODO-configObserver
+  errors:
+  - message: |-
+      console.config.openshift.io "cluster" not found
+      oauth.config.openshift.io "cluster" not found
+      secret "v4-0-config-system-router-certs" not found
+  status: Failed
+- controllerName: TODO-configOverridesController
+  status: Succeeded
+- controllerName: TODO-customRouteController
+  errors:
+  - message: ingress.config.openshift.io "cluster" not found
+  status: Failed
+- controllerName: TODO-deploymentController
+  errors:
+  - message: 'waiting for the oauth-openshift route to appear: route.route.openshift.io
+      "oauth-openshift" not found'
+  status: Failed
+- controllerName: TODO-ingressStateController
+  status: Succeeded
+- controllerName: TODO-logLevelController
+  status: Succeeded
+- controllerName: TODO-managementStateController
+  status: Succeeded
+- controllerName: TODO-metadataController
+  status: Succeeded
+- controllerName: TODO-oauthClientsController
+  errors:
+  - message: 'unable to get cluster ingress config: ingress.config.openshift.io "cluster"
+      not found'
+  status: Failed
+- controllerName: TODO-other-configObserver
+  errors:
+  - message: |-
+      endpoints/host-etcd-2 in the openshift-etcd namespace: not found
+      configmap openshift-etcd/etcd-endpoints not found, and fallback observer failed
+      oauth.config.openshift.io "cluster" not found
+  status: Failed
+- controllerName: TODO-payloadConfigController
+  status: Succeeded
+- controllerName: TODO-proxyConfigController
+  status: Succeeded
+- controllerName: TODO-resourceSyncer
+  status: Succeeded
+- controllerName: TODO-routerCertsController
+  status: Succeeded
+- controllerName: TODO-serviceCAController
+  status: Succeeded
+- controllerName: TODO-staleConditions
+  status: Succeeded
+- controllerName: TODO-staticResourceController
+  status: Succeeded
+- controllerName: TODO-trustDistributionController
+  errors:
+  - message: ingress.config.openshift.io "cluster" not found
+  status: Failed
+- controllerName: TODO-webhookAuthController
+  errors:
+  - message: the server could not find the requested resource (get authentications.config.openshift.io
+      cluster)
+  status: Failed
+- controllerName: TODO-webhookCertsApprover
+  status: Succeeded
+- controllerName: TODO-wellKnownReadyController
+  errors:
+  - message: authentication.config.openshift.io "cluster" not found
+  status: Failed
+- controllerName: TODO-workersAvailableController
+  status: Succeeded
+- controllerName: auditPolicyController
+  errors:
+  - message: apiserver.config.openshift.io "cluster" not found
+  status: Failed
+- controllerName: authentication
+  status: Succeeded
+- controllerName: openshift-apiserver-APIService
+  errors:
+  - message: endpoints "api" not found
+  status: Failed
+- controllerName: openshift-oauth-apiserver-EncryptionCondition
+  status: Succeeded
+- controllerName: openshift-oauth-apiserver-EncryptionKey
+  status: Succeeded
+- controllerName: openshift-oauth-apiserver-EncryptionMigration
+  status: Succeeded
+- controllerName: openshift-oauth-apiserver-EncryptionPrune
+  status: Succeeded
+- controllerName: openshift-oauth-apiserver-EncryptionState
+  status: Succeeded

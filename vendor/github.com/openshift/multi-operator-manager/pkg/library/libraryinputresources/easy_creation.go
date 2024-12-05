@@ -53,11 +53,11 @@ func ExactClusterRoleBinding(name string) ExactResourceID {
 }
 
 func ExactRole(namespace, name string) ExactResourceID {
-	return ExactResource("rbac.authorization.k8s.io", "v1", "roles", "", name)
+	return ExactResource("rbac.authorization.k8s.io", "v1", "roles", namespace, name)
 }
 
 func ExactRoleBinding(namespace, name string) ExactResourceID {
-	return ExactResource("rbac.authorization.k8s.io", "v1", "rolebindings", "", name)
+	return ExactResource("rbac.authorization.k8s.io", "v1", "rolebindings", namespace, name)
 }
 
 func ExactConfigResource(resource string) ExactResourceID {

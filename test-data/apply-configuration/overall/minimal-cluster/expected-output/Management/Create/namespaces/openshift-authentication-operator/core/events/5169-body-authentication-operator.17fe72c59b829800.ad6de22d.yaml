@@ -1,0 +1,31 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2024-10-14T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2024-10-14T22:38:20Z"
+message: 'Status for clusteroperator/authentication changed: Degraded set to Unknown
+  (""),Progressing set to Unknown (""),Available set to Unknown (""),Upgradeable set
+  to Unknown (""),EvaluationConditionsDetected set to Unknown (""),status.relatedObjects
+  changed from [] to [{"operator.openshift.io" "authentications" "" "cluster"} {"config.openshift.io"
+  "authentications" "" "cluster"} {"config.openshift.io" "infrastructures" "" "cluster"}
+  {"config.openshift.io" "oauths" "" "cluster"} {"route.openshift.io" "routes" "openshift-authentication"
+  "oauth-openshift"} {"" "services" "openshift-authentication" "oauth-openshift"}
+  {"" "namespaces" "" "openshift-config"} {"" "namespaces" "" "openshift-config-managed"}
+  {"" "namespaces" "" "openshift-authentication"} {"" "namespaces" "" "openshift-authentication-operator"}
+  {"" "namespaces" "" "openshift-ingress"} {"" "namespaces" "" "openshift-oauth-apiserver"}],status.versions
+  changed from [] to [{"operator" ""}]'
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.17fe72c59b829800.ad6de22d
+  namespace: openshift-authentication-operator
+reason: OperatorStatusChanged
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal

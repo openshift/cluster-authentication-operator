@@ -1,0 +1,10 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    reason: NoUnsupportedConfigOverrides
+    status: "True"
+    type: UnsupportedConfigOverridesUpgradeable

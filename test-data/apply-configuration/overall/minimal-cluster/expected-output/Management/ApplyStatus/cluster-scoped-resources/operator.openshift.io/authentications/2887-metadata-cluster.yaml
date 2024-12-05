@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: TODO-resourceSyncer
+fieldManager: oauth-server-ResourceSync
+generateName: ""
+mame: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1

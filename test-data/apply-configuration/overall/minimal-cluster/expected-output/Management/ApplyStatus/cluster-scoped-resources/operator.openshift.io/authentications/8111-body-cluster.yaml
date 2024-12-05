@@ -1,0 +1,12 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: 'failed to retrieve ingress from cache: ingress.config.openshift.io "cluster"
+      not found'
+    reason: ResourceNotFound
+    status: "False"
+    type: OAuthServerRouteEndpointAccessibleControllerAvailable

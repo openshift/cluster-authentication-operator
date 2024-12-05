@@ -65,11 +65,11 @@ func ExactClusterRoleBinding(name string) ExactResourceID {
 }
 
 func ExactRole(namespace, name string) ExactResourceID {
-	return ExactResource("rbac.authorization.k8s.io", "v1", "roles", "", name)
+	return ExactResource("rbac.authorization.k8s.io", "v1", "roles", namespace, name)
 }
 
 func ExactRoleBinding(namespace, name string) ExactResourceID {
-	return ExactResource("rbac.authorization.k8s.io", "v1", "rolebindings", "", name)
+	return ExactResource("rbac.authorization.k8s.io", "v1", "rolebindings", namespace, name)
 }
 
 func ExactConfigResource(resource string) ExactResourceID {
@@ -78,4 +78,16 @@ func ExactConfigResource(resource string) ExactResourceID {
 
 func GeneratedCSR(generateName string) GeneratedResourceID {
 	return GeneratedResource("certificates.k8s.io", "v1", "certificatesigningrequests", "", generateName)
+}
+
+func ExactPDB(namespace, name string) ExactResourceID {
+	return ExactResource("policy", "v1", "poddisruptionbudgets", namespace, name)
+}
+
+func ExactService(namespace, name string) ExactResourceID {
+	return ExactResource("", "v1", "services", namespace, name)
+}
+
+func ExactOAuthClient(name string) ExactResourceID {
+	return ExactResource("oauth.openshift.io", "v1", "oauthclients", "", name)
 }
