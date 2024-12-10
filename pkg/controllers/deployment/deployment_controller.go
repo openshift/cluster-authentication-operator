@@ -21,8 +21,11 @@ import (
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -60,6 +63,10 @@ type oauthServerDeploymentSyncer struct {
 	proxyLister     configv1listers.ProxyLister
 	routeLister     routev1listers.RouteLister
 
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1listers.ConfigMapLister
+
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
 }
@@ -77,6 +84,8 @@ func NewOAuthServerWorkloadController(
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -93,6 +102,10 @@ func NewOAuthServerWorkloadController(
 		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
 		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
 		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
+
+		authLister:         configInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
@@ -117,7 +130,9 @@ func NewOAuthServerWorkloadController(
 		[]factory.Informer{
 			configInformers.Config().V1().Ingresses().Informer(),
 			configInformers.Config().V1().Proxies().Informer(),
+			configInformers.Config().V1().Authentications().Informer(),
 			nodeInformer.Informer(),
+			kasInformer.Informer(),
 		},
 		[]factory.Informer{
 			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
@@ -135,6 +150,13 @@ func NewOAuthServerWorkloadController(
 }
 
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return false, err
+	} else if oidcAvailable {
+		// the route is no longer a pre-requisite
+		return true, nil
+	}
+
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)
