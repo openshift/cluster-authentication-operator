@@ -29,6 +29,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 		expectError     bool
 	}{
 		{
+			name:            "no node statuses observed",
+			authType:        configv1.AuthenticationTypeOIDC,
+			expectAvailable: false,
+			expectError:     false,
+		},
+		{
 			name:       "oidc disabled, no rollout",
 			configMaps: []*corev1.ConfigMap{cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC)},
 			authType:   configv1.AuthenticationTypeIntegratedOAuth,

@@ -37,6 +37,10 @@ func ExternalOIDCConfigAvailable(authLister configv1listers.AuthenticationLister
 		observedRevisions.Insert(nodeStatus.CurrentRevision)
 	}
 
+	if observedRevisions.Len() == 0 {
+		return false, nil
+	}
+
 	for _, revision := range observedRevisions.UnsortedList() {
 		// ensure every observed revision includes an auth-config revisioned configmap
 		_, err := cmLister.ConfigMaps("openshift-kube-apiserver").Get(fmt.Sprintf("auth-config-%d", revision))
