@@ -10,16 +10,20 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	clientgotesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -66,6 +70,10 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		goldenFile      string
 		operator        *operatorv1.Authentication
 		expectedActions []string
+
+		existingDeployment *appsv1.Deployment
+		authType           configv1.AuthenticationType
+		expectDeleted      bool
 	}{
 		// scenario 1
 		{
@@ -134,6 +142,30 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
 		},
+
+		// demo scenario: OIDC
+		{
+			name:     "deployment deleted for OIDC",
+			authType: configv1.AuthenticationTypeOIDC,
+			existingDeployment: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "apiserver",
+					Namespace: "openshift-oauth-apiserver",
+				},
+			},
+			expectDeleted: true,
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"delete:deployments:openshift-oauth-apiserver:apiserver",
+			},
+		},
 	}
 
 	for _, scenario := range scenarios {
@@ -141,15 +173,31 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("", clocktesting.NewFakePassiveClock(time.Now()))
 			fakeKubeClient := fake.NewSimpleClientset()
 
+			if scenario.existingDeployment != nil {
+				fakeKubeClient.Tracker().Add(scenario.existingDeployment)
+			}
+
+			authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			authIndexer.Add(&configv1.Authentication{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.AuthenticationSpec{
+					Type: scenario.authType,
+				},
+			})
+
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
+				authLister:                configv1listers.NewAuthenticationLister(authIndexer),
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			actualDeployment, workloadDeleted, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if scenario.expectDeleted != workloadDeleted {
+				t.Fatalf("expected workload deleted: %v; got: %v", scenario.expectDeleted, workloadDeleted)
 			}
 			if err := validateActionsVerbs(fakeKubeClient.Actions(), scenario.expectedActions); err != nil {
 				t.Fatal(err)

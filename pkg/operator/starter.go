@@ -239,6 +239,7 @@ func prepareOauthOperator(
 		authOperatorInput.configClient.ConfigV1().ClusterOperators(),
 		informerFactories.operatorConfigInformer,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
+		informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister(),
 		bootstrapauthenticator.NewBootstrapUserDataGetter(authOperatorInput.kubeClient.CoreV1(), authOperatorInput.kubeClient.CoreV1()),
 		authOperatorInput.eventRecorder,
 		versionRecorder,
@@ -416,6 +417,7 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
+		informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister(),
 		versionRecorder)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
@@ -551,7 +553,6 @@ func prepareOauthAPIServerOperator(
 	).WithAuditPolicyController(
 		"openshift-oauth-apiserver",
 		"audit",
-		informerFactories.operatorConfigInformer.Config().V1().APIServers().Lister(),
 		informerFactories.operatorConfigInformer,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		authOperatorInput.kubeClient,
