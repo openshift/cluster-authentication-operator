@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -35,15 +34,43 @@ func (r Resource) ID() string {
 	return fmt.Sprintf("%s/%s/%s/%s", r.ResourceType.Group, r.ResourceType.Resource, namespace, name)
 }
 
-func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
-	discoveryClient, err := NewDiscoveryClientFromMustGather(location)
+func discoverResourcesFromMustGather(mustGatherDir string) (map[schema.GroupVersionKind][]schema.GroupVersionResource, error) {
+	discoveryClient, err := NewDiscoveryClientFromMustGather(mustGatherDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed creating discovery client: %w", err)
 	}
 
-	_, apiResourceList, _, err := discoveryClient.GroupsAndMaybeResources()
+	_, gvToAPIResourceList, _, err := discoveryClient.GroupsAndMaybeResources()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get api resource list: %w", err)
+		return nil, fmt.Errorf("failed to get api resource list with GroupsAndMaybeResources: %w", err)
+	}
+
+	gvkToResources := map[schema.GroupVersionKind][]schema.GroupVersionResource{}
+	for gv, apiResourceList := range gvToAPIResourceList {
+		for _, apiResource := range apiResourceList.APIResources {
+			if strings.Contains(apiResource.Name, "/") {
+				// Skip subresources
+				continue
+			}
+			gvk := schema.GroupVersionKind{
+				Group:   gv.Group,
+				Version: gv.Version,
+				Kind:    apiResource.Kind,
+			}
+			gvkToResources[gvk] = append(gvkToResources[gvk], schema.GroupVersionResource{
+				Group:    gv.Group,
+				Version:  gv.Version,
+				Resource: apiResource.Name,
+			})
+		}
+	}
+	return gvkToResources, nil
+}
+
+func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
+	gvkToResources, err := discoverResourcesFromMustGather(location)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover resources from must-gather: %w", err)
 	}
 
 	currResourceList := []*Resource{}
@@ -59,7 +86,7 @@ func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
 		if !strings.HasSuffix(currFile.Name(), ".yaml") && !strings.HasSuffix(currFile.Name(), ".json") {
 			return nil
 		}
-		currResource, err := ResourcesFromFile(apiResourceList, currLocation, location)
+		currResource, err := ResourcesFromFile(gvkToResources, currLocation, location)
 		if err != nil {
 			return fmt.Errorf("error deserializing %q: %w", currLocation, err)
 		}
@@ -74,37 +101,19 @@ func LenientResourcesFromDirRecursive(location string) ([]*Resource, error) {
 	return currResourceList, errors.Join(errs...)
 }
 
-func findGVR(resources map[schema.GroupVersion]*metav1.APIResourceList, gvk schema.GroupVersionKind) (*schema.GroupVersionResource, error) {
-	apiResourceList, ok := resources[gvk.GroupVersion()]
-	if !ok {
-		return nil, fmt.Errorf("failed to find api resource list for gvk %s", gvk)
-	}
-
-	var matches []*schema.GroupVersionResource
-	for _, apiResource := range apiResourceList.APIResources {
-		if strings.Contains(apiResource.Name, "/") {
-			// Skip subresources
-			continue
-		}
-		if apiResource.Kind == gvk.Kind {
-			matches = append(matches, &schema.GroupVersionResource{
-				Group:    gvk.Group,
-				Version:  gvk.Version,
-				Resource: apiResource.Name,
-			})
-		}
-	}
-	switch len(matches) {
+func findGVR(gvkToResources map[schema.GroupVersionKind][]schema.GroupVersionResource, gvk schema.GroupVersionKind) (*schema.GroupVersionResource, error) {
+	resources := gvkToResources[gvk]
+	switch len(resources) {
 	case 1:
-		return matches[0], nil
+		return &resources[0], nil
 	case 0:
-		return nil, fmt.Errorf("failed to find resource for gvk %s", gvk)
+		return nil, fmt.Errorf("no resources found for Group: %q, Version: %q, Kind: %q", gvk.Group, gvk.Version, gvk.Kind)
 	default:
-		return nil, fmt.Errorf("multiple resources found for gvk %v", matches)
+		return nil, fmt.Errorf("multiple resources found for Group: %q, Version: %q, Kind: %q", gvk.Group, gvk.Version, gvk.Kind)
 	}
 }
 
-func ResourcesFromFile(apiResourceList map[schema.GroupVersion]*metav1.APIResourceList, location, fileTrimPrefix string) ([]*Resource, error) {
+func ResourcesFromFile(gvkToResources map[schema.GroupVersionKind][]schema.GroupVersionResource, location, fileTrimPrefix string) ([]*Resource, error) {
 	content, err := os.ReadFile(location)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read %q: %w", location, err)
@@ -135,7 +144,7 @@ func ResourcesFromFile(apiResourceList map[schema.GroupVersion]*metav1.APIResour
 	// Short-circuit if the file contains a single resource
 	if !resource.Content.IsList() {
 		gvk := retContent.GroupVersionKind()
-		gvr, err := findGVR(apiResourceList, gvk)
+		gvr, err := findGVR(gvkToResources, gvk)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find gvr: %w", err)
 		}
@@ -151,7 +160,7 @@ func ResourcesFromFile(apiResourceList map[schema.GroupVersion]*metav1.APIResour
 
 	resources := make([]*Resource, 0, len(list.Items))
 	for _, item := range list.Items {
-		gvr, err := findGVR(apiResourceList, item.GroupVersionKind())
+		gvr, err := findGVR(gvkToResources, item.GroupVersionKind())
 		if err != nil {
 			return nil, fmt.Errorf("failed to find gvr: %w", err)
 		}

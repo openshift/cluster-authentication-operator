@@ -9,11 +9,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"reflect"
 )
 
 func EquivalentApplyConfigurationResultIgnoringEvents(lhs, rhs ApplyConfigurationResult) []string {
 	reasons := []string{}
 	reasons = append(reasons, equivalentErrors("Error", lhs.Error(), rhs.Error())...)
+	reasons = append(reasons, equivalentRunResults("ControllerResults", lhs.ControllerResults(), rhs.ControllerResults())...)
 
 	for _, clusterType := range sets.List(AllClusterTypes) {
 		currLHS := lhs.MutationsForClusterType(clusterType)
@@ -34,6 +36,23 @@ func equivalentErrors(field string, lhs, rhs error) []string {
 		reasons = append(reasons, fmt.Sprintf("%v: lhs=%v, rhs=nil", field, lhs))
 	case lhs.Error() != rhs.Error():
 		reasons = append(reasons, fmt.Sprintf("%v: lhs=%v, rhs=%v", field, lhs, rhs))
+	}
+
+	return reasons
+}
+
+func equivalentRunResults(field string, lhs, rhs *ApplyConfigurationRunResult) []string {
+	reasons := []string{}
+	switch {
+	case lhs == nil && rhs == nil:
+	case lhs == nil && rhs != nil:
+		reasons = append(reasons, fmt.Sprintf("%v: lhs=nil, rhs=%v", field, rhs))
+	case lhs != nil && rhs == nil:
+		reasons = append(reasons, fmt.Sprintf("%v: lhs=%v, rhs=nil", field, lhs))
+	default:
+		if !reflect.DeepEqual(lhs, rhs) {
+			reasons = append(reasons, fmt.Sprintf("%v: diff: %v", field, cmp.Diff(lhs, rhs)))
+		}
 	}
 
 	return reasons

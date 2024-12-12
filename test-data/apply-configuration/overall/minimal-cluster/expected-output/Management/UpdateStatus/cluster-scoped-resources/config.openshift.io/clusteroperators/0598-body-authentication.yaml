@@ -1,0 +1,71 @@
+apiVersion: config.openshift.io/v1
+kind: ClusterOperator
+metadata:
+  creationTimestamp: null
+  name: authentication
+spec: {}
+status:
+  conditions:
+  - lastTransitionTime: "2024-12-05T18:54:45Z"
+    reason: NoData
+    status: Unknown
+    type: Degraded
+  - lastTransitionTime: "2024-12-05T18:54:45Z"
+    reason: NoData
+    status: Unknown
+    type: Progressing
+  - lastTransitionTime: "2024-12-05T18:54:45Z"
+    reason: NoData
+    status: Unknown
+    type: Available
+  - lastTransitionTime: "2024-12-05T18:54:45Z"
+    reason: NoData
+    status: Unknown
+    type: Upgradeable
+  - lastTransitionTime: "2024-12-05T18:54:45Z"
+    reason: NoData
+    status: Unknown
+    type: EvaluationConditionsDetected
+  extension: null
+  relatedObjects:
+  - group: operator.openshift.io
+    name: cluster
+    resource: authentications
+  - group: config.openshift.io
+    name: cluster
+    resource: authentications
+  - group: config.openshift.io
+    name: cluster
+    resource: infrastructures
+  - group: config.openshift.io
+    name: cluster
+    resource: oauths
+  - group: route.openshift.io
+    name: oauth-openshift
+    namespace: openshift-authentication
+    resource: routes
+  - group: ""
+    name: oauth-openshift
+    namespace: openshift-authentication
+    resource: services
+  - group: ""
+    name: openshift-config
+    resource: namespaces
+  - group: ""
+    name: openshift-config-managed
+    resource: namespaces
+  - group: ""
+    name: openshift-authentication
+    resource: namespaces
+  - group: ""
+    name: openshift-authentication-operator
+    resource: namespaces
+  - group: ""
+    name: openshift-ingress
+    resource: namespaces
+  - group: ""
+    name: openshift-oauth-apiserver
+    resource: namespaces
+  versions:
+  - name: operator
+    version: ""

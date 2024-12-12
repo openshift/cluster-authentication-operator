@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: TODO-configOverridesController
+fieldManager: openshift-authentication-UnsupportedConfigOverrides
+generateName: ""
+mame: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1

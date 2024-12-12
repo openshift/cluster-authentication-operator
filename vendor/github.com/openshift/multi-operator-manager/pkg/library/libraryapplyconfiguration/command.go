@@ -34,7 +34,7 @@ type ApplyConfigurationInput struct {
 }
 
 // ApplyConfigurationFunc is a function called for applying configuration.
-type ApplyConfigurationFunc func(ctx context.Context, applyConfigurationInput ApplyConfigurationInput) (AllDesiredMutationsGetter, error)
+type ApplyConfigurationFunc func(ctx context.Context, applyConfigurationInput ApplyConfigurationInput) (*ApplyConfigurationRunResult, AllDesiredMutationsGetter, error)
 
 func NewApplyConfigurationCommand(applyConfigurationFn ApplyConfigurationFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc, streams genericiooptions.IOStreams) *cobra.Command {
 	return newApplyConfigurationCommand(applyConfigurationFn, outputResourcesFn, streams)

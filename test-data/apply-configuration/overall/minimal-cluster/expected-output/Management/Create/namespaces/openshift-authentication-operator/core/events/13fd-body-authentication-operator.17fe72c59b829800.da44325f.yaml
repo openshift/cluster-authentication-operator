@@ -1,0 +1,22 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2024-10-14T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2024-10-14T22:38:20Z"
+message: 'No valid client certificate for OpenShiftAuthenticatorCertRequester is found:
+  unable to parse certificate: data does not contain any valid RSA or ECDSA certificates'
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.17fe72c59b829800.da44325f
+  namespace: openshift-authentication-operator
+reason: NoValidCertificateFound
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal

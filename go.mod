@@ -6,11 +6,11 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/ghodss/yaml v1.0.0
 	github.com/google/go-cmp v0.6.0
-	github.com/openshift/api v0.0.0-20241001152557-e415140e5d5f
-	github.com/openshift/build-machinery-go v0.0.0-20241031155326-6ae126a9cb72
+	github.com/openshift/api v0.0.0-20241101202457-04eb3fd119d2
+	github.com/openshift/build-machinery-go v0.0.0-20241126220845-0de670012c09
 	github.com/openshift/client-go v0.0.0-20241001162912-da6d55e4611f
-	github.com/openshift/library-go v0.0.0-20241120135057-fc703a7407c9
-	github.com/openshift/multi-operator-manager v0.0.0-20241119235446-3c965870ef94
+	github.com/openshift/library-go v0.0.0-20241127135410-64d8d9e80808
+	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/client/v3 v3.5.14

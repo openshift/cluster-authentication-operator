@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: openshift-oauth-apiserver-EncryptionKey
+fieldManager: openshift-oauth-apiserver-EncryptionKey
+generateName: ""
+mame: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1
