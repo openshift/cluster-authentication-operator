@@ -101,7 +101,7 @@ func AddKeycloakIDP(
 		&readinessProbe,
 		&livenessProbe,
 		true,
-		"/opt/keycloak/bin/kc.sh", "start",
+		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
 	cleanups = []func(){cleanup}
 	defer func() {
