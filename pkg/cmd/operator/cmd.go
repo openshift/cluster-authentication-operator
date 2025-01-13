@@ -2,7 +2,6 @@ package operator
 
 import (
 	"github.com/spf13/cobra"
-
 	"k8s.io/utils/clock"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/operator"

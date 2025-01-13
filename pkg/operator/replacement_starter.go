@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/utils/clock"
 
 	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
 	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
@@ -51,6 +52,7 @@ type authenticationOperatorInput struct {
 	apiregistrationv1Client      apiregistrationclient.Interface
 	migrationClient              kubemigratorclient.Interface
 	eventRecorder                events.Recorder
+	clock                        clock.PassiveClock
 
 	informerFactories []libraryapplyconfiguration.SimplifiedInformerFactory
 }
@@ -129,6 +131,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
 		eventRecorder:                eventRecorder,
+		clock:                        momInput.Clock,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},
@@ -199,6 +202,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
 		eventRecorder:                eventRecorder,
+		clock:                        controllerContext.Clock,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},

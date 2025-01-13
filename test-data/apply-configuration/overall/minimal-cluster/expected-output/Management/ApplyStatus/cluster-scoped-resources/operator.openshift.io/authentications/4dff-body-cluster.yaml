@@ -6,8 +6,8 @@ status:
   conditions:
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     message: |-
-      endpoints/host-etcd-2 in the openshift-etcd namespace: not found
       configmap openshift-etcd/etcd-endpoints not found, and fallback observer failed
+      endpoints/host-etcd-2 in the openshift-etcd namespace: not found
       oauth.config.openshift.io "cluster" not found
     reason: Error
     status: "True"

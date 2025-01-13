@@ -55,8 +55,8 @@ controllerResults:
 - controllerName: TODO-other-configObserver
   errors:
   - message: |-
-      endpoints/host-etcd-2 in the openshift-etcd namespace: not found
       configmap openshift-etcd/etcd-endpoints not found, and fallback observer failed
+      endpoints/host-etcd-2 in the openshift-etcd namespace: not found
       oauth.config.openshift.io "cluster" not found
   status: Failed
 - controllerName: TODO-payloadConfigController
