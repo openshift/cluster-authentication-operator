@@ -435,6 +435,7 @@ func prepareOauthAPIServerOperator(
 		"oauth-apiserver",
 		authOperatorInput.authenticationOperatorClient,
 		eventRecorder,
+		authOperatorInput.clock,
 	).WithWorkloadController(
 		"OAuthAPIServerController",
 		"openshift-authentication-operator",

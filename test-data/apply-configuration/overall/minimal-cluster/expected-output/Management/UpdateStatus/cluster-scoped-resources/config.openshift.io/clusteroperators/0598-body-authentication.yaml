@@ -6,23 +6,23 @@ metadata:
 spec: {}
 status:
   conditions:
-  - lastTransitionTime: "2024-12-05T18:54:45Z"
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: NoData
     status: Unknown
     type: Degraded
-  - lastTransitionTime: "2024-12-05T18:54:45Z"
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: NoData
     status: Unknown
     type: Progressing
-  - lastTransitionTime: "2024-12-05T18:54:45Z"
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: NoData
     status: Unknown
     type: Available
-  - lastTransitionTime: "2024-12-05T18:54:45Z"
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: NoData
     status: Unknown
     type: Upgradeable
-  - lastTransitionTime: "2024-12-05T18:54:45Z"
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: NoData
     status: Unknown
     type: EvaluationConditionsDetected
