@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "ccb8d879eec9cdde0c99dd71a28ec2f55d94ffce29e96b74a2b126c3014f223d"
+    operator.openshift.io/spec-hash: "a4574abdfafd21fb9a70db6c0cd6064f940ec4d3f199a0f5d9e0ac8392500f9d"
   creationTimestamp: ~
   labels:
     apiserver: "true"
@@ -91,7 +91,7 @@ spec:
             httpGet:
               scheme: HTTPS
               port: 8443
-              path: readyz
+              path: readyz?exclude=etcd&exclude=etcd-readiness
             initialDelaySeconds: 0
             periodSeconds: 5
             timeoutSeconds: 10
@@ -217,4 +217,3 @@ spec:
             path: /var/log/oauth-apiserver
           name: audit-dir
 status: {}
-
