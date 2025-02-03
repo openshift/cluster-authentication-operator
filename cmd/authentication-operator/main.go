@@ -5,6 +5,7 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/mom"
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator"
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/render"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/component-base/cli"
@@ -34,6 +35,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd.AddCommand(mom.NewApplyConfigurationCommand(ioStreams))
 	cmd.AddCommand(mom.NewInputResourcesCommand(ioStreams))
 	cmd.AddCommand(mom.NewOutputResourcesCommand(ioStreams))
+	cmd.AddCommand(render.NewRender())
 
 	return cmd
 }
