@@ -1,0 +1,15 @@
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  creationTimestamp: null
+  generateName: system:openshift:openshift-authenticator-
+  labels:
+    authentication.openshift.io/csr: openshift-authenticator
+spec:
+  request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQkRqQ0J0QUlCQURCU01WQXdUZ1lEVlFRREUwZHplWE4wWlcwNmMyVnlkbWxqWldGalkyOTFiblE2YjNCbApibk5vYVdaMExXOWhkWFJvTFdGd2FYTmxjblpsY2pwdmNHVnVjMmhwWm5RdFlYVjBhR1Z1ZEdsallYUnZjakJaCk1CTUdCeXFHU000OUFnRUdDQ3FHU000OUF3RUhBMElBQkJYWkx2TEpOb0JrUG1CZmVNdnhjT1psV3lhZjdzUDAKa29Lb2MyeDRvVWhabmhObVNsS283bm5kcWhCVjl0N2kxSVpFNWdycGpyRnZ6U0QvV0xQNmR1NmdBREFLQmdncQpoa2pPUFFRREFnTkpBREJHQWlFQXlSM1h1NFY5alVOa2NkM2N3dGhiUXBOZjFUc1hTYS9YekQ3RkNNUnRxNllDCklRQ0UvYmEvdnNRU1VYN0kza2RNeCtPdVF2QWJsSk1hdEdmbC9VaTdyRUszb2c9PQotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K
+  signerName: kubernetes.io/kube-apiserver-client
+  usages:
+  - digital signature
+  - key encipherment
+  - client auth
+status: {}
