@@ -15,7 +15,7 @@ include $(addprefix ./vendor/github.com/openshift/build-machinery-go/make/, \
 #
 # Example:
 #   make check
-check: | verify test-unit
+check: | verify verify-bindata test-unit
 .PHONY: check
 
 IMAGE_REGISTRY?=registry.svc.ci.openshift.org
@@ -86,3 +86,16 @@ export TP_CMD_PATH ?=./cmd/authentication-operator
 export TP_CMD_ARGS ?=operator --config=/var/run/configmaps/config/operator-config.yaml --v=2 --terminate-on-files=/var/run/configmaps/trusted-ca-bundle/ca-bundle.crt
 export TP_LOCK_CONFIGMAP ?=cluster-authentication-operator-lock
 export TP_BUILD_FLAGS ?=-tags ocp
+
+# ensure the rolebindingrestriction CRD is included in bindata
+RBR_CRD_SOURCE := vendor/github.com/openshift/api/authorization/v1/zz_generated.crd-manifests/0000_03_config-operator_01_rolebindingrestrictions.crd.yaml
+RBR_CRD_TARGET := bindata/oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml
+update-bindata: $(RBR_CRD_TARGET)
+$(RBR_CRD_TARGET): $(RBR_CRD_SOURCE)
+	cp $< $@
+
+verify-bindata: verify-rbr-crd
+.PHONY: verify-bindata
+
+verify-rbr-crd:
+	diff -Naup $(RBR_CRD_SOURCE) $(RBR_CRD_TARGET)
