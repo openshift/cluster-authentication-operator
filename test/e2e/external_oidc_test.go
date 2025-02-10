@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -38,18 +40,14 @@ import (
 )
 
 const (
-	oidcClientId       = "admin-cli"
-	oidcGroupsClaim    = "groups"
-	oidcGroupsPrefix   = ""
-	oidcUsernameClaim  = "email"
-	oidcUsernamePrefix = "oidc-test:"
+	oidcClientId     = "admin-cli"
+	oidcGroupsClaim  = "groups"
+	oidcGroupsPrefix = ""
 
 	kasNamespace = "openshift-kube-apiserver"
 )
 
 type testClient struct {
-	t *testing.T
-
 	kubeConfig            *rest.Config
 	kubeClient            *kubernetes.Clientset
 	configClient          *configclient.Clientset
@@ -73,11 +71,13 @@ type oidcAuthResponse struct {
 
 type expectedClaims struct {
 	jwt.RegisteredClaims
-	Email      string `json:"email"`
-	Type       string `json:"typ"`
-	Name       string `json:"name"`
-	GivenName  string `json:"given_name"`
-	FamilyName string `json:"family_name"`
+	Email             string `json:"email"`
+	Sub               string `json:"sub"`
+	Type              string `json:"typ"`
+	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	PreferredUsername string `json:"preferred_username"`
 }
 
 func TestExternalOIDCWithKeycloak(t *testing.T) {
@@ -87,180 +87,199 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	tc, err := newTestClient(t)
 	require.NoError(t, err)
 
-	// ===============================
-	// Check ExternalOIDC feature gate
-	// ===============================
-
 	featureGates, err := tc.configClient.ConfigV1().FeatureGates().Get(testCtx, "cluster", metav1.GetOptions{})
-	require.NoError(tc.t, err)
+	require.NoError(t, err)
 
 	if len(featureGates.Status.FeatureGates) != 1 {
 		// fail test if there are multiple feature gate versions (i.e. ongoing upgrade)
-		tc.t.Fatalf("multiple feature gate versions detected")
+		t.Fatalf("multiple feature gate versions detected")
 	} else {
 		for _, fgDisabled := range featureGates.Status.FeatureGates[0].Disabled {
 			if fgDisabled.Name == features.FeatureGateExternalOIDC {
-				tc.t.Skipf("feature gate '%s' disabled", features.FeatureGateExternalOIDC)
+				t.Skipf("feature gate '%s' disabled", features.FeatureGateExternalOIDC)
 			}
 		}
 	}
 
-	auth, err := tc.configClient.ConfigV1().Authentications().Get(testCtx, "cluster", metav1.GetOptions{})
-	require.NoError(tc.t, err, "failed to get authentication/cluster")
-	require.NotNil(tc.t, auth)
+	// =====================
+	// Auth resource cleanup
+	// =====================
+
+	var cleanups []func()
+	defer test.IDPCleanupWrapper(func() {
+		for _, c := range cleanups {
+			c()
+		}
+	})()
+
+	auth := tc.getAuth(t, testCtx)
+	origAuthSpec := (*auth).Spec.DeepCopy()
+	cleanups = append(cleanups, func() {
+		kasOriginalRevision := tc.kasLatestAvailableRevision(t, testCtx)
+		auth, err := tc.configClient.ConfigV1().Authentications().Get(testCtx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
+		}
+
+		auth.Spec = *origAuthSpec
+		if _, err := tc.configClient.ConfigV1().Authentications().Update(testCtx, auth, metav1.UpdateOptions{}); err != nil {
+			t.Fatalf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
+		}
+
+		err = test.WaitForNewKASRollout(t, testCtx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
+		require.NoError(t, err, "failed to wait for KAS rollout during cleanup")
+
+		err = wait.PollUntilContextTimeout(testCtx, 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (done bool, err error) {
+			return tc.validateOAuthResources(testCtx, false)
+		})
+		require.NoError(t, err, "failed to wait for OAuth resources to be missing during cleanup")
+	})
 
 	// ==============
 	// Setup Keycloak
 	// ==============
 
+	var idpName string
 	var kcClient *test.KeycloakClient
-	if keycloakURL := os.Getenv("E2E_KEYCLOAK_URL"); len(keycloakURL) > 0 {
-		// this case is used for development purposes; OIDC must have already been set up
-		if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
-			tc.t.Skipf("using an existing keycloak deployment via E2E_KEYCLOAK_URL requires OIDC already set up, but auth type is '%s'", auth.Spec.Type)
-		}
 
+	if keycloakURL := os.Getenv("E2E_KEYCLOAK_URL"); len(keycloakURL) > 0 {
 		t.Logf("will use existing keycloak deployment at URL: %s", keycloakURL)
-		kcClient = tc.setupKeycloakClient(testCtx, keycloakURL)
+		kcClient = tc.setupKeycloakClient(t, testCtx, keycloakURL)
+		re := regexp.MustCompile(`e2e-test-authentication-operator-[a-z0-9]+`)
+		match := re.FindString(keycloakURL)
+		idpName = "keycloak-test-" + match
 
 	} else {
-		// this test assumes we're starting from built-in OAuth
-		switch auth.Spec.Type {
-		case configv1.AuthenticationTypeNone, configv1.AuthenticationTypeOIDC:
-			tc.t.Skipf("auth type must be IntegratedOAuth or ''; was '%s'", auth.Spec.Type)
-		}
-
-		var idpName string
-		var cleanups []func()
-		kcClient, idpName, cleanups = test.AddKeycloakIDP(tc.t, tc.kubeConfig, true)
+		kcClient, idpName, cleanups = test.AddKeycloakIDP(t, tc.kubeConfig, true)
 		t.Logf("keycloak Admin URL: %s", kcClient.AdminURL())
-
-		// default-ingress-cert is copied to openshift-config and used as the CA for the IdP
-		// see test/library/idpdeployment.go:334
-		caBundleName := idpName + "-ca"
-
-		// all OAuth resources must be present
-		tc.validateOAuthResources(testCtx, false)
-
-		// update the authentication CR with the external OIDC configuration
-		c := tc.updateAuthForOIDC(testCtx, auth, kcClient.IssuerURL(), idpName, caBundleName)
-		cleanups = append(cleanups, c...)
-
-		kasRevision := tc.validateKASConfig(testCtx)
-
-		tc.validateAuthConfigJSON(testCtx, kcClient.IssuerURL(), caBundleName, kasRevision)
-
-		// now all OAuth resources must be missing
-		tc.validateOAuthResources(testCtx, true)
-
-		cleanups = append(cleanups, func() {
-			// after cleanup, all OAuth resources must be present again
-			tc.validateOAuthResources(testCtx, false)
-		})
-
-		defer test.IDPCleanupWrapper(func() {
-			for _, c := range cleanups {
-				c()
-			}
-		})()
 	}
 
-	group := names.SimpleNameGenerator.GenerateName("e2e-keycloak-group-")
-	err = kcClient.CreateGroup(group)
-	require.NoError(t, err)
+	// default-ingress-cert is copied to openshift-config and used as the CA for the IdP
+	// see test/library/idpdeployment.go:334
+	idpURL := kcClient.IssuerURL()
+	caBundleName := idpName + "-ca"
+	_, err = tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Get(testCtx, caBundleName, metav1.GetOptions{})
+	require.NoError(t, err, "CA bundle configmap openshift-config/%s must exist", caBundleName)
 
-	user := names.SimpleNameGenerator.GenerateName("e2e-keycloak-user-")
-	email := fmt.Sprintf("%s@test.dev", user)
-	password := "password"
-	firstName := "Homer"
-	lastName := "Simpson"
-	err = kcClient.CreateUser(
-		user,
-		email,
-		password,
-		[]string{group},
-		map[string]string{
-			"firstName": firstName,
-			"lastName":  lastName,
+	// =========
+	// Run tests
+	// =========
+
+	for _, tt := range []struct {
+		name                        string
+		authSpec                    configv1.AuthenticationSpec
+		expectedUsernamePrefix      string
+		expectOperatorDegraded      bool
+		expectOIDCRolloutSuccessful bool
+	}{
+		{
+			name: "invalid OIDC config degrades operator",
+			authSpec: getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName+"_invalid", configv1.UsernameClaimMapping{
+				TokenClaimMapping: configv1.TokenClaimMapping{
+					Claim: "email",
+				},
+				PrefixPolicy: configv1.Prefix,
+				Prefix: &configv1.UsernamePrefix{
+					PrefixString: "oidc-test:",
+				},
+			}),
+			expectedUsernamePrefix:      "oidc-test:",
+			expectOperatorDegraded:      true,
+			expectOIDCRolloutSuccessful: false,
 		},
-	)
-	require.NoError(t, err)
+		{
+			name: "valid OIDC rollout with username prefix",
+			authSpec: getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName, configv1.UsernameClaimMapping{
+				TokenClaimMapping: configv1.TokenClaimMapping{
+					Claim: "email",
+				},
+				PrefixPolicy: configv1.Prefix,
+				Prefix: &configv1.UsernamePrefix{
+					PrefixString: "oidc-test:",
+				},
+			}),
+			expectedUsernamePrefix:      "oidc-test:",
+			expectOperatorDegraded:      false,
+			expectOIDCRolloutSuccessful: true,
+		},
+		{
+			name: "valid OIDC rollout with no username prefix",
+			authSpec: getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName, configv1.UsernameClaimMapping{
+				TokenClaimMapping: configv1.TokenClaimMapping{
+					Claim: "email",
+				},
+				PrefixPolicy: configv1.NoPrefix,
+			}),
+			expectedUsernamePrefix:      "",
+			expectOperatorDegraded:      false,
+			expectOIDCRolloutSuccessful: true,
+		},
+		{
+			name: "valid OIDC rollout with no-opinion on username prefix and claim email",
+			authSpec: getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName, configv1.UsernameClaimMapping{
+				TokenClaimMapping: configv1.TokenClaimMapping{
+					Claim: "email",
+				},
+				PrefixPolicy: configv1.NoOpinion,
+			}),
+			expectedUsernamePrefix:      "",
+			expectOperatorDegraded:      false,
+			expectOIDCRolloutSuccessful: true,
+		},
+		{
+			name: "valid OIDC rollout with no-opinion on username prefix and claim sub",
+			authSpec: getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName, configv1.UsernameClaimMapping{
+				TokenClaimMapping: configv1.TokenClaimMapping{
+					Claim: "sub",
+				},
+				PrefixPolicy: configv1.NoOpinion,
+			}),
+			expectedUsernamePrefix:      idpURL + "#",
+			expectOperatorDegraded:      false,
+			expectOIDCRolloutSuccessful: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := tc.getAuth(t, testCtx)
+			kasOriginalRevision := tc.kasLatestAvailableRevision(t, testCtx)
 
-	httpClient := &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}
+			auth.Spec = tt.authSpec
+			auth, err := tc.configClient.ConfigV1().Authentications().Update(testCtx, auth, metav1.UpdateOptions{})
+			require.NoError(t, err, "failed to update authentication/cluster")
+			require.True(t, equality.Semantic.DeepEqual(tt.authSpec, auth.Spec))
 
-	formData := url.Values{
-		"grant_type": []string{"password"},
-		"client_id":  []string{oidcClientId},
-		"scope":      []string{"openid"},
-		"username":   []string{user},
-		"password":   []string{password},
+			if tt.expectOperatorDegraded {
+				err = test.WaitForClusterOperatorDegraded(t, tc.configClient.ConfigV1(), "authentication")
+				require.NoError(t, err, "failed to wait for cluster operator to get degraded")
+			} else {
+				err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, tc.configClient.ConfigV1(), "authentication")
+				require.NoError(t, err, "failed to wait for cluster operator to become available")
+			}
+
+			if tt.expectOIDCRolloutSuccessful {
+				// wait for KAS rollout
+				err = test.WaitForNewKASRollout(t, testCtx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
+				require.NoError(t, err, "failed to wait for KAS rollout")
+
+				kasRevision := tc.validateKASConfig(t, testCtx)
+				tc.validateAuthConfigJSON(t, testCtx, kcClient.IssuerURL(), &tt.authSpec, tt.expectedUsernamePrefix, kasRevision)
+
+				// wait for OAuth resources to be cleaned up
+				err = wait.PollUntilContextTimeout(testCtx, 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (done bool, err error) {
+					return tc.validateOAuthResources(testCtx, true)
+				})
+				require.NoError(t, err, "failed to wait for OAuth resources to be missing")
+
+				// run auth tests
+				tc.testOIDCAuthentication(t, testCtx, kcClient, tt.authSpec.OIDCProviders[0].ClaimMappings.Username.Claim, tt.expectedUsernamePrefix)
+			}
+
+		})
 	}
-
-	resp, err := httpClient.PostForm(kcClient.TokenURL(), formData)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	data, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NotEmpty(t, data)
-
-	var authResponse oidcAuthResponse
-	err = json.Unmarshal(data, &authResponse)
-	require.NoError(t, err)
-	require.NotEmpty(t, authResponse.AccessToken)
-	require.NotEmpty(t, authResponse.IdToken)
-
-	// ========================================
-	// Validate the contents of the OIDC tokens
-	// ========================================
-	accessToken, idToken, err := parseOIDCTokens(kcClient.IssuerURL(), authResponse.AccessToken, authResponse.IdToken)
-	require.NoError(t, err)
-	require.NotNil(t, accessToken)
-	require.NotNil(t, idToken)
-
-	actualAccessTokenClaims := accessToken.Claims.(*expectedClaims)
-	require.True(t, accessToken.Valid)
-	require.Equal(t, kcClient.IssuerURL(), actualAccessTokenClaims.Issuer)
-	require.Equal(t, email, actualAccessTokenClaims.Email)
-	require.Equal(t, "Bearer", actualAccessTokenClaims.Type)
-	require.Equal(t, firstName, actualAccessTokenClaims.GivenName)
-	require.Equal(t, lastName, actualAccessTokenClaims.FamilyName)
-	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualAccessTokenClaims.Name)
-
-	actualIDTokenClaims := idToken.Claims.(*expectedClaims)
-	require.True(t, idToken.Valid)
-	require.Equal(t, kcClient.IssuerURL(), actualIDTokenClaims.Issuer)
-	require.Equal(t, email, actualIDTokenClaims.Email)
-	require.Equal(t, "ID", actualIDTokenClaims.Type)
-	require.Equal(t, jwt.ClaimStrings{oidcClientId}, actualIDTokenClaims.Audience)
-	require.Equal(t, firstName, actualIDTokenClaims.GivenName)
-	require.Equal(t, lastName, actualIDTokenClaims.FamilyName)
-	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualIDTokenClaims.Name)
-
-	// ==========================================
-	// Test authentication via the kube-apiserver
-	// ==========================================
-
-	// create a new kube client that uses the OIDC id_token as a bearer token
-	kubeConfig := rest.AnonymousClientConfig(tc.kubeConfig)
-	kubeConfig.BearerToken = authResponse.IdToken
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
-	require.NoError(tc.t, err)
-
-	// test authentication with the OIDC token using a self subject review
-	ssr, err := kubeClient.AuthenticationV1().SelfSubjectReviews().Create(testCtx, &authenticationv1.SelfSubjectReview{}, metav1.CreateOptions{})
-	require.NoError(tc.t, err)
-	require.NotNil(tc.t, ssr)
-	require.Contains(t, ssr.Status.UserInfo.Groups, "system:authenticated")
-	require.Equal(t, oidcUsernamePrefix+email, ssr.Status.UserInfo.Username)
 }
 
 func newTestClient(t *testing.T) (*testClient, error) {
 	tc := &testClient{
-		t:          t,
 		kubeConfig: test.NewClientConfigForTest(t),
 	}
 
@@ -398,118 +417,44 @@ func parseOIDCTokens(issuerURL string, accessToken, idToken string) (*jwt.Token,
 	return parsedAccessToken, parsedIDToken, nil
 }
 
-func (tc *testClient) setupKeycloakClient(ctx context.Context, keycloakURL string) *test.KeycloakClient {
+func (tc *testClient) setupKeycloakClient(t *testing.T, ctx context.Context, keycloakURL string) *test.KeycloakClient {
 	transport, err := rest.TransportFor(tc.kubeConfig)
-	require.NoError(tc.t, err)
+	require.NoError(t, err)
 
-	kcClient := test.KeycloakClientFor(tc.t, transport, keycloakURL, "master")
+	kcClient := test.KeycloakClientFor(t, transport, keycloakURL, "master")
 	err = wait.PollUntilContextTimeout(ctx, 5*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
 		err := kcClient.AuthenticatePassword(oidcClientId, "", "admin", "password")
 		if err != nil {
-			tc.t.Logf("failed to authenticate to Keycloak: %v", err)
+			t.Logf("failed to authenticate to Keycloak: %v", err)
 			return false, nil
 		}
 		return true, nil
 	})
-	require.NoError(tc.t, err)
+	require.NoError(t, err)
 
 	return kcClient
 }
 
-func (tc *testClient) updateAuthForOIDC(ctx context.Context, auth *configv1.Authentication, idpURL, idpName, caBundleName string) (cleanups []func()) {
-	tc.t.Log("will update auth CR for OIDC")
+func (tc *testClient) getAuth(t *testing.T, ctx context.Context) *configv1.Authentication {
+	auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(t, err, "failed to get authentication/cluster")
+	require.NotNil(t, auth)
 
-	// TODO add more claims, rules, etc
-	origSpec := (*auth).Spec.DeepCopy()
-
-	// first, make an invalid change to the Auth CR and make sure that the operator will become degraded
-	invalidCABundleName := caBundleName + "_invalid"
-	auth.Spec = getAuthSpecForOIDCProvider(idpName, idpURL, invalidCABundleName)
-
-	var err error
-	auth, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
-	cleanups = append(cleanups, func() {
-		auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
-		}
-
-		auth.Spec = *origSpec
-		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
-		}
-	})
-	require.NoError(tc.t, err, "failed to update authentication/cluster")
-
-	// test that the auth CR has been indeed updated successfully
-	require.NotEqual(tc.t, origSpec.Type, auth.Spec.Type)
-	require.Equal(tc.t, configv1.AuthenticationTypeOIDC, auth.Spec.Type)
-	require.NotEmpty(tc.t, auth.Spec.OIDCProviders)
-	require.Equal(tc.t, invalidCABundleName, auth.Spec.OIDCProviders[0].Issuer.CertificateAuthority.Name)
-
-	// however, the operator must be degraded as the change is invalid
-	tc.t.Logf("will wait for auth operator to become degraded")
-	err = test.WaitForClusterOperatorDegraded(tc.t, tc.configClient.ConfigV1(), "authentication")
-	require.NoError(tc.t, err, "failed to wait for cluster operator to get degraded")
-
-	// therefore no auth-config CM should exist in openshift-config-managed
-	_, err = tc.kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(ctx, "auth-config", metav1.GetOptions{})
-	require.True(tc.t, errors.IsNotFound(err), fmt.Sprintf("get openshift-config-managed/auth-config error: %v", err))
-
-	// now correct the invalid URL and make sure the operator becomes available
-	auth, err = tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-	require.NoError(tc.t, err, "failed to get authentication/cluster")
-	auth.Spec = getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName)
-
-	// record current KAS revision
-	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-	require.NoError(tc.t, err, "failed to get kubeapiserver/cluster")
-	kasOriginalRevision := kas.Status.LatestAvailableRevision
-
-	auth, err = tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
-	cleanups = append(cleanups, func() {
-		// add a wait for KAS rollout to the cleanups because at this stage we have had a valid OIDC config
-		// which needs to be rolled back
-		kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			tc.t.Fatalf("cleanup failed for authentication '%s' while retrieving kubeapiservers/cluster: %v", auth.Name, err)
-		}
-		kasOriginalCleanupRevision := kas.Status.LatestAvailableRevision
-
-		if kasOriginalCleanupRevision > kasOriginalRevision {
-			// a new rollout occured because of this test; cleanup will therefore cause another rollout
-			tc.t.Log("cleanup waiting for KAS rollout for original auth config")
-			if err := test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalCleanupRevision); err != nil {
-				tc.t.Fatalf("cleanup failed for authentication '%s' while waiting for KAS rollout: %v", auth.Name, err)
-			}
-		}
-	})
-	require.NoError(tc.t, err, "failed to update authentication/cluster")
-
-	// the issuer URL should now be the valid one
-	require.Equal(tc.t, idpURL, auth.Spec.OIDCProviders[0].Issuer.URL)
-
-	tc.t.Logf("will wait for auth operator to become available again")
-	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(tc.t, tc.configClient.ConfigV1(), "authentication")
-	require.NoError(tc.t, err, "failed to wait for cluster operator to become available")
-
-	tc.t.Log("will wait for KAS rollout for new auth config")
-	err = test.WaitForNewKASRollout(tc.t, ctx, tc.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
-	require.NoError(tc.t, err, "failed to wait for KAS rollout")
-
-	// once KAS rollout has been completed, the CAO will turn Available=False/Progressing=False/Degraded=False
-	err = test.WaitForClusterOperatorStatus(tc.t, tc.configClient.ConfigV1(), "authentication", configv1.ConditionFalse, configv1.ConditionFalse, configv1.ConditionFalse, "")
-	require.NoError(tc.t, err, "failed to wait for cluster operator to reach Available=False/Progressing=False/Degraded=False")
-
-	return
+	return auth
 }
 
-func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string) configv1.AuthenticationSpec {
-	return configv1.AuthenticationSpec{
+func (tc *testClient) kasLatestAvailableRevision(t *testing.T, ctx context.Context) int32 {
+	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
+	require.NoError(t, err, "failed to get kubeapiserver/cluster")
+	return kas.Status.LatestAvailableRevision
+}
+
+func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string, usernameMapping configv1.UsernameClaimMapping) configv1.AuthenticationSpec {
+	auth := configv1.AuthenticationSpec{
 		Type:                      configv1.AuthenticationTypeOIDC,
 		WebhookTokenAuthenticator: nil,
 		OIDCProviders: []configv1.OIDCProvider{
-			configv1.OIDCProvider{
+			{
 				Name: idpName,
 				Issuer: configv1.TokenIssuer{
 					URL:       idpURL,
@@ -519,15 +464,7 @@ func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string) configv1.A
 					},
 				},
 				ClaimMappings: configv1.TokenClaimMappings{
-					Username: configv1.UsernameClaimMapping{
-						TokenClaimMapping: configv1.TokenClaimMapping{
-							Claim: oidcUsernameClaim,
-						},
-						PrefixPolicy: configv1.Prefix,
-						Prefix: &configv1.UsernamePrefix{
-							PrefixString: oidcUsernamePrefix,
-						},
-					},
+					Username: usernameMapping,
 					Groups: configv1.PrefixedClaimMapping{
 						TokenClaimMapping: configv1.TokenClaimMapping{
 							Claim: oidcGroupsClaim,
@@ -537,34 +474,37 @@ func getAuthSpecForOIDCProvider(idpName, idpURL, caBundleName string) configv1.A
 			},
 		},
 	}
+
+	return auth
 }
 
-func (tc *testClient) validateKASConfig(ctx context.Context) int32 {
+func (tc *testClient) validateKASConfig(t *testing.T, ctx context.Context) int32 {
 	kas, err := tc.operatorConfigClient.OperatorV1().KubeAPIServers().Get(ctx, "cluster", metav1.GetOptions{})
-	require.NoError(tc.t, err)
+	require.NoError(t, err)
 
 	var observedConfig map[string]interface{}
 	err = json.Unmarshal(kas.Spec.ObservedConfig.Raw, &observedConfig)
-	require.NoError(tc.t, err)
+	require.NoError(t, err)
 
 	apiServerArguments := observedConfig["apiServerArguments"].(map[string]interface{})
 
-	require.Nil(tc.t, apiServerArguments["authentication-token-webhook-config-file"])
-	require.Nil(tc.t, apiServerArguments["authentication-token-webhook-version"])
-	require.Nil(tc.t, observedConfig["authConfig"])
+	require.Nil(t, apiServerArguments["authentication-token-webhook-config-file"])
+	require.Nil(t, apiServerArguments["authentication-token-webhook-version"])
+	require.Nil(t, observedConfig["authConfig"])
 
 	authConfigArg := apiServerArguments["authentication-config"].([]interface{})
-	require.NotEmpty(tc.t, authConfigArg)
-	require.Equal(tc.t, authConfigArg[0].(string), "/etc/kubernetes/static-pod-resources/configmaps/auth-config/auth-config.json")
+	require.NotEmpty(t, authConfigArg)
+	require.Equal(t, authConfigArg[0].(string), "/etc/kubernetes/static-pod-resources/configmaps/auth-config/auth-config.json")
 
 	return kas.Status.LatestAvailableRevision
 }
 
-func (tc *testClient) validateAuthConfigJSON(ctx context.Context, idpURL, caBundleName string, kasRevision int32) {
+func (tc *testClient) validateAuthConfigJSON(t *testing.T, ctx context.Context, idpURL string, authSpec *configv1.AuthenticationSpec, usernamePrefix string, kasRevision int32) {
+	caBundleName := authSpec.OIDCProviders[0].Issuer.CertificateAuthority.Name
 	certData := ""
 	if len(caBundleName) > 0 {
 		cm, err := tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Get(ctx, caBundleName, metav1.GetOptions{})
-		require.NoError(tc.t, err)
+		require.NoError(t, err)
 		certData = cm.Data["ca-bundle.crt"]
 	}
 
@@ -572,8 +512,8 @@ func (tc *testClient) validateAuthConfigJSON(ctx context.Context, idpURL, caBund
 		idpURL,
 		strings.ReplaceAll(certData, "\n", "\\n"),
 		strings.Join([]string{fmt.Sprintf(`"%s"`, oidcClientId)}, ","),
-		oidcUsernameClaim,
-		oidcUsernamePrefix,
+		authSpec.OIDCProviders[0].ClaimMappings.Username.Claim,
+		usernamePrefix,
 		oidcGroupsClaim,
 		oidcGroupsPrefix,
 	)
@@ -587,8 +527,8 @@ func (tc *testClient) validateAuthConfigJSON(ctx context.Context, idpURL, caBund
 		{"openshift-kube-apiserver", fmt.Sprintf("auth-config-%d", kasRevision)},
 	} {
 		actualCM, err := tc.kubeClient.CoreV1().ConfigMaps(cm.ns).Get(ctx, cm.name, metav1.GetOptions{})
-		require.NoError(tc.t, err)
-		require.Equal(tc.t, expectedAuthConfigJSON, actualCM.Data["auth-config.json"], "unexpected auth-config.json contents in %s/%s", actualCM.Namespace, actualCM.Name)
+		require.NoError(t, err)
+		require.Equal(t, expectedAuthConfigJSON, actualCM.Data["auth-config.json"], "unexpected auth-config.json contents in %s/%s", actualCM.Namespace, actualCM.Name)
 	}
 }
 
@@ -597,22 +537,27 @@ type namespacedObject struct {
 	name      string
 }
 
-func (o *namespacedObject) String() string {
-	return fmt.Sprintf("%s/%s", o.namespace, o.name)
+func assertMissing(requireMissing bool, err error) bool {
+	if requireMissing && errors.IsNotFound(err) {
+		return true
+	}
+
+	if err != nil {
+		return false
+	}
+
+	return true
 }
 
-func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing bool) {
+func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing bool) (bool, error) {
 	// deployments
 	for _, obj := range []namespacedObject{
 		{"openshift-authentication", "oauth-openshift"},
 		{"openshift-oauth-apiserver", "apiserver"},
 	} {
-		deployment, err := tc.kubeClient.AppsV1().Deployments(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		require.NoError(tc.t, err)
-		if requireMissing {
-			require.Zero(tc.t, deployment.Status.AvailableReplicas, "deployment %s must have 0 available replicas", obj)
-		} else {
-			require.Equal(tc.t, *deployment.Spec.Replicas, deployment.Status.AvailableReplicas, "deployment %s must have available replicas", obj)
+		_, err := tc.kubeClient.AppsV1().Deployments(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("deployment %s/%s wanted missing: %v; got; %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
 
@@ -623,12 +568,9 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 		{"openshift-authentication", "v4-0-config-system-service-ca"},
 		{"openshift-authentication", "v4-0-config-system-cliconfig"},
 	} {
-		cm, err := tc.kubeClient.CoreV1().ConfigMaps(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "configmap %s must be missing", obj)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, cm, "configmap %s must not be nil", obj)
+		_, err := tc.kubeClient.CoreV1().ConfigMaps(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("configmap %s/%s wanted missing: %v; got; %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
 
@@ -637,12 +579,9 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 		{"openshift-authentication", "v4-0-config-system-ocp-branding-template"},
 		{"openshift-authentication", "v4-0-config-system-session"},
 	} {
-		secret, err := tc.kubeClient.CoreV1().Secrets(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "secret %s must be missing", obj)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, secret, "secret %s must not be nil", obj)
+		_, err := tc.kubeClient.CoreV1().Secrets(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("secret %s/%s wanted missing: %v; got; %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
 
@@ -652,12 +591,9 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 		"openshift-challenging-client",
 		"openshift-cli-client",
 	} {
-		oc, err := tc.oauthClient.OauthV1().OAuthClients().Get(ctx, name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "oauthclient %s must be missing", name)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, oc, "oauthclient %s must not be nil", name)
+		_, err := tc.oauthClient.OauthV1().OAuthClients().Get(ctx, name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("oauthclient %s wanted missing: %v; got; %v", name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
 
@@ -665,12 +601,9 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 	for _, obj := range []namespacedObject{
 		{"openshift-authentication", "oauth-openshift"},
 	} {
-		service, err := tc.kubeClient.CoreV1().Services(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "service %s must be missing", obj)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, service, "service %s must not be nil", obj)
+		_, err := tc.kubeClient.CoreV1().Services(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("service %s/%s wanted missing: %v; got; %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
 
@@ -678,17 +611,17 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 	for _, obj := range []namespacedObject{
 		{"openshift-authentication", "oauth-openshift"},
 	} {
-		route, err := tc.routeClient.RouteV1().Routes(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "route %s must be missing", obj)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, route, "route %s must not be nil", obj)
+		_, err := tc.routeClient.RouteV1().Routes(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("route %s/%s wanted missing: %v; got; %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 		}
 
 		// ingress status
 		ingress, err := tc.configClient.ConfigV1().Ingresses().Get(ctx, "cluster", metav1.GetOptions{})
-		require.NoError(tc.t, err)
+		if err != nil {
+			return false, err
+		}
+
 		found := false
 		for _, route := range ingress.Status.ComponentRoutes {
 			if route.Name == obj.name && route.Namespace == obj.namespace {
@@ -697,10 +630,8 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 			}
 		}
 
-		if requireMissing {
-			require.False(tc.t, found, "route %s must be missing from ingress status", obj)
-		} else {
-			require.True(tc.t, found, "route %s must exist in ingress status", obj)
+		if requireMissing != !found {
+			return false, fmt.Errorf("route %s wanted missing: %v; got: %v", obj, requireMissing, !found)
 		}
 	}
 
@@ -709,12 +640,119 @@ func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing
 		"v1.oauth.openshift.io",
 		"v1.user.openshift.io",
 	} {
-		apiservice, err := tc.apiregistrationClient.ApiregistrationV1().APIServices().Get(ctx, name, metav1.GetOptions{})
-		if requireMissing {
-			require.True(tc.t, errors.IsNotFound(err), "apiservice %s must be missing", name)
-		} else {
-			require.NoError(tc.t, err)
-			require.NotNil(tc.t, apiservice, "apiservice %s must not be nil", name)
+		_, err := tc.apiregistrationClient.ApiregistrationV1().APIServices().Get(ctx, name, metav1.GetOptions{})
+		if !assertMissing(requireMissing, err) {
+			return false, fmt.Errorf("apiservice %s wanted missing: %v; got; %v", name, requireMissing, !errors.IsNotFound((err)))
 		}
 	}
+
+	return true, nil
+}
+
+func (tc *testClient) testOIDCAuthentication(t *testing.T, ctx context.Context, kcClient *test.KeycloakClient, usernameClaim, usernamePrefix string) {
+	group := names.SimpleNameGenerator.GenerateName("e2e-keycloak-group-")
+	err := kcClient.CreateGroup(group)
+	require.NoError(t, err)
+
+	user := names.SimpleNameGenerator.GenerateName("e2e-keycloak-user-")
+	email := fmt.Sprintf("%s@test.dev", user)
+	password := "password"
+	firstName := "Homer"
+	lastName := "Simpson"
+	err = kcClient.CreateUser(
+		user,
+		email,
+		password,
+		[]string{group},
+		map[string]string{
+			"firstName": firstName,
+			"lastName":  lastName,
+		},
+	)
+	require.NoError(t, err)
+
+	httpClient := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}
+
+	formData := url.Values{
+		"grant_type": []string{"password"},
+		"client_id":  []string{oidcClientId},
+		"scope":      []string{"openid"},
+		"username":   []string{user},
+		"password":   []string{password},
+	}
+
+	resp, err := httpClient.PostForm(kcClient.TokenURL(), formData)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	var authResponse oidcAuthResponse
+	err = json.Unmarshal(data, &authResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, authResponse.AccessToken)
+	require.NotEmpty(t, authResponse.IdToken)
+
+	// ========================================
+	// Validate the contents of the OIDC tokens
+	// ========================================
+	accessToken, idToken, err := parseOIDCTokens(kcClient.IssuerURL(), authResponse.AccessToken, authResponse.IdToken)
+	require.NoError(t, err)
+	require.NotNil(t, accessToken)
+	require.NotNil(t, idToken)
+
+	actualAccessTokenClaims := accessToken.Claims.(*expectedClaims)
+	require.True(t, accessToken.Valid)
+	require.Equal(t, kcClient.IssuerURL(), actualAccessTokenClaims.Issuer)
+	require.Equal(t, user, actualAccessTokenClaims.PreferredUsername)
+	require.Equal(t, email, actualAccessTokenClaims.Email)
+	require.Equal(t, "Bearer", actualAccessTokenClaims.Type)
+	require.Equal(t, firstName, actualAccessTokenClaims.GivenName)
+	require.Equal(t, lastName, actualAccessTokenClaims.FamilyName)
+	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualAccessTokenClaims.Name)
+	require.NotEmpty(t, actualAccessTokenClaims.Sub)
+
+	actualIDTokenClaims := idToken.Claims.(*expectedClaims)
+	require.True(t, idToken.Valid)
+	require.Equal(t, kcClient.IssuerURL(), actualIDTokenClaims.Issuer)
+	require.Equal(t, user, actualIDTokenClaims.PreferredUsername)
+	require.Equal(t, email, actualIDTokenClaims.Email)
+	require.Equal(t, "ID", actualIDTokenClaims.Type)
+	require.Equal(t, jwt.ClaimStrings{oidcClientId}, actualIDTokenClaims.Audience)
+	require.Equal(t, firstName, actualIDTokenClaims.GivenName)
+	require.Equal(t, lastName, actualIDTokenClaims.FamilyName)
+	require.Equal(t, fmt.Sprintf("%s %s", firstName, lastName), actualIDTokenClaims.Name)
+	require.NotEmpty(t, actualIDTokenClaims.Sub)
+
+	// ==========================================
+	// Test authentication via the kube-apiserver
+	// ==========================================
+
+	// create a new kube client that uses the OIDC id_token as a bearer token
+	kubeConfig := rest.AnonymousClientConfig(tc.kubeConfig)
+	kubeConfig.BearerToken = authResponse.IdToken
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	// test authentication with the OIDC token using a self subject review
+	expectedUsername := ""
+	switch usernameClaim {
+	case "email":
+		expectedUsername = usernamePrefix + email
+	case "sub":
+		expectedUsername = usernamePrefix + actualIDTokenClaims.Sub
+	default:
+		t.Fatalf("unexpected username claim: %s", usernameClaim)
+	}
+
+	ssr, err := kubeClient.AuthenticationV1().SelfSubjectReviews().Create(ctx, &authenticationv1.SelfSubjectReview{}, metav1.CreateOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, ssr)
+	require.Contains(t, ssr.Status.UserInfo.Groups, "system:authenticated")
+	require.Equal(t, expectedUsername, ssr.Status.UserInfo.Username)
 }
