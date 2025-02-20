@@ -5,6 +5,7 @@ import (
 
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
 	"github.com/spf13/cobra"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
@@ -56,6 +57,8 @@ func runOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 				// these are used to access resources in the user workload cluster
 				libraryoutputresources.ExactServiceAccount("openshift-oauth-apiserver", "oauth-apiserver-sa"),
 				libraryoutputresources.ExactService("openshift-oauth-apiserver", "api"),
+
+				libraryoutputresources.ExactResource(apiextensionsv1.SchemeGroupVersion.Group, apiextensionsv1.SchemeGroupVersion.Version, "customresourcedefinitions", "", "rolebindingrestrictions.authorization.openshift.io"),
 			},
 			GeneratedNameResources: []libraryoutputresources.GeneratedResourceID{
 				libraryoutputresources.GeneratedCSR("system:openshift:openshift-authenticator-"),

@@ -16,6 +16,8 @@ import (
 
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
@@ -51,6 +53,7 @@ type authenticationOperatorInput struct {
 	authenticationOperatorClient v1helpers.OperatorClient
 	apiregistrationv1Client      apiregistrationclient.Interface
 	migrationClient              kubemigratorclient.Interface
+	apiextensionClient           apiextensionsclient.Interface
 	eventRecorder                events.Recorder
 	clock                        clock.PassiveClock
 
@@ -85,6 +88,10 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		return nil, err
 	}
 	migrationClient, err := kubemigratorclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
+	if err != nil {
+		return nil, err
+	}
+	apiextensionClient, err := apiextensionsclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +137,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		authenticationOperatorClient: authenticationOperatorClient,
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
+		apiextensionClient:           apiextensionClient,
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
@@ -167,6 +175,10 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 	if err != nil {
 		return nil, err
 	}
+	apiextensionsClient, err := apiextensionsclient.NewForConfig(controllerContext.KubeConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	authenticationOperatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
 		controllerContext.Clock,
@@ -201,6 +213,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		authenticationOperatorClient: authenticationOperatorClient,
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
+		apiextensionClient:           apiextensionsClient,
 		eventRecorder:                eventRecorder,
 		clock:                        controllerContext.Clock,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{

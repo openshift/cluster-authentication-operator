@@ -103,7 +103,6 @@ func prepareOauthOperator(
 	resourceSyncController *resourcesynccontroller.ResourceSyncController,
 	versionRecorder status.VersionGetter,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
-
 	clusterVersion, err := authOperatorInput.configClient.ConfigV1().ClusterVersions().Get(ctx, "version", metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err
@@ -145,8 +144,9 @@ func prepareOauthOperator(
 			"oauth-openshift/oauth-service.yaml",
 			"oauth-openshift/trust_distribution_role.yaml",
 			"oauth-openshift/trust_distribution_rolebinding.yaml",
+			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
-		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient),
+		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
 	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
@@ -583,7 +583,6 @@ func prepareOauthAPIServerOperator(
 		WithoutLogLevelController().
 		WithoutConfigUpgradableController().
 		PrepareRun()
-
 	if err != nil {
 		return nil, nil, err
 	}
@@ -729,7 +728,7 @@ func singleNameListOptions(name string) func(opts *metav1.ListOptions) {
 }
 
 func apiServices() []*apiregistrationv1.APIService {
-	var apiServiceGroupVersions = []schema.GroupVersion{
+	apiServiceGroupVersions := []schema.GroupVersion{
 		// these are all the apigroups we manage
 		{Group: "oauth.openshift.io", Version: "v1"},
 		{Group: "user.openshift.io", Version: "v1"},

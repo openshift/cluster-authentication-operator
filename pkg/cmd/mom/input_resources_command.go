@@ -5,6 +5,7 @@ import (
 
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryinputresources"
 	"github.com/spf13/cobra"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
@@ -63,6 +64,7 @@ func runInputResources(ctx context.Context) (*libraryinputresources.InputResourc
 				libraryinputresources.ExactServiceAccount("openshift-authentication", "oauth-openshift"),
 				libraryinputresources.ExactRoleBinding("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
 				libraryinputresources.ExactRole("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
+				libraryinputresources.ExactResource(apiextensionsv1.SchemeGroupVersion.Group, apiextensionsv1.SchemeGroupVersion.Version, "customresourcedefinitions", "", "rolebindingrestrictions.authorization.openshift.io"),
 			},
 		},
 	}, nil
