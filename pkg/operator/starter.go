@@ -12,6 +12,7 @@ import (
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -19,6 +20,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressnodesavailable"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/ingressstate"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/metadata"
@@ -39,6 +41,7 @@ import (
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
@@ -668,6 +671,52 @@ func prepareOauthAPIServerOperator(
 		libraryapplyconfiguration.AdaptRunFn(webhookAuthController.Run),
 		libraryapplyconfiguration.AdaptRunFn(webhookCertsApprover.Run),
 		libraryapplyconfiguration.AdaptRunFn(func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) }),
+	}
+
+	return runOnceFns, runFns, nil
+}
+
+func prepareExternalOIDC(
+	ctx context.Context,
+	authOperatorInput *authenticationOperatorInput,
+	informerFactories authenticationOperatorInformerFactories,
+) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
+
+	// By default, this will exit(0) if the featuregates change
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
+		informerFactories.operatorConfigInformer.Config().V1().ClusterVersions(),
+		informerFactories.operatorConfigInformer.Config().V1().FeatureGates(),
+		authOperatorInput.eventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	go informerFactories.operatorConfigInformer.Start(ctx.Done())
+
+	var featureGates featuregates.FeatureGate
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
+	case <-time.After(1 * time.Minute):
+		return nil, nil, fmt.Errorf("timed out waiting for FeatureGate detection")
+	}
+
+	if !featureGates.Enabled(features.FeatureGateExternalOIDC) {
+		return nil, nil, nil
+	}
+
+	externalOIDCController := externaloidc.NewExternalOIDCController(
+		informerFactories.kubeInformersForNamespaces,
+		informerFactories.operatorConfigInformer,
+		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.eventRecorder,
+	)
+
+	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-other-externalOIDCController", externalOIDCController.Sync),
+	}
+	runFns := []libraryapplyconfiguration.RunFunc{
+		libraryapplyconfiguration.AdaptRunFn(externalOIDCController.Run),
 	}
 
 	return runOnceFns, runFns, nil

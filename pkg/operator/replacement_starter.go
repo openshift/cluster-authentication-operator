@@ -317,5 +317,12 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
 	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthAPIServerRunOnceFns...)
 
+	externalOIDCRunOnceFns, externalOIDCRunFns, err := prepareExternalOIDC(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, fmt.Errorf("unable to prepare external OIDC: %w", err)
+	}
+	ret.ControllerRunFns = append(ret.ControllerRunFns, externalOIDCRunFns...)
+	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, externalOIDCRunOnceFns...)
+
 	return ret, nil
 }
