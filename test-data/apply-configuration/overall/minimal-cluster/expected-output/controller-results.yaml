@@ -59,6 +59,10 @@ controllerResults:
       endpoints/host-etcd-2 in the openshift-etcd namespace: not found
       oauth.config.openshift.io "cluster" not found
   status: Failed
+- controllerName: TODO-other-externalOIDCController
+  errors:
+  - message: 'could not get authentication/cluster: authentication.config.openshift.io "cluster" not found'
+  status: Failed
 - controllerName: TODO-payloadConfigController
   status: Succeeded
 - controllerName: TODO-proxyConfigController
