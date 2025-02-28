@@ -41,7 +41,6 @@ import (
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
@@ -681,22 +680,9 @@ func prepareExternalOIDC(
 	informerFactories authenticationOperatorInformerFactories,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 
-	// By default, this will exit(0) if the featuregates change
-	featureGateAccessor := featuregates.NewFeatureGateAccess(
-		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
-		informerFactories.operatorConfigInformer.Config().V1().ClusterVersions(),
-		informerFactories.operatorConfigInformer.Config().V1().FeatureGates(),
-		authOperatorInput.eventRecorder,
-	)
-	go featureGateAccessor.Run(ctx)
-	go informerFactories.operatorConfigInformer.Start(ctx.Done())
-
-	var featureGates featuregates.FeatureGate
-	select {
-	case <-featureGateAccessor.InitialFeatureGatesObserved():
-		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
-	case <-time.After(1 * time.Minute):
-		return nil, nil, fmt.Errorf("timed out waiting for FeatureGate detection")
+	featureGates, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if !featureGates.Enabled(features.FeatureGateExternalOIDC) {

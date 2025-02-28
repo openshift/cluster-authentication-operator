@@ -18,6 +18,8 @@ import (
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
+	ocpconfigv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
@@ -30,6 +32,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/manifestclient"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/genericoperatorclient"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
@@ -56,6 +59,7 @@ type authenticationOperatorInput struct {
 	apiextensionClient           apiextensionsclient.Interface
 	eventRecorder                events.Recorder
 	clock                        clock.PassiveClock
+	featureGateAccessor          featureGateAccessorFunc
 
 	informerFactories []libraryapplyconfiguration.SimplifiedInformerFactory
 }
@@ -140,6 +144,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		apiextensionClient:           apiextensionClient,
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
+		featureGateAccessor:          staticFeatureGateAccessor([]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC}, []ocpconfigv1.FeatureGateName{}),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},
@@ -216,6 +221,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		apiextensionClient:           apiextensionsClient,
 		eventRecorder:                eventRecorder,
 		clock:                        controllerContext.Clock,
+		featureGateAccessor:          defaultFeatureGateAccessor,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},
@@ -338,4 +344,34 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, externalOIDCRunOnceFns...)
 
 	return ret, nil
+}
+
+type featureGateAccessorFunc func(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGate, error)
+
+func defaultFeatureGateAccessor(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGate, error) {
+	// By default, this will exit(0) if the featuregates change
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
+		informerFactories.operatorConfigInformer.Config().V1().ClusterVersions(),
+		informerFactories.operatorConfigInformer.Config().V1().FeatureGates(),
+		authOperatorInput.eventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	go informerFactories.operatorConfigInformer.Start(ctx.Done())
+
+	var featureGates featuregates.FeatureGate
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
+	case <-time.After(1 * time.Minute):
+		return nil, fmt.Errorf("timed out waiting for FeatureGate detection")
+	}
+	return featureGates, nil
+}
+
+// staticFeatureGateAccessor is primarly used during testing to statically enable or disable features.
+func staticFeatureGateAccessor(enabled, disabled []ocpconfigv1.FeatureGateName) featureGateAccessorFunc {
+	return func(_ context.Context, _ *authenticationOperatorInput, _ authenticationOperatorInformerFactories) (featuregates.FeatureGate, error) {
+		return featuregates.NewFeatureGate(enabled, disabled), nil
+	}
 }
