@@ -61,7 +61,7 @@ func getExpectedMinimumNumberOfMasters(spec *operatorv1.OperatorSpec, topologyMo
 	switch {
 	case topologyMode == configv1.SingleReplicaTopologyMode:
 		return 1
-	case topologyMode == configv1.HighlyAvailableArbiterMode:
+	case topologyMode == configv1.HighlyAvailableArbiterMode || topologyMode == configv1.DualReplicaTopologyMode:
 		return 2
 	case err != nil:
 		utilruntime.HandleError(err)
