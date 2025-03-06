@@ -114,6 +114,12 @@ spec:
           name: serving-cert
         - mountPath: /var/run/secrets/encryption-config
           name: encryption-config
+        - mountPath: /var/run/secrets/loopback/apiserver-loopback-client__.crt
+          name: loopback-cert
+          subPath: "tls.crt"
+        - mountPath: /var/run/secrets/loopback/apiserver-loopback-client__.key
+          name: loopback-cert
+          subPath: "tls.key"
         - mountPath: /var/log/oauth-apiserver
           name: audit-dir
         livenessProbe:
@@ -174,6 +180,9 @@ spec:
       - hostPath:
           path: /var/log/oauth-apiserver
         name: audit-dir
+      - name: loopback-cert
+        secret:
+          secretName: loopback
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
