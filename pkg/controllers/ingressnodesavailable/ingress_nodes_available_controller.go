@@ -6,18 +6,22 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 )
@@ -32,6 +36,10 @@ type ingressNodesAvailableController struct {
 	operatorClient         v1helpers.OperatorClient
 	ingressLister          operatorv1listers.IngressControllerLister
 	nodeLister             corev1listers.NodeLister
+
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1listers.ConfigMapLister
 }
 
 func NewIngressNodesAvailableController(
@@ -40,12 +48,19 @@ func NewIngressNodesAvailableController(
 	ingressControllerInformer operatorv1informers.IngressControllerInformer,
 	eventRecorder events.Recorder,
 	nodeInformer corev1informers.NodeInformer,
+	configInformers configinformer.SharedInformerFactory,
+	kasInformer operatorv1informers.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
 ) factory.Controller {
 	controller := &ingressNodesAvailableController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressNodesAvailable"),
 		operatorClient:         operatorClient,
 		ingressLister:          ingressControllerInformer.Lister(),
 		nodeLister:             nodeInformer.Lister(),
+
+		authLister:         configInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 	}
 
 	return factory.New().
@@ -72,6 +87,12 @@ func countReadyWorkerNodes(nodes []*corev1.Node) int {
 }
 
 func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, nil)
+	}
+
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	workers, err := c.nodeLister.List(labels.SelectorFromSet(labels.Set{"node-role.kubernetes.io/worker": ""}))
