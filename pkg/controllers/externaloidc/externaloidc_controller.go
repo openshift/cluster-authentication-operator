@@ -167,6 +167,9 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 					Claim:  provider.ClaimMappings.Groups.Claim,
 					Prefix: &provider.ClaimMappings.Groups.Prefix,
 				},
+				UID: apiserverv1beta1.ClaimOrExpression{
+					Claim: "sub",
+				},
 			},
 		}
 

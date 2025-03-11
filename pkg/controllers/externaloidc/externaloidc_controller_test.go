@@ -131,6 +131,9 @@ var (
 						Claim:  "groups",
 						Prefix: ptr.To("oidc-group:"),
 					},
+					UID: apiserverv1beta1.ClaimOrExpression{
+						Claim: "sub",
+					},
 				},
 				ClaimValidationRules: []apiserverv1beta1.ClaimValidationRule{
 					{
@@ -146,7 +149,7 @@ var (
 		},
 	}
 
-	baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
+	baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{"claim":"sub"}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
 
 	baseAuthConfigCM = corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -729,7 +732,6 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if tt.configMapIndexer == nil {
 				tt.configMapIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			}
@@ -903,7 +905,6 @@ func TestExternalOIDCController_validateAuthConfig(t *testing.T) {
 			if !tt.expectError && err != nil {
 				t.Errorf("did not expect any error but got: %v", err)
 			}
-
 		})
 	}
 }
