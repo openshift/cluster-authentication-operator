@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -22,8 +23,10 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	corev1 "k8s.io/api/core/v1"
@@ -231,26 +234,51 @@ func TestExternalOIDCController_sync(t *testing.T) {
 		expectedAuthConfigJSON string
 		expectEvents           bool
 		expectError            bool
+		featureGates           featuregates.FeatureGate
 	}{
 		{
 			name:        "auth resource not found",
 			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name: "auth type IntegratedOAuth and no auth configmap",
 			auth: newAuthWithSpec(configv1.AuthenticationSpec{Type: configv1.AuthenticationTypeIntegratedOAuth}),
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:             "auth type IntegratedOAuth delete error",
 			configMapIndexer: &everFailingIndexer{},
 			auth:             newAuthWithSpec(configv1.AuthenticationSpec{Type: configv1.AuthenticationTypeIntegratedOAuth}),
 			expectError:      true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:                 "auth type IntegratedOAuth configmap deleted",
 			existingAuthConfigCM: &baseAuthConfigCM,
 			auth:                 newAuthWithSpec(configv1.AuthenticationSpec{Type: configv1.AuthenticationTypeIntegratedOAuth}),
 			expectEvents:         true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth type OIDC but auth config generation fails",
@@ -259,6 +287,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			configMapIndexer:  cache.Indexer(&everFailingIndexer{}),
 			expectEvents:      false,
 			expectError:       true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth type OIDC but apply config generation fails",
@@ -272,6 +306,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			configMapIndexer: cache.Indexer(&everFailingIndexer{}),
 			expectEvents:     false,
 			expectError:      true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:                 "auth type OIDC config same as existing",
@@ -284,6 +324,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			expectedAuthConfigJSON: strings.ReplaceAll(baseAuthConfigJSON, "$URL", testServer.URL),
 			caBundleConfigMap:      &baseCABundleConfigMap,
 			expectEvents:           false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:                 "auth type OIDC error while validating config",
@@ -296,6 +342,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			}),
 			expectEvents: false,
 			expectError:  true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name: "auth type OIDC error while applying config",
@@ -312,6 +364,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			}),
 			expectEvents: false,
 			expectError:  true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:                 "auth type OIDC apply config",
@@ -329,6 +387,48 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				return str
 			}(),
 			expectEvents: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name:                 "auth type OIDC with UID+Extra featureGate enabled apply config",
+			caBundleConfigMap:    &baseCABundleConfigMap,
+			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testServer.URL),
+			auth: authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = testServer.URL
+					auth.Spec.OIDCProviders[0].Issuer.Audiences = []configv1.TokenAudience{"my-test-aud", "yet-another-aud"}
+
+					auth.Spec.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
+						Claim: "sub",
+					}
+				},
+			}),
+			expectedAuthConfigJSON: func() string {
+				authConfig := authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+					func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+						authConfig.JWT[0].Issuer.URL = testServer.URL
+						authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
+						authConfig.JWT[0].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+					},
+				})
+
+				out, _ := json.Marshal(authConfig)
+				return string(out)
+			}(),
+			expectEvents: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -366,6 +466,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				configMaps:      cs.CoreV1(),
 				authLister:      configv1listers.NewAuthenticationLister(authIndexer),
 				configMapLister: corev1listers.NewConfigMapLister(tt.configMapIndexer),
+				featureGates:    tt.featureGates,
 			}
 
 			eventRecorder := events.NewInMemoryRecorder("externaloidc-test", clocktesting.NewFakePassiveClock(time.Now()))
@@ -501,24 +602,43 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 
 		expectedAuthConfig *apiserverv1beta1.AuthenticationConfiguration
 		expectError        bool
+		featureGates       featuregates.FeatureGate
 	}{
 		{
 			name:             "ca bundle configmap lister error",
 			auth:             baseAuthResource,
 			configMapIndexer: cache.Indexer(&everFailingIndexer{}),
 			expectError:      true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "ca bundle configmap without required key",
 			auth:              baseAuthResource,
 			caBundleConfigMap: &caBundleConfigMapInvalidKey,
 			expectError:       true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "ca bundle configmap with no data",
 			auth:              baseAuthResource,
 			caBundleConfigMap: &caBundleConfigMapNoData,
 			expectError:       true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config nil prefix when required",
@@ -537,6 +657,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config invalid prefix policy",
@@ -554,6 +680,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config with nil claim in validation rule",
@@ -572,6 +704,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "valid auth config",
@@ -589,6 +727,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name: "valid auth config with empty CA name",
@@ -607,6 +751,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config with default prefix policy",
@@ -636,6 +786,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config with default prefix policy and username claim email",
@@ -665,6 +821,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config with no prefix policy",
@@ -694,6 +856,12 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
 		},
 		{
 			name:              "auth config with username claim prefix",
@@ -726,10 +894,186 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				},
 			}),
 			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name:              "auth config with empty string for username claim",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Claim: "",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name:              "auth config with no uid claim or expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth:              baseAuthResource,
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.UID.Claim = "sub"
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with uid claim and expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
+							Claim:      "sub",
+							Expression: "claims.sub",
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with uid expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
+							Claim:      "",
+							Expression: "claims.sub",
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.UID.Claim = ""
+						authConfig.JWT[i].ClaimMappings.UID.Expression = "claims.sub"
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with extra missing key",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+							{
+								ValueExpression: "claims.foo",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with extra missing valueExpression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+							{
+								Key: "foo.example.com/bar",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with valid extra mappings",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+							{
+								Key:             "foo.example.com/bar",
+								ValueExpression: "claims.bar",
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.UID.Claim = "sub"
+						authConfig.JWT[i].ClaimMappings.Extra = []apiserverv1beta1.ExtraMapping{
+							{
+								Key:             "foo.example.com/bar",
+								ValueExpression: "claims.bar",
+							},
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+				[]configv1.FeatureGateName{},
+			),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if tt.configMapIndexer == nil {
 				tt.configMapIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			}
@@ -740,6 +1084,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 
 			c := externalOIDCController{
 				configMapLister: corev1listers.NewConfigMapLister(tt.configMapIndexer),
+				featureGates:    tt.featureGates,
 			}
 
 			gotConfig, err := c.generateAuthConfig(tt.auth)
@@ -885,6 +1230,17 @@ func TestExternalOIDCController_validateAuthConfig(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "cel expression can not compile",
+			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(*apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					authConfig.JWT[0].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+						Expression: "#@!$&*(^)",
+					}
+				},
+			}),
+			expectError: true,
+		},
+		{
 			name: "valid auth config",
 			authConfig: *authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
 				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
@@ -895,7 +1251,7 @@ func TestExternalOIDCController_validateAuthConfig(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateAuthConfig(tt.authConfig)
+			err := validateAuthConfig(tt.authConfig, []string{})
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but didn't get any")
 			}
@@ -903,7 +1259,6 @@ func TestExternalOIDCController_validateAuthConfig(t *testing.T) {
 			if !tt.expectError && err != nil {
 				t.Errorf("did not expect any error but got: %v", err)
 			}
-
 		})
 	}
 }

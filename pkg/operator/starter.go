@@ -685,7 +685,7 @@ func prepareExternalOIDC(
 		return nil, nil, err
 	}
 
-	if !featureGates.Enabled(features.FeatureGateExternalOIDC) {
+	if !(featureGates.Enabled(features.FeatureGateExternalOIDC) || featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings)) {
 		return nil, nil, nil
 	}
 
@@ -695,6 +695,7 @@ func prepareExternalOIDC(
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.eventRecorder,
+		featureGates,
 	)
 
 	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{

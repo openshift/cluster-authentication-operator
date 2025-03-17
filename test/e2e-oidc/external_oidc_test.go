@@ -152,12 +152,9 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 			{"invalid issuer URL", func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
 			}},
-			// TODO: currently, this crashes the KAS pods during rollout
-			// enable this test once we've added CAO-side validations
-			// to prevent the crash; see: https://issues.redhat.com/browse/CNTRLPLANE-811
-			// {"empty username claim", func(s *configv1.AuthenticationSpec) {
-			// 	s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
-			// }},
+			{"empty username claim", func(s *configv1.AuthenticationSpec) {
+				s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
+			}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				err := testClient.authResourceRollback(testCtx, origAuthSpec)

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,19 +14,21 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"golang.org/x/net/http/httpproxy"
 
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
+	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -48,6 +51,7 @@ type externalOIDCController struct {
 	authLister      configv1listers.AuthenticationLister
 	configMapLister corev1listers.ConfigMapLister
 	configMaps      corev1client.ConfigMapsGetter
+	featureGates    featuregates.FeatureGate
 }
 
 func NewExternalOIDCController(
@@ -56,8 +60,8 @@ func NewExternalOIDCController(
 	operatorClient v1helpers.OperatorClient,
 	configMaps corev1client.ConfigMapsGetter,
 	recorder events.Recorder,
+	featureGates featuregates.FeatureGate,
 ) factory.Controller {
-
 	c := &externalOIDCController{
 		name:      "ExternalOIDCController",
 		eventName: "external-oidc-controller",
@@ -65,6 +69,7 @@ func NewExternalOIDCController(
 		authLister:      configInformer.Config().V1().Authentications().Lister(),
 		configMapLister: kubeInformersForNamespaces.ConfigMapLister(),
 		configMaps:      configMaps,
+		featureGates:    featureGates,
 	}
 
 	return factory.New().WithInformers(
@@ -111,7 +116,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return nil
 	}
 
-	if err := validateAuthConfig(*authConfig); err != nil {
+	if err := validateAuthConfig(*authConfig, []string{auth.Spec.ServiceAccountIssuer}); err != nil {
 		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
@@ -127,7 +132,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 // deleteAuthConfig checks if the auth config ConfigMap exists in the managed namespace, and deletes it
 // if it does; it returns an error if it encounters one.
 func (c *externalOIDCController) deleteAuthConfig(ctx context.Context, syncCtx factory.SyncContext) error {
-	if _, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); errors.IsNotFound(err) {
+	if _, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return err
@@ -135,7 +140,6 @@ func (c *externalOIDCController) deleteAuthConfig(ctx context.Context, syncCtx f
 
 	if err := c.configMaps.ConfigMaps(managedNamespace).Delete(ctx, targetAuthConfigCMName, metav1.DeleteOptions{}); err == nil {
 		syncCtx.Recorder().Eventf(c.eventName, "Removed auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
-
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("could not delete existing configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
 	}
@@ -153,79 +157,268 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 		},
 	}
 
+	errs := []error{}
 	for _, provider := range auth.Spec.OIDCProviders {
-		jwt := apiserverv1beta1.JWTAuthenticator{
-			Issuer: apiserverv1beta1.Issuer{
-				URL:                 provider.Issuer.URL,
-				AudienceMatchPolicy: apiserverv1beta1.AudienceMatchPolicyMatchAny,
-			},
-			ClaimMappings: apiserverv1beta1.ClaimMappings{
-				Username: apiserverv1beta1.PrefixedClaimOrExpression{
-					Claim: provider.ClaimMappings.Username.Claim,
-				},
-				Groups: apiserverv1beta1.PrefixedClaimOrExpression{
-					Claim:  provider.ClaimMappings.Groups.Claim,
-					Prefix: &provider.ClaimMappings.Groups.Prefix,
-				},
-			},
-		}
-
-		for _, aud := range provider.Issuer.Audiences {
-			jwt.Issuer.Audiences = append(jwt.Issuer.Audiences, string(aud))
-		}
-
-		if len(provider.Issuer.CertificateAuthority.Name) > 0 {
-			caConfigMap, err := c.configMapLister.ConfigMaps(configNamespace).Get(provider.Issuer.CertificateAuthority.Name)
-			if err != nil {
-				return nil, fmt.Errorf("could not retrieve auth configmap %s/%s to check CA bundle: %v", configNamespace, provider.Issuer.CertificateAuthority.Name, err)
-			}
-
-			caData, ok := caConfigMap.Data["ca-bundle.crt"]
-			if !ok || len(caData) == 0 {
-				return nil, fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, provider.Issuer.CertificateAuthority.Name)
-			}
-
-			jwt.Issuer.CertificateAuthority = caData
-		}
-
-		switch provider.ClaimMappings.Username.PrefixPolicy {
-
-		case configv1.Prefix:
-			if provider.ClaimMappings.Username.Prefix == nil {
-				return nil, fmt.Errorf("nil username prefix while policy expects one")
-			} else {
-				jwt.ClaimMappings.Username.Prefix = &provider.ClaimMappings.Username.Prefix.PrefixString
-			}
-
-		case configv1.NoPrefix:
-			jwt.ClaimMappings.Username.Prefix = ptr.To("")
-
-		case configv1.NoOpinion:
-			prefix := ""
-			if provider.ClaimMappings.Username.Claim != "email" {
-				prefix = provider.Issuer.URL + "#"
-			}
-			jwt.ClaimMappings.Username.Prefix = &prefix
-
-		default:
-			return nil, fmt.Errorf("invalid username prefix policy: %s", provider.ClaimMappings.Username.PrefixPolicy)
-		}
-
-		for i, rule := range provider.ClaimValidationRules {
-			if rule.RequiredClaim == nil {
-				return nil, fmt.Errorf("empty validation rule at index %d", i)
-			}
-
-			jwt.ClaimValidationRules = append(jwt.ClaimValidationRules, apiserverv1beta1.ClaimValidationRule{
-				Claim:         rule.RequiredClaim.Claim,
-				RequiredValue: rule.RequiredClaim.RequiredValue,
-			})
+		jwt, err := generateJWTForProvider(provider, c.configMapLister, c.featureGates)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
 
 		authConfig.JWT = append(authConfig.JWT, jwt)
 	}
 
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
 	return &authConfig, nil
+}
+
+func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister, featureGates featuregates.FeatureGate) (apiserverv1beta1.JWTAuthenticator, error) {
+	out := apiserverv1beta1.JWTAuthenticator{}
+
+	issuer, err := generateIssuer(provider.Issuer, configMapLister)
+	if err != nil {
+		return out, fmt.Errorf("generating issuer for provider %q: %v", provider.Name, err)
+	}
+
+	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL, featureGates)
+	if err != nil {
+		return out, fmt.Errorf("generating claimMappings for provider %q: %v", provider.Name, err)
+	}
+
+	claimValidationRules, err := generateClaimValidationRules(provider.ClaimValidationRules...)
+	if err != nil {
+		return out, fmt.Errorf("generating claimValidationRules for provider %q: %v", provider.Name, err)
+	}
+
+	out.Issuer = issuer
+	out.ClaimMappings = claimMappings
+	out.ClaimValidationRules = claimValidationRules
+
+	return out, nil
+}
+
+func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.ConfigMapLister) (apiserverv1beta1.Issuer, error) {
+	out := apiserverv1beta1.Issuer{}
+
+	out.URL = issuer.URL
+	out.AudienceMatchPolicy = apiserverv1beta1.AudienceMatchPolicyMatchAny
+
+	for _, audience := range issuer.Audiences {
+		out.Audiences = append(out.Audiences, string(audience))
+	}
+
+	if len(issuer.CertificateAuthority.Name) > 0 {
+		ca, err := getCertificateAuthorityFromConfigMap(issuer.CertificateAuthority.Name, configMapLister)
+		if err != nil {
+			return out, fmt.Errorf("getting CertificateAuthority for issuer: %v", err)
+		}
+		out.CertificateAuthority = ca
+	}
+
+	return out, nil
+}
+
+func getCertificateAuthorityFromConfigMap(name string, configMapLister corev1listers.ConfigMapLister) (string, error) {
+	caConfigMap, err := configMapLister.ConfigMaps(configNamespace).Get(name)
+	if err != nil {
+		return "", fmt.Errorf("could not retrieve auth configmap %s/%s to check CA bundle: %v", configNamespace, name, err)
+	}
+
+	caData, ok := caConfigMap.Data["ca-bundle.crt"]
+	if !ok || len(caData) == 0 {
+		return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, name)
+	}
+
+	return caData, nil
+}
+
+func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, featureGates featuregates.FeatureGate) (apiserverv1beta1.ClaimMappings, error) {
+	out := apiserverv1beta1.ClaimMappings{}
+
+	username, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL)
+	if err != nil {
+		return out, fmt.Errorf("generating username claim mapping: %v", err)
+	}
+
+	groups := generateGroupsClaimMapping(claimMappings.Groups)
+
+	out.Username = username
+	out.Groups = groups
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
+		uid, err := generateUIDClaimMapping(claimMappings.UID)
+		if err != nil {
+			return out, fmt.Errorf("generating uid claim mapping: %v", err)
+		}
+
+		extras, err := generateExtraClaimMapping(claimMappings.Extra...)
+		if err != nil {
+			return out, fmt.Errorf("generating extra claim mapping: %v", err)
+		}
+
+		out.UID = uid
+		out.Extra = extras
+	}
+
+	return out, nil
+}
+
+func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (apiserverv1beta1.PrefixedClaimOrExpression, error) {
+	out := apiserverv1beta1.PrefixedClaimOrExpression{}
+
+	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
+	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
+	// but for now just set the claim.
+	if usernameClaimMapping.Claim == "" {
+		return out, fmt.Errorf("username claim is required but an empty value was provided")
+	}
+	out.Claim = usernameClaimMapping.Claim
+
+	switch usernameClaimMapping.PrefixPolicy {
+
+	case configv1.Prefix:
+		if usernameClaimMapping.Prefix == nil {
+			return out, fmt.Errorf("nil username prefix while policy expects one")
+		} else {
+			out.Prefix = &usernameClaimMapping.Prefix.PrefixString
+		}
+
+	case configv1.NoPrefix:
+		out.Prefix = ptr.To("")
+
+	case configv1.NoOpinion:
+		prefix := ""
+		if usernameClaimMapping.Claim != "email" {
+			prefix = issuerURL + "#"
+		}
+		out.Prefix = &prefix
+
+	default:
+		return out, fmt.Errorf("invalid username prefix policy: %s", usernameClaimMapping.PrefixPolicy)
+	}
+
+	return out, nil
+}
+
+func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping) apiserverv1beta1.PrefixedClaimOrExpression {
+	out := apiserverv1beta1.PrefixedClaimOrExpression{}
+
+	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
+	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
+	// but for now just set the claim.
+	out.Claim = groupsMapping.Claim
+	out.Prefix = &groupsMapping.Prefix
+
+	return out
+}
+
+func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apiserverv1beta1.ClaimOrExpression, error) {
+	out := apiserverv1beta1.ClaimOrExpression{}
+
+	// UID mapping can only specify either claim or expression, not both.
+	// This should be rejected at admission time of the authentications.config.openshift.io CRD.
+	// Even though this is the case, we still perform a runtime validation to ensure we never
+	// attempt to create an invalid configuration.
+	// If neither claim or expression is specified, default the claim to "sub"
+	switch {
+	case uid == nil:
+		out.Claim = "sub"
+	case uid.Claim != "" && uid.Expression == "":
+		out.Claim = uid.Claim
+	case uid.Expression != "" && uid.Claim == "":
+		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+			Expression: uid.Expression,
+		}); err != nil {
+			return out, fmt.Errorf("validating expression: %v", err)
+		}
+		out.Expression = uid.Expression
+	case uid.Claim != "" && uid.Expression != "":
+		return out, fmt.Errorf("uid mapping must set either claim or expression, not both: %v", uid)
+	default:
+		return out, fmt.Errorf("unable to handle uid mapping: %v", uid)
+	}
+
+	return out, nil
+}
+
+func generateExtraClaimMapping(extraMappings ...configv1.ExtraMapping) ([]apiserverv1beta1.ExtraMapping, error) {
+	out := []apiserverv1beta1.ExtraMapping{}
+	errs := []error{}
+	for _, extraMapping := range extraMappings {
+		extra, err := generateExtraMapping(extraMapping)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		out = append(out, extra)
+	}
+
+	return out, errors.Join(errs...)
+}
+
+func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.ExtraMapping, error) {
+	out := apiserverv1beta1.ExtraMapping{}
+
+	if extraMapping.Key == "" {
+		return out, fmt.Errorf("extra mapping must set a key, but none was provided: %v", extraMapping)
+	}
+
+	if extraMapping.ValueExpression == "" {
+		return out, fmt.Errorf("extra mapping must set a valueExpression, but none was provided: %v", extraMapping)
+	}
+
+	if err := validateCELExpression(&authenticationcel.ExtraMappingExpression{
+		Key:        extraMapping.Key,
+		Expression: extraMapping.ValueExpression,
+	}); err != nil {
+		return out, fmt.Errorf("validating expression: %v", err)
+	}
+
+	out.Key = extraMapping.Key
+	out.ValueExpression = extraMapping.ValueExpression
+
+	return out, nil
+}
+
+func generateClaimValidationRules(claimValidationRules ...configv1.TokenClaimValidationRule) ([]apiserverv1beta1.ClaimValidationRule, error) {
+	out := []apiserverv1beta1.ClaimValidationRule{}
+	errs := []error{}
+	for _, claimValidationRule := range claimValidationRules {
+		rule, err := generateClaimValidationRule(claimValidationRule)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("generating claimValidationRule: %v", err))
+			continue
+		}
+
+		out = append(out, rule)
+	}
+
+	return out, errors.Join(errs...)
+}
+
+func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidationRule) (apiserverv1beta1.ClaimValidationRule, error) {
+	out := apiserverv1beta1.ClaimValidationRule{}
+
+	// Currently, the authentications.config.openshift.io CRD only allows setting a claim and required value for the
+	// validation rule and does not allow setting a CEL expression and message like the upstream.
+	// This is likely to change in the near future to also allow setting a CEL expression.
+	switch claimValidationRule.Type {
+	case configv1.TokenValidationRuleTypeRequiredClaim:
+		if claimValidationRule.RequiredClaim == nil {
+			return out, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleTypeRequiredClaim)
+		}
+
+		out.Claim = claimValidationRule.RequiredClaim.Claim
+		out.RequiredValue = claimValidationRule.RequiredClaim.RequiredValue
+	default:
+		return out, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
+	}
+
+	return out, nil
 }
 
 // getExpectedApplyConfig serializes the input authConfig into JSON and creates an apply configuration
@@ -265,7 +458,7 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 // validateAuthConfig performs validations that are not done at the server-side,
 // including validation that the provided CA cert (or system CAs if not specified) can be used for
 // TLS cert verification.
-func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration) error {
+func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration, disallowIssuers []string) error {
 	for _, jwt := range auth.JWT {
 		var caCertPool *x509.CertPool
 		var err error
@@ -334,4 +527,13 @@ func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 	}
 
 	return nil
+}
+
+// validateCELExpression validates a CEL expression using the provided expression accessor.
+// It uses the default authentication CEL compiler that the KAS uses and thus defaults to
+// validating CEL expressions based on the version of the k8s dependencies used by the
+// cluster-authentication-operator.
+func validateCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) error {
+	_, err := authenticationcel.NewDefaultCompiler().CompileClaimsExpression(expressionAccessor)
+	return err
 }
