@@ -89,6 +89,11 @@ var (
 						},
 						Prefix: "oidc-group:",
 					},
+                    UID: configv1.UIDClaimMapping{
+                        TokenClaimOrExpressionMapping: configv1.TokenClaimOrExpressionMapping{
+                            Claim: "sub",
+                        },
+                    },
 				},
 				ClaimValidationRules: []configv1.TokenClaimValidationRule{
 					{
@@ -131,6 +136,9 @@ var (
 						Claim:  "groups",
 						Prefix: ptr.To("oidc-group:"),
 					},
+                    UID: apiserverv1beta1.ClaimOrExpression{
+                        Claim: "sub",
+                    },
 				},
 				ClaimValidationRules: []apiserverv1beta1.ClaimValidationRule{
 					{
@@ -146,7 +154,7 @@ var (
 		},
 	}
 
-	baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
+    baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{"claim":"sub"}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
 
 	baseAuthConfigCM = corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -727,6 +735,114 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			}),
 			expectError: false,
 		},
+        {
+			name:              "auth config with no uid claim or expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Claim = ""
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Expression = ""
+					}
+				},
+			}),
+			expectError: true,
+		},
+        {
+			name:              "auth config with uid claim and expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Claim = "sub"
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Expression = "claims.sub"
+					}
+				},
+			}),
+			expectError: true,
+		},
+        {
+			name:              "auth config with uid expression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Claim = ""
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Expression = "claims.sub"
+					}
+				},
+			}),
+            expectedAuthConfig: authConfigWithUpdates(baseAuthConfig,[]func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+                func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+                    for i := range authConfig.JWT {
+                        authConfig.JWT[i].ClaimMappings.UID.Claim = ""
+                        authConfig.JWT[i].ClaimMappings.UID.Expression = "claims.sub"
+                    }
+                },
+            }),
+			expectError: false,
+		},
+        {
+			name:              "auth config with extra missing key",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+                            {
+                                ValueExpression: "claims.foo",
+                            },
+                        }
+					}
+				},
+			}),
+			expectError: true,
+		},
+        {
+			name:              "auth config with extra missing valueExpression",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+                            {
+                                Key: "foo.example.com/bar",
+                            },
+                        }
+					}
+				},
+			}),
+			expectError: true,
+		},
+        {
+			name:              "auth config with valid extra mappings",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+                        auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+                            {
+                                Key: "foo.example.com/bar",
+                                ValueExpression: "claims.bar",
+                            },
+                        }
+					}
+				},
+			}),
+            expectedAuthConfig: authConfigWithUpdates(baseAuthConfig,[]func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+                func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+                    for i := range authConfig.JWT {
+                        authConfig.JWT[i].ClaimMappings.Extra = []apiserverv1beta1.ExtraMapping{
+                            {
+                                Key: "foo.example.com/bar",
+                                ValueExpression: "claims.bar",
+                            },
+                        }
+                    }
+                },
+            }),
+			expectError: false,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 
@@ -1205,7 +1321,6 @@ func (s *everFailingIndexer) GetByKey(key string) (item interface{}, exists bool
 func (s *everFailingIndexer) Replace(objects []interface{}, sKey string) error {
 	return fmt.Errorf("Replace method not implemented")
 }
-
 // Resync always returns an error
 func (s *everFailingIndexer) Resync() error {
 	return fmt.Errorf("Resync method not implemented")
