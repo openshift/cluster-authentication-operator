@@ -162,9 +162,9 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 		authConfig.JWT = append(authConfig.JWT, jwt)
 	}
 
-    if len(errs) > 0 {
-        return nil, errors.Join(errs...)
-    }
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
 
 	return &authConfig, nil
 }
@@ -310,8 +310,11 @@ func generateUIDClaimMapping(uidMapping configv1.UIDClaimMapping) (apiserverv1be
 		out.Claim = uidMapping.Claim
 	case uidMapping.Expression != "" && uidMapping.Claim == "":
 		out.Expression = uidMapping.Expression
+	case uidMapping.Claim != "" && uidMapping.Expression != "":
+		return out, fmt.Errorf("invalid uid mapping provided. must set either claim or expression, not both: %v", uidMapping)
 	default:
-		return out, fmt.Errorf("invalid uid mapping provided. must set either claim or expression: %v", uidMapping)
+		// by default, if there is no uid mapping provided we set it to the "sub" claim
+		out.Claim = "sub"
 	}
 
 	return out, nil

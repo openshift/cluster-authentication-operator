@@ -741,12 +741,19 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
-                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Claim = ""
+                        auth.Spec.OIDCProviders[i].ClaimMappings.UID.Claim = "sub"
                         auth.Spec.OIDCProviders[i].ClaimMappings.UID.Expression = ""
 					}
 				},
 			}),
-			expectError: true,
+            expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+                func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+                    for i := range authConfig.JWT {
+                        authConfig.JWT[i].ClaimMappings.UID.Claim = "sub"
+                    }
+                },
+            }),
+			expectError: false,
 		},
         {
 			name:              "auth config with uid claim and expression",
