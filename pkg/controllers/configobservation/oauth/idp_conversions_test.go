@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
@@ -27,9 +28,9 @@ import (
 
 func Test_convertProviderConfigToIDPData(t *testing.T) {
 	tmpDir := t.TempDir()
-	ca, err := crypto.MakeSelfSignedCA(path.Join(tmpDir, "cert.crt"), path.Join(tmpDir, "key.key"), "", "testCA", 5)
+	ca, err := crypto.MakeSelfSignedCA(path.Join(tmpDir, "cert.crt"), path.Join(tmpDir, "key.key"), "", "testCA", time.Hour*24*5)
 	require.NoError(t, err)
-	serverConfig, err := ca.MakeServerCert(sets.New("localhost", "127.0.0.1", "::1"), 1)
+	serverConfig, err := ca.MakeServerCert(sets.New("localhost", "127.0.0.1", "::1"), time.Hour*24)
 	require.NoError(t, err)
 	certPEM, keyPEM, err := serverConfig.GetPEMBytes()
 	require.NoError(t, err)

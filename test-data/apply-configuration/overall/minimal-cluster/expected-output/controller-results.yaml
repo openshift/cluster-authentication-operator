@@ -9,7 +9,7 @@ controllerResults:
   status: Failed
 - controllerName: RevisionController
   errors:
-  - message: synthetic requeue request
+  - message: configmap "audit" not found
   status: Failed
 - controllerName: SecretRevisionPruneController
   status: Succeeded
