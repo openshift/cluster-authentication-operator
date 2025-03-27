@@ -104,19 +104,19 @@ func newRouteLister(t *testing.T, routes ...*routev1.Route) routev1listers.Route
 	return routev1listers.NewRouteLister(routeIndexer)
 }
 
-func newTestOAuthsClientsController(t *testing.T) *oauthsClientsController {
+func newTestOAuthsClientsController(t *testing.T) (*oauthsClientsController, cache.Indexer) {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	return &oauthsClientsController{
 		oauthClientClient: fakeoauthclient.NewSimpleClientset().OauthV1().OAuthClients(),
-		oauthClientLister: oauthv1listers.NewOAuthClientLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		oauthClientLister: oauthv1listers.NewOAuthClientLister(indexer),
 		routeLister:       newRouteLister(t, defaultRoute),
 		ingressLister:     newIngressLister(t, defaultIngress),
-	}
+	}, indexer
 }
 
 func Test_sync(t *testing.T) {
 	ctx := context.TODO()
 	syncCtx := &fakeSyncContext{}
-	c := newTestOAuthsClientsController(t)
 
 	tests := []struct {
 		name              string
@@ -133,6 +133,7 @@ func Test_sync(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestOAuthsClientsController(t)
 			if tt.withIngressLister != nil {
 				c.ingressLister = tt.withIngressLister
 			}
@@ -150,7 +151,7 @@ func Test_sync(t *testing.T) {
 }
 
 func Test_getIngressConfig(t *testing.T) {
-	c := newTestOAuthsClientsController(t)
+	c, _ := newTestOAuthsClientsController(t)
 
 	tests := []struct {
 		name              string
@@ -193,7 +194,7 @@ func Test_getCanonicalRouteHost(t *testing.T) {
 		{"namespace-not-found", masterPublicURL, "not-openshift-authentication", "oauth-openshift", "", true},
 	}
 
-	c := newTestOAuthsClientsController(t)
+	c, _ := newTestOAuthsClientsController(t)
 
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
@@ -219,7 +220,7 @@ func Test_ensureBootstrappedOAuthClients(t *testing.T) {
 	ctx := context.TODO()
 
 	t.Run("bootstrapped-oauth-clients-succeed", func(t *testing.T) {
-		c := newTestOAuthsClientsController(t)
+		c, _ := newTestOAuthsClientsController(t)
 
 		if err := c.ensureBootstrappedOAuthClients(ctx, masterPublicURL); err != nil {
 			t.Errorf("got unexpected error: %v", err)
@@ -232,7 +233,7 @@ func Test_ensureBootstrappedOAuthClients(t *testing.T) {
 			return true, nil, fmt.Errorf("%s %s fake error", action.GetVerb(), action.GetResource().Resource)
 		})
 
-		c := newTestOAuthsClientsController(t)
+		c, _ := newTestOAuthsClientsController(t)
 		c.oauthClientClient = fakeClientset.OauthV1().OAuthClients()
 
 		if err := c.ensureBootstrappedOAuthClients(ctx, masterPublicURL); err == nil {
@@ -277,6 +278,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 		updateOAuthClient *oauthv1.OAuthClient
 		oauthClientClient *fakeoauthclient.Clientset
 
+		alreadyExists bool
 		wantEnsureErr bool
 		wantUpdateErr bool
 	}{
@@ -406,6 +408,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 				},
 			},
 			oauthClientClient: newFakeOAuthClientClient(nil),
+			alreadyExists:     true,
 		},
 		{
 			name: "valid-oauth-client-when-already-exists-with-updates",
@@ -428,6 +431,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 				},
 			},
 			oauthClientClient: newFakeOAuthClientClient(nil),
+			alreadyExists:     true,
 		},
 		{
 			name: "valid-oauth-client-when-already-exists-with-updated-empty-secret",
@@ -440,6 +444,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 				Secret:     "",
 			},
 			oauthClientClient: newFakeOAuthClientClient(nil),
+			alreadyExists:     true,
 		},
 		{
 			name: "valid-oauth-client-when-already-exists-with-updated-new-secret",
@@ -451,6 +456,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 				Secret:     "secret",
 			},
 			oauthClientClient: newFakeOAuthClientClient(nil),
+			alreadyExists:     true,
 		},
 		{
 			name: "valid-oauth-client-when-already-exists-with-updated-longer-secret",
@@ -463,6 +469,7 @@ func Test_ensureOAuthClient(t *testing.T) {
 				Secret:     "secretbutlonger",
 			},
 			oauthClientClient: newFakeOAuthClientClient(nil),
+			alreadyExists:     true,
 		},
 		{
 			name: "valid-oauth-client-when-already-exists-with-updated-same-length-secret",
@@ -498,16 +505,26 @@ func Test_ensureOAuthClient(t *testing.T) {
 				t.SkipNow()
 			}
 
-			c := newTestOAuthsClientsController(t)
+			c, indexer := newTestOAuthsClientsController(t)
 			c.oauthClientClient = tt.oauthClientClient.OauthV1().OAuthClients()
 
-			err := ensureOAuthClient(ctx, c.oauthClientClient, *tt.oauthClient)
+			if tt.alreadyExists && tt.oauthClient != nil {
+				_, err := c.oauthClientClient.Create(ctx, tt.oauthClient, metav1.CreateOptions{})
+				if err != nil {
+					t.Fatalf("got unexpected err when creating in fake clientset: %v", err)
+				}
+				if err := indexer.Add(tt.oauthClient); err != nil {
+					t.Fatalf("got unexpected err when adding to lister indexer: %v", err)
+				}
+			}
+
+			err := c.ensureOAuthClient(ctx, *tt.oauthClient)
 			if (err != nil) != tt.wantEnsureErr {
 				t.Fatalf("got error: %v; want error: %v", err, tt.wantEnsureErr)
 			}
 
 			if tt.updateOAuthClient != nil {
-				updateErr := ensureOAuthClient(ctx, c.oauthClientClient, *tt.updateOAuthClient)
+				updateErr := c.ensureOAuthClient(ctx, *tt.updateOAuthClient)
 				if (updateErr != nil) != tt.wantUpdateErr {
 					t.Fatalf("got error: %v; want error: %v", updateErr, tt.wantUpdateErr)
 				}
