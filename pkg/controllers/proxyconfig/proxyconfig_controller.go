@@ -12,11 +12,17 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
+	"k8s.io/client-go/informers"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
+	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1 "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	v1 "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -30,11 +36,18 @@ type proxyConfigChecker struct {
 	routeName       string
 	routeNamespace  string
 	caConfigMaps    map[string][]string // ns -> []configmapNames
+
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1lister.ConfigMapLister
 }
 
 func NewProxyConfigChecker(
 	routeInformer routeinformer.RouteInformer,
 	configMapInformers v1helpers.KubeInformersForNamespaces,
+	configInformers configinformer.SharedInformerFactory,
+	kasInformer operatorv1.KubeAPIServerInformer,
+	kasConfigMapInformer informers.SharedInformerFactory,
 	routeNamespace string,
 	routeName string,
 	caConfigMaps map[string][]string,
@@ -46,6 +59,10 @@ func NewProxyConfigChecker(
 		routeName:       routeName,
 		routeNamespace:  routeNamespace,
 		caConfigMaps:    caConfigMaps,
+
+		authLister:         configInformers.Config().V1().Authentications().Lister(),
+		kasLister:          kasInformer.Lister(),
+		kasConfigMapLister: kasConfigMapInformer.Core().V1().ConfigMaps().Lister(),
 	}
 
 	c := factory.New().
@@ -68,6 +85,12 @@ func NewProxyConfigChecker(
 
 // sync attempts to connect to route using configured proxy settings and reports any error.
 func (p *proxyConfigChecker) sync(ctx context.Context, _ factory.SyncContext) error {
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(p.authLister, p.kasLister, p.kasConfigMapLister); err != nil {
+		return err
+	} else if oidcAvailable {
+		return nil
+	}
+
 	proxyConfig := httpproxy.FromEnvironment()
 	if !isProxyConfigured(proxyConfig) {
 		// If proxy is not configured, then it is a no-op.
