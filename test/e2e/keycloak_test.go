@@ -119,6 +119,7 @@ func TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t *testing.T) {
 	require.NoError(t, kcClient.CreateUser(
 		username, "", "password42",
 		groups,
+		nil,
 	))
 
 	// we need to repeat challenger creation as they remember handling the challenge and won't do that twice

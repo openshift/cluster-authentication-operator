@@ -331,7 +331,7 @@ func (kc *KeycloakClient) CreateGroup(groupName string) error {
 	return nil
 }
 
-func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string) error {
+func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string, extraFields map[string]string) error {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
 
@@ -348,6 +348,10 @@ func (kc *KeycloakClient) CreateUser(username, email, password string, groups []
 		"enabled":       true,
 		"emailVerified": true,
 		"groups":        groups,
+	}
+
+	for k, v := range extraFields {
+		user[k] = v
 	}
 
 	if len(email) > 0 {
