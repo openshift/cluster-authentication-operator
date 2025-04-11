@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -12,12 +13,17 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	_ "k8s.io/apiserver/pkg/features"
+	"k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
@@ -51,6 +57,8 @@ type OAuthAPIServerWorkload struct {
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
+
+	featureGates featuregates.FeatureGate
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -61,6 +69,7 @@ func NewOAuthAPIServerWorkload(
 	targetNamespace string,
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
+	featureGates featuregates.FeatureGate,
 	kubeClient kubernetes.Interface,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
@@ -71,6 +80,7 @@ func NewOAuthAPIServerWorkload(
 		targetNamespace:           targetNamespace,
 		targetImagePullSpec:       targetImagePullSpec,
 		operatorImagePullSpec:     operatorImagePullSpec,
+		featureGates:              featureGates,
 		kubeClient:                kubeClient,
 		versionRecorder:           versionRecorder,
 	}
@@ -156,6 +166,15 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+
+	// Set feature gates
+	features, err := getFeatureGates(c.featureGates)
+	if err != nil {
+		return nil, err
+	}
+	if len(features) > 0 {
+		args["feature-gates"] = []string{strings.Join(features, ",")}
+	}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -286,4 +305,37 @@ func GetAPIServerArgumentsRaw(authOperatorSpec operatorv1.OperatorSpec) (map[str
 	}
 
 	return cfgUnstructured.APIServerArguments, nil
+}
+
+func getFeatureGates(featureGates featuregates.FeatureGate) ([]string, error) {
+	if featureGates == nil {
+		return nil, fmt.Errorf("featureGates cannot be nil")
+	}
+
+	// Get a list of known Kubernetes feature gates
+	known := feature.DefaultMutableFeatureGate.GetAll()
+
+	// Filter out OCP-specific feature gates
+	filteredFeatures := []string{}
+	for _, feature := range featureGates.KnownFeatures() {
+		_, ok := known[featuregate.Feature(feature)]
+		if !ok {
+			continue
+		}
+		filteredFeatures = append(filteredFeatures, string(feature))
+	}
+	sort.Strings(filteredFeatures)
+
+	// Format feature gates statuses
+	formattedFeatures := []string{}
+	for _, featureGate := range filteredFeatures {
+		fgName := configv1.FeatureGateName(featureGate)
+		if featureGates.Enabled(fgName) {
+			formattedFeatures = append(formattedFeatures, fmt.Sprintf("%s=true", featureGate))
+		} else {
+			formattedFeatures = append(formattedFeatures, fmt.Sprintf("%s=false", featureGate))
+		}
+	}
+
+	return formattedFeatures, nil
 }
