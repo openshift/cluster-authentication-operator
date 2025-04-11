@@ -591,6 +591,7 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces,
 		informerFactories.operatorConfigInformer,
 		resourceSyncController,
+		authOperatorInput.featureGateAccessor2,
 		authOperatorInput.eventRecorder,
 	)
 

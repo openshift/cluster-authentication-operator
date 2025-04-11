@@ -18,6 +18,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
@@ -51,6 +52,8 @@ type OAuthAPIServerWorkload struct {
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
+
+	featureGates featuregates.FeatureGate
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -156,6 +159,14 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+
+	// c.featureGates.
+	// knownFeatures := []string{}
+	// for _, f := range c.featureGates.KnownFeatures() {
+	// knownFeatures = append(knownFeatures, string(f))
+	// }
+	// args["feature-gates"] = []string{strings.Join(knownFeatures, ",")}
+	// panic("aaaaaaaaaaaaaaaaaaaa")
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(

@@ -1,13 +1,16 @@
 package configobservation
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
+	configv1 "github.com/openshift/api/config/v1"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	encryptobserver "github.com/openshift/library-go/pkg/operator/encryption/observer"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -18,6 +21,12 @@ import (
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
 )
 
+// openShiftOnlyFeatureGates are feature gate names that are only used within
+// OpenShift. Passing these to KCM causes it to log an error on startup.
+// This list is passed to the feature gate config observer as a blacklist,
+// excluding them from the feature gate output passed to KCM.
+var openShiftOnlyFeatureGates = sets.New[configv1.FeatureGateName]()
+
 const (
 	OAuthAPIServerConfigPrefix = "oauthAPIServer"
 )
@@ -27,6 +36,7 @@ func NewConfigObserverController(
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
 	configInformer configinformers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
+	featureGateAccessor featuregates.FeatureGateAccess,
 	eventRecorder events.Recorder,
 ) factory.Controller {
 
@@ -44,6 +54,8 @@ func NewConfigObserverController(
 
 		// for encryption-config observer
 		kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Informer().HasSynced,
+
+		configInformer.Config().V1().FeatureGates().Informer().HasSynced,
 	}
 
 	informers := []factory.Informer{
@@ -70,6 +82,14 @@ func NewConfigObserverController(
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
+
+		// this is picked up by the kube-controller-manager container
+		featuregates.NewObserveFeatureFlagsFunc(
+			nil,
+			openShiftOnlyFeatureGates,
+			[]string{"apiServerArguments", "feature-gates"},
+			featureGateAccessor,
+		),
 	} {
 		observers = append(observers,
 			configobserver.WithPrefix(o, OAuthAPIServerConfigPrefix))
@@ -88,6 +108,8 @@ func NewConfigObserverController(
 			SecretLister_:      kubeInformersForNamespaces.SecretLister(),
 			ResourceSync:       resourceSyncer,
 			PreRunCachesSynced: preRunCacheSynced,
+
+			FeatureGateLister_: configInformer.Config().V1().FeatureGates().Lister(),
 		},
 		informers,
 		[]string{OAuthAPIServerConfigPrefix},
