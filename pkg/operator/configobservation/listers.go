@@ -26,6 +26,8 @@ type Listers struct {
 
 	ResourceSync       resourcesynccontroller.ResourceSyncer
 	PreRunCachesSynced []cache.InformerSynced
+
+	FeatureGateLister_ configlistersv1.FeatureGateLister
 }
 
 // APIServerLister used by ObserveAdditionalCORSAllowedOriginsToArguments and ObserveTLSSecurityProfileToArguments,

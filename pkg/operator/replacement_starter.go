@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 
 	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
@@ -23,6 +24,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
 	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
@@ -60,6 +62,7 @@ type authenticationOperatorInput struct {
 	eventRecorder                events.Recorder
 	clock                        clock.PassiveClock
 	featureGateAccessor          featureGateAccessorFunc
+	featureGateAccessor2         featuregates.FeatureGateAccess
 
 	informerFactories []libraryapplyconfiguration.SimplifiedInformerFactory
 }
@@ -145,6 +148,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
 		featureGateAccessor:          staticFeatureGateAccessor([]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC}, []ocpconfigv1.FeatureGateName{}),
+		featureGateAccessor2:         nil,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},
@@ -209,6 +213,28 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		controllerContext.Clock,
 	)
 
+	desiredVersion := status.VersionForOperatorFromEnv()
+	missingVersion := "0.0.1-snapshot"
+
+	// By default, this will exit(0) the process if the featuregates ever change to a different set of values.
+	configInformers := configinformers.NewSharedInformerFactory(configClient, 10*time.Minute)
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		desiredVersion, missingVersion,
+		configInformers.Config().V1().ClusterVersions(), configInformers.Config().V1().FeatureGates(),
+		eventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	go configInformers.Start(ctx.Done())
+
+	var featureGates featuregates.FeatureGate
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
+		klog.Infof("FeatureGates initialized: knownFeatureGates=%v", featureGates.KnownFeatures())
+	case <-time.After(1 * time.Minute):
+		klog.Errorf("timed out waiting for FeatureGate detection")
+		return nil, fmt.Errorf("timed out waiting for FeatureGate detection")
+	}
 	return &authenticationOperatorInput{
 		kubeClient:                   kubeClient,
 		configClient:                 configClient,
@@ -222,6 +248,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		eventRecorder:                eventRecorder,
 		clock:                        controllerContext.Clock,
 		featureGateAccessor:          defaultFeatureGateAccessor,
+		featureGateAccessor2:         featureGateAccessor,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},
