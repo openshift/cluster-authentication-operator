@@ -190,8 +190,10 @@ type KeycloakClient struct {
 	keycloakAdminURL *url.URL
 	realm            string
 	testT            *testing.T
-	token            string
 	client           *http.Client
+
+	accessToken string
+	idToken     string
 }
 
 // KeycloakClientFor creates a Keycloak REST client for the default (master) realm
@@ -222,6 +224,7 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		"password":   []string{password},
 		"grant_type": []string{"password"},
 		"client_id":  []string{clientID},
+		"scope":      []string{"openid"},
 	}
 	if len(clientSecret) > 0 {
 		data.Add("client_secret", clientSecret)
@@ -244,26 +247,28 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		return err
 	}
 
-	authResp := map[string]interface{}{}
+	authResp := map[string]any{}
 	if err := json.Unmarshal(respBytes, &authResp); err != nil {
 		return err
 	}
 
-	accessToken, ok := authResp["access_token"].(string)
-	if !ok || len(accessToken) == 0 {
-		errorMessage := "failed to retrieve an access token"
-		if serverErrorMessage, ok := authResp["error"]; ok {
-			errorMessage = fmt.Sprintf("%s. Server error was: %s", errorMessage, serverErrorMessage)
-			if serverErrorDescription, ok := authResp["error_description"]; ok {
-				errorMessage = fmt.Sprintf("%s - %s", errorMessage, serverErrorDescription)
-			}
-		}
-		return fmt.Errorf(errorMessage)
+	accessToken, err := retrieveValue("access_token", authResp)
+	if err != nil {
+		return err
 	}
+	kc.accessToken = accessToken
 
-	kc.token = accessToken
+	idToken, err := retrieveValue("id_token", authResp)
+	if err != nil {
+		return nil
+	}
+	kc.idToken = idToken
 
 	return nil
+}
+
+func (kc *KeycloakClient) Tokens() (accessToken, idToken string) {
+	return kc.accessToken, kc.idToken
 }
 
 func (kc *KeycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsClaimName string) error {
@@ -657,7 +662,7 @@ func (kc *KeycloakClient) RegenerateClientSecret(id string) (string, error) {
 }
 
 func (kc *KeycloakClient) do(method, url string, body io.Reader) (*http.Response, error) {
-	if len(kc.token) == 0 {
+	if len(kc.accessToken) == 0 {
 		return nil, fmt.Errorf("authenticate first")
 	}
 
@@ -666,7 +671,7 @@ func (kc *KeycloakClient) do(method, url string, body io.Reader) (*http.Response
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", kc.token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", kc.accessToken))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
@@ -689,4 +694,20 @@ func (kc *KeycloakClient) IssuerURL() string {
 	issuerURL.Path = "/realms/" + kc.realm
 
 	return issuerURL.String()
+}
+
+func retrieveValue(field string, sourceMap map[string]any) (string, error) {
+	value, ok := sourceMap[field].(string)
+	if !ok || len(value) == 0 {
+		errorMessage := fmt.Sprintf("failed to retrieve %s", field)
+		if serverErrorMessage, ok := sourceMap["error"]; ok {
+			errorMessage = fmt.Sprintf("%s. Server error was: %s", errorMessage, serverErrorMessage)
+			if serverErrorDescription, ok := sourceMap["error_description"]; ok {
+				errorMessage = fmt.Sprintf("%s - %s", errorMessage, serverErrorDescription)
+			}
+		}
+		return "", fmt.Errorf(errorMessage)
+	}
+
+	return value, nil
 }
