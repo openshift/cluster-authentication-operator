@@ -190,8 +190,10 @@ type KeycloakClient struct {
 	keycloakAdminURL *url.URL
 	realm            string
 	testT            *testing.T
-	token            string
 	client           *http.Client
+
+	accessToken string
+	idToken     string
 }
 
 // KeycloakClientFor creates a Keycloak REST client for the default (master) realm
@@ -222,6 +224,7 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		"password":   []string{password},
 		"grant_type": []string{"password"},
 		"client_id":  []string{clientID},
+		"scope":      []string{"openid"},
 	}
 	if len(clientSecret) > 0 {
 		data.Add("client_secret", clientSecret)
@@ -249,9 +252,10 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		return err
 	}
 
-	accessToken, ok := authResp["access_token"].(string)
-	if !ok || len(accessToken) == 0 {
-		errorMessage := "failed to retrieve an access token"
+	accessToken, accessTokenOK := authResp["access_token"].(string)
+	idToken, idTokenOK := authResp["id_token"].(string)
+	if !accessTokenOK || len(accessToken) == 0 || !idTokenOK || len(idToken) == 0 {
+		errorMessage := "failed to retrieve tokens"
 		if serverErrorMessage, ok := authResp["error"]; ok {
 			errorMessage = fmt.Sprintf("%s. Server error was: %s", errorMessage, serverErrorMessage)
 			if serverErrorDescription, ok := authResp["error_description"]; ok {
@@ -261,9 +265,14 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		return fmt.Errorf(errorMessage)
 	}
 
-	kc.token = accessToken
+	kc.accessToken = accessToken
+	kc.idToken = idToken
 
 	return nil
+}
+
+func (kc *KeycloakClient) Tokens() (accessToken, idToken string) {
+	return kc.accessToken, kc.idToken
 }
 
 func (kc *KeycloakClient) CreateClientGroupMapper(clientId, mapperName, groupsClaimName string) error {
@@ -331,7 +340,7 @@ func (kc *KeycloakClient) CreateGroup(groupName string) error {
 	return nil
 }
 
-func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string) error {
+func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string, extraFields map[string]string) error {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
 
@@ -348,6 +357,10 @@ func (kc *KeycloakClient) CreateUser(username, email, password string, groups []
 		"enabled":       true,
 		"emailVerified": true,
 		"groups":        groups,
+	}
+
+	for k, v := range extraFields {
+		user[k] = v
 	}
 
 	if len(email) > 0 {
@@ -653,7 +666,7 @@ func (kc *KeycloakClient) RegenerateClientSecret(id string) (string, error) {
 }
 
 func (kc *KeycloakClient) do(method, url string, body io.Reader) (*http.Response, error) {
-	if len(kc.token) == 0 {
+	if len(kc.accessToken) == 0 {
 		return nil, fmt.Errorf("authenticate first")
 	}
 
@@ -662,7 +675,7 @@ func (kc *KeycloakClient) do(method, url string, body io.Reader) (*http.Response
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", kc.token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", kc.accessToken))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
