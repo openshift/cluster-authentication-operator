@@ -172,6 +172,12 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	if err != nil {
 		return nil, err
 	}
+
+	for _, fg := range features {
+		if strings.Contains(fg, "CBOR") {
+			features = []string{"CBORServingAndStorage=true", "ClientsAllowCBOR=true", "ClientsPreferCBOR=true"}
+		}
+	}
 	if len(features) > 0 {
 		args["feature-gates"] = []string{strings.Join(features, ",")}
 	}
