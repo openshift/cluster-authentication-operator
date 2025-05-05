@@ -34,49 +34,28 @@ func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.Co
 }
 
 func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, configv1.ConditionTrue, configv1.ConditionFalse, configv1.ConditionFalse, "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionFalse},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionFalse},
+	)
 }
 
 func WaitForClusterOperatorDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, "", "", configv1.ConditionTrue, "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionTrue},
+	)
 }
 
 func WaitForClusterOperatorProgressing(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, "", configv1.ConditionTrue, "", "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionTrue},
+	)
 }
 
-func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, available, progressing, degraded, upgradable configv1.ConditionStatus) error {
-	return wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
-		clusterOperator, err := client.ClusterOperators().Get(context.TODO(), name, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
-			return false, nil
-		}
-		if retry.IsHTTPClientError(err) {
-			t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
-			return false, nil
-		}
-		conditions := clusterOperator.Status.Conditions
-		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, conditionsStatusString(conditions))
-		degradedCondition := v1helpers.FindStatusCondition(conditions, configv1.OperatorDegraded)
-		if degradedCondition != nil && degradedCondition.Status == configv1.ConditionTrue {
-			t.Logf("clusteroperators.config.openshift.io/%v: degraded is true!: %s:%s", name, degradedCondition.Reason, degradedCondition.Message)
-		}
-		availableStatusIsMatch, progressingStatusIsMatch, degradedStatusIsMatch, upgradableStatusIsMatch := true, true, true, true
-		if available != "" {
-			availableStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorAvailable, available)
-		}
-		if progressing != "" {
-			progressingStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorProgressing, progressing)
-		}
-		if degraded != "" {
-			degradedStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorDegraded, degraded)
-		}
-		if upgradable != "" {
-			upgradableStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorDegraded, upgradable)
-		}
-		done := availableStatusIsMatch && progressingStatusIsMatch && degradedStatusIsMatch && upgradableStatusIsMatch
-		return done, nil
+func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+	return wait.PollUntilContextTimeout(context.TODO(), time.Second, 10*time.Minute, true, func(ctx context.Context) (bool, error) {
+		return checkClusterOperatorStatus(t, ctx, client, name, requiredConditions...)
 	})
 }
 
@@ -167,4 +146,53 @@ func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv
 	}
 
 	return nil
+}
+
+func WaitForClusterOperatorStatusAlwaysAvailable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string) error {
+	return WaitForClusterOperatorStatusStable(t, ctx, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionFalse},
+	)
+}
+
+// WaitForClusterOperatorStatusStable checks that the specified cluster operator's status does not diverge
+// from the conditions specified for 10 minutes. It returns nil if all conditions were matching expectations for that
+// period, and an error otherwise.
+func WaitForClusterOperatorStatusStable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 10*time.Minute, true, func(ctx context.Context) (bool, error) {
+		done, err := checkClusterOperatorStatus(t, ctx, client, name, requiredConditions...)
+		return !done, err
+	})
+
+	if err == context.DeadlineExceeded {
+		return nil
+	}
+
+	return err
+}
+
+func checkClusterOperatorStatus(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) (bool, error) {
+	clusterOperator, err := client.ClusterOperators().Get(ctx, name, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
+		return false, nil
+	}
+	if retry.IsHTTPClientError(err) {
+		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
+		return false, nil
+	}
+	conditions := clusterOperator.Status.Conditions
+	t.Logf("clusteroperators.config.openshift.io/%v: %v", name, conditionsStatusString(conditions))
+	degradedCondition := v1helpers.FindStatusCondition(conditions, configv1.OperatorDegraded)
+	if degradedCondition != nil && degradedCondition.Status == configv1.ConditionTrue {
+		t.Logf("clusteroperators.config.openshift.io/%v: degraded is true!: %s:%s", name, degradedCondition.Reason, degradedCondition.Message)
+	}
+
+	for _, required := range requiredConditions {
+		if len(required.Status) > 0 && !v1helpers.IsStatusConditionPresentAndEqual(conditions, required.Type, required.Status) {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
