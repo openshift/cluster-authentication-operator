@@ -14,9 +14,11 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -25,7 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apiserver/pkg/apis/apiserver"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
+	apiservervalidation "k8s.io/apiserver/pkg/apis/apiserver/validation"
+	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -48,6 +53,7 @@ type externalOIDCController struct {
 	authLister      configv1listers.AuthenticationLister
 	configMapLister corev1listers.ConfigMapLister
 	configMaps      corev1client.ConfigMapsGetter
+	featureGates    featuregates.FeatureGate
 }
 
 func NewExternalOIDCController(
@@ -56,6 +62,7 @@ func NewExternalOIDCController(
 	operatorClient v1helpers.OperatorClient,
 	configMaps corev1client.ConfigMapsGetter,
 	recorder events.Recorder,
+	featureGates featuregates.FeatureGate,
 ) factory.Controller {
 	c := &externalOIDCController{
 		name:      "ExternalOIDCController",
@@ -64,6 +71,7 @@ func NewExternalOIDCController(
 		authLister:      configInformer.Config().V1().Authentications().Lister(),
 		configMapLister: kubeInformersForNamespaces.ConfigMapLister(),
 		configMaps:      configMaps,
+		featureGates:    featureGates,
 	}
 
 	return factory.New().WithInformers(
@@ -110,7 +118,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return nil
 	}
 
-	if err := validateAuthConfig(*authConfig); err != nil {
+	if err := validateAuthConfig(*authConfig, []string{auth.Spec.ServiceAccountIssuer}); err != nil {
 		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
@@ -153,7 +161,7 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 
 	errs := []error{}
 	for _, provider := range auth.Spec.OIDCProviders {
-		jwt, err := generateJWTForProvider(provider, c.configMapLister)
+		jwt, err := generateJWTForProvider(provider, c.configMapLister, c.featureGates)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -169,14 +177,15 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 	return &authConfig, nil
 }
 
-func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister) (apiserverv1beta1.JWTAuthenticator, error) {
+func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister, featureGates featuregates.FeatureGate) (apiserverv1beta1.JWTAuthenticator, error) {
 	out := apiserverv1beta1.JWTAuthenticator{}
+
 	issuer, err := generateIssuer(provider.Issuer, configMapLister)
 	if err != nil {
 		return out, fmt.Errorf("generating issuer for provider %q: %v", provider.Name, err)
 	}
 
-	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL)
+	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL, featureGates)
 	if err != nil {
 		return out, fmt.Errorf("generating claimMappings for provider %q: %v", provider.Name, err)
 	}
@@ -228,28 +237,35 @@ func getCertificateAuthorityFromConfigMap(name string, configMapLister corev1lis
 	return caData, nil
 }
 
-func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string) (apiserverv1beta1.ClaimMappings, error) {
+func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, featureGates featuregates.FeatureGate) (apiserverv1beta1.ClaimMappings, error) {
+	out := apiserverv1beta1.ClaimMappings{}
+
 	username, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL)
 	if err != nil {
-		return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating username claim mapping: %v", err)
+		return out, fmt.Errorf("generating username claim mapping: %v", err)
 	}
 
-	uid, err := generateUIDClaimMapping(claimMappings.UID)
-	if err != nil {
-		return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating uid claim mapping: %v", err)
+	groups := generateGroupsClaimMapping(claimMappings.Groups)
+
+	out.Username = username
+	out.Groups = groups
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
+		uid, err := generateUIDClaimMapping(claimMappings.UID)
+		if err != nil {
+			return out, fmt.Errorf("generating uid claim mapping: %v", err)
+		}
+
+		extras, err := generateExtraClaimMapping(claimMappings.Extra...)
+		if err != nil {
+			return out, fmt.Errorf("generating extra claim mapping: %v", err)
+		}
+
+		out.UID = uid
+		out.Extra = extras
 	}
 
-	extras, err := generateExtraMappings(claimMappings.Extra...)
-	if err != nil {
-		return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating extra mappings: %v", err)
-	}
-
-	return apiserverv1beta1.ClaimMappings{
-		Username: username,
-		Groups:   generateGroupsClaimMapping(claimMappings.Groups),
-		UID:      uid,
-		Extra:    extras,
-	}, nil
+	return out, nil
 }
 
 func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (apiserverv1beta1.PrefixedClaimOrExpression, error) {
@@ -258,6 +274,9 @@ func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMap
 	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
 	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
 	// but for now just set the claim.
+	if usernameClaimMapping.Claim == "" {
+		return out, fmt.Errorf("username claim is required but an empty value was provided")
+	}
 	out.Claim = usernameClaimMapping.Claim
 
 	switch usernameClaimMapping.PrefixPolicy {
@@ -298,29 +317,31 @@ func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping) api
 	return out
 }
 
-func generateUIDClaimMapping(uidMapping configv1.UIDClaimMapping) (apiserverv1beta1.ClaimOrExpression, error) {
+func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apiserverv1beta1.ClaimOrExpression, error) {
 	out := apiserverv1beta1.ClaimOrExpression{}
 
 	// UID mapping can only specify either claim or expression, not both.
 	// This should be rejected at admission time of the authentications.config.openshift.io CRD.
 	// Even though this is the case, we still perform a runtime validation to ensure we never
 	// attempt to create an invalid configuration.
+	// If neither claim or expression is specified, default the claim to "sub"
 	switch {
-	case uidMapping.Claim != "" && uidMapping.Expression == "":
-		out.Claim = uidMapping.Claim
-	case uidMapping.Expression != "" && uidMapping.Claim == "":
-		out.Expression = uidMapping.Expression
-	case uidMapping.Claim != "" && uidMapping.Expression != "":
-		return out, fmt.Errorf("invalid uid mapping provided. must set either claim or expression, not both: %v", uidMapping)
-	default:
-		// by default, if there is no uid mapping provided we set it to the "sub" claim
+	case uid == nil:
 		out.Claim = "sub"
+	case uid.Claim != "" && uid.Expression == "":
+		out.Claim = uid.Claim
+	case uid.Expression != "" && uid.Claim == "":
+		out.Expression = uid.Expression
+	case uid.Claim != "" && uid.Expression != "":
+		return out, fmt.Errorf("uid mapping must set either claim or expression, not both: %v", uid)
+	default:
+		return out, fmt.Errorf("unable to handle uid mapping: %v", uid)
 	}
 
 	return out, nil
 }
 
-func generateExtraMappings(extraMappings ...configv1.ExtraMapping) ([]apiserverv1beta1.ExtraMapping, error) {
+func generateExtraClaimMapping(extraMappings ...configv1.ExtraMapping) ([]apiserverv1beta1.ExtraMapping, error) {
 	out := []apiserverv1beta1.ExtraMapping{}
 	errs := []error{}
 	for _, extraMapping := range extraMappings {
@@ -383,6 +404,8 @@ func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidati
 
 		out.Claim = claimValidationRule.RequiredClaim.Claim
 		out.RequiredValue = claimValidationRule.RequiredClaim.RequiredValue
+	default:
+		return out, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
 	}
 
 	return out, nil
@@ -422,10 +445,26 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 	return existingCMApplyConfig, nil
 }
 
-// validateAuthConfig performs validations that are not done at the server-side,
-// including validation that the provided CA cert (or system CAs if not specified) can be used for
-// TLS cert verification.
-func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration) error {
+// validateAuthConfig ensures that the generated authentication configuration is valid.
+// It performs:
+//   - The same validations as the Kubernetes API server
+//   - Validations not done by the Kubernetes API server
+//     - Verifies that the provided CA cert can be used for TLS cert verification
+func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration, disallowIssuers []string) error {
+	// Validate the Structured Authentication Configuration using the same library
+	// that the Kubernetes API server uses to ensure we are performing the same validations
+	// earlier in the chain and never create an invalid configuration.
+	apiServerAuthConfig, err := generatedAuthConfigToKASInternalAuthConfig(&auth)
+	if err != nil {
+		return fmt.Errorf("converting from generated auth config to kube-apiserver internal auth config: %w", err)
+	}
+
+	celCompiler := authenticationcel.NewDefaultCompiler()
+	fieldErrors := apiservervalidation.ValidateAuthenticationConfiguration(celCompiler, apiServerAuthConfig, disallowIssuers)
+	if err := fieldErrors.ToAggregate(); err != nil {
+		return fmt.Errorf("validating generated auth config: %w", err)
+	}
+
 	for _, jwt := range auth.JWT {
 		var caCertPool *x509.CertPool
 		var err error
@@ -494,4 +533,19 @@ func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 	}
 
 	return nil
+}
+
+func generatedAuthConfigToKASInternalAuthConfig(generated *apiserverv1beta1.AuthenticationConfiguration) (*apiserver.AuthenticationConfiguration, error) {
+	outBytes, err := json.Marshal(generated)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling generated auth config to JSON: %v", err)
+	}
+
+	apiserverAuthConfig := &apiserver.AuthenticationConfiguration{}
+	err = json.Unmarshal(outBytes, apiserverAuthConfig)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling generated auth config JSON to apiserver auth config: %v", err)
+	}
+
+	return apiserverAuthConfig, nil
 }
