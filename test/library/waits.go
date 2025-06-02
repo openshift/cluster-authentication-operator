@@ -2,13 +2,14 @@ package library
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -34,66 +35,82 @@ func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.Co
 }
 
 func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, configv1.ConditionTrue, configv1.ConditionFalse, configv1.ConditionFalse, "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionFalse},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionFalse},
+	)
 }
 
 func WaitForClusterOperatorDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, "", "", configv1.ConditionTrue, "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionTrue},
+	)
 }
 
 func WaitForClusterOperatorProgressing(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
-	return WaitForClusterOperatorStatus(t, client, name, "", configv1.ConditionTrue, "", "")
+	return WaitForClusterOperatorStatus(t, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionTrue},
+	)
 }
 
-func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, available, progressing, degraded, upgradable configv1.ConditionStatus) error {
-	return wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
-		clusterOperator, err := client.ClusterOperators().Get(context.TODO(), name, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
-			return false, nil
-		}
-		if retry.IsHTTPClientError(err) {
-			t.Logf("clusteroperators.config.openshift.io/%v: %v", name, err)
-			return false, nil
-		}
-		conditions := clusterOperator.Status.Conditions
-		t.Logf("clusteroperators.config.openshift.io/%v: %v", name, conditionsStatusString(conditions))
-		degradedCondition := v1helpers.FindStatusCondition(conditions, configv1.OperatorDegraded)
-		if degradedCondition != nil && degradedCondition.Status == configv1.ConditionTrue {
-			t.Logf("clusteroperators.config.openshift.io/%v: degraded is true!: %s:%s", name, degradedCondition.Reason, degradedCondition.Message)
-		}
-		availableStatusIsMatch, progressingStatusIsMatch, degradedStatusIsMatch, upgradableStatusIsMatch := true, true, true, true
-		if available != "" {
-			availableStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorAvailable, available)
-		}
-		if progressing != "" {
-			progressingStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorProgressing, progressing)
-		}
-		if degraded != "" {
-			degradedStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorDegraded, degraded)
-		}
-		if upgradable != "" {
-			upgradableStatusIsMatch = v1helpers.IsStatusConditionPresentAndEqual(conditions, configv1.OperatorDegraded, upgradable)
-		}
-		done := availableStatusIsMatch && progressingStatusIsMatch && degradedStatusIsMatch && upgradableStatusIsMatch
-		return done, nil
+func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+	var done bool
+	var conditions []configv1.ClusterOperatorStatusCondition
+	var checkErr error
+
+	t.Logf("will wait up to 10m for clusteroperators.config.openshift.io/%s status to be: %v", name, conditionsStatusString(requiredConditions))
+	ts := time.Now()
+	err := wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 10*time.Minute, true, func(ctx context.Context) (bool, error) {
+		done, conditions, checkErr = CheckClusterOperatorStatus(t, ctx, client, name, requiredConditions...)
+		return done, checkErr
 	})
+
+	if err == nil {
+		t.Logf("clusteroperators.config.openshift.io/%s required status reached after %s: %v", name, time.Now().Sub(ts), conditionsStatusString(conditions))
+		return nil
+	}
+
+	t.Logf("clusteroperators.config.openshift.io/%s required status not reached after %s: %v", name, time.Now().Sub(ts), conditionsStatusString(conditions))
+	return err
+}
+
+// WaitForClusterOperatorStatusStable checks that the specified cluster operator's status does not diverge
+// from the conditions specified for 10 minutes. It returns nil if all conditions were matching expectations for that
+// period, and an error otherwise.
+func WaitForClusterOperatorStatusStable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+	t.Logf("will wait up to 10m for clusteroperators.config.openshift.io/%s status to be stable: %v", name, conditionsStatusString(requiredConditions))
+
+	var endConditions []configv1.ClusterOperatorStatusCondition
+	ts := time.Now()
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 10*time.Minute, true, func(_ context.Context) (bool, error) {
+		done, conditions, checkErr := CheckClusterOperatorStatus(t, ctx, client, name, requiredConditions...)
+		if len(conditions) > 0 {
+			endConditions = conditions
+		}
+		return !done, checkErr
+	})
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Logf("clusteroperators.config.openshift.io/%s status was stable for %s; end status: %s", name, time.Now().Sub(ts), conditionsStatusString(endConditions))
+		return nil
+	}
+
+	t.Logf("clusteroperators.config.openshift.io/%s status was not stable for %s; end status: %s (err: %v)", name, time.Now().Sub(ts), conditionsStatusString(endConditions), err)
+	return err
 }
 
 func conditionsStatusString(conditions []configv1.ClusterOperatorStatusCondition) string {
-	var result strings.Builder
 	orderedConditionTypes := []configv1.ClusterStatusConditionType{configv1.OperatorAvailable, configv1.OperatorProgressing, configv1.OperatorDegraded, configv1.OperatorUpgradeable}
-	for i, conditionType := range orderedConditionTypes {
+	conditionStrings := make([]string, 0, len(orderedConditionTypes))
+	for _, conditionType := range orderedConditionTypes {
 		condition := v1helpers.FindStatusCondition(conditions, conditionType)
 		if condition == nil {
 			continue
 		}
-		if i > 0 {
-			result.WriteString(", ")
-		}
-		result.WriteString(fmt.Sprintf("%v: %v", condition.Type, condition.Status))
+		conditionStrings = append(conditionStrings, fmt.Sprintf("%s=%s", condition.Type, condition.Status))
 	}
-	return result.String()
+	return strings.Join(conditionStrings, "/")
 }
 
 func WaitForRouteAdmitted(t *testing.T, client routev1client.RouteV1Interface, name, ns string) (string, error) {
@@ -141,6 +158,8 @@ func WaitForHTTPStatus(t *testing.T, waitDuration time.Duration, client *http.Cl
 }
 
 func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv1client.KubeAPIServerInterface, origRevision int32) error {
+	t.Logf("will wait for KAS rollout; latest available revision: %d", origRevision)
+	var latestRevision int32
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 30*time.Minute, true, func(ctx context.Context) (bool, error) {
 		kas, err := kasClient.Get(ctx, "cluster", metav1.GetOptions{})
 		if err != nil {
@@ -150,14 +169,14 @@ func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv
 
 		for _, nodeStatus := range kas.Status.NodeStatuses {
 			if kas.Status.LatestAvailableRevision == origRevision {
-				t.Logf("no KAS rollout has started (latest available revision = %d)", kas.Status.LatestAvailableRevision)
 				return false, nil
 			}
 
 			if nodeStatus.CurrentRevision != kas.Status.LatestAvailableRevision {
-				t.Logf("waiting for KAS rollout on node '%s': current revision = %d (latest available = %d)\n", nodeStatus.NodeName, nodeStatus.CurrentRevision, kas.Status.LatestAvailableRevision)
 				return false, nil
 			}
+
+			latestRevision = nodeStatus.CurrentRevision
 		}
 
 		return true, nil
@@ -166,5 +185,32 @@ func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv
 		return err
 	}
 
+	t.Logf("KAS rollout completed; now at revision %d", latestRevision)
 	return nil
+}
+
+func WaitForClusterOperatorStatusAlwaysAvailable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string) error {
+	return WaitForClusterOperatorStatusStable(t, ctx, client, name,
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
+		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionFalse},
+	)
+}
+
+func CheckClusterOperatorStatus(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) (bool, []configv1.ClusterOperatorStatusCondition, error) {
+	clusterOperator, err := client.ClusterOperators().Get(ctx, name, metav1.GetOptions{})
+	if kerrors.IsNotFound(err) || retry.IsHTTPClientError(err) {
+		t.Logf("error while getting clusteroperators.config.openshift.io/%v, will retry: %v", name, err)
+		return false, nil, nil
+	} else if err != nil {
+		return false, nil, err
+	}
+
+	conditions := clusterOperator.Status.Conditions
+	for _, required := range requiredConditions {
+		if len(required.Status) > 0 && !v1helpers.IsStatusConditionPresentAndEqual(conditions, required.Type, required.Status) {
+			return false, conditions, nil
+		}
+	}
+
+	return true, conditions, nil
 }
