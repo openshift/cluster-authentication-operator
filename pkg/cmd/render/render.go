@@ -9,6 +9,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	klog "k8s.io/klog/v2"
 )
 
 const (
@@ -45,12 +46,14 @@ func (ro *RenderOptions) Run() error {
 	}
 
 	for _, assetToRender := range ro.AssetsToRender {
+		klog.Info("rendering asset ", assetToRender)
 		asset, err := ro.Assets(assetToRender)
 		if err != nil {
 			return fmt.Errorf("getting asset %q to be rendered: %w", assetToRender, err)
 		}
 
 		filename := filepath.Join(ro.AssetOutputDir, filepath.Base(assetToRender))
+		klog.Info("writing asset to ", filename)
 		err = os.WriteFile(filename, asset, FileModeFileDefault)
 		if err != nil {
 			return fmt.Errorf("rendering asset %q to file %q: %w ", assetToRender, filename, err)
