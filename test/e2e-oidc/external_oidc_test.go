@@ -505,45 +505,49 @@ func (tc *testClient) updateAuthResource(t *testing.T, ctx context.Context, base
 }
 
 func (tc *testClient) checkPreconditions(t *testing.T, ctx context.Context, authType *configv1.AuthenticationType, caoStatus []configv1.ClusterOperatorStatusCondition, kasoStatus []configv1.ClusterOperatorStatusCondition) {
-	if authType != nil {
-		expected := *authType
-		if len(expected) == 0 {
-			expected = configv1.AuthenticationTypeIntegratedOAuth
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 2*time.Minute, false, func(ctx context.Context) (bool, error) {
+		if authType != nil {
+			expected := *authType
+			if len(expected) == 0 {
+				expected = configv1.AuthenticationTypeIntegratedOAuth
+			}
+
+			auth := tc.getAuth(t, ctx)
+			actual := auth.Spec.Type
+			if len(actual) == 0 {
+				actual = configv1.AuthenticationTypeIntegratedOAuth
+			}
+
+			if expected != actual {
+				t.Logf("unexpected auth type; test requires '%s', but got '%s'", expected, actual)
+				return false, nil
+			}
 		}
 
-		auth := tc.getAuth(t, ctx)
-		actual := auth.Spec.Type
-		if len(actual) == 0 {
-			actual = configv1.AuthenticationTypeIntegratedOAuth
+		if len(caoStatus) > 0 {
+			ok, conditions, err := test.CheckClusterOperatorStatus(t, ctx, tc.configClient.ConfigV1(), "authentication", caoStatus...)
+			if err != nil {
+				return false, fmt.Errorf("could not determine authentication operator status: %v", err)
+			} else if !ok {
+				t.Logf("unexpected authentication operator status: %v", conditions)
+				return false, nil
+			}
 		}
 
-		if expected != actual {
-			t.Fatalf("unexpected auth type; test requires '%s', but got '%s'", expected, actual)
-			return
+		if len(kasoStatus) > 0 {
+			ok, conditions, err := test.CheckClusterOperatorStatus(t, ctx, tc.configClient.ConfigV1(), "kube-apiserver", kasoStatus...)
+			if err != nil {
+				return false, fmt.Errorf("could not determine kube-apiserver operator status: %v", err)
+			} else if !ok {
+				t.Logf("unexpected kube-apiserver operator status: %v", conditions)
+				return false, nil
+			}
 		}
-	}
 
-	if len(caoStatus) > 0 {
-		ok, conditions, err := test.CheckClusterOperatorStatus(t, ctx, tc.configClient.ConfigV1(), "authentication", caoStatus...)
-		if err != nil {
-			t.Fatalf("could not determine authentication operator status: %v", err)
-			return
-		} else if !ok {
-			t.Fatalf("unexpected authentication operator status: %v", conditions)
-			return
-		}
-	}
+		return true, nil
+	})
 
-	if len(kasoStatus) > 0 {
-		ok, conditions, err := test.CheckClusterOperatorStatus(t, ctx, tc.configClient.ConfigV1(), "kube-apiserver", kasoStatus...)
-		if err != nil {
-			t.Fatalf("could not determine kube-apiserver operator status: %v", err)
-			return
-		} else if !ok {
-			t.Fatalf("unexpected kube-apiserver operator status: %v", conditions)
-			return
-		}
-	}
+	require.NoError(t, err, "test preconditions failed: %v", err)
 }
 
 func (tc *testClient) kasLatestAvailableRevision(t *testing.T, ctx context.Context) int32 {
@@ -795,13 +799,13 @@ func (tc *testClient) requireKASRolloutSuccessful(t *testing.T, testCtx context.
 func (tc *testClient) authResourceRollback(ctx context.Context, origAuthSpec *configv1.AuthenticationSpec) error {
 	auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("cleanup failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
+		return fmt.Errorf("rollback failed for authentication '%s' while retrieving fresh object: %v", auth.Name, err)
 	}
 
 	if !equality.Semantic.DeepEqual(auth.Spec, *origAuthSpec) {
 		auth.Spec = *origAuthSpec
 		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("cleanup failed for authentication '%s' while updating object: %v", auth.Name, err)
+			return fmt.Errorf("rollback failed for authentication '%s' while updating object: %v", auth.Name, err)
 		}
 	}
 
