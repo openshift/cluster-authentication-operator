@@ -27,9 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apiserver/pkg/apis/apiserver"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
-	apiservervalidation "k8s.io/apiserver/pkg/apis/apiserver/validation"
 	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -331,6 +329,11 @@ func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apise
 	case uid.Claim != "" && uid.Expression == "":
 		out.Claim = uid.Claim
 	case uid.Expression != "" && uid.Claim == "":
+		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+			Expression: uid.Expression,
+		}); err != nil {
+			return out, fmt.Errorf("validating expression: %v", err)
+		}
 		out.Expression = uid.Expression
 	case uid.Claim != "" && uid.Expression != "":
 		return out, fmt.Errorf("uid mapping must set either claim or expression, not both: %v", uid)
@@ -366,6 +369,13 @@ func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.
 
 	if extraMapping.ValueExpression == "" {
 		return out, fmt.Errorf("extra mapping must set a valueExpression, but none was provided: %v", extraMapping)
+	}
+
+	if err := validateCELExpression(&authenticationcel.ExtraMappingExpression{
+		Key: extraMapping.Key,
+		Expression: extraMapping.ValueExpression,
+	}); err != nil {
+		return out, fmt.Errorf("validating expression: %v", err)
 	}
 
 	out.Key = extraMapping.Key
@@ -445,26 +455,10 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 	return existingCMApplyConfig, nil
 }
 
-// validateAuthConfig ensures that the generated authentication configuration is valid.
-// It performs:
-//   - The same validations as the Kubernetes API server
-//   - Validations not done by the Kubernetes API server
-//     - Verifies that the provided CA cert can be used for TLS cert verification
+// validateAuthConfig performs validations that are not done at the server-side,
+// including validation that the provided CA cert (or system CAs if not specified) can be used for
+// TLS cert verification.
 func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration, disallowIssuers []string) error {
-	// Validate the Structured Authentication Configuration using the same library
-	// that the Kubernetes API server uses to ensure we are performing the same validations
-	// earlier in the chain and never create an invalid configuration.
-	apiServerAuthConfig, err := generatedAuthConfigToKASInternalAuthConfig(&auth)
-	if err != nil {
-		return fmt.Errorf("converting from generated auth config to kube-apiserver internal auth config: %w", err)
-	}
-
-	celCompiler := authenticationcel.NewDefaultCompiler()
-	fieldErrors := apiservervalidation.ValidateAuthenticationConfiguration(celCompiler, apiServerAuthConfig, disallowIssuers)
-	if err := fieldErrors.ToAggregate(); err != nil {
-		return fmt.Errorf("validating generated auth config: %w", err)
-	}
-
 	for _, jwt := range auth.JWT {
 		var caCertPool *x509.CertPool
 		var err error
@@ -535,17 +529,11 @@ func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 	return nil
 }
 
-func generatedAuthConfigToKASInternalAuthConfig(generated *apiserverv1beta1.AuthenticationConfiguration) (*apiserver.AuthenticationConfiguration, error) {
-	outBytes, err := json.Marshal(generated)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling generated auth config to JSON: %v", err)
-	}
-
-	apiserverAuthConfig := &apiserver.AuthenticationConfiguration{}
-	err = json.Unmarshal(outBytes, apiserverAuthConfig)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshalling generated auth config JSON to apiserver auth config: %v", err)
-	}
-
-	return apiserverAuthConfig, nil
+// validateCELExpression validates a CEL expression using the provided expression accessor.
+// It uses the default authentication CEL compiler that the KAS uses and thus defaults to
+// validating CEL expressions based on the version of the k8s dependencies used by the
+// cluster-authentication-operator.
+func validateCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) error {
+	_, err := authenticationcel.NewDefaultCompiler().CompileClaimsExpression(expressionAccessor)
+	return err
 }
