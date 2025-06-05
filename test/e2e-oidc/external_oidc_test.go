@@ -155,6 +155,19 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 			{"empty username claim", func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
 			}},
+			{"uncompilable CEL expression for uid claim mapping", func(s *configv1.AuthenticationSpec){
+				s.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
+					Expression: "^&*!@#^*(",
+				}
+			}},
+			{"uncompilable CEL expression for extras claim mapping", func(s *configv1.AuthenticationSpec){
+				s.OIDCProviders[0].ClaimMappings.Extra = []configv1.ExtraMapping{
+					{
+						Key: "testing/key",
+						ValueExpression: "^&*!@#^*(",
+					},
+				}
+			}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				err := testClient.authResourceRollback(testCtx, origAuthSpec)
@@ -584,7 +597,13 @@ func (tc *testClient) validateAuthConfigJSON(t *testing.T, ctx context.Context, 
 		certData = cm.Data["ca-bundle.crt"]
 	}
 
-	expectedAuthConfigJSON := fmt.Sprintf(`{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{}}}]}`,
+	authConfigJSONTemplate := `{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{}}}]}`
+	// If the ExternalOIDCWithUIDAndExtraClaimMappings feature gate is enabled, default the uid claim to "sub"
+	if featureGateEnabled(ctx, tc.configClient, features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
+		authConfigJSONTemplate = `{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{"claim":"sub"}}}]}`
+	}
+
+	expectedAuthConfigJSON := fmt.Sprintf(authConfigJSONTemplate,
 		idpURL,
 		strings.ReplaceAll(certData, "\n", "\\n"),
 		strings.Join([]string{fmt.Sprintf(`"%s"`, oidcClientId)}, ","),
@@ -807,4 +826,23 @@ func (tc *testClient) authResourceRollback(ctx context.Context, origAuthSpec *co
 	}
 
 	return nil
+}
+
+func featureGateEnabled(ctx context.Context, configClient *configclient.Clientset, feature configv1.FeatureGateName) bool {
+	featureGates, err := configClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+
+	if len(featureGates.Status.FeatureGates) == 0 {
+		return false
+	}
+
+	for _, enabled := range featureGates.Status.FeatureGates[0].Enabled {
+		if enabled.Name == feature {
+			return true
+		}
+	}
+
+	return false
 }
