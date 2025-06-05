@@ -369,11 +369,11 @@ func generateExtraClaimMapping(extraMappings ...configv1.ExtraMapping) ([]apiser
 func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.ExtraMapping, error) {
 	out := apiserverv1beta1.ExtraMapping{}
 
-	if extraMapping.Key == "" {
+	if len(extraMapping.Key) == 0 {
 		return out, fmt.Errorf("extra mapping must set a key, but none was provided: %v", extraMapping)
 	}
 
-	if extraMapping.ValueExpression == "" {
+	if len(extraMapping.ValueExpression) == 0 {
 		return out, fmt.Errorf("extra mapping must set a valueExpression, but none was provided: %v", extraMapping)
 	}
 
