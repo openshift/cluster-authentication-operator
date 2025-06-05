@@ -372,7 +372,7 @@ func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.
 	}
 
 	if err := validateCELExpression(&authenticationcel.ExtraMappingExpression{
-		Key: extraMapping.Key,
+		Key:        extraMapping.Key,
 		Expression: extraMapping.ValueExpression,
 	}); err != nil {
 		return out, fmt.Errorf("validating expression: %v", err)

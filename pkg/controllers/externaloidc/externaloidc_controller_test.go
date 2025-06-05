@@ -926,7 +926,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 		{
 			name:              "auth config with no uid claim or expression",
 			caBundleConfigMap: &baseCABundleConfigMap,
-			auth: baseAuthResource,
+			auth:              baseAuthResource,
 			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
 				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
 					for i := range authConfig.JWT {
@@ -949,7 +949,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
-							Claim: "sub",
+							Claim:      "sub",
 							Expression: "claims.sub",
 						}
 					}
@@ -970,7 +970,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
-							Claim: "",
+							Claim:      "",
 							Expression: "claims.sub",
 						}
 					}
@@ -1084,7 +1084,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 
 			c := externalOIDCController{
 				configMapLister: corev1listers.NewConfigMapLister(tt.configMapIndexer),
-				featureGates: tt.featureGates,
+				featureGates:    tt.featureGates,
 			}
 
 			gotConfig, err := c.generateAuthConfig(tt.auth)
