@@ -1251,7 +1251,7 @@ func TestExternalOIDCController_validateAuthConfig(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateAuthConfig(tt.authConfig, []string{})
+			err := validateAuthConfig(tt.authConfig)
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but didn't get any")
 			}
