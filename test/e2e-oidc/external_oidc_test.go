@@ -56,7 +56,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	testClient, err := newTestClient(t)
 	require.NoError(t, err)
 
-	checkFeatureGateOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC)
+	checkFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
 
 	// post-test cluster cleanup
 	var cleanups []func()
@@ -155,15 +155,15 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 			{"empty username claim", func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
 			}},
-			{"uncompilable CEL expression for uid claim mapping", func(s *configv1.AuthenticationSpec){
+			{"uncompilable CEL expression for uid claim mapping", func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
 					Expression: "^&*!@#^*(",
 				}
 			}},
-			{"uncompilable CEL expression for extras claim mapping", func(s *configv1.AuthenticationSpec){
+			{"uncompilable CEL expression for extras claim mapping", func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].ClaimMappings.Extra = []configv1.ExtraMapping{
 					{
-						Key: "testing/key",
+						Key:             "testing/key",
 						ValueExpression: "^&*!@#^*(",
 					},
 				}
@@ -386,19 +386,32 @@ func extractRSAPubKeyFunc(issuerJWKS *jwks) func(*jwt.Token) (any, error) {
 	}
 }
 
-func checkFeatureGateOrSkip(t *testing.T, ctx context.Context, configClient *configclient.Clientset, feature configv1.FeatureGateName) {
+func checkFeatureGatesOrSkip(t *testing.T, ctx context.Context, configClient *configclient.Clientset, features ...configv1.FeatureGateName) {
 	featureGates, err := configClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	if len(featureGates.Status.FeatureGates) != 1 {
 		// fail test if there are multiple feature gate versions (i.e. ongoing upgrade)
 		t.Fatalf("multiple feature gate versions detected")
-	} else {
-		for _, fgDisabled := range featureGates.Status.FeatureGates[0].Disabled {
-			if fgDisabled.Name == feature {
-				t.Skipf("feature gate '%s' disabled", feature)
+		return
+	}
+
+	atLeastOneFeatureEnabled := false
+	for _, feature := range features {
+		for _, gate := range featureGates.Status.FeatureGates[0].Enabled {
+			if gate.Name == feature {
+				atLeastOneFeatureEnabled = true
+				break
 			}
 		}
+
+		if atLeastOneFeatureEnabled {
+			break
+		}
+	}
+
+	if !atLeastOneFeatureEnabled {
+		t.Skipf("skipping as none of the feature gates in %v are enabled", features)
 	}
 }
 
