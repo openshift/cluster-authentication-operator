@@ -116,7 +116,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return nil
 	}
 
-	if err := validateAuthConfig(*authConfig, []string{auth.Spec.ServiceAccountIssuer}); err != nil {
+	if err := validateAuthConfig(*authConfig); err != nil {
 		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 
 	errs := []error{}
 	for _, provider := range auth.Spec.OIDCProviders {
-		jwt, err := generateJWTForProvider(provider, c.configMapLister, c.featureGates)
+		jwt, err := generateJWTForProvider(provider, c.configMapLister, c.featureGates, auth.Spec.ServiceAccountIssuer)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -175,10 +175,10 @@ func (c *externalOIDCController) generateAuthConfig(auth configv1.Authentication
 	return &authConfig, nil
 }
 
-func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister, featureGates featuregates.FeatureGate) (apiserverv1beta1.JWTAuthenticator, error) {
+func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister, featureGates featuregates.FeatureGate, serviceAccountIssuer string) (apiserverv1beta1.JWTAuthenticator, error) {
 	out := apiserverv1beta1.JWTAuthenticator{}
 
-	issuer, err := generateIssuer(provider.Issuer, configMapLister)
+	issuer, err := generateIssuer(provider.Issuer, configMapLister, serviceAccountIssuer)
 	if err != nil {
 		return out, fmt.Errorf("generating issuer for provider %q: %v", provider.Name, err)
 	}
@@ -200,8 +200,14 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 	return out, nil
 }
 
-func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.ConfigMapLister) (apiserverv1beta1.Issuer, error) {
+func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.ConfigMapLister, serviceAccountIssuer string) (apiserverv1beta1.Issuer, error) {
 	out := apiserverv1beta1.Issuer{}
+
+	if len(serviceAccountIssuer) > 0 {
+		if issuer.URL == serviceAccountIssuer {
+			return out, errors.New("issuer url cannot overlap with the ServiceAccount issuer url")
+		}
+	}
 
 	out.URL = issuer.URL
 	out.AudienceMatchPolicy = apiserverv1beta1.AudienceMatchPolicyMatchAny
@@ -272,7 +278,7 @@ func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMap
 	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
 	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
 	// but for now just set the claim.
-	if usernameClaimMapping.Claim == "" {
+	if len(usernameClaimMapping.Claim) == 0 {
 		return out, fmt.Errorf("username claim is required but an empty value was provided")
 	}
 	out.Claim = usernameClaimMapping.Claim
@@ -326,16 +332,16 @@ func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apise
 	switch {
 	case uid == nil:
 		out.Claim = "sub"
-	case uid.Claim != "" && uid.Expression == "":
+	case len(uid.Claim) > 0 && len(uid.Expression) == 0:
 		out.Claim = uid.Claim
-	case uid.Expression != "" && uid.Claim == "":
+	case len(uid.Expression) > 0 && len(uid.Claim) == 0:
 		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
 			Expression: uid.Expression,
 		}); err != nil {
 			return out, fmt.Errorf("validating expression: %v", err)
 		}
 		out.Expression = uid.Expression
-	case uid.Claim != "" && uid.Expression != "":
+	case len(uid.Claim) > 0 && len(uid.Expression) > 0:
 		return out, fmt.Errorf("uid mapping must set either claim or expression, not both: %v", uid)
 	default:
 		return out, fmt.Errorf("unable to handle uid mapping: %v", uid)
@@ -458,7 +464,7 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 // validateAuthConfig performs validations that are not done at the server-side,
 // including validation that the provided CA cert (or system CAs if not specified) can be used for
 // TLS cert verification.
-func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration, disallowIssuers []string) error {
+func validateAuthConfig(auth apiserverv1beta1.AuthenticationConfiguration) error {
 	for _, jwt := range auth.JWT {
 		var caCertPool *x509.CertPool
 		var err error
