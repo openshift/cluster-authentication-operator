@@ -17,6 +17,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/certrotationcontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -653,6 +654,18 @@ func prepareOauthAPIServerOperator(
 		eventRecorder,
 	)
 
+	certRotationController, err := certrotationcontroller.NewCertRotationController(
+		v1helpers.CachedSecretGetter(authOperatorInput.kubeClient.CoreV1(), informerFactories.kubeInformersForNamespaces),
+		v1helpers.CachedConfigMapGetter(authOperatorInput.kubeClient.CoreV1(), informerFactories.kubeInformersForNamespaces),
+		authOperatorInput.authenticationOperatorClient,
+		informerFactories.kubeInformersForNamespaces,
+		authOperatorInput.eventRecorder,
+		time.Hour*24,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-other-configObserver", configObserver.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-authenticatorCertRequester", authenticatorCertRequester.Sync),
@@ -669,6 +682,7 @@ func prepareOauthAPIServerOperator(
 		libraryapplyconfiguration.AdaptRunFn(webhookAuthController.Run),
 		libraryapplyconfiguration.AdaptRunFn(webhookCertsApprover.Run),
 		libraryapplyconfiguration.AdaptRunFn(func(ctx context.Context, _ int) { apiServerControllers.Run(ctx) }),
+		libraryapplyconfiguration.AdaptRunFn(certRotationController.Run),
 	}
 
 	return runOnceFns, runFns, nil
