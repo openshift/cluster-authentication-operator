@@ -143,33 +143,60 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 
 	t.Run("invalid OIDC config degrades auth operator", func(t *testing.T) {
 		for _, tt := range []struct {
-			name       string
-			specUpdate func(*configv1.AuthenticationSpec)
+			name                string
+			specUpdate          func(*configv1.AuthenticationSpec)
+			requireFeatureGates []configv1.FeatureGateName
 		}{
-			{"invalid issuer CA bundle", func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].Issuer.CertificateAuthority.Name = "invalid-ca-bundle"
-			}},
-			{"invalid issuer URL", func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
-			}},
-			{"empty username claim", func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
-			}},
-			{"uncompilable CEL expression for uid claim mapping", func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
-					Expression: "^&*!@#^*(",
-				}
-			}},
-			{"uncompilable CEL expression for extras claim mapping", func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].ClaimMappings.Extra = []configv1.ExtraMapping{
-					{
-						Key:             "testing/key",
-						ValueExpression: "^&*!@#^*(",
-					},
-				}
-			}},
+			{
+				name: "invalid issuer CA bundle",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].Issuer.CertificateAuthority.Name = "invalid-ca-bundle"
+				},
+				requireFeatureGates: []configv1.FeatureGateName{},
+			},
+			{
+				name: "invalid issuer URL",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
+				},
+				requireFeatureGates: []configv1.FeatureGateName{},
+			},
+			{
+				name: "empty username claim",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
+				},
+				requireFeatureGates: []configv1.FeatureGateName{},
+			},
+			{
+				name: "uncompilable CEL expression for uid claim mapping",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
+						Expression: "^&*!@#^*(",
+					}
+				},
+				requireFeatureGates: []configv1.FeatureGateName{features.FeatureGateExternalOIDCWithAdditionalClaimMappings},
+			},
+			{
+				name: "uncompilable CEL expression for extras claim mapping",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].ClaimMappings.Extra = []configv1.ExtraMapping{
+						{
+							Key:             "testing/key",
+							ValueExpression: "^&*!@#^*(",
+						},
+					}
+				},
+				requireFeatureGates: []configv1.FeatureGateName{features.FeatureGateExternalOIDCWithAdditionalClaimMappings},
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
+				for _, fg := range tt.requireFeatureGates {
+					if !featureGateEnabled(testCtx, testClient.configClient, fg) {
+						t.Skipf("skipping as required feature gate %q is not enabled", fg)
+					}
+				}
+
 				err := testClient.authResourceRollback(testCtx, origAuthSpec)
 				require.NoError(t, err, "failed to roll back auth resource")
 
