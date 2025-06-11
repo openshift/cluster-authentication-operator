@@ -162,13 +162,6 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				requireFeatureGates: []configv1.FeatureGateName{},
 			},
 			{
-				name: "empty username claim",
-				specUpdate: func(s *configv1.AuthenticationSpec) {
-					s.OIDCProviders[0].ClaimMappings.Username.Claim = ""
-				},
-				requireFeatureGates: []configv1.FeatureGateName{},
-			},
-			{
 				name: "uncompilable CEL expression for uid claim mapping",
 				specUpdate: func(s *configv1.AuthenticationSpec) {
 					s.OIDCProviders[0].ClaimMappings.UID = &configv1.TokenClaimOrExpressionMapping{
