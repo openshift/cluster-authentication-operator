@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -68,7 +67,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
-	utilpointer "k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -735,7 +734,7 @@ func apiServices() []*apiregistrationv1.APIService {
 				Service: &apiregistrationv1.ServiceReference{
 					Namespace: "openshift-oauth-apiserver",
 					Name:      "api",
-					Port:      utilpointer.Int32Ptr(443),
+					Port:      ptr.To(int32(443)),
 				},
 				GroupPriorityMinimum: 9900,
 				VersionPriority:      15,
@@ -753,7 +752,7 @@ func apiServices() []*apiregistrationv1.APIService {
 // nil if it fails to load. It is to be used for controllers that generally require a
 // cert bundle and not necessary the system trust store contents.
 func loadSystemCACertBundle() ([]byte, error) {
-	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	systemCABundle, err := os.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
 	if err != nil {
 		// this may fail route-health checks in proxy environments
 		klog.Warningf("unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
