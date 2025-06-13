@@ -79,10 +79,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		err = test.WaitForNewKASRollout(t, testCtx, testClient.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
 		require.NoError(t, err, "failed to wait for KAS rollout during cleanup")
 
-		err = wait.PollUntilContextTimeout(testCtx, 30*time.Second, 5*time.Minute, false, func(ctx context.Context) (done bool, err error) {
-			return testClient.validateOAuthResources(testCtx, false)
-		})
-		require.NoError(t, err, "failed to wait for OAuth resources to be present during cleanup")
+		testClient.validateOAuthResources(t, testCtx, false)
 	})
 
 	// keycloak setup
@@ -168,6 +165,8 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
 
 				require.NoError(t, test.WaitForClusterOperatorDegraded(t, testClient.configClient.ConfigV1(), "authentication"))
+
+				testClient.validateOAuthResources(t, testCtx, false)
 			})
 		}
 	})
@@ -210,6 +209,8 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
 
 				testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, tt.expectedPrefix)
+
+				testClient.validateOAuthResources(t, testCtx, true)
 
 				testClient.testOIDCAuthentication(t, testCtx, kcClient, tt.claim, tt.expectedPrefix, true)
 			})
@@ -258,6 +259,8 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
 
 		testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, "")
+
+		testClient.validateOAuthResources(t, testCtx, true)
 
 		testClient.testOIDCAuthentication(t, testCtx, kcClient, "", "", false)
 	})
@@ -611,73 +614,74 @@ func (tc *testClient) validateAuthConfigJSON(t *testing.T, ctx context.Context, 
 	}
 }
 
-func (tc *testClient) validateOAuthResources(ctx context.Context, requireMissing bool) (bool, error) {
+func (tc *testClient) validateOAuthResources(t *testing.T, ctx context.Context, requireMissing bool) {
 	dynamicClient, err := dynamic.NewForConfig(tc.kubeConfig)
-	if err != nil {
-		return false, fmt.Errorf("unexpected error while creating dynamic client: %v", err)
-	}
+	require.NoError(t, err, "unexpected error while creating dynamic client")
 
-	for _, obj := range []struct {
-		gvr       schema.GroupVersionResource
-		namespace string
-		name      string
-	}{
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-authentication", "oauth-openshift"},
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-oauth-apiserver", "apiserver"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-metadata"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-trusted-ca-bundle"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-service-ca"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-cliconfig"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-ocp-branding-template"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-session"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-authentication", "oauth-openshift"},
-		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.oauth.openshift.io"},
-		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.user.openshift.io"},
-		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-browser-client"},
-		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-challenging-client"},
-		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-cli-client"},
-	} {
-		_, err := dynamicClient.Resource(obj.gvr).Namespace(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			return false, fmt.Errorf("unexpected error while getting resource %s/%s: %v", obj.namespace, obj.name, err)
-		} else if requireMissing != errors.IsNotFound(err) {
-			return false, fmt.Errorf("resource %s/%s wanted missing: %v; got: %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
-		}
-	}
-
-	// routes
-	for _, obj := range []struct{ namespace, name string }{
-		{"openshift-authentication", "oauth-openshift"},
-	} {
-		_, err := tc.routeClient.RouteV1().Routes(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			return false, fmt.Errorf("unexpected error while getting route %s/%s: %v", obj.namespace, obj.name, err)
-		} else if requireMissing != errors.IsNotFound(err) {
-			return false, fmt.Errorf("route %s/%s wanted missing: %v; got: %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
-		}
-
-		// ingress status
-		ingress, err := tc.configClient.ConfigV1().Ingresses().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			return false, err
-		}
-
-		found := false
-		for _, route := range ingress.Status.ComponentRoutes {
-			if route.Name == obj.name && route.Namespace == obj.namespace {
-				found = true
-				break
+	err = wait.PollUntilContextTimeout(ctx, 30*time.Second, 5*time.Minute, false, func(ctx context.Context) (done bool, err error) {
+		for _, obj := range []struct {
+			gvr       schema.GroupVersionResource
+			namespace string
+			name      string
+		}{
+			{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-authentication", "oauth-openshift"},
+			{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-oauth-apiserver", "apiserver"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-metadata"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-trusted-ca-bundle"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-service-ca"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-cliconfig"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-ocp-branding-template"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-session"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-authentication", "oauth-openshift"},
+			{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.oauth.openshift.io"},
+			{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.user.openshift.io"},
+			{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-browser-client"},
+			{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-challenging-client"},
+			{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-cli-client"},
+		} {
+			_, err := dynamicClient.Resource(obj.gvr).Namespace(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+			if err != nil && !errors.IsNotFound(err) {
+				return false, fmt.Errorf("unexpected error while getting resource %s/%s: %v", obj.namespace, obj.name, err)
+			} else if requireMissing != errors.IsNotFound(err) {
+				return false, fmt.Errorf("resource %s/%s wanted missing: %v; got: %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
 			}
 		}
 
-		if !requireMissing && !found {
-			return false, fmt.Errorf("route %s required but was not found", obj)
-		} else if requireMissing && found {
-			return false, fmt.Errorf("route %s required to be missing but was found", obj)
-		}
-	}
+		// routes
+		for _, obj := range []struct{ namespace, name string }{
+			{"openshift-authentication", "oauth-openshift"},
+		} {
+			_, err := tc.routeClient.RouteV1().Routes(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
+			if err != nil && !errors.IsNotFound(err) {
+				return false, fmt.Errorf("unexpected error while getting route %s/%s: %v", obj.namespace, obj.name, err)
+			} else if requireMissing != errors.IsNotFound(err) {
+				return false, fmt.Errorf("route %s/%s wanted missing: %v; got: %v", obj.namespace, obj.name, requireMissing, !errors.IsNotFound((err)))
+			}
 
-	return true, nil
+			// ingress status
+			ingress, err := tc.configClient.ConfigV1().Ingresses().Get(ctx, "cluster", metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+
+			found := false
+			for _, route := range ingress.Status.ComponentRoutes {
+				if route.Name == obj.name && route.Namespace == obj.namespace {
+					found = true
+					break
+				}
+			}
+
+			if !requireMissing && !found {
+				return false, fmt.Errorf("route %s required but was not found", obj)
+			} else if requireMissing && found {
+				return false, fmt.Errorf("route %s required to be missing but was found", obj)
+			}
+		}
+
+		return true, nil
+	})
+	require.NoError(t, err, "failed to wait for OAuth resources to be present during cleanup")
 }
 
 func (tc *testClient) testOIDCAuthentication(t *testing.T, ctx context.Context, kcClient *test.KeycloakClient, usernameClaim, usernamePrefix string, expectAuthSuccess bool) {
