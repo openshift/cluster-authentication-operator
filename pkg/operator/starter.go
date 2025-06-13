@@ -483,6 +483,10 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
+	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
+	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
 		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
@@ -491,6 +495,9 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
+		authLister,
+		kasLister,
+		kasConfigMapLister,
 		versionRecorder)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
@@ -505,10 +512,6 @@ func prepareOauthAPIServerOperator(
 	}
 
 	const apiServerConditionsPrefix = "APIServer"
-
-	authLister := informerFactories.operatorConfigInformer.Config().V1().Authentications().Lister()
-	kasLister := informerFactories.operatorInformer.Operator().V1().KubeAPIServers().Lister()
-	kasConfigMapLister := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps().Lister()
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",

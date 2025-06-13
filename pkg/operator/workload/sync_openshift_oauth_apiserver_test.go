@@ -10,16 +10,23 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/events"
+	corev1 "k8s.io/api/core/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	clientgotesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -62,10 +69,13 @@ var unsupportedConfigOverridesAPIServerArgsJSON = `
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
-		name            string
-		goldenFile      string
-		operator        *operatorv1.Authentication
-		expectedActions []string
+		name                  string
+		goldenFile            string
+		operator              *operatorv1.Authentication
+		listersFunc           func() (configv1listers.AuthenticationLister, operatorv1listers.KubeAPIServerLister, corev1listers.ConfigMapLister)
+		deleteReactor         func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error)
+		expectWorkloadDeleted bool
+		expectedActions       []string
 	}{
 		// scenario 1
 		{
@@ -79,6 +89,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					},
 				},
 			},
+			listersFunc: listersForOAuth,
 			expectedActions: []string{
 				"get:secrets:etcd-client",
 				"get:configmaps:etcd-serving-ca",
@@ -102,6 +113,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					},
 				},
 			},
+			listersFunc: listersForOAuth,
 			expectedActions: []string{
 				"get:secrets:etcd-client",
 				"get:configmaps:etcd-serving-ca",
@@ -126,12 +138,38 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					},
 				},
 			},
+			listersFunc: listersForOAuth,
 			expectedActions: []string{
 				"get:secrets:etcd-client",
 				"get:configmaps:etcd-serving-ca",
 				"get:configmaps:trusted-ca-bundle",
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+		},
+
+		// scenario 4
+		{
+			name:       "deployment gracefully deleted when OIDC available",
+			goldenFile: "",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
+				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			listersFunc: listersForOIDC,
+			deleteReactor: func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, nil, nil
+			},
+			expectWorkloadDeleted: true,
+			expectedActions: []string{
+				"delete:deployments:openshift-oauth-apiserver:apiserver",
 			},
 		},
 	}
@@ -141,15 +179,26 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("", clocktesting.NewFakePassiveClock(time.Now()))
 			fakeKubeClient := fake.NewSimpleClientset()
 
+			if scenario.deleteReactor != nil {
+				fakeKubeClient.PrependReactor("delete", "deployments", scenario.deleteReactor)
+			}
+
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			if scenario.listersFunc != nil {
+				target.authLister, target.kasLister, target.kasConfigMapLister = scenario.listersFunc()
+			}
+
+			actualDeployment, actualWorkloadDeleted, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if scenario.expectWorkloadDeleted != actualWorkloadDeleted {
+				t.Fatalf("expectWorkloadDeleted does not match actual: %t != %t", scenario.expectWorkloadDeleted, actualWorkloadDeleted)
 			}
 			if err := validateActionsVerbs(fakeKubeClient.Actions(), scenario.expectedActions); err != nil {
 				t.Fatal(err)
@@ -337,4 +386,72 @@ func readBytesFromFile(t *testing.T, filename string) []byte {
 	}
 
 	return data
+}
+
+func listersForOAuth() (configv1listers.AuthenticationLister, operatorv1listers.KubeAPIServerLister, corev1listers.ConfigMapLister) {
+	authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	authIndexer.Add(&configv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.AuthenticationSpec{
+			Type: configv1.AuthenticationTypeIntegratedOAuth,
+		},
+	})
+
+	return configv1listers.NewAuthenticationLister(authIndexer),
+		operatorv1listers.NewKubeAPIServerLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{}))
+}
+
+func listersForOIDC() (configv1listers.AuthenticationLister, operatorv1listers.KubeAPIServerLister, corev1listers.ConfigMapLister) {
+	authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	authIndexer.Add(&configv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.AuthenticationSpec{
+			Type: configv1.AuthenticationTypeOIDC,
+		},
+	})
+
+	revision := int32(1)
+	kasIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	kasIndexer.Add(&operatorv1.KubeAPIServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Status: operatorv1.KubeAPIServerStatus{
+			StaticPodOperatorStatus: operatorv1.StaticPodOperatorStatus{
+				NodeStatuses: []operatorv1.NodeStatus{
+					{
+						CurrentRevision: revision,
+					},
+				},
+			},
+		},
+	})
+
+	cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	cmIndexer.Add(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("auth-config-%d", revision),
+			Namespace: "openshift-kube-apiserver",
+		},
+	})
+
+	cmIndexer.Add(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("config-%d", revision),
+			Namespace: "openshift-kube-apiserver",
+		},
+		Data: map[string]string{
+			"config.yaml": `{"oauthMetadataFile":"","apiServerArguments":{"authentication-config":["/etc/kubernetes/static-pod-resources/configmaps/auth-config/auth-config.json"]}
+			}`,
+		},
+	})
+
+	return configv1listers.NewAuthenticationLister(authIndexer),
+		operatorv1listers.NewKubeAPIServerLister(kasIndexer),
+		corev1listers.NewConfigMapLister(cmIndexer)
 }
