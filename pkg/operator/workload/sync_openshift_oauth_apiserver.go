@@ -11,11 +11,16 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -51,6 +56,10 @@ type OAuthAPIServerWorkload struct {
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
+
+	authLister         configv1listers.AuthenticationLister
+	kasLister          operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister corev1listers.ConfigMapLister
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -62,6 +71,9 @@ func NewOAuthAPIServerWorkload(
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
+	authLister configv1listers.AuthenticationLister,
+	kasLister operatorv1listers.KubeAPIServerLister,
+	kasConfigMapLister corev1listers.ConfigMapLister,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
@@ -72,6 +84,9 @@ func NewOAuthAPIServerWorkload(
 		targetImagePullSpec:       targetImagePullSpec,
 		operatorImagePullSpec:     operatorImagePullSpec,
 		kubeClient:                kubeClient,
+		authLister:                authLister,
+		kasLister:                 kasLister,
+		kasConfigMapLister:        kasConfigMapLister,
 		versionRecorder:           versionRecorder,
 	}
 }
@@ -117,41 +132,46 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(operatorSpec *ope
 }
 
 // Sync essentially manages OAuthAPI server.
-func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncContext) (*appsv1.Deployment, bool, []error) {
+func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncContext) (*appsv1.Deployment, bool, bool, string, string, []error) {
 	errs := []error{}
 
 	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		errs = append(errs, err)
-		return nil, false, errs
+		return nil, false, false, "", "", errs
 	}
 
-	actualDeployment, err := c.syncDeployment(ctx, operatorSpec, operatorStatus, syncCtx.Recorder())
+	actualDeployment, deploymentDeleted, err := c.syncDeployment(ctx, operatorSpec, operatorStatus, syncCtx.Recorder())
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%q: %v", "deployments", err))
 	}
-	return actualDeployment, true, errs
+
+	if deploymentDeleted {
+		return nil, false, true, actualDeployment.Name, actualDeployment.Namespace, nil
+	}
+
+	return actualDeployment, true, false, "", "", errs
 }
 
-func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, bool, error) {
 	if operatorStatus.LatestAvailableRevision == 0 {
 		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
-		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
+		return nil, false, fmt.Errorf(".status.latestAvailableRevision is not yet available")
 	}
 
 	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	argsRaw, err := GetAPIServerArgumentsRaw(*operatorSpec)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	args, err := arguments.Parse(argsRaw)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// log level verbosity is taken from the spec always
@@ -167,10 +187,19 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	tmpl = []byte(r.Replace(string(tmpl)))
 	re := regexp.MustCompile(`\$\{[^}]*}`)
 	if match := re.Find(tmpl); len(match) > 0 && !excludedReferences.Has(string(match)) {
-		return nil, fmt.Errorf("invalid template reference %q", string(match))
+		return nil, false, fmt.Errorf("invalid template reference %q", string(match))
 	}
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
+
+	if oidcAvailable, err := common.ExternalOIDCConfigAvailable(c.authLister, c.kasLister, c.kasConfigMapLister); err != nil {
+		return nil, false, fmt.Errorf("error while checking OIDC config: %v", err)
+	} else if oidcAvailable {
+		if err := c.kubeClient.AppsV1().Deployments(required.Namespace).Delete(ctx, required.Name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return nil, false, fmt.Errorf("error while gracefully deleting deployment: %v", err)
+		}
+		return required, true, nil
+	}
 
 	// use the following routine for things that would require special formatting/padding (yaml)
 	encodedArgs := arguments.EncodeWithDelimiter(args, " \\\n  ")
@@ -208,7 +237,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("trusted-ca-bundle"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("invalid dependency reference: %q", err)
+		return nil, false, fmt.Errorf("invalid dependency reference: %q", err)
 	}
 
 	for k, v := range inputHashes {
@@ -222,18 +251,18 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 
 	err = c.ensureAtMostOnePodPerNode(&required.Spec, "oauth-apiserver")
 	if err != nil {
-		return nil, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
+		return nil, false, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
 	}
 
 	// Set the replica count to the number of master nodes.
 	masterNodeCount, err := c.countNodes(required.Spec.Template.Spec.NodeSelector)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
+		return nil, false, fmt.Errorf("failed to determine number of master nodes: %v", err)
 	}
 	required.Spec.Replicas = masterNodeCount
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
-	return deployment, err
+	return deployment, false, err
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {
