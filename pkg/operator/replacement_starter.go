@@ -104,8 +104,8 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		momInput.MutationTrackingClient.GetHTTPClient(),
 		operatorv1.GroupVersion.WithResource("authentications"),
 		operatorv1.GroupVersion.WithKind("Authentication"),
-		extractOperatorSpec,
-		extractOperatorStatus,
+		ExtractOperatorSpec,
+		ExtractOperatorStatus,
 	)
 	if err != nil {
 		return nil, err
@@ -189,8 +189,8 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		controllerContext.KubeConfig,
 		operatorv1.GroupVersion.WithResource("authentications"),
 		operatorv1.GroupVersion.WithKind("Authentication"),
-		extractOperatorSpec,
-		extractOperatorStatus,
+		ExtractOperatorSpec,
+		ExtractOperatorStatus,
 	)
 	if err != nil {
 		return nil, err

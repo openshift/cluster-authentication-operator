@@ -14,7 +14,6 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
@@ -60,10 +59,8 @@ import (
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -825,37 +822,6 @@ func loadSystemCACertBundle() ([]byte, error) {
 	// we can't return the *x509.CertPool object since the controllers are likely
 	// to be appending certs to it, but that object offers no way to be deep-copied
 	return systemCABundle, nil
-}
-
-func extractOperatorSpec(obj *unstructured.Unstructured, fieldManager string) (*applyoperatorv1.OperatorSpecApplyConfiguration, error) {
-	castObj := &operatorv1.Authentication{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, castObj); err != nil {
-		return nil, fmt.Errorf("unable to convert to Authentication: %w", err)
-	}
-	ret, err := applyoperatorv1.ExtractAuthentication(castObj, fieldManager)
-	if err != nil {
-		return nil, fmt.Errorf("unable to extract fields for %q: %w", fieldManager, err)
-	}
-	if ret.Spec == nil {
-		return nil, nil
-	}
-	return &ret.Spec.OperatorSpecApplyConfiguration, nil
-}
-
-func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) (*applyoperatorv1.OperatorStatusApplyConfiguration, error) {
-	castObj := &operatorv1.Authentication{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, castObj); err != nil {
-		return nil, fmt.Errorf("unable to convert to Authentication: %w", err)
-	}
-	ret, err := applyoperatorv1.ExtractAuthenticationStatus(castObj, fieldManager)
-	if err != nil {
-		return nil, fmt.Errorf("unable to extract fields for %q: %w", fieldManager, err)
-	}
-
-	if ret.Status == nil {
-		return nil, nil
-	}
-	return &ret.Status.OperatorStatusApplyConfiguration, nil
 }
 
 func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {

@@ -67,11 +67,11 @@ func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1In
 	})
 
 	if err == nil {
-		t.Logf("clusteroperators.config.openshift.io/%s required status reached after %s: %v", name, time.Now().Sub(ts), conditionsStatusString(conditions))
+		t.Logf("clusteroperators.config.openshift.io/%s required status reached after %s: %v", name, time.Since(ts), conditionsStatusString(conditions))
 		return nil
 	}
 
-	t.Logf("clusteroperators.config.openshift.io/%s required status not reached after %s: %v", name, time.Now().Sub(ts), conditionsStatusString(conditions))
+	t.Logf("clusteroperators.config.openshift.io/%s required status not reached after %s: %v", name, time.Since(ts), conditionsStatusString(conditions))
 	return err
 }
 
@@ -92,11 +92,11 @@ func WaitForClusterOperatorStatusStable(t *testing.T, ctx context.Context, clien
 	})
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		t.Logf("clusteroperators.config.openshift.io/%s status was stable for %s; end status: %s", name, time.Now().Sub(ts), conditionsStatusString(endConditions))
+		t.Logf("clusteroperators.config.openshift.io/%s status was stable for %s; end status: %s", name, time.Since(ts), conditionsStatusString(endConditions))
 		return nil
 	}
 
-	t.Logf("clusteroperators.config.openshift.io/%s status was not stable for %s; end status: %s (err: %v)", name, time.Now().Sub(ts), conditionsStatusString(endConditions), err)
+	t.Logf("clusteroperators.config.openshift.io/%s status was not stable for %s; end status: %s (err: %v)", name, time.Since(ts), conditionsStatusString(endConditions), err)
 	return err
 }
 
