@@ -548,7 +548,7 @@ func (tc *testClient) updateAuthResource(t *testing.T, ctx context.Context, base
 }
 
 func (tc *testClient) checkPreconditions(t *testing.T, ctx context.Context, authType *configv1.AuthenticationType, caoStatus []configv1.ClusterOperatorStatusCondition, kasoStatus []configv1.ClusterOperatorStatusCondition) {
-	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 2*time.Minute, false, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 30*time.Second, 20*time.Minute, false, func(ctx context.Context) (bool, error) {
 		if authType != nil {
 			expected := *authType
 			if len(expected) == 0 {

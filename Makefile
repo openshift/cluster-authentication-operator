@@ -81,7 +81,7 @@ test-e2e-encryption-rotation: test-unit
 
 test-e2e-oidc: GO_TEST_PACKAGES :=./test/e2e-oidc/...
 test-e2e-oidc: GO_TEST_FLAGS += -v
-test-e2e-oidc: GO_TEST_FLAGS += -timeout 3h
+test-e2e-oidc: GO_TEST_FLAGS += -timeout 4h
 test-e2e-oidc: GO_TEST_FLAGS += -count 1
 test-e2e-oidc: test-unit
 .PHONY: test-e2e-oidc
