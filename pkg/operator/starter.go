@@ -38,6 +38,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
@@ -560,13 +561,12 @@ func prepareOauthAPIServerOperator(
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
-		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
-			return apiServices(), nil, nil
-		},
+		apiServicesFuncWrapper(authConfigChecker),
 		informerFactories.apiregistrationInformers,
 		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
 		informerFactories.kubeInformersForNamespaces,
 		authOperatorInput.kubeClient,
+		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
 		encryption.StaticEncryptionProvider{
@@ -850,4 +850,18 @@ func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {
 		klog.Infof("error while checking auth config: %v", err)
 	}
 	return oidcAvailable
+}
+
+func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+	return func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+		apiServices := apiServices()
+		if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil {
+			return nil, nil, fmt.Errorf("checking if authentication mode is OIDC: %v", err)
+		} else if oidcAvailable {
+			// return apiServices as disabled
+			return nil, apiServices, nil
+		}
+
+		return apiServices, nil, nil
+	}
 }
