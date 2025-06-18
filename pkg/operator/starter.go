@@ -16,6 +16,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -65,6 +66,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"k8s.io/utils/ptr"
@@ -138,22 +140,39 @@ func prepareOauthOperator(
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
 		bindata.Asset,
-		[]string{
+		[]string{ // required resources
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
-			"oauth-openshift/authentication-clusterrolebinding.yaml",
-			"oauth-openshift/cabundle.yaml",
-			"oauth-openshift/branding-secret.yaml",
-			"oauth-openshift/serviceaccount.yaml",
-			"oauth-openshift/oauth-service.yaml",
-			"oauth-openshift/trust_distribution_role.yaml",
-			"oauth-openshift/trust_distribution_rolebinding.yaml",
 			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
-	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
+	).AddKubeInformers(informerFactories.kubeInformersForNamespaces).
+		WithConditionalResources(bindata.Asset,
+			// OAuth specific resources; deleted when OIDC is enabled
+			[]string{
+				"oauth-openshift/authentication-clusterrolebinding.yaml",
+				"oauth-openshift/cabundle.yaml",
+				"oauth-openshift/branding-secret.yaml",
+				"oauth-openshift/serviceaccount.yaml",
+				"oauth-openshift/oauth-service.yaml",
+				"oauth-openshift/trust_distribution_role.yaml",
+				"oauth-openshift/trust_distribution_rolebinding.yaml",
+			},
+			// shouldCreateFnArg
+			func() bool {
+				return !oidcAvailable(authConfigChecker)
+			},
+			// shouldDeleteFnArg
+			func() bool {
+				return oidcAvailable(authConfigChecker)
+			},
+		)
+
+	for _, inf := range common.AuthConfigCheckerInformers[cache.SharedIndexInformer](&authConfigChecker) {
+		staticResourceController.AddInformer(inf)
+	}
 
 	configObserver := configobservercontroller.NewConfigObserver(
 		authOperatorInput.authenticationOperatorClient,
@@ -469,11 +488,6 @@ func prepareOauthAPIServerOperator(
 			{
 				Files: []string{
 					"oauth-apiserver/ns.yaml",
-					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
-					"oauth-apiserver/sa.yaml",
-					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
-					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
 				},
 			},
 			{
@@ -507,6 +521,22 @@ func prepareOauthAPIServerOperator(
 						return false
 					}
 					return isSNO
+				},
+			},
+			{
+				// OAuth specific resources; deleted when OIDC is enabled
+				Files: []string{
+					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+					"oauth-apiserver/svc.yaml",
+					"oauth-apiserver/sa.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+				},
+				ShouldCreateFn: func() bool {
+					return !oidcAvailable(authConfigChecker)
+				},
+				ShouldDeleteFn: func() bool {
+					return oidcAvailable(authConfigChecker)
 				},
 			},
 		},
@@ -812,4 +842,12 @@ func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) 
 		return nil, nil
 	}
 	return &ret.Status.OperatorStatusApplyConfiguration, nil
+}
+
+func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {
+	oidcAvailable, err := authConfigChecker.OIDCAvailable()
+	if err != nil {
+		klog.Infof("error while checking auth config: %v", err)
+	}
+	return oidcAvailable
 }
