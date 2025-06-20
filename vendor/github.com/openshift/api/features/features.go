@@ -809,4 +809,20 @@ var (
 		enhancementPR("https://github.com/openshift/enhancements/pull/1756").
 		enableIn(configv1.DevPreviewNoUpgrade, configv1.TechPreviewNoUpgrade).
 		mustRegister()
+
+	FeatureShortCertRotation = newFeatureGate("ShortCertRotation").
+					reportProblemsToJiraComponent("kube-apiserver").
+					contactPerson("vrutkovs").
+					productScope(ocpSpecific).
+					enableIn(configv1.DevPreviewNoUpgrade).
+					enhancementPR("https://github.com/openshift/enhancements/pull/1670").
+					mustRegister()
+
+	FeatureGateVSphereConfigurableMaxAllowedBlockVolumesPerNode = newFeatureGate("VSphereConfigurableMaxAllowedBlockVolumesPerNode").
+									reportProblemsToJiraComponent("Storage / Kubernetes External Components").
+									contactPerson("rbednar").
+									productScope(ocpSpecific).
+									enhancementPR("https://github.com/openshift/enhancements/pull/1748").
+									enableIn(configv1.DevPreviewNoUpgrade, configv1.TechPreviewNoUpgrade).
+									mustRegister()
 )
