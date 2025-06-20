@@ -147,7 +147,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				kubeClient:                fakeKubeClient,
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			actualDeployment, _, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}
