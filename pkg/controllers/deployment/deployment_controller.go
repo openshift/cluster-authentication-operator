@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -158,17 +159,17 @@ func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (
 	return true, nil
 }
 
-func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
+func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, bool, string, string, []error) {
 	errs := []error{}
 
 	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	proxyConfig, err := c.getProxyConfig()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	// resourceVersions serves to store versions of config resources so that we
@@ -185,7 +186,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	configResourceVersions, err := c.getConfigResourceVersions()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
@@ -203,7 +204,16 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	// deployment, have RV of all resources
 	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
+	}
+
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return nil, false, false, "", "", append(errs, err)
+	} else if oidcAvailable {
+		if err := c.deployments.Deployments(expectedDeployment.Namespace).Delete(ctx, expectedDeployment.Name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return nil, false, false, "", "", append(errs, err)
+		}
+		return nil, false, true, expectedDeployment.Name, expectedDeployment.Namespace, errs
 	}
 
 	if _, err := c.secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-custom-router-certs"); err == nil {
@@ -224,13 +234,13 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
 	}
 
 	// Set the replica count to the number of master nodes.
 	masterNodeCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
 	}
 	expectedDeployment.Spec.Replicas = masterNodeCount
 
@@ -240,10 +250,10 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
 	)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
 	}
 
-	return deployment, true, errs
+	return deployment, true, false, "", "", errs
 }
 
 func (c *oauthServerDeploymentSyncer) getProxyConfig() (*configv1.Proxy, error) {

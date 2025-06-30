@@ -727,6 +727,8 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "api"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.oauth.openshift.io"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.user.openshift.io"},
+		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-authentication", "oauth-openshift"},
+		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-oauth-apiserver", "apiserver"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-browser-client"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-challenging-client"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-cli-client"},
