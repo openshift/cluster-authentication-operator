@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,14 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 
 	checkFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
 
+	if idpURL := os.Getenv("EXTERNAL_OIDC_URL"); len(idpURL) > 0 {
+		transport, err := rest.TransportFor(testClient.kubeConfig)
+		require.NoError(t, err)
+		kcClient := test.KeycloakClientFor(t, transport, idpURL, "master")
+		testClient.testOIDCAuthentication(t, testCtx, kcClient, "email", "oidc-test:", true)
+		return
+	}
+
 	// post-test cluster cleanup
 	var cleanups []func()
 	defer test.IDPCleanupWrapper(func() {
@@ -101,6 +110,12 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	// see test/library/idpdeployment.go:332
 	caBundleName := idpName + "-ca"
 	idpURL := kcClient.IssuerURL()
+
+	if len(os.Getenv("OPENSHIFT_ONLY_IDP")) > 0 {
+		t.Logf("issuer URL: %s", idpURL)
+		t.Logf("idp CA: %s", caBundleName)
+		return
+	}
 
 	// run tests
 
