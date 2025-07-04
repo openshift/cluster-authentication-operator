@@ -45,6 +45,8 @@ type routerCertsDomainValidationController struct {
 	customSecretName       string
 	routeName              string
 
+	authConfigChecker common.AuthConfigChecker
+
 	systemCertPool func() (*x509.CertPool, error) // enables unit testing
 }
 
@@ -57,6 +59,7 @@ func NewRouterCertsDomainValidationController(
 	targetNSsecretInformer corev1informers.SecretInformer,
 	machineConfigNSSecretInformer corev1informers.SecretInformer,
 	configMapInformer corev1informers.ConfigMapInformer,
+	authConfigChecker common.AuthConfigChecker,
 	secretNamespace string,
 	defaultSecretName string,
 	customSecretName string,
@@ -69,6 +72,7 @@ func NewRouterCertsDomainValidationController(
 		ingressLister:          ingressInformer.Lister(),
 		secretLister:           targetNSsecretInformer.Lister(),
 		configMapLister:        configMapInformer.Lister(),
+		authConfigChecker:      authConfigChecker,
 		secretNamespace:        secretNamespace,
 		defaultSecretName:      defaultSecretName,
 		customSecretName:       customSecretName,
@@ -81,7 +85,10 @@ func NewRouterCertsDomainValidationController(
 			operatorClient.Informer(),
 			ingressInformer.Informer(),
 			targetNSsecretInformer.Informer(),
-			configMapInformer.Informer()).
+			configMapInformer.Informer(),
+			authConfigChecker.Authentications().Informer(),
+			authConfigChecker.KubeAPIServers().Informer(),
+		).
 		WithFilteredEventsInformers(
 			factory.NamesFilter("router-certs"),
 			machineConfigNSSecretInformer.Informer(),
@@ -93,6 +100,14 @@ func NewRouterCertsDomainValidationController(
 }
 
 func (c *routerCertsDomainValidationController) sync(ctx context.Context, syncCtx factory.SyncContext) (err error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		// do not remove secret "v4-0-config-system-router-certs" as the ConfigObserver controller
+		// monitors it and it will go degraded if missing
+		return common.DeleteControllerConditions(ctx, c.operatorClient, conditionRouterCertsDegradedType)
+	}
+
 	spec, _, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
 		return err

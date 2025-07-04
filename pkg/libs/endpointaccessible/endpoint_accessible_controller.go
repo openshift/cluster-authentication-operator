@@ -15,21 +15,24 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 type endpointAccessibleController struct {
-	controllerInstanceName string
-	operatorClient         v1helpers.OperatorClient
-	endpointListFn         EndpointListFunc
-	getTLSConfigFn         EndpointTLSConfigFunc
-	availableConditionName string
+	controllerInstanceName    string
+	operatorClient            v1helpers.OperatorClient
+	endpointListFn            EndpointListFunc
+	getTLSConfigFn            EndpointTLSConfigFunc
+	availableConditionName    string
+	endpointCheckDisabledFunc EndpointCheckDisabledFunc
 }
 
 type EndpointListFunc func() ([]string, error)
 type EndpointTLSConfigFunc func() (*tls.Config, error)
+type EndpointCheckDisabledFunc func() (bool, error)
 
 // NewEndpointAccessibleController returns a controller that checks if the endpoints
 // listed by endpointListFn are reachable
@@ -38,17 +41,19 @@ func NewEndpointAccessibleController(
 	operatorClient v1helpers.OperatorClient,
 	endpointListFn EndpointListFunc,
 	getTLSConfigFn EndpointTLSConfigFunc,
+	endpointCheckDisabledFunc EndpointCheckDisabledFunc,
 	triggers []factory.Informer,
 	recorder events.Recorder,
 ) factory.Controller {
 	controllerName := name + "EndpointAccessibleController"
 
 	c := &endpointAccessibleController{
-		controllerInstanceName: factory.ControllerInstanceName(name, "EndpointAccessible"),
-		operatorClient:         operatorClient,
-		endpointListFn:         endpointListFn,
-		getTLSConfigFn:         getTLSConfigFn,
-		availableConditionName: name + "EndpointAccessibleControllerAvailable",
+		controllerInstanceName:    factory.ControllerInstanceName(name, "EndpointAccessible"),
+		operatorClient:            operatorClient,
+		endpointListFn:            endpointListFn,
+		getTLSConfigFn:            getTLSConfigFn,
+		availableConditionName:    name + "EndpointAccessibleControllerAvailable",
+		endpointCheckDisabledFunc: endpointCheckDisabledFunc,
 	}
 
 	return factory.New().
@@ -73,6 +78,14 @@ func humanizeError(err error) error {
 }
 
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if c.endpointCheckDisabledFunc != nil {
+		if skip, err := c.endpointCheckDisabledFunc(); err != nil {
+			return err
+		} else if skip {
+			return common.DeleteControllerConditions(ctx, c.operatorClient, c.availableConditionName)
+		}
+	}
+
 	endpoints, err := c.endpointListFn()
 	if err != nil {
 		if apierrors.IsNotFound(err) {

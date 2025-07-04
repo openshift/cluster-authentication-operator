@@ -19,7 +19,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	applyconfigv1 "github.com/openshift/client-go/config/applyconfigurations/config/v1"
 	configsetterv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
-	configinformers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
+	configinformersv1 "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
@@ -42,15 +42,16 @@ const (
 )
 
 type customRouteController struct {
-	destSecret     types.NamespacedName
-	componentRoute types.NamespacedName
-	ingressLister  configlistersv1.IngressLister
-	ingressClient  configsetterv1.IngressInterface
-	routeLister    routev1lister.RouteLister
-	routeClient    routeclient.RouteInterface
-	secretLister   corev1listers.SecretLister
-	resourceSyncer resourcesynccontroller.ResourceSyncer
-	operatorClient v1helpers.OperatorClient
+	destSecret        types.NamespacedName
+	componentRoute    types.NamespacedName
+	ingressLister     configlistersv1.IngressLister
+	ingressClient     configsetterv1.IngressInterface
+	routeLister       routev1lister.RouteLister
+	routeClient       routeclient.RouteInterface
+	secretLister      corev1listers.SecretLister
+	resourceSyncer    resourcesynccontroller.ResourceSyncer
+	operatorClient    v1helpers.OperatorClient
+	authConfigChecker common.AuthConfigChecker
 }
 
 func NewCustomRouteController(
@@ -58,12 +59,13 @@ func NewCustomRouteController(
 	componentRouteName string,
 	destSecretNamespace string,
 	destSecretName string,
-	ingressInformer configinformers.IngressInformer,
+	ingressInformer configinformersv1.IngressInformer,
 	ingressClient configsetterv1.IngressInterface,
 	routeInformer routeinformer.RouteInformer,
 	routeClient routeclient.RouteInterface,
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
 	operatorClient v1helpers.OperatorClient,
+	authConfigChecker common.AuthConfigChecker,
 	eventRecorder events.Recorder,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) factory.Controller {
@@ -76,13 +78,14 @@ func NewCustomRouteController(
 			Namespace: componentRouteNamespace,
 			Name:      componentRouteName,
 		},
-		ingressLister:  ingressInformer.Lister(),
-		ingressClient:  ingressClient,
-		routeLister:    routeInformer.Lister(),
-		routeClient:    routeClient,
-		secretLister:   kubeInformersForNamespaces.SecretLister(),
-		operatorClient: operatorClient,
-		resourceSyncer: resourceSyncer,
+		ingressLister:     ingressInformer.Lister(),
+		ingressClient:     ingressClient,
+		routeLister:       routeInformer.Lister(),
+		routeClient:       routeClient,
+		secretLister:      kubeInformersForNamespaces.SecretLister(),
+		operatorClient:    operatorClient,
+		resourceSyncer:    resourceSyncer,
+		authConfigChecker: authConfigChecker,
 	}
 
 	return factory.New().
@@ -91,6 +94,8 @@ func NewCustomRouteController(
 			routeInformer.Informer(),
 			kubeInformersForNamespaces.InformersFor("openshift-config").Core().V1().Secrets().Informer(),
 			kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets().Informer(),
+			authConfigChecker.Authentications().Informer(),
+			authConfigChecker.KubeAPIServers().Informer(),
 		).
 		WithSyncDegradedOnError(operatorClient).
 		WithSync(controller.sync).
@@ -105,6 +110,12 @@ func (c *customRouteController) sync(ctx context.Context, syncCtx factory.SyncCo
 	}
 
 	ingressConfigCopy := ingressConfig.DeepCopy()
+
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		return c.removeOperands(ctx, ingressConfigCopy)
+	}
 
 	// configure the expected route
 	expectedRoute, secretName, errors := c.getOAuthRouteAndSecretName(ingressConfigCopy)
@@ -288,4 +299,47 @@ func (c *customRouteController) forceApply() metav1.ApplyOptions {
 func (c *customRouteController) getFieldManager() string {
 	// TODO find a way to get the client name and combine it with the controller name automatically
 	return "AuthenticationCustomRouteController"
+}
+
+func (c *customRouteController) removeOperands(ctx context.Context, ingressConfig *configv1.Ingress) error {
+	if _, err := c.routeLister.Routes(c.componentRoute.Namespace).Get(c.componentRoute.Name); err != nil && !errors.IsNotFound(err) {
+		return err
+	} else if !errors.IsNotFound(err) {
+		if err := c.routeClient.Delete(ctx, c.componentRoute.Name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
+
+	ingressStatus, err := applyconfigv1.ExtractIngressStatus(ingressConfig, c.getFieldManager())
+	if err != nil {
+		return err
+	}
+
+	if ingressStatus != nil && ingressStatus.Status != nil {
+		componentRoutes := make([]applyconfigv1.ComponentRouteStatusApplyConfiguration, 0)
+		routeFound := false
+		for _, cr := range ingressStatus.Status.ComponentRoutes {
+			if *cr.Name == c.componentRoute.Name && *cr.Namespace == c.componentRoute.Namespace {
+				routeFound = true
+				continue
+			}
+
+			componentRoutes = append(componentRoutes, cr)
+		}
+
+		if routeFound {
+			ingressStatus.Status.ComponentRoutes = componentRoutes
+			ingress := applyconfigv1.Ingress(ingressConfig.Name).WithStatus(ingressStatus.Status)
+			if _, err := c.ingressClient.ApplyStatus(ctx, ingress, c.forceApply()); err != nil {
+				return err
+			}
+		}
+	}
+
+	// delete secret by syncing an empty source
+	if err := c.syncSecret(""); err != nil {
+		return err
+	}
+
+	return nil
 }

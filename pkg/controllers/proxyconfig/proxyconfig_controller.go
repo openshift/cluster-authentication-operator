@@ -17,6 +17,7 @@ import (
 
 	routeinformer "github.com/openshift/client-go/route/informers/externalversions/route/v1"
 	v1 "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -30,22 +31,26 @@ type proxyConfigChecker struct {
 	routeName       string
 	routeNamespace  string
 	caConfigMaps    map[string][]string // ns -> []configmapNames
+
+	authConfigChecker common.AuthConfigChecker
 }
 
 func NewProxyConfigChecker(
 	routeInformer routeinformer.RouteInformer,
 	configMapInformers v1helpers.KubeInformersForNamespaces,
+	authConfigChecker common.AuthConfigChecker,
 	routeNamespace string,
 	routeName string,
 	caConfigMaps map[string][]string,
 	recorder events.Recorder,
 	operatorClient v1helpers.OperatorClient) factory.Controller {
 	p := proxyConfigChecker{
-		routeLister:     routeInformer.Lister(),
-		configMapLister: configMapInformers.ConfigMapLister(),
-		routeName:       routeName,
-		routeNamespace:  routeNamespace,
-		caConfigMaps:    caConfigMaps,
+		routeLister:       routeInformer.Lister(),
+		configMapLister:   configMapInformers.ConfigMapLister(),
+		routeName:         routeName,
+		routeNamespace:    routeNamespace,
+		caConfigMaps:      caConfigMaps,
+		authConfigChecker: authConfigChecker,
 	}
 
 	c := factory.New().
@@ -68,6 +73,12 @@ func NewProxyConfigChecker(
 
 // sync attempts to connect to route using configured proxy settings and reports any error.
 func (p *proxyConfigChecker) sync(ctx context.Context, _ factory.SyncContext) error {
+	if oidcAvailable, err := p.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		return nil
+	}
+
 	proxyConfig := httpproxy.FromEnvironment()
 	if !isProxyConfigured(proxyConfig) {
 		// If proxy is not configured, then it is a no-op.

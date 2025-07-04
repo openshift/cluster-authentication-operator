@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/client-go/kubernetes/fake"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -27,6 +28,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	testlib "github.com/openshift/cluster-authentication-operator/test/library"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -238,6 +242,16 @@ func TestValidateRouterCertificates(t *testing.T) {
 				secretsClient = fake.NewSimpleClientset()
 			}
 
+			authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			authIndexer.Add(&configv1.Authentication{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster",
+				},
+				Spec: configv1.AuthenticationSpec{
+					Type: configv1.AuthenticationTypeIntegratedOAuth,
+				},
+			})
+
 			controller := routerCertsDomainValidationController{
 				operatorClient:    operatorClient,
 				ingressLister:     configv1listers.NewIngressLister(ingresses),
@@ -249,6 +263,11 @@ func TestValidateRouterCertificates(t *testing.T) {
 				routeName:         "test-route",
 				systemCertPool:    tc.systemCertPool,
 				secretsClient:     secretsClient.CoreV1(),
+				authConfigChecker: common.NewAuthConfigChecker(
+					testlib.NewFakeInformer[configv1listers.AuthenticationLister](configv1listers.NewAuthenticationLister(authIndexer)),
+					testlib.NewFakeInformer[operatorv1listers.KubeAPIServerLister](nil),
+					testlib.NewFakeInformer[corelistersv1.ConfigMapLister](nil),
+				),
 			}
 			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder", clocktesting.NewFakePassiveClock(time.Now()))))
 			require.NoError(t, err)

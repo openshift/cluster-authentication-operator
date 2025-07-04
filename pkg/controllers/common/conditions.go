@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	"github.com/openshift/library-go/pkg/apiserver/jsonpatch"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -107,4 +109,48 @@ func ApplyControllerConditions(ctx context.Context, operatorClient v1helpers.Ope
 	}
 
 	return operatorClient.ApplyOperatorStatus(ctx, fieldManager, status)
+}
+
+func DeleteControllerConditions(ctx context.Context, operatorClient v1helpers.OperatorClient, conditionTypes ...string) error {
+	if len(conditionTypes) == 0 {
+		return nil
+	}
+
+	_, operatorStatus, _, err := operatorClient.GetOperatorState()
+	if err != nil {
+		return err
+	}
+
+	// TODO replace with the one from library-go/pkg/operator/v1helpers when this PR gets merged: https://github.com/openshift/library-go/pull/1902
+	patch := removeConditionsJSONPatch(operatorStatus, conditionTypes)
+	if patch == nil || patch.IsEmpty() {
+		return nil
+	}
+
+	return operatorClient.PatchOperatorStatus(ctx, patch)
+}
+
+func removeConditionsJSONPatch(operatorStatus *operatorv1.OperatorStatus, conditionTypesToRemove []string) *jsonpatch.PatchSet {
+	if operatorStatus == nil || len(conditionTypesToRemove) == 0 {
+		return nil
+	}
+
+	jsonPatch := jsonpatch.New()
+	var removedCount int
+	for i, cond := range operatorStatus.Conditions {
+		for _, conditionTypeToRemove := range conditionTypesToRemove {
+			if cond.Type != conditionTypeToRemove {
+				continue
+			}
+
+			removeAtIndex := i - removedCount
+			jsonPatch.WithRemove(
+				fmt.Sprintf("/status/conditions/%d", removeAtIndex),
+				jsonpatch.NewTestCondition(fmt.Sprintf("/status/conditions/%d/type", removeAtIndex), conditionTypeToRemove),
+			)
+			removedCount++
+		}
+	}
+
+	return jsonPatch
 }

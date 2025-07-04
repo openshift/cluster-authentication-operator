@@ -17,7 +17,6 @@ import (
 	corev1lister "k8s.io/client-go/listers/core/v1"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -37,25 +36,35 @@ type serviceCAController struct {
 	controllerInstanceName string
 	serviceLister          corev1lister.ServiceLister
 	secretLister           corev1lister.SecretLister
+	configMapLister        corev1lister.ConfigMapLister
 	configMaps             corev1client.ConfigMapsGetter
 	operatorClient         v1helpers.OperatorClient
+	authConfigChecker      common.AuthConfigChecker
 }
 
-func NewServiceCAController(instanceName string, kubeInformersForTargetNamespace informers.SharedInformerFactory, configInformer configinformers.SharedInformerFactory, configMaps corev1client.ConfigMapsGetter,
-	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
+func NewServiceCAController(
+	instanceName string,
+	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	configMaps corev1client.ConfigMapsGetter,
+	operatorClient v1helpers.OperatorClient,
+	authConfigChecker common.AuthConfigChecker,
+	recorder events.Recorder,
+) factory.Controller {
 	c := &serviceCAController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "ServiceCA"),
 		serviceLister:          kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
 		secretLister:           kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		configMapLister:        kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
 		configMaps:             configMaps,
 		operatorClient:         operatorClient,
+		authConfigChecker:      authConfigChecker,
 	}
 	return factory.New().WithInformers(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
-		configInformer.Config().V1().Authentications().Informer(),
-		configInformer.Config().V1().Ingresses().Informer(),
+		authConfigChecker.Authentications().Informer(),
+		authConfigChecker.KubeAPIServers().Informer(),
 	).ResyncEvery(
 		wait.Jitter(time.Minute, 1.0),
 	).WithSync(
@@ -66,6 +75,16 @@ func NewServiceCAController(instanceName string, kubeInformersForTargetNamespace
 }
 
 func (c *serviceCAController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		if err := c.removeOperands(ctx); err != nil {
+			return err
+		}
+
+		return common.DeleteControllerConditions(ctx, c.operatorClient, knownConditionNames.List()...)
+	}
+
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	_, serviceConditions := common.GetOAuthServerService(c.serviceLister, "OAuthService")
@@ -143,4 +162,18 @@ func (c *serviceCAController) getServiceCA(ctx context.Context, recorder events.
 	}
 
 	return nil, nil
+}
+
+func (c *serviceCAController) removeOperands(ctx context.Context) error {
+	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get("v4-0-config-system-service-ca"); errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	if err := c.configMaps.ConfigMaps("openshift-authentication").Delete(ctx, "v4-0-config-system-service-ca", metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
 }
