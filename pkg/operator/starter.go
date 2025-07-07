@@ -41,6 +41,7 @@ import (
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
@@ -586,12 +587,18 @@ func prepareOauthAPIServerOperator(
 		return nil, nil, err
 	}
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	configObserver := oauthapiconfigobservercontroller.NewConfigObserverController(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces,
 		informerFactories.operatorConfigInformer,
 		resourceSyncController,
 		authOperatorInput.eventRecorder,
+		featureGateAccessor,
 	)
 
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
@@ -680,9 +687,17 @@ func prepareExternalOIDC(
 	informerFactories authenticationOperatorInformerFactories,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 
-	featureGates, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	var featureGates featuregates.FeatureGate
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
+	case <-time.After(1 * time.Minute):
+		return nil, nil, fmt.Errorf("timed out waiting for FeatureGate detection")
 	}
 
 	if !(featureGates.Enabled(features.FeatureGateExternalOIDC) || featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings)) {
