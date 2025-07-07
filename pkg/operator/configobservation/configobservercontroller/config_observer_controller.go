@@ -8,6 +8,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	encryptobserver "github.com/openshift/library-go/pkg/operator/encryption/observer"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
@@ -28,6 +29,7 @@ func NewConfigObserverController(
 	configInformer configinformers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	eventRecorder events.Recorder,
+	featureGateAccessor featuregates.FeatureGateAccess,
 ) factory.Controller {
 
 	preRunCacheSynced := []cache.InformerSynced{
@@ -70,6 +72,12 @@ func NewConfigObserverController(
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
+		featuregates.NewObserveFeatureFlagsFunc(
+			nil,
+			nil,
+			[]string{"apiServerArguments", "feature-gates"},
+			featureGateAccessor,
+		),
 	} {
 		observers = append(observers,
 			configobserver.WithPrefix(o, OAuthAPIServerConfigPrefix))

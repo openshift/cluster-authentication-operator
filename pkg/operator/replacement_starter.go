@@ -346,9 +346,9 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	return ret, nil
 }
 
-type featureGateAccessorFunc func(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGate, error)
+type featureGateAccessorFunc func(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGateAccess, error)
 
-func defaultFeatureGateAccessor(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGate, error) {
+func defaultFeatureGateAccessor(ctx context.Context, authOperatorInput *authenticationOperatorInput, informerFactories authenticationOperatorInformerFactories) (featuregates.FeatureGateAccess, error) {
 	// By default, this will exit(0) if the featuregates change
 	featureGateAccessor := featuregates.NewFeatureGateAccess(
 		status.VersionForOperatorFromEnv(), "0.0.1-snapshot",
@@ -359,19 +359,12 @@ func defaultFeatureGateAccessor(ctx context.Context, authOperatorInput *authenti
 	go featureGateAccessor.Run(ctx)
 	go informerFactories.operatorConfigInformer.Start(ctx.Done())
 
-	var featureGates featuregates.FeatureGate
-	select {
-	case <-featureGateAccessor.InitialFeatureGatesObserved():
-		featureGates, _ = featureGateAccessor.CurrentFeatureGates()
-	case <-time.After(1 * time.Minute):
-		return nil, fmt.Errorf("timed out waiting for FeatureGate detection")
-	}
-	return featureGates, nil
+	return featureGateAccessor, nil
 }
 
 // staticFeatureGateAccessor is primarly used during testing to statically enable or disable features.
 func staticFeatureGateAccessor(enabled, disabled []ocpconfigv1.FeatureGateName) featureGateAccessorFunc {
-	return func(_ context.Context, _ *authenticationOperatorInput, _ authenticationOperatorInformerFactories) (featuregates.FeatureGate, error) {
-		return featuregates.NewFeatureGate(enabled, disabled), nil
+	return func(_ context.Context, _ *authenticationOperatorInput, _ authenticationOperatorInformerFactories) (featuregates.FeatureGateAccess, error) {
+		return featuregates.NewHardcodedFeatureGateAccess(enabled, disabled), nil
 	}
 }
