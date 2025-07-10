@@ -5,23 +5,32 @@ import (
 	"encoding/base64"
 	"fmt"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	fakeoauthclient "github.com/openshift/client-go/oauth/clientset/versioned/fake"
+	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientsswitchedinformer"
+	testlib "github.com/openshift/cluster-authentication-operator/test/library"
 	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
 	"github.com/openshift/library-go/pkg/operator/events"
 )
@@ -106,11 +115,38 @@ func newRouteLister(t *testing.T, routes ...*routev1.Route) routev1listers.Route
 
 func newTestOAuthsClientsController(t *testing.T) (*oauthsClientsController, cache.Indexer) {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	oauthClientset := fakeoauthclient.NewSimpleClientset()
+	switchedInformer := oauthclientsswitchedinformer.NewSwitchedInformer(
+		"TestOAuthClientsInformerWithSwitchController",
+		context.TODO(),
+		func() (bool, error) { return false, nil },
+		oauthinformers.NewSharedInformerFactoryWithOptions(oauthClientset, 1*time.Minute).Oauth().V1().OAuthClients(),
+		0,
+		nil,
+		events.NewInMemoryRecorder("oauthclientscontroller_test", clocktesting.NewFakePassiveClock(time.Now())),
+	)
+
+	authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	authIndexer.Add(&configv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.AuthenticationSpec{
+			Type: configv1.AuthenticationTypeIntegratedOAuth,
+		},
+	})
+
 	return &oauthsClientsController{
-		oauthClientClient: fakeoauthclient.NewSimpleClientset().OauthV1().OAuthClients(),
-		oauthClientLister: oauthv1listers.NewOAuthClientLister(indexer),
-		routeLister:       newRouteLister(t, defaultRoute),
-		ingressLister:     newIngressLister(t, defaultIngress),
+		ingressLister:       newIngressLister(t, defaultIngress),
+		oauthClientClient:   oauthClientset.OauthV1().OAuthClients(),
+		oauthClientInformer: switchedInformer.Informer(),
+		oauthClientLister:   oauthv1listers.NewOAuthClientLister(indexer),
+		routeLister:         newRouteLister(t, defaultRoute),
+		authConfigChecker: common.NewAuthConfigChecker(
+			testlib.NewFakeInformer[configv1listers.AuthenticationLister](configv1listers.NewAuthenticationLister(authIndexer)),
+			testlib.NewFakeInformer[operatorv1listers.KubeAPIServerLister](nil),
+			testlib.NewFakeInformer[corelistersv1.ConfigMapLister](nil),
+		),
 	}, indexer
 }
 
@@ -240,6 +276,38 @@ func Test_ensureBootstrappedOAuthClients(t *testing.T) {
 			t.Errorf("expected error but got nil")
 		}
 	})
+}
+
+func Test_ensureBootstrappedOAuthClientsMissing(t *testing.T) {
+	ctx := context.TODO()
+	c, _ := newTestOAuthsClientsController(t)
+	if err := c.ensureBootstrappedOAuthClients(ctx, masterPublicURL); err != nil {
+		t.Errorf("unexpected error while creating oauth clients: %v", err)
+	}
+
+	oauthClients, err := c.oauthClientLister.List(labels.Everything())
+	if err != nil {
+		t.Errorf("unexpected error while listing oauth clients: %v", err)
+	}
+
+	for _, client := range oauthClients {
+		if client.Name != "openshift-browser-client" && client.Name != "openshift-challenging-client" && client.Name != "openshift-cli-client" {
+			t.Errorf("unexpected oauth client: %s", client.Name)
+		}
+	}
+
+	if err := c.ensureBootstrappedOAuthClientsMissing(ctx); err != nil {
+		t.Errorf("unexpected error while deleting oauth clients: %v", err)
+	}
+
+	oauthClients, err = c.oauthClientLister.List(labels.Everything())
+	if err != nil {
+		t.Errorf("unexpected error while listing oauth clients after deletion: %v", err)
+	}
+
+	if len(oauthClients) > 0 {
+		t.Errorf("expected no remaining clients, got %d: %v", len(oauthClients), oauthClients)
+	}
 }
 
 func Test_randomBits(t *testing.T) {

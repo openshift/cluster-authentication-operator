@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -23,6 +24,7 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -60,6 +62,7 @@ type oauthServerDeploymentSyncer struct {
 	proxyLister     configv1listers.ProxyLister
 	routeLister     routev1listers.RouteLister
 
+	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
 }
@@ -77,6 +80,7 @@ func NewOAuthServerWorkloadController(
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -94,6 +98,7 @@ func NewOAuthServerWorkloadController(
 		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
 		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
 
+		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
 
@@ -135,6 +140,13 @@ func NewOAuthServerWorkloadController(
 }
 
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return false, err
+	} else if oidcAvailable {
+		// the route is no longer a pre-requisite
+		return true, nil
+	}
+
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)
@@ -147,17 +159,17 @@ func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (
 	return true, nil
 }
 
-func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
+func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, bool, string, string, []error) {
 	errs := []error{}
 
 	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	proxyConfig, err := c.getProxyConfig()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	// resourceVersions serves to store versions of config resources so that we
@@ -174,7 +186,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	configResourceVersions, err := c.getConfigResourceVersions()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
 	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
@@ -192,7 +204,16 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	// deployment, have RV of all resources
 	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, false, "", "", append(errs, err)
+	}
+
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return nil, false, false, "", "", append(errs, err)
+	} else if oidcAvailable {
+		if err := c.deployments.Deployments(expectedDeployment.Namespace).Delete(ctx, expectedDeployment.Name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return nil, false, false, "", "", append(errs, err)
+		}
+		return nil, false, true, expectedDeployment.Name, expectedDeployment.Namespace, errs
 	}
 
 	if _, err := c.secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-custom-router-certs"); err == nil {
@@ -213,13 +234,13 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
 	}
 
 	// Set the replica count to the number of master nodes.
 	masterNodeCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
 	}
 	expectedDeployment.Spec.Replicas = masterNodeCount
 
@@ -229,10 +250,10 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
 	)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
+		return nil, false, false, "", "", append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
 	}
 
-	return deployment, true, errs
+	return deployment, true, false, "", "", errs
 }
 
 func (c *oauthServerDeploymentSyncer) getProxyConfig() (*configv1.Proxy, error) {

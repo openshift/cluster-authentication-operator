@@ -12,6 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ type ingressNodesAvailableController struct {
 	operatorClient         v1helpers.OperatorClient
 	ingressLister          operatorv1listers.IngressControllerLister
 	nodeLister             corev1listers.NodeLister
+	authConfigChecker      common.AuthConfigChecker
 }
 
 func NewIngressNodesAvailableController(
@@ -40,12 +42,14 @@ func NewIngressNodesAvailableController(
 	ingressControllerInformer operatorv1informers.IngressControllerInformer,
 	eventRecorder events.Recorder,
 	nodeInformer corev1informers.NodeInformer,
+	authConfigChecker common.AuthConfigChecker,
 ) factory.Controller {
 	controller := &ingressNodesAvailableController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressNodesAvailable"),
 		operatorClient:         operatorClient,
 		ingressLister:          ingressControllerInformer.Lister(),
 		nodeLister:             nodeInformer.Lister(),
+		authConfigChecker:      authConfigChecker,
 	}
 
 	return factory.New().
@@ -72,6 +76,12 @@ func countReadyWorkerNodes(nodes []*corev1.Node) int {
 }
 
 func (c *ingressNodesAvailableController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, nil)
+	}
+
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	workers, err := c.nodeLister.List(labels.SelectorFromSet(labels.Set{"node-role.kubernetes.io/worker": ""}))

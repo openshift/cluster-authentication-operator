@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -18,7 +20,6 @@ import (
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned/typed/oauth/v1"
-	oauthinformers "github.com/openshift/client-go/oauth/informers/externalversions"
 	oauthv1listers "github.com/openshift/client-go/oauth/listers/oauth/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
@@ -30,30 +31,37 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientsswitchedinformer"
 )
 
 type oauthsClientsController struct {
 	oauthClientClient oauthclient.OAuthClientInterface
 
-	oauthClientLister oauthv1listers.OAuthClientLister
-	routeLister       routev1listers.RouteLister
-	ingressLister     configv1listers.IngressLister
+	oauthClientInformer cache.SharedIndexInformer
+	oauthClientLister   oauthv1listers.OAuthClientLister
+	routeLister         routev1listers.RouteLister
+	ingressLister       configv1listers.IngressLister
+
+	authConfigChecker common.AuthConfigChecker
 }
 
 func NewOAuthClientsController(
 	operatorClient v1helpers.OperatorClient,
 	oauthsClientClient oauthclient.OAuthClientInterface,
-	oauthInformers oauthinformers.SharedInformerFactory,
+	oauthClientsSwitchedInformer *oauthclientsswitchedinformer.InformerWithSwitch,
 	routeInformers routeinformers.SharedInformerFactory,
-	ingressInformers configinformers.SharedInformerFactory,
+	operatorConfigInformers configinformers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 	eventRecorder events.Recorder,
 ) factory.Controller {
 	c := &oauthsClientsController{
 		oauthClientClient: oauthsClientClient,
 
-		oauthClientLister: oauthInformers.Oauth().V1().OAuthClients().Lister(),
-		routeLister:       routeInformers.Route().V1().Routes().Lister(),
-		ingressLister:     ingressInformers.Config().V1().Ingresses().Lister(),
+		oauthClientInformer: oauthClientsSwitchedInformer.Informer(),
+		oauthClientLister:   oauthv1listers.NewOAuthClientLister(oauthClientsSwitchedInformer.Informer().GetIndexer()),
+		routeLister:         routeInformers.Route().V1().Routes().Lister(),
+		ingressLister:       operatorConfigInformers.Config().V1().Ingresses().Lister(),
+		authConfigChecker:   authConfigChecker,
 	}
 
 	return factory.New().
@@ -61,18 +69,28 @@ func NewOAuthClientsController(
 		WithSyncDegradedOnError(operatorClient).
 		WithFilteredEventsInformers(
 			factory.NamesFilter("openshift-browser-client", "openshift-challenging-client", "openshift-cli-client"),
-			oauthInformers.Oauth().V1().OAuthClients().Informer(),
+			oauthClientsSwitchedInformer.Informer(),
 		).
 		WithFilteredEventsInformers(
 			factory.NamesFilter("oauth-openshift"),
 			routeInformers.Route().V1().Routes().Informer(),
 		).
-		WithInformers(ingressInformers.Config().V1().Ingresses().Informer()).
+		WithInformers(
+			operatorConfigInformers.Config().V1().Ingresses().Informer(),
+			authConfigChecker.Authentications().Informer(),
+			authConfigChecker.KubeAPIServers().Informer(),
+		).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("OAuthClientsController", eventRecorder.WithComponentSuffix("oauth-clients-controller"))
 }
 
 func (c *oauthsClientsController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		return c.ensureBootstrappedOAuthClientsMissing(ctx)
+	}
+
 	ingress, err := c.getIngressConfig()
 	if err != nil {
 		return err
@@ -87,6 +105,12 @@ func (c *oauthsClientsController) sync(ctx context.Context, syncCtx factory.Sync
 	routeHost, err := c.getCanonicalRouteHost(hostname)
 	if err != nil {
 		return err
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if !cache.WaitForCacheSync(waitCtx.Done(), c.oauthClientInformer.HasSynced) {
+		return fmt.Errorf("timed out waiting for OAuthClients informer cache sync")
 	}
 
 	return c.ensureBootstrappedOAuthClients(ctx, "https://"+routeHost)
@@ -140,6 +164,27 @@ func (c *oauthsClientsController) ensureBootstrappedOAuthClients(ctx context.Con
 	} {
 		if err := c.ensureOAuthClient(ctx, client); err != nil {
 			return fmt.Errorf("unable to ensure existence of a bootstrapped OAuth client %q: %w", client.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (c *oauthsClientsController) ensureBootstrappedOAuthClientsMissing(ctx context.Context) error {
+	for _, clientName := range []string{
+		"openshift-browser-client",
+		"openshift-challenging-client",
+		"openshift-cli-client",
+	} {
+		_, err := c.oauthClientLister.Get(clientName)
+		if errors.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+
+		if err := c.oauthClientClient.Delete(ctx, clientName, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return err
 		}
 	}
 

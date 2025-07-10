@@ -7,9 +7,11 @@ import (
 	"time"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,8 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
-
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 const (
@@ -37,6 +37,7 @@ type ingressStateController struct {
 	podsGetter             corev1client.PodsGetter
 	targetNamespace        string
 	operatorClient         v1helpers.OperatorClient
+	authConfigChecker      common.AuthConfigChecker
 }
 
 func NewIngressStateController(
@@ -45,6 +46,7 @@ func NewIngressStateController(
 	endpointsGetter corev1client.EndpointsGetter,
 	podsGetter corev1client.PodsGetter,
 	operatorClient v1helpers.OperatorClient,
+	authConfigChecker common.AuthConfigChecker,
 	targetNamespace string,
 	recorder events.Recorder,
 ) factory.Controller {
@@ -54,6 +56,7 @@ func NewIngressStateController(
 		podsGetter:             podsGetter,
 		targetNamespace:        targetNamespace,
 		operatorClient:         operatorClient,
+		authConfigChecker:      authConfigChecker,
 	}
 
 	return factory.New().
@@ -76,6 +79,13 @@ func (c *ingressStateController) checkPodStatus(ctx context.Context, reference *
 }
 
 func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		// clear all operator conditions
+		return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, degradedConditionTypes, nil)
+	}
+
 	endpoints, err := c.endpointsGetter.Endpoints(c.targetNamespace).Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		// Clear the error to allow checkSubset to report degraded because endpoints == nil

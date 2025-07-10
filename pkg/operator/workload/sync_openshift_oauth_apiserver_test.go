@@ -10,16 +10,24 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	testlib "github.com/openshift/cluster-authentication-operator/test/library"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	clientgotesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -61,6 +69,16 @@ var unsupportedConfigOverridesAPIServerArgsJSON = `
 `
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
+	authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	authIndexer.Add(&configv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.AuthenticationSpec{
+			Type: configv1.AuthenticationTypeIntegratedOAuth,
+		},
+	})
+
 	scenarios := []struct {
 		name            string
 		goldenFile      string
@@ -145,9 +163,14 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
+				authConfigChecker: common.NewAuthConfigChecker(
+					testlib.NewFakeInformer[configv1listers.AuthenticationLister](configv1listers.NewAuthenticationLister(authIndexer)),
+					testlib.NewFakeInformer[operatorv1listers.KubeAPIServerLister](nil),
+					testlib.NewFakeInformer[corelistersv1.ConfigMapLister](nil),
+				),
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			actualDeployment, _, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}

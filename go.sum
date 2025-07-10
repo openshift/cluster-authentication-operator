@@ -136,6 +136,8 @@ github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
 github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80/go.mod h1:imJHygn/1yfhB7XSJJKlFZKl/J+dCPAknuiaGOshXAs=
+github.com/liouk/library-go v0.0.0-20250620094701-b03ce0ac0d58 h1:N/KdLelLRiQdsnJTTcivQvkwgXiAPEB6DlwRyrcEcbI=
+github.com/liouk/library-go v0.0.0-20250620094701-b03ce0ac0d58/go.mod h1:DAa3BGl0CFtkfJn/g5rU8kDDTErfMVA/QlFm4cvU+MI=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
@@ -155,8 +157,6 @@ github.com/openshift/build-machinery-go v0.0.0-20250102153059-e85a1a7ecb5c h1:6X
 github.com/openshift/build-machinery-go v0.0.0-20250102153059-e85a1a7ecb5c/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20250125113824-8e1f0b8fa9a7 h1:4iliLcvr1P9EUMZgIaSNEKNQQzBn+L6PSequlFOuB6Q=
 github.com/openshift/client-go v0.0.0-20250125113824-8e1f0b8fa9a7/go.mod h1:2tcufBE4Cu6RNgDCxcUJepa530kGo5GFVfR9BSnndhI=
-github.com/openshift/library-go v0.0.0-20250319141325-07c53d93ad06 h1:vM1BbOl3adyX0LgzNYYndZ+nkerEo7bKEQxxc6zLgNA=
-github.com/openshift/library-go v0.0.0-20250319141325-07c53d93ad06/go.mod h1:GHwvopE5KXXCz4ULHp871sTPLLW+FB+hu/RIzlNwxx8=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d h1:Rzx23P63JFNNz5D23ubhC0FCN5rK8CeJhKcq5QKcdyU=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d/go.mod h1:iVi9Bopa5cLhjG5ie9DoZVVqkH8BGb1FQVTtecOLn4I=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
