@@ -228,9 +228,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				kasOriginalRevision := testClient.kasLatestAvailableRevision(t, testCtx)
 				auth := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
 					baseSpec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
-						TokenClaimMapping: configv1.TokenClaimMapping{
-							Claim: tt.claim,
-						},
+						Claim:        tt.claim,
 						PrefixPolicy: tt.prefixPolicy,
 						Prefix:       tt.prefix,
 					}
@@ -276,9 +274,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		kasOriginalRevision := testClient.kasLatestAvailableRevision(t, testCtx)
 		auth := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
 			baseSpec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
-				TokenClaimMapping: configv1.TokenClaimMapping{
-					Claim: "unknown",
-				},
+				Claim:        "unknown",
 				PrefixPolicy: configv1.NoPrefix,
 				Prefix:       nil,
 			}
@@ -451,9 +447,7 @@ func authSpecForOIDCProvider(idpName, idpURL, caBundleName, groupsClaim string, 
 				},
 				ClaimMappings: configv1.TokenClaimMappings{
 					Username: configv1.UsernameClaimMapping{
-						TokenClaimMapping: configv1.TokenClaimMapping{
-							Claim: "email",
-						},
+						Claim:        "email",
 						PrefixPolicy: configv1.Prefix,
 						Prefix: &configv1.UsernamePrefix{
 							PrefixString: "oidc-test:",
