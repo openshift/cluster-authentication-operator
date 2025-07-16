@@ -116,6 +116,10 @@ func (c *OAuthAPIServerWorkload) preconditionFulfilledInternal(operatorSpec *ope
 	return true, nil
 }
 
+func (c *OAuthAPIServerWorkload) WorkloadDeleted(_ context.Context) (bool, string, error) {
+	return false, "", nil
+}
+
 // Sync essentially manages OAuthAPI server.
 func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}

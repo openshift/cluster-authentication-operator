@@ -147,6 +147,10 @@ func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (
 	return true, nil
 }
 
+func (c *oauthServerDeploymentSyncer) WorkloadDeleted(_ context.Context) (bool, string, error) {
+	return false, "", nil
+}
+
 func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
 	errs := []error{}
 
