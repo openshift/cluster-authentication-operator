@@ -11,8 +11,11 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -51,6 +54,8 @@ type OAuthAPIServerWorkload struct {
 	operatorImagePullSpec     string
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
+	deploymentsLister         appsv1listers.DeploymentLister
+	authConfigChecker         common.AuthConfigChecker
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -62,6 +67,8 @@ func NewOAuthAPIServerWorkload(
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
+	deploymentsLister appsv1listers.DeploymentLister,
+	authConfigChecker common.AuthConfigChecker,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
@@ -73,7 +80,32 @@ func NewOAuthAPIServerWorkload(
 		operatorImagePullSpec:     operatorImagePullSpec,
 		kubeClient:                kubeClient,
 		versionRecorder:           versionRecorder,
+		deploymentsLister:         deploymentsLister,
+		authConfigChecker:         authConfigChecker,
 	}
+}
+
+func (c *OAuthAPIServerWorkload) WorkloadDeleted(ctx context.Context) (bool, string, error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return false, "", err
+	} else if !oidcAvailable {
+		return false, "", nil
+	}
+
+	// OIDC has been configured and rolled out; delete deployment if it exists
+
+	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-apiserver/deploy.yaml"))
+	if _, err := c.deploymentsLister.Deployments(deployment.Namespace).Get(deployment.Name); errors.IsNotFound(err) {
+		return true, deployment.Name, nil
+	} else if err != nil {
+		return false, "", err
+	}
+
+	if err := c.kubeClient.AppsV1().Deployments(deployment.Namespace).Delete(ctx, deployment.Name, metav1.DeleteOptions{}); err != nil {
+		return false, "", err
+	}
+
+	return true, deployment.Name, nil
 }
 
 // PreconditionFulfilled is a function that indicates whether all prerequisites are met and we can Sync.

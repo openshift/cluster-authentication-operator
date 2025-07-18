@@ -26,6 +26,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -58,12 +59,20 @@ type wellKnownReadyController struct {
 	configMapLister        corev1lister.ConfigMapLister
 	routeLister            routev1lister.RouteLister
 	infrastructureLister   configv1lister.InfrastructureLister
+	authConfigChecker      common.AuthConfigChecker
 }
 
 const controllerName = "WellKnownReadyController"
 
-func NewWellKnownReadyController(instanceName string, kubeInformers v1helpers.KubeInformersForNamespaces, configInformers configinformer.SharedInformerFactory, routeInformer routeinformer.RouteInformer,
-	operatorClient v1helpers.OperatorClient, recorder events.Recorder) factory.Controller {
+func NewWellKnownReadyController(
+	instanceName string,
+	kubeInformers v1helpers.KubeInformersForNamespaces,
+	configInformers configinformer.SharedInformerFactory,
+	routeInformer routeinformer.RouteInformer,
+	operatorClient v1helpers.OperatorClient,
+	authConfigChecker common.AuthConfigChecker,
+	recorder events.Recorder,
+) factory.Controller {
 
 	nsOpenshiftConfigManagedInformers := kubeInformers.InformersFor("openshift-config-managed")
 	nsDefaultInformers := kubeInformers.InformersFor("default")
@@ -77,6 +86,7 @@ func NewWellKnownReadyController(instanceName string, kubeInformers v1helpers.Ku
 		configMapLister:        nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
 		routeLister:            routeInformer.Lister(),
 		operatorClient:         operatorClient,
+		authConfigChecker:      authConfigChecker,
 	}
 
 	return factory.New().WithInformers(
@@ -119,6 +129,16 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		WithType("WellKnownAvailable")
 	progressing := applyoperatorv1.OperatorCondition().
 		WithType(common.ControllerProgressingConditionName(controllerName))
+
+	// if OIDC is enabled, clear operator conditions and skip checks
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		// Server-Side-Apply with an empty operator status for the specific field manager
+		// will effectively remove any conditions owned by it since the list type in the
+		// API definition is 'map'
+		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+	}
 
 	defer func() {
 		status = status.WithConditions(available, progressing)
@@ -185,7 +205,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context
 		return nil
 	}
 
-	caData, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	if err != nil {
 		return fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}

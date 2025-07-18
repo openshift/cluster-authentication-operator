@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -20,12 +20,12 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	"github.com/openshift/api/annotations"
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
-	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -34,6 +34,12 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+)
+
+const (
+	configNamespace   = "openshift-config"
+	webhookSecretName = "webhook-authentication-integrated-oauth"
 )
 
 // webhookAuthenticatorController makes sure that the webhook token authenticators
@@ -45,10 +51,12 @@ type webhookAuthenticatorController struct {
 	authentication         configv1client.AuthenticationInterface
 	serviceAccounts        corev1client.ServiceAccountsGetter
 
-	saLister      corev1listers.ServiceAccountLister
-	svcLister     corev1listers.ServiceLister
-	secrets       corev1client.SecretsGetter
-	secretsLister corev1listers.SecretLister
+	saLister              corev1listers.ServiceAccountLister
+	svcLister             corev1listers.ServiceLister
+	secrets               corev1client.SecretsGetter
+	secretsLister         corev1listers.SecretLister
+	configNSSecretsLister corev1listers.SecretLister
+	authConfigChecker     common.AuthConfigChecker
 
 	operatorClient v1helpers.OperatorClient
 
@@ -59,11 +67,12 @@ type webhookAuthenticatorController struct {
 func NewWebhookAuthenticatorController(
 	instanceName string,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
-	configInformer configinformers.SharedInformerFactory,
+	kubeInformersForConfigNamespace informers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
 	serviceAccounts corev1client.ServiceAccountsGetter,
 	authentication configv1client.AuthenticationInterface,
 	operatorClient v1helpers.OperatorClient,
+	authConfigChecker common.AuthConfigChecker,
 	versionGetter status.VersionGetter,
 	recorder events.Recorder,
 ) factory.Controller {
@@ -71,20 +80,24 @@ func NewWebhookAuthenticatorController(
 		controllerInstanceName:            factory.ControllerInstanceName(instanceName, "WebhookAuthenticator"),
 		secrets:                           secrets,
 		serviceAccounts:                   serviceAccounts,
+		configNSSecretsLister:             kubeInformersForConfigNamespace.Core().V1().Secrets().Lister(),
 		secretsLister:                     kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		svcLister:                         kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
 		saLister:                          kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
 		authentication:                    authentication,
 		operatorClient:                    operatorClient,
 		apiServerVersionWaitEventsLimiter: flowcontrol.NewTokenBucketRateLimiter(0.0167, 1), // set it so that the event may only occur once per minute
+		authConfigChecker:                 authConfigChecker,
 		versionGetter:                     versionGetter,
 	}
-	return factory.New().WithInformers(
-		kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
-		kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
-		kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
-		configInformer.Config().V1().Authentications().Informer(),
-	).ResyncEvery(wait.Jitter(time.Minute, 1.0)).
+	return factory.New().
+		WithInformers(
+			kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
+		).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
+		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(
@@ -93,6 +106,16 @@ func NewWebhookAuthenticatorController(
 }
 
 func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		if err := c.removeOperands(ctx); err != nil {
+			return err
+		}
+
+		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+	}
+
 	// TODO: remove in 4.9; this is to ensure we don't configure webhook authenticators
 	// before the oauth-apiserver revision that's capable of handling it is ready
 	// during upgrade
@@ -154,7 +177,7 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 		return nil, err
 	}
 
-	caBundle, err := ioutil.ReadFile("/var/run/configmaps/service-ca-bundle/service-ca.crt")
+	caBundle, err := os.ReadFile("/var/run/configmaps/service-ca-bundle/service-ca.crt")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service-ca crt bundle: %w", err)
 	}
@@ -175,8 +198,8 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 
 	requiredSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "webhook-authentication-integrated-oauth",
-			Namespace: "openshift-config",
+			Name:      webhookSecretName,
+			Namespace: configNamespace,
 			Annotations: map[string]string{
 				annotations.OpenShiftComponent: "apiserver-auth",
 			},
@@ -223,7 +246,7 @@ func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair(ctx context
 	certSecret, err := c.secretsLister.Secrets("openshift-oauth-apiserver").Get("openshift-authenticator-certs")
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			waitingForCertKeyMsg = pstr("waiting for the cert/key secret openshift-oauth-apiserver/openshift-authenticator-certs to appear")
+			waitingForCertKeyMsg = ptr.To("waiting for the cert/key secret openshift-oauth-apiserver/openshift-authenticator-certs to appear")
 			return nil, nil, nil
 		}
 		return nil, nil, err
@@ -231,21 +254,28 @@ func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair(ctx context
 
 	key, ok := certSecret.Data["tls.key"]
 	if !ok {
-		waitingForCertKeyMsg = pstr("the authenticator's client cert secret is missing the 'tls.key' key")
+		waitingForCertKeyMsg = ptr.To("the authenticator's client cert secret is missing the 'tls.key' key")
 		return nil, nil, nil
 	}
 
 	cert, ok = certSecret.Data["tls.crt"]
 	if !ok {
-		waitingForCertKeyMsg = pstr("the authenticator's client cert secret is missing the 'tls.crt' key")
+		waitingForCertKeyMsg = ptr.To("the authenticator's client cert secret is missing the 'tls.crt' key")
 		return nil, nil, nil
 	}
 
 	// stop progressing on the cert/key secret
-	waitingForCertKeyMsg = pstr("")
+	waitingForCertKeyMsg = ptr.To("")
 	return key, cert, nil
 }
 
-func pstr(s string) *string {
-	return &s
+func (c *webhookAuthenticatorController) removeOperands(ctx context.Context) error {
+	_, err := c.configNSSecretsLister.Secrets(configNamespace).Get(webhookSecretName)
+	if errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	return c.secrets.Secrets(configNamespace).Delete(ctx, webhookSecretName, metav1.DeleteOptions{})
 }

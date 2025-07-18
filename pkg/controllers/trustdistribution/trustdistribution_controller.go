@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -24,37 +25,54 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
-type trustDistributionController struct {
-	configMaps    corev1client.ConfigMapsGetter
-	secretsLister corev1listers.SecretLister
+const (
+	managedNamespace     = "openshift-config-managed"
+	authNamespace        = "openshift-authentication"
+	servingCertConfigMap = "oauth-serving-cert"
+)
 
-	ingressLister configlistersv1.IngressLister
+type trustDistributionController struct {
+	configMaps        corev1client.ConfigMapsGetter
+	secretsLister     corev1listers.SecretLister
+	configMapsLister  corev1listers.ConfigMapLister
+	ingressLister     configlistersv1.IngressLister
+	authConfigChecker common.AuthConfigChecker
 }
 
 func NewTrustDistributionController(
 	cmClient corev1client.ConfigMapsGetter,
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
 	ingressInformer configinformers.IngressInformer,
+	authConfigChecker common.AuthConfigChecker,
 	eventsRecorder events.Recorder,
 ) factory.Controller {
 	c := &trustDistributionController{
-		configMaps:    cmClient,
-		secretsLister: kubeInformersForNamespaces.SecretLister(),
-		ingressLister: ingressInformer.Lister(),
+		configMaps:        cmClient,
+		secretsLister:     kubeInformersForNamespaces.SecretLister(),
+		configMapsLister:  kubeInformersForNamespaces.ConfigMapLister(),
+		ingressLister:     ingressInformer.Lister(),
+		authConfigChecker: authConfigChecker,
 	}
 
 	return factory.New().
 		WithInformers(
 			ingressInformer.Informer(),
-			kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets().Informer(),
-			kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets().Informer(),
+			kubeInformersForNamespaces.InformersFor(authNamespace).Core().V1().Secrets().Informer(),
+			kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().Secrets().Informer(),
 		).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSync(c.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController("TrustDistributionController", eventsRecorder.WithComponentSuffix("trust-distribution"))
 }
 
 func (c *trustDistributionController) sync(ctx context.Context, syncContext factory.SyncContext) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		return c.removeOperands(ctx)
+	}
+
 	ingressConfig, err := c.ingressLister.Get("cluster")
 	if err != nil {
 		return err
@@ -62,7 +80,7 @@ func (c *trustDistributionController) sync(ctx context.Context, syncContext fact
 
 	certBundle, _, _, err := common.GetActiveRouterCertKeyBytes(c.secretsLister,
 		ingressConfig,
-		"openshift-authentication",
+		authNamespace,
 		"v4-0-config-system-router-certs",
 		"v4-0-config-system-custom-router-certs",
 	)
@@ -94,8 +112,8 @@ func (c *trustDistributionController) sync(ctx context.Context, syncContext fact
 		syncContext.Recorder(),
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "oauth-serving-cert",
-				Namespace: "openshift-config-managed",
+				Name:      servingCertConfigMap,
+				Namespace: managedNamespace,
 				Annotations: map[string]string{
 					annotations.OpenShiftComponent: "apiserver-auth",
 				},
@@ -106,4 +124,14 @@ func (c *trustDistributionController) sync(ctx context.Context, syncContext fact
 		})
 
 	return err
+}
+
+func (c *trustDistributionController) removeOperands(ctx context.Context) error {
+	if _, err := c.configMapsLister.ConfigMaps(managedNamespace).Get(servingCertConfigMap); errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	return c.configMaps.ConfigMaps(managedNamespace).Delete(ctx, servingCertConfigMap, metav1.DeleteOptions{})
 }
