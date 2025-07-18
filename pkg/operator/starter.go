@@ -459,6 +459,8 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
+		authConfigChecker,
 		versionRecorder)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
