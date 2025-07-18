@@ -169,11 +169,11 @@ func (c *serviceCAController) removeOperands(ctx context.Context) error {
 	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get("v4-0-config-system-service-ca"); errors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("getting configmap openshift-authentication/v4-0-config-system-service-ca: %v",err)
+		return fmt.Errorf("getting configmap openshift-authentication/v4-0-config-system-service-ca: %v", err)
 	}
 
 	if err := c.configMaps.ConfigMaps("openshift-authentication").Delete(ctx, "v4-0-config-system-service-ca", metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
-		return fmt.Errorf("deleting configmap openshift-authentication/v4-0-config-system-service-ca: %v",err)
+		return fmt.Errorf("deleting configmap openshift-authentication/v4-0-config-system-service-ca: %v", err)
 	}
 
 	return nil

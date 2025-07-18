@@ -265,7 +265,7 @@ func TestSwitchedControllerSwitchedOffWithExistingCanceledContext(t *testing.T) 
 
 	// Now trigger the second sync after externally cancelling the original context
 	// and telling it that it should shut the delegate controller down
-	
+
 	cancel()
 	switchOn = false
 	err = switched.Sync(t.Context(), factory.NewSyncContext("test-sync", recorder))
