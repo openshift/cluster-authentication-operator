@@ -78,9 +78,7 @@ var (
 				},
 				ClaimMappings: configv1.TokenClaimMappings{
 					Username: configv1.UsernameClaimMapping{
-						TokenClaimMapping: configv1.TokenClaimMapping{
-							Claim: "username",
-						},
+						Claim:        "username",
 						PrefixPolicy: configv1.Prefix,
 						Prefix: &configv1.UsernamePrefix{
 							PrefixString: "oidc-user:",
@@ -647,9 +645,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "username",
-							},
+							Claim:        "username",
 							PrefixPolicy: configv1.Prefix,
 							Prefix:       nil,
 						}
@@ -671,9 +667,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "username",
-							},
+							Claim:        "username",
 							PrefixPolicy: configv1.UsernamePrefixPolicy("invalid-policy"),
 						}
 					}
@@ -766,9 +760,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "email",
-							},
+							Claim:        "email",
 							PrefixPolicy: configv1.NoOpinion,
 						}
 					}
@@ -801,9 +793,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "username",
-							},
+							Claim:        "username",
 							PrefixPolicy: configv1.NoOpinion,
 						}
 					}
@@ -836,9 +826,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "username",
-							},
+							Claim:        "username",
 							PrefixPolicy: configv1.NoPrefix,
 						}
 					}
@@ -871,9 +859,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "username",
-							},
+							Claim:        "username",
 							PrefixPolicy: configv1.Prefix,
 							Prefix: &configv1.UsernamePrefix{
 								PrefixString: "oidc-user:",
@@ -908,9 +894,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				func(auth *configv1.Authentication) {
 					for i := range auth.Spec.OIDCProviders {
 						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
-							TokenClaimMapping: configv1.TokenClaimMapping{
-								Claim: "",
-							},
+							Claim: "",
 						}
 					}
 				},
