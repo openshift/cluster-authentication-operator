@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -706,7 +707,7 @@ func retrieveValue(field string, sourceMap map[string]any) (string, error) {
 				errorMessage = fmt.Sprintf("%s - %s", errorMessage, serverErrorDescription)
 			}
 		}
-		return "", fmt.Errorf(errorMessage)
+		return "", errors.New(errorMessage)
 	}
 
 	return value, nil
