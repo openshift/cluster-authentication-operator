@@ -16,6 +16,7 @@ spec:
         cors-allowed-origins:
         - //127\.0\.0\.1(:|$)
         - //localhost(:|$)
+        feature-gates: []
         tls-cipher-suites:
         - TLS_AES_128_GCM_SHA256
         - TLS_AES_256_GCM_SHA384
