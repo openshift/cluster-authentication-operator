@@ -9,11 +9,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
@@ -23,12 +25,15 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
+	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
@@ -52,7 +57,8 @@ type oauthServerDeploymentSyncer struct {
 	// one pod of a given replicaset from landing on a node.
 	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc
 
-	deployments appsv1client.DeploymentsGetter
+	deployments       appsv1client.DeploymentsGetter
+	deploymentsLister appsv1listers.DeploymentLister
 
 	configMapLister corev1listers.ConfigMapLister
 	secretLister    corev1listers.SecretLister
@@ -60,6 +66,7 @@ type oauthServerDeploymentSyncer struct {
 	proxyLister     configv1listers.ProxyLister
 	routeLister     routev1listers.RouteLister
 
+	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
 }
@@ -77,6 +84,7 @@ func NewOAuthServerWorkloadController(
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	authConfigChecker common.AuthConfigChecker,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -86,7 +94,8 @@ func NewOAuthServerWorkloadController(
 		countNodes:                countNodes,
 		ensureAtMostOnePodPerNode: ensureAtMostOnePodPerNode,
 
-		deployments: kubeClient.AppsV1(),
+		deployments:       kubeClient.AppsV1(),
+		deploymentsLister: kubeInformersForTargetNamespace.Apps().V1().Deployments().Lister(),
 
 		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
 		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
@@ -94,6 +103,7 @@ func NewOAuthServerWorkloadController(
 		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
 		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
 
+		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
 
@@ -134,7 +144,37 @@ func NewOAuthServerWorkloadController(
 	)
 }
 
+func (c *oauthServerDeploymentSyncer) WorkloadDeleted(ctx context.Context) (bool, string, error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return false, "", fmt.Errorf("failed to check workload deletion: %v", err)
+	} else if !oidcAvailable {
+		return false, "", nil
+	}
+
+	// OIDC has been configured and rolled out; delete deployment if it exists
+
+	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-openshift/deployment.yaml"))
+	if _, err := c.deploymentsLister.Deployments(deployment.Namespace).Get(deployment.Name); errors.IsNotFound(err) {
+		return true, deployment.Name, nil
+	} else if err != nil {
+		return false, "", fmt.Errorf("failed to retrieve deployment %s/%s for deletion: %v", deployment.Namespace, deployment.Name, err)
+	}
+
+	if err := c.deployments.Deployments(deployment.Namespace).Delete(ctx, deployment.Name, metav1.DeleteOptions{}); err != nil {
+		return false, "", fmt.Errorf("could not delete deployment %s/%s: %v", deployment.Namespace, deployment.Name, err)
+	}
+
+	return true, deployment.Name, nil
+}
+
 func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (bool, error) {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return false, fmt.Errorf("checking if authentication mode is OIDC: %v", err)
+	} else if oidcAvailable {
+		// the route is no longer a pre-requisite
+		return true, nil
+	}
+
 	route, err := c.routeLister.Routes("openshift-authentication").Get("oauth-openshift")
 	if err != nil {
 		return false, fmt.Errorf("waiting for the oauth-openshift route to appear: %w", err)

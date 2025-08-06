@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
-	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
 	componentroutesecretsync "github.com/openshift/cluster-authentication-operator/pkg/controllers/customroute"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/deployment"
@@ -38,6 +37,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/controller/factory"
 	workloadcontroller "github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
 	apiservercontrollerset "github.com/openshift/library-go/pkg/operator/apiserver/controllerset"
 	"github.com/openshift/library-go/pkg/operator/certrotation"
@@ -59,16 +59,15 @@ import (
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
-	utilpointer "k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -130,25 +129,48 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	authConfigChecker := common.NewAuthConfigChecker(
+		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+	)
+
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
 		bindata.Asset,
-		[]string{
+		[]string{ // required resources
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
-			"oauth-openshift/authentication-clusterrolebinding.yaml",
-			"oauth-openshift/cabundle.yaml",
-			"oauth-openshift/branding-secret.yaml",
-			"oauth-openshift/serviceaccount.yaml",
-			"oauth-openshift/oauth-service.yaml",
-			"oauth-openshift/trust_distribution_role.yaml",
-			"oauth-openshift/trust_distribution_rolebinding.yaml",
 			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
-	).AddKubeInformers(informerFactories.kubeInformersForNamespaces)
+	).AddKubeInformers(informerFactories.kubeInformersForNamespaces).
+		WithConditionalResources(bindata.Asset,
+			// OAuth specific resources; deleted when OIDC is enabled
+			[]string{
+				"oauth-openshift/authentication-clusterrolebinding.yaml",
+				"oauth-openshift/cabundle.yaml",
+				"oauth-openshift/branding-secret.yaml",
+				"oauth-openshift/serviceaccount.yaml",
+				"oauth-openshift/oauth-service.yaml",
+				"oauth-openshift/trust_distribution_role.yaml",
+				"oauth-openshift/trust_distribution_rolebinding.yaml",
+			},
+			// shouldCreateFnArg
+			func() bool {
+				return !oidcAvailable(authConfigChecker)
+			},
+			// shouldDeleteFnArg
+			func() bool {
+				return oidcAvailable(authConfigChecker)
+			},
+		)
+
+	for _, inf := range common.AuthConfigCheckerInformers[cache.SharedIndexInformer](&authConfigChecker) {
+		staticResourceController.AddInformer(inf)
+	}
 
 	configObserver := configobservercontroller.NewConfigObserver(
 		authOperatorInput.authenticationOperatorClient,
@@ -168,6 +190,7 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().ConfigMaps(),
+		authConfigChecker,
 		"openshift-authentication",
 		"v4-0-config-system-router-certs",
 		"v4-0-config-system-custom-router-certs",
@@ -180,6 +203,7 @@ func prepareOauthOperator(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		"openshift-authentication",
 		authOperatorInput.eventRecorder)
 
@@ -189,6 +213,7 @@ func prepareOauthOperator(
 		informerFactories.operatorConfigInformer,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
@@ -201,15 +226,16 @@ func prepareOauthOperator(
 		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
 		authOperatorInput.configClient.ConfigV1().Authentications(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
 	serviceCAController := serviceca.NewServiceCAController(
 		"openshift-authentication",
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		informerFactories.operatorConfigInformer,
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
@@ -220,15 +246,16 @@ func prepareOauthOperator(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
-	oauthClientsController := oauthclientscontroller.NewOAuthClientsController(
+	oauthClientsSwitchedController := oauthclientscontroller.NewOAuthClientsSwitchedController(
 		authOperatorInput.authenticationOperatorClient,
-		authOperatorInput.oauthClient.OauthV1().OAuthClients(),
-		informerFactories.oauthInformers,
+		authOperatorInput.oauthClient,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
 		informerFactories.operatorConfigInformer,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
@@ -245,6 +272,7 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 		versionRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authConfigChecker,
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
@@ -253,6 +281,7 @@ func prepareOauthOperator(
 		informerFactories.operatorInformer.Operator().V1().IngressControllers(),
 		authOperatorInput.eventRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
+		authConfigChecker,
 	)
 
 	systemCABundle, err := loadSystemCACertBundle()
@@ -266,6 +295,7 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		authConfigChecker,
 		systemCABundle,
 		authOperatorInput.eventRecorder,
 	)
@@ -273,18 +303,21 @@ func prepareOauthOperator(
 	authServiceCheckController := oauthendpoints.NewOAuthServiceCheckController(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
 	authServiceEndpointCheckController := oauthendpoints.NewOAuthServiceEndpointsCheckController(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
 	proxyConfigController := proxyconfig.NewProxyConfigChecker(
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		informerFactories.kubeInformersForNamespaces,
+		authConfigChecker,
 		"openshift-authentication",
 		"oauth-openshift",
 		map[string][]string{
@@ -306,6 +339,7 @@ func prepareOauthOperator(
 		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
 		informerFactories.kubeInformersForNamespaces,
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 		resourceSyncController,
 	)
@@ -318,6 +352,7 @@ func prepareOauthOperator(
 		authOperatorInput.kubeClient.CoreV1(),
 		informerFactories.kubeInformersForNamespaces,
 		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		authConfigChecker,
 		authOperatorInput.eventRecorder,
 	)
 
@@ -326,7 +361,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-deploymentController", deploymentController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-managementStateController", managementStateController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-metadataController", metadataController.Sync),
-		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsController", oauthClientsController.Sync),
+		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-oauthClientsSwitchedController", oauthClientsSwitchedController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-payloadConfigController", payloadConfigController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-routerCertsController", routerCertsController.Sync),
 		libraryapplyconfiguration.AdaptSyncFn(authOperatorInput.eventRecorder, "TODO-serviceCAController", serviceCAController.Sync),
@@ -348,7 +383,7 @@ func prepareOauthOperator(
 		libraryapplyconfiguration.AdaptRunFn(deploymentController.Run),
 		libraryapplyconfiguration.AdaptRunFn(managementStateController.Run),
 		libraryapplyconfiguration.AdaptRunFn(metadataController.Run),
-		libraryapplyconfiguration.AdaptRunFn(oauthClientsController.Run),
+		libraryapplyconfiguration.AdaptRunFn(oauthClientsSwitchedController.Run),
 		libraryapplyconfiguration.AdaptRunFn(payloadConfigController.Run),
 		libraryapplyconfiguration.AdaptRunFn(routerCertsController.Run),
 		libraryapplyconfiguration.AdaptRunFn(serviceCAController.Run),
@@ -410,6 +445,12 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	authConfigChecker := common.NewAuthConfigChecker(
+		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+	)
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
 		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
@@ -418,6 +459,8 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
+		authConfigChecker,
 		versionRecorder)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
@@ -458,11 +501,6 @@ func prepareOauthAPIServerOperator(
 			{
 				Files: []string{
 					"oauth-apiserver/ns.yaml",
-					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
-					"oauth-apiserver/sa.yaml",
-					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
-					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
 				},
 			},
 			{
@@ -498,6 +536,22 @@ func prepareOauthAPIServerOperator(
 					return isSNO
 				},
 			},
+			{
+				// OAuth specific resources; deleted when OIDC is enabled
+				Files: []string{
+					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+					"oauth-apiserver/svc.yaml",
+					"oauth-apiserver/sa.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
+					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+				},
+				ShouldCreateFn: func() bool {
+					return !oidcAvailable(authConfigChecker)
+				},
+				ShouldDeleteFn: func() bool {
+					return oidcAvailable(authConfigChecker)
+				},
+			},
 		},
 
 		informerFactories.kubeInformersForNamespaces,
@@ -519,13 +573,12 @@ func prepareOauthAPIServerOperator(
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
-		func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
-			return apiServices(), nil, nil
-		},
+		apiServicesFuncWrapper(authConfigChecker),
 		informerFactories.apiregistrationInformers,
 		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
 		informerFactories.kubeInformersForNamespaces,
 		authOperatorInput.kubeClient,
+		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
 		encryption.StaticEncryptionProvider{
@@ -597,11 +650,12 @@ func prepareOauthAPIServerOperator(
 	webhookAuthController := webhookauthenticator.NewWebhookAuthenticatorController(
 		"openshift-authentication",
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
-		informerFactories.operatorConfigInformer,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config"),
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.configClient.ConfigV1().Authentications(),
 		authOperatorInput.authenticationOperatorClient,
+		authConfigChecker,
 		versionRecorder,
 		eventRecorder,
 	)
@@ -736,7 +790,7 @@ func apiServices() []*apiregistrationv1.APIService {
 				Service: &apiregistrationv1.ServiceReference{
 					Namespace: "openshift-oauth-apiserver",
 					Name:      "api",
-					Port:      utilpointer.Int32Ptr(443),
+					Port:      ptr.To(int32(443)),
 				},
 				GroupPriorityMinimum: 9900,
 				VersionPriority:      15,
@@ -754,7 +808,7 @@ func apiServices() []*apiregistrationv1.APIService {
 // nil if it fails to load. It is to be used for controllers that generally require a
 // cert bundle and not necessary the system trust store contents.
 func loadSystemCACertBundle() ([]byte, error) {
-	systemCABundle, err := ioutil.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	systemCABundle, err := os.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
 	if err != nil {
 		// this may fail route-health checks in proxy environments
 		klog.Warningf("unable to read system CA from /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem: %v", err)
@@ -772,33 +826,24 @@ func loadSystemCACertBundle() ([]byte, error) {
 	return systemCABundle, nil
 }
 
-func extractOperatorSpec(obj *unstructured.Unstructured, fieldManager string) (*applyoperatorv1.OperatorSpecApplyConfiguration, error) {
-	castObj := &operatorv1.Authentication{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, castObj); err != nil {
-		return nil, fmt.Errorf("unable to convert to Authentication: %w", err)
-	}
-	ret, err := applyoperatorv1.ExtractAuthentication(castObj, fieldManager)
+func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {
+	oidcAvailable, err := authConfigChecker.OIDCAvailable()
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract fields for %q: %w", fieldManager, err)
+		klog.Infof("error while checking auth config: %v", err)
 	}
-	if ret.Spec == nil {
-		return nil, nil
-	}
-	return &ret.Spec.OperatorSpecApplyConfiguration, nil
+	return oidcAvailable
 }
 
-func extractOperatorStatus(obj *unstructured.Unstructured, fieldManager string) (*applyoperatorv1.OperatorStatusApplyConfiguration, error) {
-	castObj := &operatorv1.Authentication{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, castObj); err != nil {
-		return nil, fmt.Errorf("unable to convert to Authentication: %w", err)
-	}
-	ret, err := applyoperatorv1.ExtractAuthenticationStatus(castObj, fieldManager)
-	if err != nil {
-		return nil, fmt.Errorf("unable to extract fields for %q: %w", fieldManager, err)
-	}
+func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+	return func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+		apiServices := apiServices()
+		if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil {
+			return nil, nil, fmt.Errorf("checking if authentication mode is OIDC: %v", err)
+		} else if oidcAvailable {
+			// return apiServices as disabled
+			return nil, apiServices, nil
+		}
 
-	if ret.Status == nil {
-		return nil, nil
+		return apiServices, nil, nil
 	}
-	return &ret.Status.OperatorStatusApplyConfiguration, nil
 }
