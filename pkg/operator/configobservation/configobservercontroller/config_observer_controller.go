@@ -1,6 +1,7 @@
 package configobservation
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -8,11 +9,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	encryptobserver "github.com/openshift/library-go/pkg/operator/encryption/observer"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	observeauthentication "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/authentication"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
@@ -28,6 +31,7 @@ func NewConfigObserverController(
 	configInformer configinformers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	eventRecorder events.Recorder,
+	featureGateAccessor featuregates.FeatureGateAccess,
 ) factory.Controller {
 
 	preRunCacheSynced := []cache.InformerSynced{
@@ -70,6 +74,16 @@ func NewConfigObserverController(
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
 		encryptobserver.NewEncryptionConfigObserver("openshift-oauth-apiserver", "/var/run/secrets/encryption-config/encryption-config"),
+		featuregates.NewObserveFeatureFlagsFunc(
+			sets.New(
+				configv1.FeatureGateName("CBORServingAndStorage"),
+				configv1.FeatureGateName("ClientsAllowCBOR"),
+				configv1.FeatureGateName("ClientsPreferCBOR"),
+			),
+			nil,
+			[]string{"apiServerArguments", "feature-gates"},
+			featureGateAccessor,
+		),
 	} {
 		observers = append(observers,
 			configobserver.WithPrefix(o, OAuthAPIServerConfigPrefix))
