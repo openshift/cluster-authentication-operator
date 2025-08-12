@@ -425,6 +425,10 @@ func checkOIDCPasswordGrantFlow(
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return false, fmt.Errorf("OIDC token endpoint returned server error %d (%s)", resp.StatusCode, tokenURL)
+	}
+
 	respJSON := json.NewDecoder(resp.Body)
 	respMap := map[string]interface{}{}
 	if err = respJSON.Decode(&respMap); err != nil {
