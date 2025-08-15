@@ -276,3 +276,99 @@ func injectServerURLToOIDCExpected(provider *osinv1.OpenIDIdentityProvider, serv
 	provider.URLs.Token = strings.Replace(provider.URLs.Token, "${OIDC_URL}", serverURL, 1)
 	provider.URLs.UserInfo = strings.Replace(provider.URLs.UserInfo, "${OIDC_URL}", serverURL, 1)
 }
+
+func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
+	var responseContent string
+	shouldError := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if shouldError {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte(responseContent))
+	}))
+	defer server.Close()
+
+	secret := &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{
+			Name:            "test-secret",
+			Namespace:       "openshift-config",
+			ResourceVersion: "test-version-1",
+		},
+		Data: map[string][]byte{
+			"clientSecret": []byte("test-secret"),
+		},
+	}
+
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	require.NoError(t, indexer.Add(secret))
+	cmLister := corelistersv1.NewConfigMapLister(indexer)
+	secretLister := corelistersv1.NewSecretLister(indexer)
+
+	t.Run("5xx responses are not cached", func(t *testing.T) {
+		shouldError = true
+		result, err := checkOIDCPasswordGrantFlow(
+			cmLister,
+			secretLister,
+			server.URL+"/token",
+			"test-client",
+			configv1.ConfigMapNameReference{Name: ""},
+			configv1.SecretNameReference{Name: "test-secret"},
+		)
+
+		require.Error(t, err)
+		require.False(t, result)
+		require.NotContains(t, oidcPasswordChecks, "test-version-1")
+	})
+
+	t.Run("valid JSON with invalid_grant is cached", func(t *testing.T) {
+		responseContent = `{"error": "invalid_grant"}`
+		shouldError = false
+		result, err := checkOIDCPasswordGrantFlow(
+			cmLister,
+			secretLister,
+			server.URL+"/token",
+			"test-client",
+			configv1.ConfigMapNameReference{Name: ""},
+			configv1.SecretNameReference{Name: "test-secret"},
+		)
+
+		require.NoError(t, err)
+		require.True(t, result)
+		require.Contains(t, oidcPasswordChecks, "test-version-1")
+		require.True(t, oidcPasswordChecks["test-version-1"])
+	})
+
+	t.Run("5xx then valid JSON results in cache only after success", func(t *testing.T) {
+		oidcPasswordChecks = map[string]bool{}
+
+		shouldError = true
+		res1, err := checkOIDCPasswordGrantFlow(
+			cmLister,
+			secretLister,
+			server.URL+"/token",
+			"test-client",
+			configv1.ConfigMapNameReference{Name: ""},
+			configv1.SecretNameReference{Name: "test-secret"},
+		)
+		require.Error(t, err)
+		require.False(t, res1)
+		require.NotContains(t, oidcPasswordChecks, "test-version-1")
+
+		// now server returns valid JSON allowing password grant check to be cached
+		responseContent = `{"error": "invalid_grant"}`
+		shouldError = false
+		res2, err := checkOIDCPasswordGrantFlow(
+			cmLister,
+			secretLister,
+			server.URL+"/token",
+			"test-client",
+			configv1.ConfigMapNameReference{Name: ""},
+			configv1.SecretNameReference{Name: "test-secret"},
+		)
+		require.NoError(t, err)
+		require.True(t, res2)
+		require.Contains(t, oidcPasswordChecks, "test-version-1")
+		require.True(t, oidcPasswordChecks["test-version-1"])
+	})
+}
