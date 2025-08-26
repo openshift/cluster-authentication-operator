@@ -266,7 +266,6 @@ func prepareOauthOperator(
 		workloadcontroller.EnsureAtMostOnePodPerNode,
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes(),
-		authOperatorInput.configClient.ConfigV1().ClusterOperators(),
 		informerFactories.operatorConfigInformer,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes,
 		bootstrapauthenticator.NewBootstrapUserDataGetter(authOperatorInput.kubeClient.CoreV1(), authOperatorInput.kubeClient.CoreV1()),
@@ -491,7 +490,6 @@ func prepareOauthAPIServerOperator(
 		apiServerConditionsPrefix,
 		authOperatorInput.kubeClient,
 		authAPIServerWorkload,
-		authOperatorInput.configClient.ConfigV1().ClusterOperators(),
 		versionRecorder,
 		informerFactories.kubeInformersForNamespaces,
 		authOperatorInput.authenticationOperatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
