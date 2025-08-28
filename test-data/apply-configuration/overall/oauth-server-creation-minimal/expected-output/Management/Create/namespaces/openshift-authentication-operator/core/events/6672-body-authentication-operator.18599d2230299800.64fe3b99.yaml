@@ -1,0 +1,22 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2025-08-07T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2025-08-07T22:38:20Z"
+message: Created Deployment.apps/oauth-openshift -n openshift-authentication because
+  it was missing
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.18599d2230299800.64fe3b99
+  namespace: openshift-authentication-operator
+reason: DeploymentCreated
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal
