@@ -35,10 +35,7 @@ controllerResults:
   - message: ingress.config.openshift.io "cluster" not found
   status: Failed
 - controllerName: TODO-deploymentController
-  errors:
-  - message: 'waiting for the oauth-openshift route to appear: route.route.openshift.io
-      "oauth-openshift" not found'
-  status: Failed
+  status: Succeeded
 - controllerName: TODO-ingressStateController
   status: Succeeded
 - controllerName: TODO-logLevelController
@@ -47,11 +44,8 @@ controllerResults:
   status: Succeeded
 - controllerName: TODO-metadataController
   status: Succeeded
-- controllerName: TODO-oauthClientsController
-  errors:
-  - message: 'unable to get cluster ingress config: ingress.config.openshift.io "cluster"
-      not found'
-  status: Failed
+- controllerName: TODO-oauthClientsSwitchedController
+  status: Succeeded
 - controllerName: TODO-other-configObserver
   errors:
   - message: |-
@@ -60,10 +54,7 @@ controllerResults:
       oauth.config.openshift.io "cluster" not found
   status: Failed
 - controllerName: TODO-other-externalOIDCController
-  errors:
-  - message: 'could not get authentication/cluster: authentication.config.openshift.io
-      "cluster" not found'
-  status: Failed
+  status: Succeeded
 - controllerName: TODO-payloadConfigController
   status: Succeeded
 - controllerName: TODO-proxyConfigController
@@ -84,14 +75,15 @@ controllerResults:
   status: Failed
 - controllerName: TODO-webhookAuthController
   errors:
-  - message: the server could not find the requested resource (get authentications.config.openshift.io
-      cluster)
+  - message: 'failed to retrieve service openshift-oauth-apiserver/api: service "api"
+      not found'
   status: Failed
 - controllerName: TODO-webhookCertsApprover
   status: Succeeded
 - controllerName: TODO-wellKnownReadyController
   errors:
-  - message: authentication.config.openshift.io "cluster" not found
+  - message: 'failed to read SA ca.crt: open /var/run/secrets/kubernetes.io/serviceaccount/ca.crt:
+      no such file or directory'
   status: Failed
 - controllerName: TODO-workersAvailableController
   status: Succeeded
