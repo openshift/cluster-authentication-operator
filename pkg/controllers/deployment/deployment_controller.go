@@ -20,7 +20,6 @@ import (
 	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
-	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
@@ -77,7 +76,6 @@ func NewOAuthServerWorkloadController(
 	ensureAtMostOnePodPerNode ensureAtMostOnePodPerNodeFunc,
 	kubeClient kubernetes.Interface,
 	nodeInformer coreinformers.NodeInformer,
-	openshiftClusterConfigClient configv1client.ClusterOperatorInterface,
 	configInformers configinformer.SharedInformerFactory,
 	routeInformersForTargetNamespace routeinformers.SharedInformerFactory,
 	bootstrapUserDataGetter bootstrap.BootstrapUserDataGetter,
@@ -138,7 +136,6 @@ func NewOAuthServerWorkloadController(
 			routeInformersForTargetNamespace.Route().V1().Routes().Informer(),
 		},
 		oauthDeploymentSyncer,
-		openshiftClusterConfigClient,
 		eventsRecorder,
 		versionRecorder,
 	)
