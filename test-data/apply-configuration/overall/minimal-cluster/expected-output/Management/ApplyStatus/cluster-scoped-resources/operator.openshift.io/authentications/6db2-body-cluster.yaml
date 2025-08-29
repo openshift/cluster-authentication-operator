@@ -5,22 +5,26 @@ metadata:
 status:
   conditions:
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    reason: PreconditionNotFulfilled
+    message: no oauth-openshift.openshift-authentication pods available on any node.
+    reason: NoPod
     status: "False"
     type: OAuthServerDeploymentAvailable
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for the oauth-openshift route to appear: route.route.openshift.io "oauth-openshift" not found
-    reason: PreconditionNotFulfilled
-    status: "True"
+    reason: AsExpected
+    status: "False"
     type: OAuthServerDeploymentDegraded
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    reason: PreconditionNotFulfilled
-    status: "False"
+    message: 'deployment/oauth-openshift.openshift-authentication: 0/1 pods have been
+      updated to the latest generation and 0/1 pods are available'
+    reason: PodsUpdating
+    status: "True"
     type: OAuthServerDeploymentProgressing
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for the oauth-openshift route to appear: route.route.openshift.io "oauth-openshift" not found
-    reason: PreconditionNotFulfilled
-    status: "True"
+    status: "False"
     type: OAuthServerWorkloadDegraded
+  generations:
+  - group: apps
+    lastGeneration: 0
+    name: oauth-openshift
+    namespace: openshift-authentication
+    resource: deployments
