@@ -1,0 +1,23 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2025-08-07T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2025-08-07T22:38:20Z"
+message: namedCertificates changed to []interface {}{map[string]interface {}{"certFile":"/var/config/system/secrets/v4-0-config-system-router-certs/apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX",
+  "keyFile":"/var/config/system/secrets/v4-0-config-system-router-certs/apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX",
+  "names":[]interface {}{"*.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX"}}}
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.18599d2230299800.6d9ca9b2
+  namespace: openshift-authentication-operator
+reason: ObserveRouterSecret
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal
