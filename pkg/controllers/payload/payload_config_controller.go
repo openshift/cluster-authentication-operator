@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -70,6 +71,7 @@ type payloadConfigController struct {
 	operatorClient v1helpers.OperatorClient
 
 	authConfigChecker common.AuthConfigChecker
+	randReader        io.Reader
 }
 
 func NewPayloadConfigController(
@@ -80,7 +82,11 @@ func NewPayloadConfigController(
 	operatorClient v1helpers.OperatorClient,
 	routeInformer routeinformer.RouteInformer,
 	authConfigChecker common.AuthConfigChecker,
+	randReader io.Reader,
 	recorder events.Recorder) factory.Controller {
+	if randReader == nil {
+		randReader = rand.Reader
+	}
 	c := &payloadConfigController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "PayloadConfig"),
 		serviceLister:          kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
@@ -89,6 +95,7 @@ func NewPayloadConfigController(
 		configMaps:             configMaps,
 		operatorClient:         operatorClient,
 		authConfigChecker:      authConfigChecker,
+		randReader:             randReader,
 	}
 	return factory.New().
 		WithInformers(
@@ -123,7 +130,7 @@ func (c *payloadConfigController) getSessionSecret(ctx context.Context, recorder
 	secret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-session", metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		klog.V(4).Infof("Failed to get session secret %q: %v (generating new random)", "v4-0-config-system-session", err)
-		secret, err = randomSessionSecret()
+		secret, err = c.randomSessionSecret()
 		if err != nil {
 			return []operatorv1.OperatorCondition{
 				{
@@ -326,7 +333,7 @@ func (c *payloadConfigController) getExpectedSessionSecret(ctx context.Context) 
 	secret, err := c.secrets.Secrets("openshift-authentication").Get(ctx, "v4-0-config-system-session", metav1.GetOptions{})
 	if err != nil || !isValidSessionSecret(secret) {
 		klog.V(4).Infof("failed to get secret %s: %v", "v4-0-config-system-session", err)
-		generatedSessionSecret, err := randomSessionSecret()
+		generatedSessionSecret, err := c.randomSessionSecret()
 		if err != nil {
 			return nil, err
 		}
@@ -363,8 +370,8 @@ func isValidSessionSecret(secret *corev1.Secret) bool {
 	return true
 }
 
-func randomSessionSecret() (*corev1.Secret, error) {
-	skey, err := newSessionSecretsJSON()
+func (c *payloadConfigController) randomSessionSecret() (*corev1.Secret, error) {
+	skey, err := c.newSessionSecretsJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +391,7 @@ func randomSessionSecret() (*corev1.Secret, error) {
 	}, nil
 
 }
-func newSessionSecretsJSON() ([]byte, error) {
+func (c *payloadConfigController) newSessionSecretsJSON() ([]byte, error) {
 	const (
 		sha256KeyLenBytes = sha256.BlockSize // max key size with HMAC SHA256
 		aes256KeyLenBytes = 32               // max key size with AES (AES-256)
@@ -397,8 +404,8 @@ func newSessionSecretsJSON() ([]byte, error) {
 		},
 		Secrets: []osinv1.SessionSecret{
 			{
-				Authentication: randomString(sha256KeyLenBytes), // 64 chars
-				Encryption:     randomString(aes256KeyLenBytes), // 32 chars
+				Authentication: c.randomString(sha256KeyLenBytes), // 64 chars
+				Encryption:     c.randomString(aes256KeyLenBytes), // 32 chars
 			},
 		},
 	}
@@ -411,19 +418,19 @@ func newSessionSecretsJSON() ([]byte, error) {
 }
 
 // needs to be in lib-go
-func randomBytes(size int) []byte {
+func (c *payloadConfigController) randomBytes(size int) []byte {
 	b := make([]byte, size)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := c.randReader.Read(b); err != nil {
 		panic(err) // rand should never fail
 	}
 	return b
 }
 
 // randomString uses RawURLEncoding to ensure we do not get / characters or trailing ='s
-func randomString(size int) string {
+func (c *payloadConfigController) randomString(size int) string {
 	// each byte (8 bits) gives us 4/3 base64 (6 bits) characters
 	// we account for that conversion and add one to handle truncation
 	b64size := base64.RawURLEncoding.DecodedLen(size) + 1
 	// trim down to the original requested size since we added one above
-	return base64.RawURLEncoding.EncodeToString(randomBytes(b64size))[:size]
+	return base64.RawURLEncoding.EncodeToString(c.randomBytes(b64size))[:size]
 }

@@ -248,6 +248,7 @@ func prepareOauthOperator(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		authConfigChecker,
+		nil, // randReader,
 		authOperatorInput.eventRecorder,
 	)
 
