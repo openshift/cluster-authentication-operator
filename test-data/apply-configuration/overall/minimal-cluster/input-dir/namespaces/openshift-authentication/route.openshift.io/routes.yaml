@@ -1,0 +1,72 @@
+---
+apiVersion: route.openshift.io/v1
+items:
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    creationTimestamp: "2025-08-27T14:54:46Z"
+    labels:
+      app: oauth-openshift
+    managedFields:
+    - apiVersion: route.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:metadata:
+          f:labels:
+            .: {}
+            f:app: {}
+        f:spec:
+          f:host: {}
+          f:port:
+            .: {}
+            f:targetPort: {}
+          f:tls:
+            .: {}
+            f:insecureEdgeTerminationPolicy: {}
+            f:termination: {}
+          f:to:
+            f:kind: {}
+            f:name: {}
+            f:weight: {}
+          f:wildcardPolicy: {}
+      manager: authentication-operator
+      operation: Update
+      time: "2025-08-27T14:54:46Z"
+    - apiVersion: route.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:status:
+          f:ingress: {}
+      manager: openshift-router
+      operation: Update
+      subresource: status
+      time: "2025-08-27T14:54:46Z"
+    name: oauth-openshift
+    namespace: openshift-authentication
+    resourceVersion: "18925"
+    uid: 7dd0b2cb-045e-48bd-994b-aba90486e4ef
+  spec:
+    host: oauth-openshift.apps.ci-op-m5pqn2yi-379eb.origin-ci-int-aws.dev.rhcloud.com
+    port:
+      targetPort: 6443
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: passthrough
+    to:
+      kind: Service
+      name: oauth-openshift
+      weight: 100
+    wildcardPolicy: None
+  status:
+    ingress:
+    - conditions:
+      - lastTransitionTime: "2025-08-27T14:54:46Z"
+        status: "True"
+        type: Admitted
+      host: oauth-openshift.apps.ci-op-m5pqn2yi-379eb.origin-ci-int-aws.dev.rhcloud.com
+      routerCanonicalHostname: router-default.apps.ci-op-m5pqn2yi-379eb.origin-ci-int-aws.dev.rhcloud.com
+      routerName: default
+      wildcardPolicy: None
+kind: RouteList
+metadata:
+  resourceVersion: "124499"
