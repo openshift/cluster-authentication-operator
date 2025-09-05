@@ -28,6 +28,7 @@ func runOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 				libraryoutputresources.ExactNamespace("openshift-oauth-apiserver"),
 
 				libraryoutputresources.ExactConfigMap("openshift-authentication", "audit"),
+				libraryoutputresources.ExactConfigMap("openshift-authentication", "v4-0-config-system-metadata"),
 				libraryoutputresources.ExactConfigMap("openshift-authentication", "v4-0-config-system-trusted-ca-bundle"),
 				libraryoutputresources.ExactDeployment("openshift-authentication", "oauth-openshift"),
 				libraryoutputresources.ExactSecret("openshift-authentication", "v4-0-config-system-session"),
