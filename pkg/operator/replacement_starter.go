@@ -2,7 +2,9 @@ package operator
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -58,6 +60,7 @@ type authenticationOperatorInput struct {
 	apiextensionClient           apiextensionsclient.Interface
 	eventRecorder                events.Recorder
 	clock                        clock.PassiveClock
+	randReader                   io.Reader
 	featureGateAccessor          featureGateAccessorFunc
 
 	informerFactories []libraryapplyconfiguration.SimplifiedInformerFactory
@@ -143,6 +146,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		apiextensionClient:           apiextensionClient,
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
+		randReader:                   momInput.RandReader,
 		featureGateAccessor:          staticFeatureGateAccessor([]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC}, []ocpconfigv1.FeatureGateName{}),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
@@ -220,6 +224,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		apiextensionClient:           apiextensionsClient,
 		eventRecorder:                eventRecorder,
 		clock:                        controllerContext.Clock,
+		randReader:                   rand.Reader,
 		featureGateAccessor:          defaultFeatureGateAccessor,
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
