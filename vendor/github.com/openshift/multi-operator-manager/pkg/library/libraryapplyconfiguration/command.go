@@ -2,7 +2,9 @@ package libraryapplyconfiguration
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
+	"io"
 	"math/rand"
 	"time"
 
@@ -25,6 +27,8 @@ type ApplyConfigurationInput struct {
 	// Now is the declared time that this function was called at.  It doesn't necessarily bear any relationship to
 	// the actual time.  This is another aspect that makes unit and integration testing easier.
 	Clock clock.Clock
+
+	RandReader io.Reader
 
 	// Streams is for I/O.  The StdIn will usually be nil'd out.
 	Streams genericiooptions.IOStreams
@@ -58,15 +62,18 @@ type applyConfigurationFlags struct {
 
 	now time.Time
 
+	deterministicSecretData bool
+
 	streams genericiooptions.IOStreams
 }
 
 func newApplyConfigurationFlags(streams genericiooptions.IOStreams, applyConfigurationFn ApplyConfigurationFunc, outputResourcesFn libraryoutputresources.OutputResourcesFunc) *applyConfigurationFlags {
 	return &applyConfigurationFlags{
-		applyConfigurationFn: applyConfigurationFn,
-		outputResourcesFn:    outputResourcesFn,
-		now:                  time.Now(),
-		streams:              streams,
+		applyConfigurationFn:    applyConfigurationFn,
+		outputResourcesFn:       outputResourcesFn,
+		now:                     time.Now(),
+		deterministicSecretData: false,
+		streams:                 streams,
 	}
 }
 
@@ -111,6 +118,9 @@ func (f *applyConfigurationFlags) BindFlags(flags *pflag.FlagSet) {
 	flags.StringSliceVar(&f.controllers, "controllers", []string{"*"}, "A list of controllers to enable. '*' enables all controllers, 'foo' enables the controller named 'foo', '-foo' disables the controller named 'foo'. Default: `*`")
 	nowFlag := flagtypes.NewTimeValue(f.now, &f.now, []string{time.RFC3339})
 	flags.Var(nowFlag, "now", "The time to use time.Now during this execution.")
+
+	flags.BoolVar(&f.deterministicSecretData, "deterministic-secret-data", false, "Whether controllers should create secrets with deterministic data (for testing).")
+
 }
 
 func (f *applyConfigurationFlags) Validate() error {
@@ -128,9 +138,16 @@ func (f *applyConfigurationFlags) Validate() error {
 
 func (f *applyConfigurationFlags) ToOptions(ctx context.Context) (*applyConfigurationOptions, error) {
 	momClient := manifestclient.NewHTTPClient(f.inputDirectory)
+
+	randReader := cryptorand.Reader
+	if f.deterministicSecretData {
+		randReader = NewDeterministicReader(100)
+	}
+
 	input := ApplyConfigurationInput{
 		MutationTrackingClient: momClient,
 		Clock:                  clocktesting.NewFakeClock(f.now),
+		RandReader:             randReader,
 		Controllers:            f.controllers,
 		Streams:                f.streams,
 	}
@@ -142,4 +159,21 @@ func (f *applyConfigurationFlags) ToOptions(ctx context.Context) (*applyConfigur
 			f.outputDirectory,
 		),
 		nil
+}
+
+func NewDeterministicReader(seed int64) io.Reader {
+	source := rand.NewSource(seed)
+	rng := rand.New(source)
+	return &deterministicReader{rng: rng}
+}
+
+type deterministicReader struct {
+	rng *rand.Rand
+}
+
+func (dr *deterministicReader) Read(p []byte) (n int, err error) {
+	for i := range p {
+		p[i] = byte(dr.rng.Intn(256))
+	}
+	return len(p), nil
 }

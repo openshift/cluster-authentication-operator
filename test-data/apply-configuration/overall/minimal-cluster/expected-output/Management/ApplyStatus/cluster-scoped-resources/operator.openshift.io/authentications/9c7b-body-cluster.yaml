@@ -15,10 +15,9 @@ status:
     status: "False"
     type: OAuthConfigIngressDegraded
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: The OAuth server route 'openshift-authentication/oauth-openshift' was
-      not found
-    reason: NotFound
-    status: "True"
+    message: ""
+    reason: ""
+    status: "False"
     type: OAuthConfigRouteDegraded
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     message: 'Unable to get oauth server service: service "oauth-openshift" not found'

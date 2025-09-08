@@ -1,0 +1,15 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: 'The well-known endpoint is not yet available: failed to read SA ca.crt:
+      open /var/run/secrets/kubernetes.io/serviceaccount/ca.crt: no such file or directory'
+    reason: NotReady
+    status: "False"
+    type: WellKnownAvailable
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    status: "True"
+    type: WellKnownReadyControllerProgressing
