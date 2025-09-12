@@ -1,9 +1,0 @@
-action: ApplyStatus
-controllerInstanceName: TODO-ingressStateController
-fieldManager: openshift-authentication-IngressState
-generateName: ""
-mame: cluster
-resourceType:
-  Group: operator.openshift.io
-  Resource: authentications
-  Version: v1

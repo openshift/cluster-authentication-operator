@@ -1,9 +1,0 @@
-action: ApplyStatus
-controllerInstanceName: TODO-routerCertsController
-fieldManager: openshift-authentication-RouterCertsDomainValidation
-generateName: ""
-mame: cluster
-resourceType:
-  Group: operator.openshift.io
-  Resource: authentications
-  Version: v1
