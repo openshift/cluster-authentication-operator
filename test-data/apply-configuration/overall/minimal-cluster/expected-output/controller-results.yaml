@@ -14,11 +14,20 @@ controllerResults:
 - controllerName: SecretRevisionPruneController
   status: Succeeded
 - controllerName: TODO-authRouteCheckController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-authServiceCheckController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-authServiceEndpointCheckController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-authenticatorCertRequester
   status: Succeeded
 - controllerName: TODO-configObserver
@@ -36,21 +45,27 @@ controllerResults:
   status: Failed
 - controllerName: TODO-deploymentController
   errors:
-  - message: 'waiting for the oauth-openshift route to appear: route.route.openshift.io
-      "oauth-openshift" not found'
+  - message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
   status: Failed
 - controllerName: TODO-ingressStateController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-logLevelController
   status: Succeeded
 - controllerName: TODO-managementStateController
   status: Succeeded
 - controllerName: TODO-metadataController
-  status: Succeeded
-- controllerName: TODO-oauthClientsController
   errors:
-  - message: 'unable to get cluster ingress config: ingress.config.openshift.io "cluster"
-      not found'
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
+- controllerName: TODO-oauthClientsSwitchedController
+  errors:
+  - message: 'could not determine switch condition: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
   status: Failed
 - controllerName: TODO-other-configObserver
   errors:
@@ -65,27 +80,40 @@ controllerResults:
       "cluster" not found'
   status: Failed
 - controllerName: TODO-payloadConfigController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-proxyConfigController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-resourceSyncer
   status: Succeeded
 - controllerName: TODO-routerCertsController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-serviceCAController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: TODO-staleConditions
   status: Succeeded
 - controllerName: TODO-staticResourceController
   status: Succeeded
 - controllerName: TODO-trustDistributionController
   errors:
-  - message: ingress.config.openshift.io "cluster" not found
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
   status: Failed
 - controllerName: TODO-webhookAuthController
   errors:
-  - message: the server could not find the requested resource (get authentications.config.openshift.io
-      cluster)
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
   status: Failed
 - controllerName: TODO-webhookCertsApprover
   status: Succeeded
@@ -94,7 +122,10 @@ controllerResults:
   - message: authentication.config.openshift.io "cluster" not found
   status: Failed
 - controllerName: TODO-workersAvailableController
-  status: Succeeded
+  errors:
+  - message: 'getting authentications.config.openshift.io/cluster: authentication.config.openshift.io
+      "cluster" not found'
+  status: Failed
 - controllerName: auditPolicyController
   errors:
   - message: apiserver.config.openshift.io "cluster" not found
@@ -103,7 +134,8 @@ controllerResults:
   status: Succeeded
 - controllerName: openshift-apiserver-APIService
   errors:
-  - message: endpoints "api" not found
+  - message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
   status: Failed
 - controllerName: openshift-oauth-apiserver-EncryptionCondition
   status: Succeeded

@@ -10,7 +10,7 @@ status:
     type: OAuthServerDeploymentAvailable
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     message: |
-      waiting for the oauth-openshift route to appear: route.route.openshift.io "oauth-openshift" not found
+      checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster: authentication.config.openshift.io "cluster" not found
     reason: PreconditionNotFulfilled
     status: "True"
     type: OAuthServerDeploymentDegraded
@@ -20,7 +20,7 @@ status:
     type: OAuthServerDeploymentProgressing
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     message: |
-      waiting for the oauth-openshift route to appear: route.route.openshift.io "oauth-openshift" not found
+      checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster: authentication.config.openshift.io "cluster" not found
     reason: PreconditionNotFulfilled
     status: "True"
     type: OAuthServerWorkloadDegraded
