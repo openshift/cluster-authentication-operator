@@ -18,9 +18,12 @@ import (
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
+	apiextensionsinformers "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
+
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	authzclient "github.com/openshift/client-go/authorization/clientset/versioned"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
@@ -56,6 +59,7 @@ type authenticationOperatorInput struct {
 	apiregistrationv1Client      apiregistrationclient.Interface
 	migrationClient              kubemigratorclient.Interface
 	apiextensionClient           apiextensionsclient.Interface
+	authzClient                  authzclient.Interface
 	eventRecorder                events.Recorder
 	clock                        clock.PassiveClock
 	featureGateAccessor          featureGateAccessorFunc
@@ -95,6 +99,10 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		return nil, err
 	}
 	apiextensionClient, err := apiextensionsclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
+	if err != nil {
+		return nil, err
+	}
+	authzClient, err := authzclient.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +149,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
 		apiextensionClient:           apiextensionClient,
+		authzClient:                  authzClient,
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
 		featureGateAccessor:          staticFeatureGateAccessor([]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC}, []ocpconfigv1.FeatureGateName{}),
@@ -183,6 +192,10 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 	if err != nil {
 		return nil, err
 	}
+	authzClient, err := authzclient.NewForConfig(controllerContext.KubeConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	authenticationOperatorClient, dynamicInformers, err := genericoperatorclient.NewClusterScopedOperatorClient(
 		controllerContext.Clock,
@@ -218,6 +231,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 		apiregistrationv1Client:      apiregistrationv1Client,
 		migrationClient:              migrationClient,
 		apiextensionClient:           apiextensionsClient,
+		authzClient:                  authzClient,
 		eventRecorder:                eventRecorder,
 		clock:                        controllerContext.Clock,
 		featureGateAccessor:          defaultFeatureGateAccessor,
@@ -233,6 +247,7 @@ type authenticationOperatorInformerFactories struct {
 	operatorInformer           operatorinformer.SharedInformerFactory
 	apiregistrationInformers   apiregistrationinformers.SharedInformerFactory
 	migrationInformer          migrationv1alpha1informer.SharedInformerFactory
+	apiextensionsInformer      apiextensionsinformers.SharedInformerFactory
 	// TODO remove
 	kubeInformers kubeinformers.SharedInformerFactory
 
@@ -259,6 +274,7 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 		apiregistrationInformers: apiregistrationinformers.NewSharedInformerFactory(authOperatorInput.apiregistrationv1Client, 10*time.Minute),
 		migrationInformer:        migrationv1alpha1informer.NewSharedInformerFactory(authOperatorInput.migrationClient, time.Minute*30),
 		kubeInformers:            kubeinformers.NewSharedInformerFactory(authOperatorInput.kubeClient, resync),
+		apiextensionsInformer:    apiextensionsinformers.NewSharedInformerFactory(authOperatorInput.apiextensionClient, 24*time.Hour),
 
 		namespacedOpenshiftAuthenticationRoutes: routeinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.routeClient, resync,
 			routeinformer.WithNamespace("openshift-authentication"),
@@ -275,6 +291,7 @@ func (a authenticationOperatorInformerFactories) simplifiedInformerFactories() [
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.apiregistrationInformers),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.migrationInformer),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.kubeInformers),
+		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.apiextensionsInformer),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.namespacedOpenshiftAuthenticationRoutes),
 	}
 }
