@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+mame: v4-0-config-system-trusted-ca-bundle
+namespace: openshift-authentication
+resourceType:
+  Group: ""
+  Resource: configmaps
+  Version: v1
