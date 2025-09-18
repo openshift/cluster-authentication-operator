@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -253,12 +254,17 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
 	}
 
-	// Set the replica count to the number of master nodes.
-	masterNodeCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
+	// Set the replica count to the number of control plane nodes.
+	controlPlaneCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("failed to determine number of master nodes: %v", err))
+		return nil, false, append(errs, fmt.Errorf("failed to determine number of control plane nodes: %v", err))
 	}
-	expectedDeployment.Spec.Replicas = masterNodeCount
+	if controlPlaneCount == nil {
+		return nil, false, append(errs, fmt.Errorf("found nil control plane nodes count"))
+	}
+
+	expectedDeployment.Spec.Replicas = controlPlaneCount
+	setRollingUpdateParameters(*controlPlaneCount, expectedDeployment)
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
 		syncContext.Recorder(),
@@ -310,4 +316,15 @@ func (c *oauthServerDeploymentSyncer) getConfigResourceVersions() ([]string, err
 	}
 
 	return configRVs, nil
+}
+
+// Given the control plane sizes, we adjust the max unavailable and max surge values to mimic "MinAvailable".
+// We always ensure it is controlPlaneCount - 1, as this allows us to keep have at least a single replica running.
+// We also set MaxSurge to always be exactly the control plane count, as this allows us to more quickly replace failing
+// deployments with a new replica set. This does not clash with the pod anti affinity set above.
+func setRollingUpdateParameters(controlPlaneCount int32, deployment *appsv1.Deployment) {
+	maxUnavailable := intstr.FromInt32(max(controlPlaneCount-1, 1))
+	maxSurge := intstr.FromInt32(controlPlaneCount)
+	deployment.Spec.Strategy.RollingUpdate.MaxUnavailable = &maxUnavailable
+	deployment.Spec.Strategy.RollingUpdate.MaxSurge = &maxSurge
 }
