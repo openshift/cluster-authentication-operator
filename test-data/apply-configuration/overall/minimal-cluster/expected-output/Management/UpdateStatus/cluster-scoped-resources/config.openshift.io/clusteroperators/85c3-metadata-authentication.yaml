@@ -1,7 +1,7 @@
 action: UpdateStatus
 controllerInstanceName: authentication
 generateName: ""
-mame: authentication
+name: authentication
 resourceType:
   Group: config.openshift.io
   Resource: clusteroperators

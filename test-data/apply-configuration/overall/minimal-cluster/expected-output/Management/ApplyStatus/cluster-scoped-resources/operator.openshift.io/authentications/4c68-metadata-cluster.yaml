@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: openshift-oauth-apiserver-EncryptionCondition
 fieldManager: openshift-oauth-apiserver-EncryptionCondition
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications

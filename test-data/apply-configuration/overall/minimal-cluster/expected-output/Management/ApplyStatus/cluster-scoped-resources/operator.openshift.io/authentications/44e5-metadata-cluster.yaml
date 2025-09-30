@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: openshift-oauth-apiserver-EncryptionKey
 fieldManager: openshift-oauth-apiserver-EncryptionKey
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications

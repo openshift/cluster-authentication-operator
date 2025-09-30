@@ -1,7 +1,7 @@
 action: Create
 controllerInstanceName: ""
 generateName: ""
-mame: authentication-operator.17fe72c59b829800.df0f8e47
+name: authentication-operator.17fe72c59b829800.df0f8e47
 namespace: openshift-authentication-operator
 resourceType:
   Group: ""

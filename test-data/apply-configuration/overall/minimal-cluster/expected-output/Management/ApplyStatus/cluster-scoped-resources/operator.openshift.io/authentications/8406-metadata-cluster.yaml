@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: TODO-other-configObserver
 fieldManager: oauth-apiserver-ConfigObserver
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications
