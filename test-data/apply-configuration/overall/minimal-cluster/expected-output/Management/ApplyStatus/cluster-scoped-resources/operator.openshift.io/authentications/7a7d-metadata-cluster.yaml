@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: openshift-oauth-apiserver-EncryptionMigration
 fieldManager: openshift-oauth-apiserver-EncryptionMigration
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications

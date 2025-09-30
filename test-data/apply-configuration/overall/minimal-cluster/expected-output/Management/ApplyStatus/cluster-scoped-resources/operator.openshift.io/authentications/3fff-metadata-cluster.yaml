@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: OAuthAPIServerController-WorkloadWorkloadController
 fieldManager: OAuthAPIServerController-Workload
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications

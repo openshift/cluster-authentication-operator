@@ -1,7 +1,7 @@
 action: Create
 controllerInstanceName: APIServerStaticResources-StaticResources
 generateName: ""
-mame: api
+name: api
 namespace: openshift-oauth-apiserver
 resourceType:
   Group: ""

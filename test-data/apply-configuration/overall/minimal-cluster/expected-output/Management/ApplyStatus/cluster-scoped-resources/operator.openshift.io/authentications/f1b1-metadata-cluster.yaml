@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: APIServerStaticResources-StaticResources
 fieldManager: APIServerStaticResources-StaticResources
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications

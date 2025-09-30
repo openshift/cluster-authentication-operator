@@ -2,7 +2,7 @@ action: ApplyStatus
 controllerInstanceName: openshift-oauth-apiserver-EncryptionPrune
 fieldManager: openshift-oauth-apiserver-EncryptionPrune
 generateName: ""
-mame: cluster
+name: cluster
 resourceType:
   Group: operator.openshift.io
   Resource: authentications
