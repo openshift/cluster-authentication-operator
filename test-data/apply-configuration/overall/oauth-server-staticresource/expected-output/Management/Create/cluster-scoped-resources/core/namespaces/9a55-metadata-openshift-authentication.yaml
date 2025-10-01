@@ -1,0 +1,8 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+name: openshift-authentication
+resourceType:
+  Group: ""
+  Resource: namespaces
+  Version: v1

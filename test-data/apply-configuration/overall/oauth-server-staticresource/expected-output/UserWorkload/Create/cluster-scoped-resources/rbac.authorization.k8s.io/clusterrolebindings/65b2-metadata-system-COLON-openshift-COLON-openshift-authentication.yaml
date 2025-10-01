@@ -1,0 +1,8 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+name: system:openshift:openshift-authentication
+resourceType:
+  Group: rbac.authorization.k8s.io
+  Resource: clusterrolebindings
+  Version: v1
