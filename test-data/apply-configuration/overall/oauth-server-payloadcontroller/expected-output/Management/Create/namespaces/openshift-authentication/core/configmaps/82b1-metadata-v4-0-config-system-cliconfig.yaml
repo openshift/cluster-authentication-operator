@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: TODO-payloadConfigController
+generateName: ""
+name: v4-0-config-system-cliconfig
+namespace: openshift-authentication
+resourceType:
+  Group: ""
+  Resource: configmaps
+  Version: v1
