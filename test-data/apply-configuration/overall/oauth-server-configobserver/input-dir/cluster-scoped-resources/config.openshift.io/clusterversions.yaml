@@ -1,0 +1,168 @@
+---
+apiVersion: config.openshift.io/v1
+items:
+- apiVersion: config.openshift.io/v1
+  kind: ClusterVersion
+  metadata:
+    creationTimestamp: "2025-08-01T18:29:12Z"
+    generation: 2
+    managedFields:
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:spec:
+          .: {}
+          f:clusterID: {}
+      manager: cluster-bootstrap
+      operation: Update
+      time: "2025-08-01T18:29:12Z"
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:status:
+          .: {}
+          f:availableUpdates: {}
+          f:capabilities:
+            .: {}
+            f:enabledCapabilities: {}
+            f:knownCapabilities: {}
+          f:conditions:
+            .: {}
+            k:{"type":"Available"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"Failing"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"ImplicitlyEnabledCapabilities"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"Progressing"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"ReleaseAccepted"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"RetrievedUpdates"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+          f:desired:
+            .: {}
+            f:image: {}
+            f:version: {}
+          f:history: {}
+          f:observedGeneration: {}
+          f:versionHash: {}
+      manager: cluster-version-operator
+      operation: Update
+      subresource: status
+      time: "2025-08-01T18:56:59Z"
+    name: version
+    resourceVersion: "31637"
+    uid: fd412cff-9592-4cb6-b0e9-97a5c376f29e
+  spec:
+    clusterID: 190ba3d3-45b9-4976-aa21-92d473f597b5
+  status:
+    availableUpdates: null
+    capabilities:
+      enabledCapabilities:
+      - Build
+      - CSISnapshot
+      - CloudControllerManager
+      - CloudCredential
+      - Console
+      - DeploymentConfig
+      - ImageRegistry
+      - Ingress
+      - Insights
+      - MachineAPI
+      - NodeTuning
+      - OperatorLifecycleManager
+      - OperatorLifecycleManagerV1
+      - Storage
+      - baremetal
+      - marketplace
+      - openshift-samples
+      knownCapabilities:
+      - Build
+      - CSISnapshot
+      - CloudControllerManager
+      - CloudCredential
+      - Console
+      - DeploymentConfig
+      - ImageRegistry
+      - Ingress
+      - Insights
+      - MachineAPI
+      - NodeTuning
+      - OperatorLifecycleManager
+      - OperatorLifecycleManagerV1
+      - Storage
+      - baremetal
+      - marketplace
+      - openshift-samples
+    conditions:
+    - lastTransitionTime: "2025-08-01T18:29:17Z"
+      message: The update channel has not been configured.
+      reason: NoChannel
+      status: "False"
+      type: RetrievedUpdates
+    - lastTransitionTime: "2025-08-01T18:29:17Z"
+      message: Capabilities match configured spec
+      reason: AsExpected
+      status: "False"
+      type: ImplicitlyEnabledCapabilities
+    - lastTransitionTime: "2025-08-01T18:29:17Z"
+      message: Payload loaded version="4.20.0-0.ci-2025-08-01-181332-test-ci-op-gn2pz6q7-latest"
+        image="registry.build06.ci.openshift.org/ci-op-gn2pz6q7/release@sha256:4cb12a9c632d1745527b1c4c87f44c8a6c4d60d0a2b89b75b23c5fc8fde73336"
+        architecture="amd64"
+      reason: PayloadLoaded
+      status: "True"
+      type: ReleaseAccepted
+    - lastTransitionTime: "2025-08-01T18:56:59Z"
+      message: Done applying 4.20.0-0.ci-2025-08-01-181332-test-ci-op-gn2pz6q7-latest
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2025-08-01T18:56:59Z"
+      status: "False"
+      type: Failing
+    - lastTransitionTime: "2025-08-01T18:56:59Z"
+      message: Cluster version is 4.20.0-0.ci-2025-08-01-181332-test-ci-op-gn2pz6q7-latest
+      status: "False"
+      type: Progressing
+    desired:
+      image: registry.build06.ci.openshift.org/ci-op-gn2pz6q7/release@sha256:4cb12a9c632d1745527b1c4c87f44c8a6c4d60d0a2b89b75b23c5fc8fde73336
+      version: 4.20.0-0.ci-2025-08-01-181332-test-ci-op-gn2pz6q7-latest
+    history:
+    - completionTime: "2025-08-01T18:56:59Z"
+      image: registry.build06.ci.openshift.org/ci-op-gn2pz6q7/release@sha256:4cb12a9c632d1745527b1c4c87f44c8a6c4d60d0a2b89b75b23c5fc8fde73336
+      startedTime: "2025-08-01T18:29:17Z"
+      state: Completed
+      verified: false
+      version: 4.20.0-0.ci-2025-08-01-181332-test-ci-op-gn2pz6q7-latest
+    observedGeneration: 2
+    versionHash: yySvC9w70rw=
+kind: ClusterVersionList
+metadata:
+  continue: ""
+  resourceVersion: "269027"

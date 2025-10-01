@@ -1,0 +1,14 @@
+---
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
+    include.release.openshift.io/single-node-developer: "true"
+    release.openshift.io/create-only: "true"
+  name: cluster
+spec:
+  managementState: Managed
+  observedConfig:
+    oauthServer:
+      serverArguments:
