@@ -15,6 +15,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
+	authzclient "github.com/openshift/client-go/authorization/clientset/versioned"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -24,6 +25,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"golang.org/x/net/http/httpproxy"
 
+	apiextensionsv1lister "k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +52,8 @@ type externalOIDCController struct {
 	eventName       string
 	authLister      configv1listers.AuthenticationLister
 	configMapLister corev1listers.ConfigMapLister
+	crdLister       apiextensionsv1lister.CustomResourceDefinitionLister
+	authzClient     authzclient.Interface
 	configMaps      corev1client.ConfigMapsGetter
 	featureGates    featuregates.FeatureGate
 }
@@ -59,6 +63,8 @@ func NewExternalOIDCController(
 	configInformer configinformers.SharedInformerFactory,
 	operatorClient v1helpers.OperatorClient,
 	configMaps corev1client.ConfigMapsGetter,
+	crdLister apiextensionsv1lister.CustomResourceDefinitionLister,
+	rbrClient authzclient.Interface,
 	recorder events.Recorder,
 	featureGates featuregates.FeatureGate,
 ) factory.Controller {
@@ -69,6 +75,8 @@ func NewExternalOIDCController(
 		authLister:      configInformer.Config().V1().Authentications().Lister(),
 		configMapLister: kubeInformersForNamespaces.ConfigMapLister(),
 		configMaps:      configMaps,
+		crdLister:       crdLister,
+		authzClient:     rbrClient,
 		featureGates:    featureGates,
 	}
 
@@ -95,6 +103,11 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 	if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		// auth type is "IntegratedOAuth", "" or "None"; delete structured auth configmap if it exists
 		return c.deleteAuthConfig(ctx, syncCtx)
+	}
+
+	// check if we can proceed with the OIDC configuration based on current cluster state
+	if err := c.checkOIDCPreconditions(ctx); err != nil {
+		return fmt.Errorf("OIDC preconditions failed: %v", err)
 	}
 
 	authConfig, err := c.generateAuthConfig(*auth)
@@ -126,6 +139,34 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 
 	syncCtx.Recorder().Eventf(c.eventName, "Synced auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
 
+	return nil
+}
+
+func (c *externalOIDCController) checkOIDCPreconditions(ctx context.Context) error {
+	if _, err := c.crdLister.Get("rolebindingrestrictions.authorization.openshift.io"); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("could not get RoleBindingRestrictions CRD: %v", err)
+		}
+		// CRD doesn't exist - continue with OIDC config
+		return nil
+	}
+
+	// CRD exists - check if any RoleBindingRestriction objects exist
+	rbrs, err := c.authzClient.AuthorizationV1().RoleBindingRestrictions("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("could not list existing RoleBindingRestrictions: %v", err)
+	}
+
+	if len(rbrs.Items) > 0 {
+		// RoleBindingRestriction objects exist - precondition failed
+		var rbrNames []string
+		for _, rbr := range rbrs.Items {
+			rbrNames = append(rbrNames, fmt.Sprintf("%s/%s", rbr.Namespace, rbr.Name))
+		}
+		return fmt.Errorf("no RoleBindingRestriction objects must exist; found: %s", strings.Join(rbrNames, " "))
+	}
+
+	// no RoleBindingRestriction objects exist - continue with OIDC config
 	return nil
 }
 

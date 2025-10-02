@@ -30,7 +30,7 @@ func AddKeycloakIDP(
 	t *testing.T,
 	kubeconfig *rest.Config,
 	directOIDC bool,
-) (kcClient *KeycloakClient, idpName string, cleanups []func()) {
+) (kcClient *KeycloakClient, idpName, nsName string, cleanups []func()) {
 	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
@@ -184,7 +184,7 @@ func AddKeycloakIDP(
 	cleanups = append(cleanups, idpCleans...)
 	require.NoError(t, err, "failed to configure the identity provider")
 
-	return kcClient, openshiftIDPName, cleanups
+	return kcClient, openshiftIDPName, nsName, cleanups
 }
 
 type KeycloakClient struct {

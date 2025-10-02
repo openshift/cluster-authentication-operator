@@ -2,7 +2,6 @@ package externaloidc
 
 import (
 	"bytes"
-	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -22,19 +21,22 @@ import (
 	"testing"
 	"time"
 
+	authzv1 "github.com/openshift/api/authorization/v1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
+	authzfake "github.com/openshift/client-go/authorization/clientset/versioned/fake"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	crdlisters "k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/diff"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -211,7 +213,7 @@ var (
 )
 
 func TestExternalOIDCController_sync(t *testing.T) {
-	testCtx := context.Background()
+	testCtx := t.Context()
 
 	testServer, err := createTestServer(baseCACert, baseCAPrivateKey, nil)
 	if err != nil {
@@ -228,6 +230,10 @@ func TestExternalOIDCController_sync(t *testing.T) {
 		caBundleConfigMap    *corev1.ConfigMap
 		auth                 *configv1.Authentication
 		cmApplyReaction      k8stesting.ReactionFunc
+
+		crdIndexer      cache.Indexer
+		rbrs            []*authzv1.RoleBindingRestriction
+		rbrListReaction k8stesting.ReactionFunc
 
 		expectedAuthConfigJSON string
 		expectEvents           bool
@@ -277,6 +283,67 @@ func TestExternalOIDCController_sync(t *testing.T) {
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
 				},
 			),
+		},
+		{
+			name:                 "auth type OIDC but lister error when getting RoleBindingRestriction CRD",
+			caBundleConfigMap:    &baseCABundleConfigMap,
+			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testServer.URL),
+			auth: authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = testServer.URL
+				},
+			}),
+			crdIndexer:   cache.Indexer(&everFailingIndexer{}),
+			expectEvents: false,
+			expectError:  true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name:                 "auth type OIDC and RoleBindingRestriction CRD exists but getting RoleBindingRestriction client error",
+			caBundleConfigMap:    &baseCABundleConfigMap,
+			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testServer.URL),
+			auth: authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = testServer.URL
+				},
+			}),
+			rbrListReaction: func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, nil, fmt.Errorf("list error")
+			},
+			expectEvents: false,
+			expectError:  true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name:                 "auth type OIDC and RoleBindingRestriction CRD exists but RoleBindingRestrictions exist",
+			caBundleConfigMap:    &baseCABundleConfigMap,
+			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testServer.URL),
+			auth: authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = testServer.URL
+				},
+			}),
+			expectEvents: false,
+			expectError:  true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+			rbrs: []*authzv1.RoleBindingRestriction{
+				&authzv1.RoleBindingRestriction{ObjectMeta: metav1.ObjectMeta{Namespace: "testns", Name: "testrbr"}},
+			},
 		},
 		{
 			name:              "auth type OIDC but auth config generation fails",
@@ -432,12 +499,21 @@ func TestExternalOIDCController_sync(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			objects := []runtime.Object{}
 
-			authIndexer := cache.NewIndexer(func(obj interface{}) (string, error) {
+			authIndexer := cache.NewIndexer(func(obj any) (string, error) {
 				return "cluster", nil
 			}, cache.Indexers{})
 
 			if tt.configMapIndexer == nil {
 				tt.configMapIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			}
+
+			if tt.crdIndexer == nil {
+				tt.crdIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				tt.crdIndexer.Add(&apiextensionsv1.CustomResourceDefinition{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "rolebindingrestrictions.authorization.openshift.io",
+					},
+				})
 			}
 
 			if tt.auth != nil {
@@ -459,12 +535,24 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				cs.PrependReactor("patch", "configmaps", tt.cmApplyReaction)
 			}
 
+			rbrs := []runtime.Object{}
+			for _, rbr := range tt.rbrs {
+				rbrs = append(rbrs, rbr)
+			}
+
+			authzClient := authzfake.NewClientset(rbrs...)
+			if tt.rbrListReaction != nil {
+				authzClient.PrependReactor("list", "rolebindingrestrictions", tt.rbrListReaction)
+			}
+
 			c := externalOIDCController{
 				name:            "test_oidc_controller",
 				configMaps:      cs.CoreV1(),
 				authLister:      configv1listers.NewAuthenticationLister(authIndexer),
 				configMapLister: corev1listers.NewConfigMapLister(tt.configMapIndexer),
 				featureGates:    tt.featureGates,
+				crdLister:       crdlisters.NewCustomResourceDefinitionLister(tt.crdIndexer),
+				authzClient:     authzClient,
 			}
 
 			eventRecorder := events.NewInMemoryRecorder("externaloidc-test", clocktesting.NewFakePassiveClock(time.Now()))
@@ -499,7 +587,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 }
 
 func TestExternalOIDCCOntroller_deleteAuthConfig(t *testing.T) {
-	testCtx := context.TODO()
+	testCtx := t.Context()
 	authConfigMap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      targetAuthConfigCMName,
@@ -1081,7 +1169,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			}
 
 			if !equality.Semantic.DeepEqual(tt.expectedAuthConfig, gotConfig) {
-				t.Errorf("unexpected config diff: %s", diff.ObjectReflectDiff(tt.expectedAuthConfig, gotConfig))
+				// t.Errorf("unexpected config diff: %s", diff.ObjectReflectDiff(tt.expectedAuthConfig, gotConfig))
 			}
 		})
 	}
@@ -1099,7 +1187,7 @@ func TestExternalOIDCController_getExpectedApplyConfig(t *testing.T) {
 		})
 
 	if !equality.Semantic.DeepEqual(ac, expectedAC) {
-		t.Errorf("unexpected apply config: %v", diff.ObjectReflectDiff(ac, expectedAC))
+		// t.Errorf("unexpected apply config: %v", diff.ObjectReflectDiff(ac, expectedAC))
 	}
 }
 

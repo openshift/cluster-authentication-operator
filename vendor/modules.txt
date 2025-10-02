@@ -257,6 +257,14 @@ github.com/openshift/build-machinery-go/make/targets/openshift/operator
 github.com/openshift/build-machinery-go/scripts
 # github.com/openshift/client-go v0.0.0-20250710075018-396b36f983ee
 ## explicit; go 1.24.0
+github.com/openshift/client-go/authorization/applyconfigurations
+github.com/openshift/client-go/authorization/applyconfigurations/authorization/v1
+github.com/openshift/client-go/authorization/applyconfigurations/internal
+github.com/openshift/client-go/authorization/clientset/versioned
+github.com/openshift/client-go/authorization/clientset/versioned/fake
+github.com/openshift/client-go/authorization/clientset/versioned/scheme
+github.com/openshift/client-go/authorization/clientset/versioned/typed/authorization/v1
+github.com/openshift/client-go/authorization/clientset/versioned/typed/authorization/v1/fake
 github.com/openshift/client-go/config/applyconfigurations/config/v1
 github.com/openshift/client-go/config/applyconfigurations/config/v1alpha1
 github.com/openshift/client-go/config/applyconfigurations/config/v1alpha2
@@ -827,6 +835,13 @@ k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1
 k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1
+k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions
+k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/apiextensions
+k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/apiextensions/v1
+k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/apiextensions/v1beta1
+k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/internalinterfaces
+k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1
+k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1beta1
 # k8s.io/apimachinery v0.33.2
 ## explicit; go 1.24.0
 k8s.io/apimachinery/pkg/api/equality

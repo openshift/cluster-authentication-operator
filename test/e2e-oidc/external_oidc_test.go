@@ -14,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	authzv1 "github.com/openshift/api/authorization/v1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	authzclient "github.com/openshift/client-go/authorization/clientset/versioned"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
 	operatorversionedclient "github.com/openshift/client-go/operator/clientset/versioned"
@@ -57,10 +59,17 @@ const (
 	authCM    = "auth-config"
 )
 
-func TestExternalOIDCWithKeycloak(t *testing.T) {
-	testCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestDeployKeycloak(t *testing.T) {
+	testClient, err := newTestClient(t, t.Context())
+	require.NoError(t, err)
 
+	kcClient, idpName, _, _ := test.AddKeycloakIDP(t, testClient.kubeConfig, true)
+	t.Logf("keycloak issuer URL: %s", kcClient.IssuerURL())
+	t.Logf("idpName: %s", idpName)
+}
+
+func TestExternalOIDCWithKeycloak(t *testing.T) {
+	testCtx := t.Context()
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
@@ -68,14 +77,14 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 
 	// post-test cluster cleanup
 	var cleanups []func()
-	defer test.IDPCleanupWrapper(func() {
+	t.Cleanup(test.IDPCleanupWrapper(func() {
 		t.Logf("cleaning up after test")
 		ts := time.Now()
 		for _, c := range cleanups {
 			c()
 		}
 		t.Logf("cleanup completed after %s", time.Since(ts))
-	})()
+	}))
 
 	origAuthSpec := (*testClient.getAuth(t, testCtx)).Spec.DeepCopy()
 	cleanups = append(cleanups, func() {
@@ -93,7 +102,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 	// keycloak setup
 	var idpName string
 	var kcClient *test.KeycloakClient
-	kcClient, idpName, c := test.AddKeycloakIDP(t, testClient.kubeConfig, true)
+	kcClient, idpName, testNS, c := test.AddKeycloakIDP(t, testClient.kubeConfig, true)
 	cleanups = append(cleanups, c...)
 	t.Logf("keycloak Admin URL: %s", kcClient.AdminURL())
 
@@ -211,6 +220,58 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				testClient.validateOAuthState(t, testCtx, false)
 			})
 		}
+	})
+
+	t.Run("existing RoleBindingRestrictions prevent OIDC rollout and degrade auth operator", func(t *testing.T) {
+		err := testClient.authResourceRollback(testCtx, origAuthSpec)
+		require.NoError(t, err, "failed to roll back auth resource")
+
+		testClient.checkPreconditions(t, testCtx, typeOAuth, operatorAvailable, operatorAvailable)
+
+		rbr, err := testClient.authzClient.AuthorizationV1().RoleBindingRestrictions(testNS).Create(testCtx,
+			&authzv1.RoleBindingRestriction{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-rbr",
+				},
+				Spec: authzv1.RoleBindingRestrictionSpec{
+					UserRestriction: &authzv1.UserRestriction{
+						Users: []string{"system:admin"},
+					},
+				},
+			},
+			metav1.CreateOptions{},
+		)
+		require.NoError(t, err, "failed to create rolebindingrestriction")
+		t.Cleanup(func() {
+			testClient.authzClient.AuthorizationV1().RoleBindingRestrictions(testNS).Delete(testCtx, rbr.Name, metav1.DeleteOptions{})
+		})
+
+		// configure OIDC
+		testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
+			// no other updates
+		})
+
+		// validate that auth operator goes degraded
+		configv1Client := testClient.configClient.ConfigV1()
+		require.NoError(t, test.WaitForClusterOperatorDegraded(t, configv1Client, "authentication"))
+
+		// validate the Degraded condition
+		clusterOperator, err := configv1Client.ClusterOperators().Get(testCtx, "authentication", metav1.GetOptions{})
+		require.NoError(t, err, "failed to get co authentication")
+
+		var cond configv1.ClusterOperatorStatusCondition
+		for _, c := range clusterOperator.Status.Conditions {
+			if c.Type == configv1.OperatorDegraded {
+				cond = c
+			}
+		}
+
+		require.Equal(t, "ExternalOIDCController_SyncError", cond.Reason)
+		require.Equal(t,
+			fmt.Sprintf("ExternalOIDCControllerDegraded: OIDC preconditions failed: no RoleBindingRestriction objects must exist; found: %s/%s", rbr.Namespace, rbr.Name),
+			cond.Message,
+			"Degraded condition message must report existing RoleBindingRestrictions",
+		)
 	})
 
 	t.Run("OIDC config rolls out successfully", func(t *testing.T) {
@@ -493,6 +554,7 @@ type testClient struct {
 	oauthClient           oauthclient.Interface
 	routeClient           routeclient.Interface
 	apiregistrationClient apiregistrationclient.Interface
+	authzClient           authzclient.Interface
 }
 
 func newTestClient(t *testing.T, ctx context.Context) (*testClient, error) {
@@ -527,6 +589,11 @@ func newTestClient(t *testing.T, ctx context.Context) (*testClient, error) {
 	}
 
 	tc.apiregistrationClient, err = apiregistrationclient.NewForConfig(tc.kubeConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	tc.authzClient, err = authzclient.NewForConfig(tc.kubeConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -741,6 +808,7 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"}, "", "system:openshift:useroauthaccesstoken-manager"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}, "openshift-config-managed", "system:openshift:oauth-servercert-trust"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}, "openshift-config-managed", "system:openshift:oauth-servercert-trust"},
+		{schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}, "", "rolebindingrestrictions.authorization.openshift.io"},
 	} {
 		_, err := dynamicClient.Resource(obj.gvr).Namespace(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
 		if err != nil && !errors.IsNotFound(err) {

@@ -14,6 +14,7 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	authzclient "github.com/openshift/client-go/authorization/clientset/versioned"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/configobservercontroller"
@@ -58,6 +59,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	certapiv1 "k8s.io/api/certificates/v1"
+	apiextensionsinformers "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -142,7 +144,6 @@ func prepareOauthOperator(
 		[]string{ // required resources
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
-			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
 		authOperatorInput.authenticationOperatorClient,
@@ -166,6 +167,21 @@ func prepareOauthOperator(
 			// shouldDeleteFnArg
 			func() bool {
 				return oidcAvailable(authConfigChecker)
+			},
+		).
+		WithConditionalResources(bindata.Asset,
+			[]string{
+				"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
+			},
+			// shouldCreateFnArg
+			func() bool {
+				return !oidcAvailable(authConfigChecker)
+			},
+			// shouldDeleteFnArg
+			func() bool {
+				return oidcAvailable(authConfigChecker) &&
+					crdExists(ctx, informerFactories.apiextensionsInformer, "rolebindingrestrictions.authorization.openshift.io") &&
+					!rbrsExist(ctx, authOperatorInput.authzClient)
 			},
 		)
 
@@ -761,6 +777,8 @@ func prepareExternalOIDC(
 		informerFactories.operatorConfigInformer,
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.kubeClient.CoreV1(),
+		informerFactories.apiextensionsInformer.Apiextensions().V1().CustomResourceDefinitions().Lister(),
+		authOperatorInput.authzClient,
 		authOperatorInput.eventRecorder,
 		featureGates,
 	)
@@ -859,4 +877,26 @@ func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() (
 
 		return apiServices, nil, nil
 	}
+}
+
+func crdExists(ctx context.Context, apiextensionsInformer apiextensionsinformers.SharedInformerFactory, crdName string) bool {
+	_, err := apiextensionsInformer.Apiextensions().V1().CustomResourceDefinitions().Lister().Get(crdName)
+	if errors.IsNotFound(err) {
+		return false
+	} else if err != nil {
+		klog.Infof("error while checking if CRD '%s' exists: %v", crdName, err)
+		return false
+	}
+
+	return true
+}
+
+func rbrsExist(ctx context.Context, authzClient authzclient.Interface) bool {
+	rbrs, err := authzClient.AuthorizationV1().RoleBindingRestrictions("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.Infof("error while checking if any RoleBindingRestrictions exist: %v", err)
+		return false
+	}
+
+	return len(rbrs.Items) > 0
 }
