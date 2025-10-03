@@ -58,9 +58,7 @@ const (
 )
 
 func TestExternalOIDCWithKeycloak(t *testing.T) {
-	testCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	testCtx := t.Context()
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
@@ -150,26 +148,12 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		require.NoError(t, waitErr, "failed to wait for auth configmap to get deleted: %v", err)
 	})
 
-	t.Run("invalid OIDC config degrades auth operator", func(t *testing.T) {
+	t.Run("invalid CEL expression rejects auth CR admission", func(t *testing.T) {
 		for _, tt := range []struct {
 			name                string
 			specUpdate          func(*configv1.AuthenticationSpec)
 			requireFeatureGates []configv1.FeatureGateName
 		}{
-			{
-				name: "invalid issuer CA bundle",
-				specUpdate: func(s *configv1.AuthenticationSpec) {
-					s.OIDCProviders[0].Issuer.CertificateAuthority.Name = "invalid-ca-bundle"
-				},
-				requireFeatureGates: []configv1.FeatureGateName{},
-			},
-			{
-				name: "invalid issuer URL",
-				specUpdate: func(s *configv1.AuthenticationSpec) {
-					s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
-				},
-				requireFeatureGates: []configv1.FeatureGateName{},
-			},
 			{
 				name: "uncompilable CEL expression for uid claim mapping",
 				specUpdate: func(s *configv1.AuthenticationSpec) {
@@ -198,13 +182,47 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 						t.Skipf("skipping as required feature gate %q is not enabled", fg)
 					}
 				}
+				_, err := testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
+				require.Error(t, err, "uncompilable CEL expression should return in admission error")
+			})
+		}
+	})
+
+	t.Run("invalid OIDC config degrades auth operator", func(t *testing.T) {
+		for _, tt := range []struct {
+			name                string
+			specUpdate          func(*configv1.AuthenticationSpec)
+			requireFeatureGates []configv1.FeatureGateName
+		}{
+			{
+				name: "invalid issuer CA bundle",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].Issuer.CertificateAuthority.Name = "invalid-ca-bundle"
+				},
+				requireFeatureGates: []configv1.FeatureGateName{},
+			},
+			{
+				name: "invalid issuer URL",
+				specUpdate: func(s *configv1.AuthenticationSpec) {
+					s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
+				},
+				requireFeatureGates: []configv1.FeatureGateName{},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				for _, fg := range tt.requireFeatureGates {
+					if !featureGateEnabled(testCtx, testClient.configClient, fg) {
+						t.Skipf("skipping as required feature gate %q is not enabled", fg)
+					}
+				}
 
 				err := testClient.authResourceRollback(testCtx, origAuthSpec)
 				require.NoError(t, err, "failed to roll back auth resource")
 
 				testClient.checkPreconditions(t, testCtx, typeOAuth, operatorAvailable, nil)
 
-				testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
+				_, err = testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
+				require.NoError(t, err, "failed to update authentication/cluster")
 
 				require.NoError(t, test.WaitForClusterOperatorDegraded(t, testClient.configClient.ConfigV1(), "authentication"))
 
@@ -237,13 +255,14 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				testClient.checkPreconditions(t, testCtx, nil, operatorAvailable, operatorAvailable)
 
 				kasOriginalRevision := testClient.kasLatestAvailableRevision(t, testCtx)
-				auth := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
+				auth, err := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
 					baseSpec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
 						Claim:        tt.claim,
 						PrefixPolicy: tt.prefixPolicy,
 						Prefix:       tt.prefix,
 					}
 				})
+				require.NoError(t, err, "failed to update authentication/cluster")
 
 				require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "authentication"))
 				require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
@@ -288,13 +307,14 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		testClient.checkPreconditions(t, testCtx, nil, operatorAvailable, operatorAvailable)
 
 		kasOriginalRevision := testClient.kasLatestAvailableRevision(t, testCtx)
-		auth := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
+		auth, err := testClient.updateAuthResource(t, testCtx, testSpec, func(baseSpec *configv1.AuthenticationSpec) {
 			baseSpec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
 				Claim:        "unknown",
 				PrefixPolicy: configv1.NoPrefix,
 				Prefix:       nil,
 			}
 		})
+		require.NoError(t, err, "failed to update authentication/cluster")
 
 		require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "authentication"))
 		require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
@@ -559,10 +579,10 @@ func (tc *testClient) getAuth(t *testing.T, ctx context.Context) *configv1.Authe
 }
 
 // updateAuthResource deep-copies the baseSpec, applies updates to the copy and persists them in the auth resource
-func (tc *testClient) updateAuthResource(t *testing.T, ctx context.Context, baseSpec *configv1.AuthenticationSpec, updateAuthSpec func(baseSpec *configv1.AuthenticationSpec)) *configv1.Authentication {
+func (tc *testClient) updateAuthResource(t *testing.T, ctx context.Context, baseSpec *configv1.AuthenticationSpec, updateAuthSpec func(baseSpec *configv1.AuthenticationSpec)) (*configv1.Authentication, error) {
 	auth := tc.getAuth(t, ctx)
 	if updateAuthSpec == nil {
-		return auth
+		return auth, nil
 	}
 
 	spec := baseSpec.DeepCopy()
@@ -570,10 +590,13 @@ func (tc *testClient) updateAuthResource(t *testing.T, ctx context.Context, base
 
 	auth.Spec = *spec
 	auth, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{})
-	require.NoError(t, err, "failed to update authentication/cluster")
+	if err != nil {
+		return nil, err
+	}
+
 	require.True(t, equality.Semantic.DeepEqual(auth.Spec, *spec))
 
-	return auth
+	return auth, nil
 }
 
 func (tc *testClient) checkPreconditions(t *testing.T, ctx context.Context, authType *configv1.AuthenticationType, caoStatus []configv1.ClusterOperatorStatusCondition, kasoStatus []configv1.ClusterOperatorStatusCondition) {
