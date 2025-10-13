@@ -1,0 +1,381 @@
+package externaloidc
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path"
+	"time"
+
+	"github.com/go-logr/logr"
+	routev1 "github.com/openshift/api/route/v1"
+	typedroutev1 "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
+	exutil "github.com/openshift/origin/test/extended/util"
+	"github.com/openshift/origin/test/extended/util/image"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/utils/ptr"
+)
+
+const (
+	KeycloakResourceName          = "keycloak"
+	KeycloakServingCertSecretName = "keycloak-serving-cert"
+	KeycloakLabelKey              = "app"
+	KeycloakLabelValue            = "keycloak"
+	KeycloakHTTPSPort             = 8443
+
+	KeycloakImage          = "quay.io/keycloak/keycloak:25.0"
+	KeycloakAdminUsername  = "admin"
+	KeycloakAdminPassword  = "password"
+	KeycloakCertVolumeName = "certkeypair"
+	KeycloakCertMountPath  = "/etc/x509/https"
+	KeycloakCertFile       = "tls.crt"
+	KeycloakKeyFile        = "tls.key"
+)
+
+func DeployKeycloak(ctx context.Context, client *exutil.CLI, namespace string, logger logr.Logger) error {
+	corev1Client := client.AdminKubeClient().CoreV1()
+
+	err := createKeycloakNamespace(ctx, corev1Client.Namespaces(), namespace)
+	if err != nil {
+		return fmt.Errorf("creating namespace for keycloak: %w", err)
+	}
+
+	err = createKeycloakServiceAccount(ctx, corev1Client.ServiceAccounts(namespace))
+	if err != nil {
+		return fmt.Errorf("creating serviceaccount for keycloak: %w", err)
+	}
+
+	service, err := createKeycloakService(ctx, corev1Client.Services(namespace))
+	if err != nil {
+		return fmt.Errorf("creating service for keycloak: %w", err)
+	}
+
+	err = createKeycloakDeployment(ctx, client.AdminKubeClient().AppsV1().Deployments(namespace))
+	if err != nil {
+		return fmt.Errorf("creating deployment for keycloak: %w", err)
+	}
+
+	err = createKeycloakRoute(ctx, service, client.AdminRouteClient().RouteV1().Routes(namespace))
+	if err != nil {
+		return fmt.Errorf("creating route for keycloak: %w", err)
+	}
+
+	err = createKeycloakCAConfigMap(ctx, corev1Client)
+	if err != nil {
+		return fmt.Errorf("creating CA configmap for keycloak: %w", err)
+	}
+
+	return waitForKeycloakAvailable(ctx, client, namespace, logger)
+}
+
+func createKeycloakNamespace(ctx context.Context, client typedcorev1.NamespaceInterface, namespace string) error {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	_, err := client.Create(ctx, ns, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating serviceaccount: %w", err)
+	}
+
+	return nil
+}
+
+func createKeycloakServiceAccount(ctx context.Context, client typedcorev1.ServiceAccountInterface) error {
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: KeycloakResourceName,
+		},
+	}
+	sa.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ServiceAccount"))
+
+	_, err := client.Create(ctx, sa, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating serviceaccount: %w", err)
+	}
+
+	return nil
+}
+
+func createKeycloakService(ctx context.Context, client typedcorev1.ServiceInterface) (*corev1.Service, error) {
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: KeycloakResourceName,
+			Annotations: map[string]string{
+				"service.beta.openshift.io/serving-cert-secret-name": KeycloakServingCertSecretName,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: keycloakLabels(),
+			Ports: []corev1.ServicePort{
+				{
+					Name: "https",
+					Port: KeycloakHTTPSPort,
+				},
+			},
+		},
+	}
+	service.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
+
+	_, err := client.Create(ctx, service, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return nil, fmt.Errorf("creating service: %w", err)
+	}
+
+	return service, nil
+}
+
+func createKeycloakCAConfigMap(ctx context.Context, client typedcorev1.ConfigMapsGetter) error {
+	defaultIngressCACM, err := client.ConfigMaps("openshift-config-managed").Get(ctx, "default-ingress-cert", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("getting configmap openshift-config-managed/default-ingress-cert: %w", err)
+	}
+
+	data := defaultIngressCACM.Data["ca-bundle.crt"]
+
+	keycloakCACM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s-ca", KeycloakResourceName),
+		},
+		Data: map[string]string{
+			"ca-bundle.crt": data,
+		},
+	}
+	keycloakCACM.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ConfigMap"))
+
+	_, err = client.ConfigMaps("openshift-config").Create(ctx, keycloakCACM, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating configmap: %w", err)
+	}
+
+	return nil
+}
+
+func createKeycloakDeployment(ctx context.Context, client typedappsv1.DeploymentInterface) error {
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   KeycloakResourceName,
+			Labels: keycloakLabels(),
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: keycloakLabels(),
+			},
+			Replicas: ptr.To(int32(1)),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   KeycloakResourceName,
+					Labels: keycloakLabels(),
+				},
+				Spec: corev1.PodSpec{
+					Containers: keycloakContainers(),
+					Volumes:    keycloakVolumes(),
+				},
+			},
+		},
+	}
+	deployment.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("Deployment"))
+
+	_, err := client.Create(ctx, deployment, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating deployment: %w", err)
+	}
+
+	return nil
+}
+
+func keycloakLabels() map[string]string {
+	return map[string]string{
+		KeycloakLabelKey: KeycloakLabelValue,
+	}
+}
+
+func keycloakReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health/ready",
+				Port:   intstr.FromInt(9000),
+				Scheme: corev1.URISchemeHTTPS,
+			},
+		},
+		InitialDelaySeconds: 10,
+	}
+}
+
+func keycloakLivenessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health/live",
+				Port:   intstr.FromInt(9000),
+				Scheme: corev1.URISchemeHTTPS,
+			},
+		},
+		InitialDelaySeconds: 10,
+	}
+}
+
+func keycloakStartupProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health/started",
+				Port:   intstr.FromInt(9000),
+				Scheme: corev1.URISchemeHTTPS,
+			},
+		},
+		FailureThreshold: 20,
+		PeriodSeconds:    10,
+	}
+}
+
+func keycloakEnvVars() []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{
+			Name:  "KEYCLOAK_ADMIN",
+			Value: KeycloakAdminUsername,
+		},
+		{
+			Name:  "KEYCLOAK_ADMIN_PASSWORD",
+			Value: KeycloakAdminPassword,
+		},
+		{
+			Name:  "KC_HEALTH_ENABLED",
+			Value: "true",
+		},
+		{
+			Name:  "KC_HOSTNAME_STRICT",
+			Value: "false",
+		},
+		{
+			Name:  "KC_PROXY",
+			Value: "reencrypt",
+		},
+		{
+			Name:  "KC_HTTPS_CERTIFICATE_FILE",
+			Value: path.Join(KeycloakCertMountPath, KeycloakCertFile),
+		},
+		{
+			Name:  "KC_HTTPS_CERTIFICATE_KEY_FILE",
+			Value: path.Join(KeycloakCertMountPath, KeycloakKeyFile),
+		},
+	}
+}
+
+func keycloakVolumes() []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name: KeycloakCertVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: KeycloakServingCertSecretName,
+				},
+			},
+		},
+	}
+}
+
+func keycloakVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      KeycloakCertVolumeName,
+			MountPath: KeycloakCertMountPath,
+			ReadOnly:  true,
+		},
+	}
+}
+
+func keycloakContainers() []corev1.Container {
+	return []corev1.Container{
+		{
+			Name:         "keycloak",
+			Image:        image.LocationFor(KeycloakImage),
+			Env:          keycloakEnvVars(),
+			VolumeMounts: keycloakVolumeMounts(),
+			Ports: []corev1.ContainerPort{
+				{
+					ContainerPort: KeycloakHTTPSPort,
+				},
+			},
+			LivenessProbe:  keycloakLivenessProbe(),
+			ReadinessProbe: keycloakReadinessProbe(),
+			StartupProbe:   keycloakStartupProbe(),
+			Command: []string{
+				"/opt/keycloak/bin/kc.sh",
+				"start-dev",
+			},
+		},
+	}
+}
+
+func createKeycloakRoute(ctx context.Context, service *corev1.Service, client typedroutev1.RouteInterface) error {
+	route := &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: KeycloakResourceName,
+		},
+		Spec: routev1.RouteSpec{
+			TLS: &routev1.TLSConfig{
+				Termination:                   routev1.TLSTerminationReencrypt,
+				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+			},
+			To: routev1.RouteTargetReference{
+				Kind: "Service",
+				Name: service.Name,
+			},
+			Port: &routev1.RoutePort{
+				TargetPort: intstr.FromString("https"),
+			},
+		},
+	}
+	route.SetGroupVersionKind(routev1.SchemeGroupVersion.WithKind("Route"))
+
+	var createErr error
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		_, err := client.Create(ctx, route, metav1.CreateOptions{})
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			createErr = err
+			return false, nil
+		}
+
+		return true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("creating route: %w", errors.Join(err, createErr))
+	}
+
+	return nil
+}
+
+func waitForKeycloakAvailable(ctx context.Context, client *exutil.CLI, namespace string, logger logr.Logger) error {
+	timeoutCtx, cancel := context.WithDeadline(ctx, time.Now().Add(10*time.Minute))
+	defer cancel()
+	err := wait.PollUntilContextCancel(timeoutCtx, 10*time.Second, true, func(ctx context.Context) (done bool, err error) {
+		deploy, err := client.AdminKubeClient().AppsV1().Deployments(namespace).Get(ctx, KeycloakResourceName, metav1.GetOptions{})
+		if err != nil {
+			logger.Error(err, "getting keycloak deployment")
+			return false, nil
+		}
+
+		for _, condition := range deploy.Status.Conditions {
+			if condition.Type == appsv1.DeploymentAvailable && condition.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+
+		logger.Info("keycloak deployment is not yet available", "status", deploy.Status)
+
+		return false, nil
+	})
+
+	return err
+}
