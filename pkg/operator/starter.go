@@ -474,6 +474,11 @@ func prepareOauthAPIServerOperator(
 		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("(APIServer|OAuthServer)"))
 	}
 
+	// configure version removal so it removes versions it doesn't know about.
+	statusControllerOptions = append(statusControllerOptions, func(ss *status.StatusSyncer) *status.StatusSyncer {
+		return ss.WithVersionRemoval()
+	})
+
 	const apiServerConditionsPrefix = "APIServer"
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
