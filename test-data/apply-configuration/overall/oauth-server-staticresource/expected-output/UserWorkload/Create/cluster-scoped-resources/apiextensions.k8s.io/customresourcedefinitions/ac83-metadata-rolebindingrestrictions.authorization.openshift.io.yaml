@@ -1,0 +1,8 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+name: rolebindingrestrictions.authorization.openshift.io
+resourceType:
+  Group: apiextensions.k8s.io
+  Resource: customresourcedefinitions
+  Version: v1

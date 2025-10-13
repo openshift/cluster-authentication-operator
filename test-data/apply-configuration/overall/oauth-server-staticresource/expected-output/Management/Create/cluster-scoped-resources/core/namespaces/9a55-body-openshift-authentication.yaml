@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    openshift.io/node-selector: ""
+    workload.openshift.io/allowed: management
+  creationTimestamp: null
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  name: openshift-authentication
+spec: {}
+status: {}

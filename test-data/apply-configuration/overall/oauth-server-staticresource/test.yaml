@@ -1,0 +1,14 @@
+binaryName: ./authentication-operator
+testName: creation of static resources for the oauth-server
+controllers:
+  - "TODO-staticResourceController"
+description: >
+  This test runs only the controller, which produces static resources for oauth-server.
+  
+  The purpose of this test is to show which input resources are required to run the operator and the controller.
+  
+  input-dir:
+    - config.openshift.io/clusterversions: required to "start the operator" (CreateOperatorStarter/prepareOauthOperator)
+    - operator.openshift.io/authentications/cluster: required by the controller
+testType: ApplyConfiguration
+now: 2025-08-07T22:38:20Z
