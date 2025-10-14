@@ -476,6 +476,10 @@ func prepareOauthAPIServerOperator(
 
 	const apiServerConditionsPrefix = "APIServer"
 
+	statusControllerOptions = append(statusControllerOptions, func(ss *status.StatusSyncer) *status.StatusSyncer {
+		return ss.WithVersionRemoval()
+	})
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",
 		authOperatorInput.authenticationOperatorClient,
