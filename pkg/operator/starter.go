@@ -474,9 +474,27 @@ func prepareOauthAPIServerOperator(
 		statusControllerOptions = append(statusControllerOptions, apiservercontrollerset.WithStatusControllerPdbCompatibleHighInertia("(APIServer|OAuthServer)"))
 	}
 
-	// configure version removal so it removes versions it doesn't know about.
 	statusControllerOptions = append(statusControllerOptions, func(ss *status.StatusSyncer) *status.StatusSyncer {
-		return ss.WithVersionRemoval()
+		// configure version removal so it removes versions it doesn't know about.
+		s := ss.WithVersionRemoval()
+
+		// configure func to dynamically determine oauth-specific relatedObjects
+		s.WithRelatedObjectsFunc(func() (isset bool, objs []configv1.ObjectReference) {
+			oidcAvailable, err := authConfigChecker.OIDCAvailable()
+			if err != nil {
+				klog.Errorf("error while checking auth config to determine relatedObjects: %v", err)
+				return false, nil
+			} else if oidcAvailable {
+				return true, nil
+			}
+
+			return true, []configv1.ObjectReference{
+				{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+				{Resource: "services", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+			}
+		})
+
+		return s
 	})
 
 	const apiServerConditionsPrefix = "APIServer"
@@ -622,8 +640,6 @@ func prepareOauthAPIServerOperator(
 				{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
 				{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
 				{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
-				{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
-				{Resource: "services", Name: "oauth-openshift", Namespace: "openshift-authentication"},
 				{Resource: "namespaces", Name: "openshift-config"},
 				{Resource: "namespaces", Name: "openshift-config-managed"},
 				{Resource: "namespaces", Name: "openshift-authentication"},
@@ -847,7 +863,7 @@ func loadSystemCACertBundle() ([]byte, error) {
 func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {
 	oidcAvailable, err := authConfigChecker.OIDCAvailable()
 	if err != nil {
-		klog.Infof("error while checking auth config: %v", err)
+		klog.Errorf("error while checking auth config: %v", err)
 	}
 	return oidcAvailable
 }
