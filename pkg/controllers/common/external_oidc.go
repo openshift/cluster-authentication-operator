@@ -67,13 +67,16 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, fmt.Errorf("getting kubeapiservers.operator.openshift.io/cluster: %v", err)
 	}
 
-	observedRevisions := sets.New[int32]()
-	for _, nodeStatus := range kas.Status.NodeStatuses {
-		observedRevisions.Insert(nodeStatus.CurrentRevision)
+	if len(kas.Status.NodeStatuses) == 0 {
+		return false, fmt.Errorf("determining observed revisions in kubeapiservers.operator.openshift.io/cluster; no node statuses found")
 	}
 
-	if observedRevisions.Len() == 0 {
-		return false, nil
+	observedRevisions := sets.New[int32]()
+	for _, nodeStatus := range kas.Status.NodeStatuses {
+		if nodeStatus.CurrentRevision <= 0 {
+			return false, fmt.Errorf("determining observed revisions in kubeapiservers.operator.openshift.io/cluster; some nodes do not have a valid CurrentRevision")
+		}
+		observedRevisions.Insert(nodeStatus.CurrentRevision)
 	}
 
 	for _, revision := range observedRevisions.UnsortedList() {
