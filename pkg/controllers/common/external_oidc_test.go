@@ -32,7 +32,29 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			name:            "no node statuses observed",
 			authType:        configv1.AuthenticationTypeOIDC,
 			expectAvailable: false,
-			expectError:     false,
+			expectError:     true,
+		},
+		{
+			name:     "some node revisions are zero",
+			authType: configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 0},
+			},
+			expectAvailable: false,
+			expectError:     true,
+		},
+		{
+			name:     "node revisions are zero",
+			authType: configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 0},
+				{CurrentRevision: 0},
+				{CurrentRevision: 0},
+			},
+			expectAvailable: false,
+			expectError:     true,
 		},
 		{
 			name:       "oidc disabled, no rollout",
