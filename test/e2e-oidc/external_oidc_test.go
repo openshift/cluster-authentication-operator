@@ -727,6 +727,7 @@ func (tc *testClient) validateOAuthState(t *testing.T, ctx context.Context, requ
 		validationErrs = append(validationErrs, validateOAuthResources(ctx, dynamicClient, requireMissing)...)
 		validationErrs = append(validationErrs, validateOAuthRoutes(ctx, tc.routeClient, tc.configClient, requireMissing)...)
 		validationErrs = append(validationErrs, validateOAuthControllerConditions(tc.operatorClient, requireMissing)...)
+		validationErrs = append(validationErrs, validateOperandVersions(ctx, tc.configClient, requireMissing)...)
 		return len(validationErrs) == 0, nil
 	})
 
@@ -867,6 +868,33 @@ func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, 
 	if diff := controllerConditionTypes.Difference(allConditions); diff.Len() > 0 {
 		// all controller conditions must exist in operator status
 		return append(errs, fmt.Errorf("expected conditions to exist, but were not found: %v", diff.UnsortedList()))
+	}
+
+	return nil
+}
+
+func validateOperandVersions(ctx context.Context, cfgClient *configclient.Clientset, requireMissing bool) []error {
+	operands := sets.New("oauth-apiserver", "oauth-openshift")
+
+	authnClusterOperator, err := cfgClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
+	if err != nil {
+		return []error{fmt.Errorf("fetching authentication ClusterOperator: %w", err)}
+	}
+
+	foundOperands := []string{}
+	for _, version := range authnClusterOperator.Status.Versions {
+		if operands.Has(version.Name) {
+			foundOperands = append(foundOperands, version.Name)
+		}
+	}
+
+	if requireMissing && len(foundOperands) > 0 {
+		return []error{fmt.Errorf("authentication ClusterOperator status has operands %v in versions when they should be unset", foundOperands)}
+	}
+
+	foundSet := sets.New(foundOperands...)
+	if !requireMissing && !foundSet.Equal(operands) {
+		return []error{fmt.Errorf("authentication ClusterOperator status expected to have operands %v in versions but got %v", operands.UnsortedList(), foundOperands)}
 	}
 
 	return nil

@@ -49,5 +49,3 @@ status:
   versions:
   - name: operator
     version: "0.0.1-snapshot"
-  - name: oauth-openshift
-    version: "0.0.1-snapshot_openshift"
