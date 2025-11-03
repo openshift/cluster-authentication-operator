@@ -12,6 +12,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -75,6 +76,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 	nodesWithEmptyRevision := false
 	for _, nodeStatus := range kas.Status.NodeStatuses {
 		if nodeStatus.CurrentRevision > 0 {
+			klog.Infof("[debug-801] node '%s' is on revision %d", nodeStatus.NodeName, nodeStatus.CurrentRevision)
 			observedRevisions.Insert(nodeStatus.CurrentRevision)
 		} else {
 			nodesWithEmptyRevision = true
@@ -89,10 +91,15 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, fmt.Errorf("determining observed revisions in kubeapiservers.operator.openshift.io/cluster; no observed revisions found")
 	}
 
+	if !c.kasNamespaceConfigMapsInformer.HasSynced() {
+		return false, fmt.Errorf("configmaps informer has not synced yet")
+	}
+
 	for _, revision := range observedRevisions.UnsortedList() {
 		// ensure every observed revision includes an auth-config revisioned configmap
 		_, err := c.kasConfigMapLister.ConfigMaps("openshift-kube-apiserver").Get(fmt.Sprintf("auth-config-%d", revision))
 		if errors.IsNotFound(err) {
+			klog.Infof("[debug-801] configmap auth-config-%d not found; informer HasSynced=%v", revision, c.kasNamespaceConfigMapsInformer.HasSynced())
 			return false, nil
 		} else if err != nil {
 			return false, fmt.Errorf("getting configmap openshift-kube-apiserver/auth-config-%d: %v", revision, err)
@@ -109,6 +116,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		if !strings.Contains(cm.Data["config.yaml"], `"oauthMetadataFile":""`) ||
 			strings.Contains(cm.Data["config.yaml"], `"authentication-token-webhook-config-file":`) ||
 			!strings.Contains(cm.Data["config.yaml"], `"authentication-config":["/etc/kubernetes/static-pod-resources/configmaps/auth-config/auth-config.json"]`) {
+			klog.Infof("[debug-801] configmap config-%d does not contain expected OIDC config", revision)
 			return false, nil
 		}
 	}

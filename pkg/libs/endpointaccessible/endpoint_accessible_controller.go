@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -78,14 +79,20 @@ func humanizeError(err error) error {
 
 func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	if c.endpointCheckDisabledFunc != nil {
+		klog.Infof("[debug-801] found non-nil endpointCheckDisabledFunc")
 		if skip, err := c.endpointCheckDisabledFunc(); err != nil {
+			klog.Errorf("[debug-801] endpointCheckDisabledFunc returned an error: %v", err)
 			return err
 		} else if skip {
 			// Server-Side-Apply with an empty operator status for the specific field manager
 			// will effectively remove any conditions owned by it since the list type in the
 			// API definition is 'map'
+			klog.Infof("[debug-801] endpointCheckDisabledFunc returned true; skipping endpoint check")
 			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
 		}
+		klog.Infof("[debug-801] endpointCheckDisabledFunc returned false; will not skip endpoint check")
+	} else {
+		klog.Infof("[debug-801] endpointCheckDisabledFunc is nil; will not skip endpoint check")
 	}
 
 	endpoints, err := c.endpointListFn()
