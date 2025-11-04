@@ -17,6 +17,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
 	operatorversionedclient "github.com/openshift/client-go/operator/clientset/versioned"
@@ -728,6 +729,7 @@ func (tc *testClient) validateOAuthState(t *testing.T, ctx context.Context, requ
 		validationErrs = append(validationErrs, validateOAuthRoutes(ctx, tc.routeClient, tc.configClient, requireMissing)...)
 		validationErrs = append(validationErrs, validateOAuthControllerConditions(tc.operatorClient, requireMissing)...)
 		validationErrs = append(validationErrs, validateOperandVersions(ctx, tc.configClient, requireMissing)...)
+		validationErrs = append(validationErrs, validateOAuthRelatedObjects(ctx, tc.configClient, requireMissing)...)
 		return len(validationErrs) == 0, nil
 	})
 
@@ -898,6 +900,42 @@ func validateOperandVersions(ctx context.Context, cfgClient *configclient.Client
 	}
 
 	return nil
+}
+
+func validateOAuthRelatedObjects(ctx context.Context, configClient *configclient.Clientset, requireMissing bool) []error {
+	co, err := configClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
+	if err != nil {
+		return []error{err}
+	}
+
+	oauthRelatedObjects := []configv1.ObjectReference{
+		{Group: routev1.GroupName, Resource: "routes", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+		{Resource: "services", Name: "oauth-openshift", Namespace: "openshift-authentication"},
+	}
+
+	errs := make([]error, 0)
+	for _, oauthObj := range oauthRelatedObjects {
+		found := false
+		for _, existingObj := range co.Status.RelatedObjects {
+			if oauthObj.Group == existingObj.Group &&
+				oauthObj.Resource == existingObj.Resource &&
+				oauthObj.Name == existingObj.Name &&
+				oauthObj.Namespace == existingObj.Namespace {
+				found = true
+				break
+			}
+		}
+
+		if requireMissing && found {
+			errs = append(errs, fmt.Errorf("oauth related object %s/%s %s/%s should be missing but was found in RelatedObjects",
+				oauthObj.Group, oauthObj.Resource, oauthObj.Namespace, oauthObj.Name))
+		} else if !requireMissing && !found {
+			errs = append(errs, fmt.Errorf("oauth related object %s/%s %s/%s should be present but was not found in RelatedObjects",
+				oauthObj.Group, oauthObj.Resource, oauthObj.Namespace, oauthObj.Name))
+		}
+	}
+
+	return errs
 }
 
 func (tc *testClient) testOIDCAuthentication(t *testing.T, ctx context.Context, kcClient *test.KeycloakClient, usernameClaim, usernamePrefix string, expectAuthSuccess bool) {
