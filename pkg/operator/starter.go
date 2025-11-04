@@ -458,8 +458,11 @@ func prepareOauthAPIServerOperator(
 		"openshift-oauth-apiserver",
 		os.Getenv("IMAGE_OAUTH_APISERVER"),
 		os.Getenv("OPERATOR_IMAGE"),
+		os.Getenv("KMS_PLUGIN_IMAGE"),
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
+		informerFactories.operatorConfigInformer.Config().V1().APIServers().Lister(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Lister(),
 		authConfigChecker,
 		versionRecorder)
 

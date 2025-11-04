@@ -126,4 +126,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/openshift/library-go => github.com/ardaguclu/library-go v0.0.0-20251103141116-4a45d508098c
+replace github.com/openshift/library-go => github.com/ardaguclu/library-go v0.0.0-20251104093549-31496363b7d7

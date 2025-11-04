@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	configlisterv1 "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -52,9 +54,12 @@ type OAuthAPIServerWorkload struct {
 	targetNamespace           string
 	targetImagePullSpec       string
 	operatorImagePullSpec     string
+	kmsPluginImage            string
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
 	deploymentsLister         appsv1listers.DeploymentLister
+	apiserverLister           configlisterv1.APIServerLister
+	secretLister              corev1listers.SecretLister
 	authConfigChecker         common.AuthConfigChecker
 }
 
@@ -66,8 +71,11 @@ func NewOAuthAPIServerWorkload(
 	targetNamespace string,
 	targetImagePullSpec string,
 	operatorImagePullSpec string,
+	kmsPluginImage string,
 	kubeClient kubernetes.Interface,
 	deploymentsLister appsv1listers.DeploymentLister,
+	apiserverLister configlisterv1.APIServerLister,
+	secretLister corev1listers.SecretLister,
 	authConfigChecker common.AuthConfigChecker,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
@@ -78,9 +86,12 @@ func NewOAuthAPIServerWorkload(
 		targetNamespace:           targetNamespace,
 		targetImagePullSpec:       targetImagePullSpec,
 		operatorImagePullSpec:     operatorImagePullSpec,
+		kmsPluginImage:            kmsPluginImage,
 		kubeClient:                kubeClient,
 		versionRecorder:           versionRecorder,
 		deploymentsLister:         deploymentsLister,
+		apiserverLister:           apiserverLister,
+		secretLister:              secretLister,
 		authConfigChecker:         authConfigChecker,
 	}
 }
@@ -263,6 +274,11 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
 	}
 	required.Spec.Replicas = masterNodeCount
+
+	// Inject KMS plugin sidecar if KMS encryption is enabled
+	if err := injectKMSPlugin(ctx, &required.Spec.Template.Spec, c.apiserverLister, c.secretLister, c.targetNamespace, c.kmsPluginImage); err != nil {
+		return nil, fmt.Errorf("failed to inject KMS plugin: %v", err)
+	}
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
