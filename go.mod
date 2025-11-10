@@ -32,7 +32,7 @@ require (
 	sigs.k8s.io/kube-storage-version-migrator v0.0.6-0.20230721195810-5c8923c5ff96
 )
 
-replace github.com/openshift/api => ../api
+replace github.com/openshift/api => github.com/ShazaAldawamneh/api v0.0.0-20251105172922-8847fb59bcff
 
 require (
 	cel.dev/expr v0.24.0 // indirect
