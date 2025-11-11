@@ -11,7 +11,6 @@ lastTimestamp: "2025-08-07T22:38:20Z"
 message: Created ConfigMap/v4-0-config-system-trusted-ca-bundle -n openshift-authentication
   because it was missing
 metadata:
-  creationTimestamp: null
   name: authentication-operator.18599d2230299800.a18021d9
   namespace: openshift-authentication-operator
 reason: ConfigMapCreated

@@ -10,7 +10,6 @@ kind: Event
 lastTimestamp: "2024-10-14T22:38:20Z"
 message: loginURL changed from  to https://api.ostest.test.metalkube.org:6443
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.c1353886
   namespace: openshift-authentication-operator
 reason: ObserveAPIServerURL

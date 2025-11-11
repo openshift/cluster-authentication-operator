@@ -24,7 +24,6 @@ message: 'Writing updated section ("oauthServer") of observed config: "  map[str
   ...,\n+ \t\t\t},\n+ \t\t\t\"minTLSVersion\": string(\"VersionTLS12\"),\n+ \t\t},\n+
   \t},\n  )\n"'
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.57eb8535
   namespace: openshift-authentication-operator
 reason: ObservedConfigChanged

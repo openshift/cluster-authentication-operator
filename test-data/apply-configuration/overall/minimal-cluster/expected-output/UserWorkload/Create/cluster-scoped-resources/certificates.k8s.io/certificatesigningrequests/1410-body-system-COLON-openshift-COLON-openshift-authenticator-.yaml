@@ -1,7 +1,6 @@
 apiVersion: certificates.k8s.io/v1
 kind: CertificateSigningRequest
 metadata:
-  creationTimestamp: null
   generateName: system:openshift:openshift-authenticator-
   labels:
     authentication.openshift.io/csr: openshift-authenticator

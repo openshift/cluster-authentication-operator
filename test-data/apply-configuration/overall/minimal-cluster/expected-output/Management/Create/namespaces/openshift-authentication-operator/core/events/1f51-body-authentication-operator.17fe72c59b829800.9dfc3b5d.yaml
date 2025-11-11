@@ -11,7 +11,6 @@ lastTimestamp: "2024-10-14T22:38:20Z"
 message: Created ClusterRole.rbac.authorization.k8s.io/system:openshift:useroauthaccesstoken-manager
   because it was missing
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.9dfc3b5d
   namespace: openshift-authentication-operator
 reason: ClusterRoleCreated

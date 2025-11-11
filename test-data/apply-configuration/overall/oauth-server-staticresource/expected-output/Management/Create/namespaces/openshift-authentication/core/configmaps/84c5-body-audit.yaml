@@ -13,6 +13,5 @@ data:
     - level: Metadata
 kind: ConfigMap
 metadata:
-  creationTimestamp: null
   name: audit
   namespace: openshift-authentication

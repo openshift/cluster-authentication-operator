@@ -11,7 +11,6 @@ lastTimestamp: "2024-10-14T22:38:20Z"
 message: Created CustomResourceDefinition.apiextensions.k8s.io/rolebindingrestrictions.authorization.openshift.io
   because it was missing
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.df0f8e47
   namespace: openshift-authentication-operator
 reason: CustomResourceDefinitionCreated

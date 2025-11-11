@@ -10,7 +10,6 @@ kind: Event
 lastTimestamp: "2025-08-07T22:38:20Z"
 message: Created Namespace/openshift-authentication because it was missing
 metadata:
-  creationTimestamp: null
   name: authentication-operator.18599d2230299800.6c145ec7
   namespace: openshift-authentication-operator
 reason: NamespaceCreated

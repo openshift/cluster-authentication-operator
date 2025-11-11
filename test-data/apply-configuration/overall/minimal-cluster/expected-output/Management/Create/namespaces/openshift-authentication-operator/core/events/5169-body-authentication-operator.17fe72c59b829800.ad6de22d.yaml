@@ -20,7 +20,6 @@ message: 'Status for clusteroperator/authentication changed: Degraded set to Unk
   {"" "namespaces" "" "openshift-ingress"} {"" "namespaces" "" "openshift-oauth-apiserver"}],status.versions
   changed from [] to [{"operator" ""}]'
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.ad6de22d
   namespace: openshift-authentication-operator
 reason: OperatorStatusChanged
