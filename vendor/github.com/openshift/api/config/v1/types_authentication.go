@@ -5,7 +5,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDC;ExternalOIDCWithUIDAndExtraClaimMappings,rule="!has(self.spec.oidcProviders) || self.spec.oidcProviders.all(p, !has(p.oidcClients) || p.oidcClients.all(specC, self.status.oidcClients.exists(statusC, statusC.componentNamespace == specC.componentNamespace && statusC.componentName == specC.componentName) || (has(oldSelf.spec.oidcProviders) && oldSelf.spec.oidcProviders.exists(oldP, oldP.name == p.name && has(oldP.oidcClients) && oldP.oidcClients.exists(oldC, oldC.componentNamespace == specC.componentNamespace && oldC.componentName == specC.componentName)))))",message="all oidcClients in the oidcProviders must match their componentName and componentNamespace to either a previously configured oidcClient or they must exist in the status.oidcClients"
+// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDC;ExternalOIDCWithUIDAndExtraClaimMappings;ExternalOIDCWithUpstreamParity,rule="!has(self.spec.oidcProviders) || self.spec.oidcProviders.all(p, !has(p.oidcClients) || p.oidcClients.all(specC, self.status.oidcClients.exists(statusC, statusC.componentNamespace == specC.componentNamespace && statusC.componentName == specC.componentName) || (has(oldSelf.spec.oidcProviders) && oldSelf.spec.oidcProviders.exists(oldP, oldP.name == p.name && has(oldP.oidcClients) && oldP.oidcClients.exists(oldC, oldC.componentNamespace == specC.componentNamespace && oldC.componentName == specC.componentName)))))",message="all oidcClients in the oidcProviders must match their componentName and componentNamespace to either a previously configured oidcClient or they must exist in the status.oidcClients"
 
 // Authentication specifies cluster-wide settings for authentication (like OAuth and
 // webhook token authenticators). The canonical name of an instance is `cluster`.
@@ -91,6 +91,8 @@ type AuthenticationSpec struct {
 	// +kubebuilder:validation:MaxItems=1
 	// +openshift:enable:FeatureGate=ExternalOIDC
 	// +openshift:enable:FeatureGate=ExternalOIDCWithUIDAndExtraClaimMappings
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	// +optional
 	OIDCProviders []OIDCProvider `json:"oidcProviders,omitempty"`
 }
 
@@ -242,20 +244,45 @@ type OIDCProvider struct {
 	// +listType=atomic
 	// +optional
 	ClaimValidationRules []TokenClaimValidationRule `json:"claimValidationRules,omitempty"`
+
+	// userValidationRules defines the set of rules used to validate claims in a user's token.
+	// Each rule is evaluated independently to determine whether the token subject is considered valid.
+	// Rules can either require specific claims and values to be present,
+	// or define CEL expressions that must evaluate to true for the token to be accepted.
+	// If the expression in a rule evaluates to false, the token is rejected.
+	// At least one rule must evaluate to true for the token to be considered valid.
+	// A maximum of 64 rules can be specified. This field is optional.
+	//
+	// See https://kubernetes.io/docs/reference/using-api/cel/ for CEL syntax.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=map
+	// +listMapKey=expression
+	// +optional
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	UserValidationRules []TokenUserValidationRule `json:"userValidationRules,omitempty"`
 }
 
 // +kubebuilder:validation:MinLength=1
 type TokenAudience string
 
+// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDCWithUpstreamParity,rule="self.?discoveryURL.orValue(\"\").size() > 0 ? (self.issuerURL.size() == 0 || self.discoveryURL.find('^.+[^/]') != self.issuerURL.find('^.+[^/]')) : true",message="discoveryURL must be different from issuerURL"
 type TokenIssuer struct {
 	// issuerURL is a required field that configures the URL used to issue tokens
 	// by the identity provider.
 	// The Kubernetes API server determines how authentication tokens should be handled
 	// by matching the 'iss' claim in the JWT to the issuerURL of configured identity providers.
 	//
-	// issuerURL must use the 'https' scheme.
+	// Must be at least 1 character and must not exceed 512 characters in length.
+	// Must be a valid URL that uses the 'https' scheme and does not contain a query, fragment or user.
 	//
-	// +kubebuilder:validation:Pattern=`^https:\/\/[^\s]`
+	// +kubebuilder:validation:XValidation:rule="isURL(self)",message="must be a valid URL"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() == 'https'",message="must use the 'https' scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getQuery() == {}",message="must not have a query"
+	// +kubebuilder:validation:XValidation:rule="self.find('#(.+)$') == ''",message="must not have a fragment"
+	// +kubebuilder:validation:XValidation:rule="self.find('@') == ''",message="must not have user info"
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"issuerURL"`
 
@@ -283,6 +310,26 @@ type TokenIssuer struct {
 	//
 	// +optional
 	CertificateAuthority ConfigMapNameReference `json:"issuerCertificateAuthority"`
+	// discoveryURL is an optional field that, if specified, overrides the default discovery endpoint
+	// used to retrieve OIDC configuration metadata. By default, the discovery URL is derived from `issuerURL`
+	// as "{url}/.well-known/openid-configuration".
+	//
+	// The discoveryURL must:
+	//   - Be a valid absolute URL.
+	//   - Use the HTTPS scheme.
+	//   - Not contain query parameters, user info, or fragments.
+	//   - Be different from the value of `url` (ignoring trailing slashes)
+	//
+	// +optional
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	// +kubebuilder:validation:XValidation:rule="isURL(self)",message="discoveryURL must be a valid URL"
+	// +kubebuilder:validation:XValidation:rule="url(self).getScheme() == 'https'",message="discoveryURL must be a valid https URL"
+	// +kubebuilder:validation:XValidation:rule="url(self).getQuery().size() == 0",message="discoveryURL must not contain query parameters"
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[^#]*$')",message="discoveryURL must not contain fragments"
+	// +kubebuilder:validation:XValidation:rule="!(self.matches('^https:\\/\\/.+:.+@{1}.+\\/.*$'))",message="discoveryURL must not contain user info"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	DiscoveryURL string `json:"discoveryURL,omitempty"`
 }
 
 type TokenClaimMappings struct {
@@ -320,10 +367,10 @@ type TokenClaimMappings struct {
 	// used to construct the extra attribute for the cluster identity.
 	// When omitted, no extra attributes will be present on the cluster identity.
 	// key values for extra mappings must be unique.
-	// A maximum of 64 extra attribute mappings may be provided.
+	// A maximum of 32 extra attribute mappings may be provided.
 	//
 	// +optional
-	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:MaxItems=32
 	// +listType=map
 	// +listMapKey=key
 	// +openshift:enable:FeatureGate=ExternalOIDCWithUIDAndExtraClaimMappings
@@ -375,10 +422,10 @@ type TokenClaimOrExpressionMapping struct {
 	// Precisely one of claim or expression must be set.
 	// expression must not be specified when claim is set.
 	// When specified, expression must be at least 1 character in length
-	// and must not exceed 4096 characters in length.
+	// and must not exceed 1024 characters in length.
 	//
 	// +optional
-	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:MaxLength=1024
 	// +kubebuilder:validation:MinLength=1
 	Expression string `json:"expression,omitempty"`
 }
@@ -437,12 +484,12 @@ type ExtraMapping struct {
 	// For example, the 'sub' claim value can be accessed as 'claims.sub'.
 	// Nested claims can be accessed using dot notation ('claims.foo.bar').
 	//
-	// valueExpression must not exceed 4096 characters in length.
+	// valueExpression must not exceed 1024 characters in length.
 	// valueExpression must not be empty.
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=4096
+	// +kubebuilder:validation:MaxLength=1024
 	ValueExpression string `json:"valueExpression"`
 }
 
@@ -709,45 +756,64 @@ type PrefixedClaimMapping struct {
 	Prefix string `json:"prefix"`
 }
 
-// TokenValidationRuleType represents the different
-// claim validation rule types that can be configured.
+// TokenValidationRuleType defines the type of token validation rule.
 // +enum
+// +openshift:validation:FeatureGateAwareEnum:featureGate="",enum="RequiredClaim";
+// +openshift:validation:FeatureGateAwareEnum:featureGate=ExternalOIDCWithUpstreamParity,enum="RequiredClaim";"Expression"
+// +required
 type TokenValidationRuleType string
 
 const (
-	TokenValidationRuleTypeRequiredClaim = "RequiredClaim"
+	// TokenValidationRuleRequiredClaim indicates that the token must contain a specific claim.
+	// Used as a value for TokenValidationRuleType.
+	TokenValidationRuleRequiredClaim = "RequiredClaim"
+	// TokenValidationRuleExpression indicates that the token validation is defined via a CEL expression.
+	// Used as a value for TokenValidationRuleType.
+	TokenValidationRuleExpression = "Expression"
 )
 
+// TokenClaimValidationRule represents a validation rule based on token claims.
+// If type is RequiredClaim, requiredClaim must be set.
+// If type is Expression, expression must be set.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.type) && self.type == 'RequiredClaim' ? has(self.requiredClaim) : !has(self.requiredClaim)",message="requiredClaim must be set when type is 'RequiredClaim', and forbidden otherwise"
+// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDCWithUpstreamParity,rule="has(self.type) && self.type == 'Expression' ? has(self.expression) : !has(self.expression)",message="expression must be set when type is 'Expression', and forbidden otherwise"
 type TokenClaimValidationRule struct {
 	// type is an optional field that configures the type of the validation rule.
 	//
-	// Allowed values are 'RequiredClaim' and omitted (not provided or an empty string).
+	// Allowed values are "RequiredClaim" and "Expression".
 	//
-	// When set to 'RequiredClaim', the Kubernetes API server
-	// will be configured to validate that the incoming JWT
-	// contains the required claim and that its value matches
-	// the required value.
+	// When set to 'RequiredClaim', the Kubernetes API server will be configured
+	// to validate that the incoming JWT contains the required claim and that its
+	// value matches the required value.
 	//
-	// Defaults to 'RequiredClaim'.
-	//
-	// +kubebuilder:validation:Enum={"RequiredClaim"}
-	// +kubebuilder:default="RequiredClaim"
+	// When set to 'Expression', the Kubernetes API server will be configured
+	// to validate the incoming JWT against the configured CEL expression.
 	Type TokenValidationRuleType `json:"type"`
 
-	// requiredClaim is an optional field that configures the required claim
-	// and value that the Kubernetes API server will use to validate if an incoming
-	// JWT is valid for this identity provider.
+	// requiredClaim allows configuring a required claim name and its expected value.
+	// When type is RequiredClaim, this field is used by the Kubernetes API server
+	// to validate if an incoming JWT is valid for this identity provider.
 	//
 	// +optional
 	RequiredClaim *TokenRequiredClaim `json:"requiredClaim,omitempty"`
+
+	// expression configures a CEL expression that will be used
+	// by the Kubernetes API server to validate if an incoming JWT
+	// is valid for this identity provider. The CEL expression must
+	// return a boolean value where 'true' signals a valid state.
+	// Expression must be set when 'type' is 'Expression', and
+	// is forbidden otherwise.
+	//
+	// +optional
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	Expression TokenExpressionRule `json:"expression,omitzero,omitempty"`
 }
 
 type TokenRequiredClaim struct {
-	// claim is a required field that configures the name of the required claim.
 	// When taken from the JWT claims, claim must be a string value.
 	//
 	// claim must not be an empty string ("").
-	//
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Claim string `json:"claim"`
@@ -762,4 +828,51 @@ type TokenRequiredClaim struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	RequiredValue string `json:"requiredValue"`
+}
+
+type TokenExpressionRule struct {
+	// expression is a CEL expression evaluated against token claims.
+	// The expression must be a non-empty string and no longer than 1024 characters.
+	// The expression must return a boolean value where 'true' signals a valid token and 'false' an invalid one.
+	// This field is required.
+	//
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1024
+	// +required
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	Expression string `json:"expression,omitempty"`
+
+	// message allows configuring a human-readable message that is logged by the Kubernetes API server
+	// when a token fails validation based on the CEL expression defined in 'Expression'.
+	// This field is optional. If provided, the message must be at least 1 character long
+	// and cannot exceed 256 characters. This message is logged and not returned to the caller.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	Message string `json:"message,omitempty"`
+}
+
+// TokenUserValidationRule provides a CEL-based rule used to validate a token subject.
+// Each rule contains a CEL expression that is evaluated against the token’s claims.
+type TokenUserValidationRule struct {
+	// expression is a CEL expression that must evaluate
+	// to true for the token to be accepted. The expression is evaluated against the token's
+	// user information (e.g., username, groups).
+	// This field must be non-empty and may not exceed 1024 characters.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1024
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	Expression string `json:"expression,omitempty"`
+	// message allows configuring a human-readable message that is logged by the Kubernetes API server
+	// when a token fails validation based on the CEL expression defined in 'Expression'.
+	// This field is optional. If provided, the message must be at least 1 character long
+	// and cannot exceed 256 characters. This message is logged and not returned to the caller.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
+	Message string `json:"message,omitempty"`
 }
