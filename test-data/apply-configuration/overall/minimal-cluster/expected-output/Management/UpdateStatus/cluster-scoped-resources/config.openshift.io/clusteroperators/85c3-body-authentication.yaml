@@ -40,14 +40,6 @@ status:
   - group: config.openshift.io
     name: cluster
     resource: oauths
-  - group: route.openshift.io
-    name: oauth-openshift
-    namespace: openshift-authentication
-    resource: routes
-  - group: ""
-    name: oauth-openshift
-    namespace: openshift-authentication
-    resource: services
   - group: ""
     name: openshift-config
     resource: namespaces
