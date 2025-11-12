@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: TODO-deploymentController
+generateName: ""
+name: oauth-openshift
+namespace: openshift-authentication
+resourceType:
+  Group: apps
+  Resource: deployments
+  Version: v1
