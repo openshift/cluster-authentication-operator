@@ -9,7 +9,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
+      # those are being adjusted for each control plane size by the deployment controller
+      maxUnavailable: 0
       maxSurge: 0
   selector:
     matchLabels:
