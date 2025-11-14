@@ -1,0 +1,21 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2025-08-07T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2025-08-07T22:38:20Z"
+message: assetPublicURL changed from  to https://console-openshift-console.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.18599d2230299800.6182ed8c
+  namespace: openshift-authentication-operator
+reason: ObserveConsoleURL
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal
