@@ -7,7 +7,6 @@ metadata:
     include.release.openshift.io/ibm-cloud-managed: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
     release.openshift.io/bootstrap-required: "true"
-  creationTimestamp: null
   name: rolebindingrestrictions.authorization.openshift.io
 spec:
   group: authorization.openshift.io

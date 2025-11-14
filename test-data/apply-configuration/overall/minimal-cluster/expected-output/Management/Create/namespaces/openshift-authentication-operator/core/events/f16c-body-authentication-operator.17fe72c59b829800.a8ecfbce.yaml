@@ -11,7 +11,6 @@ lastTimestamp: "2024-10-14T22:38:20Z"
 message: AuditProfile changed from '%!s(<nil>)' to 'map[audit-log-format:[json] audit-log-maxbackup:[10]
   audit-log-maxsize:[100] audit-log-path:[/var/log/oauth-server/audit.log] audit-policy-file:[/var/run/configmaps/audit/audit.yaml]]'
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.a8ecfbce
   namespace: openshift-authentication-operator
 reason: ObserveAuditProfile

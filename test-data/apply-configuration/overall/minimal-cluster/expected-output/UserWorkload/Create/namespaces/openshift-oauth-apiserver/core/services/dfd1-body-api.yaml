@@ -6,7 +6,6 @@ metadata:
     prometheus.io/scheme: https
     prometheus.io/scrape: "true"
     service.alpha.openshift.io/serving-cert-secret-name: serving-cert
-  creationTimestamp: null
   labels:
     app: openshift-oauth-apiserver
   name: api

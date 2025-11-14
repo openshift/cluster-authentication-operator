@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "a4574abdfafd21fb9a70db6c0cd6064f940ec4d3f199a0f5d9e0ac8392500f9d"
+    operator.openshift.io/spec-hash: "187e7046690e53bab0761a419280e536304f3767614ab909e8e430d5264ac6ba"
   creationTimestamp: ~
   labels:
     apiserver: "true"

@@ -1081,7 +1081,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			}
 
 			if !equality.Semantic.DeepEqual(tt.expectedAuthConfig, gotConfig) {
-				t.Errorf("unexpected config diff: %s", diff.ObjectReflectDiff(tt.expectedAuthConfig, gotConfig))
+				t.Errorf("unexpected config diff: %s", diff.Diff(tt.expectedAuthConfig, gotConfig))
 			}
 		})
 	}
@@ -1099,7 +1099,7 @@ func TestExternalOIDCController_getExpectedApplyConfig(t *testing.T) {
 		})
 
 	if !equality.Semantic.DeepEqual(ac, expectedAC) {
-		t.Errorf("unexpected apply config: %v", diff.ObjectReflectDiff(ac, expectedAC))
+		t.Errorf("unexpected apply config: %v", diff.Diff(ac, expectedAC))
 	}
 }
 

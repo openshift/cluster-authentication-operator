@@ -10,7 +10,6 @@ kind: Event
 lastTimestamp: "2024-10-14T22:38:20Z"
 message: service account issuer changed from  to https://kubernetes.default.svc
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.87c2a194
   namespace: openshift-authentication-operator
 reason: ObserveAPIAudiences

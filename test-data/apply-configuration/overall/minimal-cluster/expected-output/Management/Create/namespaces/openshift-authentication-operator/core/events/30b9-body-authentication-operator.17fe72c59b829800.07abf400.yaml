@@ -11,7 +11,6 @@ lastTimestamp: "2024-10-14T22:38:20Z"
 message: Created Service/oauth-openshift -n openshift-authentication because it was
   missing
 metadata:
-  creationTimestamp: null
   name: authentication-operator.17fe72c59b829800.07abf400
   namespace: openshift-authentication-operator
 reason: ServiceCreated

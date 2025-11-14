@@ -4,7 +4,6 @@ metadata:
   annotations:
     operator.openshift.io/spec-hash: d9e6d53076d47ab2d123d8b1ba8ec6543488d973dcc4e02349493cd1c33bce83
     service.alpha.openshift.io/serving-cert-secret-name: v4-0-config-system-serving-cert
-  creationTimestamp: null
   labels:
     app: oauth-openshift
   name: oauth-openshift

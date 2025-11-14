@@ -4,7 +4,6 @@ metadata:
   annotations:
     openshift.io/node-selector: ""
     workload.openshift.io/allowed: management
-  creationTimestamp: null
   labels:
     openshift.io/cluster-monitoring: "true"
     pod-security.kubernetes.io/audit: privileged
