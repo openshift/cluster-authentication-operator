@@ -56,6 +56,18 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 // that includes the structured auth-config ConfigMap, and the KAS args include the respective
 // arg that enables usage of the structured auth-config. It returns false otherwise.
 func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
+	if !c.authenticationsInformer.HasSynced() {
+		return false, fmt.Errorf("AuthConfigChecker authentications informer has not synced yet")
+	}
+
+	if !c.kubeAPIServersInformer.HasSynced() {
+		return false, fmt.Errorf("AuthConfigChecker kubeapiservers informer has not synced yet")
+	}
+
+	if !c.kasNamespaceConfigMapsInformer.HasSynced() {
+		return false, fmt.Errorf("AuthConfigChecker configmaps informer has not synced yet")
+	}
+
 	if auth, err := c.authLister.Get("cluster"); err != nil {
 		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
 	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
