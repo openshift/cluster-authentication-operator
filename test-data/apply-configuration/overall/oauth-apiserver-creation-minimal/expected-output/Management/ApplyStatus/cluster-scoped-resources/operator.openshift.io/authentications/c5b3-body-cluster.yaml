@@ -1,0 +1,30 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: no apiserver.openshift-oauth-apiserver pods available on any node.
+    reason: NoPod
+    status: "False"
+    type: APIServerDeploymentAvailable
+  - lastTransitionTime: "2025-09-09T00:08:37Z"
+    reason: AsExpected
+    status: "False"
+    type: APIServerDeploymentDegraded
+  - lastTransitionTime: "2024-10-14T22:38:20Z"
+    message: 'deployment/apiserver.openshift-oauth-apiserver: 0/1 pods have been updated
+      to the latest generation and 0/1 pods are available'
+    reason: PodsUpdating
+    status: "True"
+    type: APIServerDeploymentProgressing
+  - lastTransitionTime: "2025-09-09T00:08:37Z"
+    status: "False"
+    type: APIServerWorkloadDegraded
+  generations:
+  - group: apps
+    lastGeneration: 0
+    name: apiserver
+    namespace: openshift-oauth-apiserver
+    resource: deployments

@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: OAuthAPIServerController-WorkloadWorkloadController
+generateName: ""
+name: apiserver
+namespace: openshift-oauth-apiserver
+resourceType:
+  Group: apps
+  Resource: deployments
+  Version: v1

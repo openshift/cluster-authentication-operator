@@ -1,0 +1,16 @@
+binaryName: ./authentication-operator
+testName: creation of oauth-apiserver
+controllers:
+  - "OAuthAPIServerController-WorkloadWorkloadController"
+description: >
+  This test runs a single controller whose job is to create the oauth-apiserver Deployment.
+
+  The purpose of this test is to find out the input the controller requires.
+
+  input-dir:
+  - config.openshift.io/clusterversions: not really used by the controller, but it's required to start the operator CreateOperatorStarter/prepareOauthOperator
+  - config.openshift.io/authentications/cluster: required by the controller
+  - config.openshift.io/infrastructures/cluster: required by the controller
+  - operator.openshift.io/authentications/cluster: required by the controller
+testType: ApplyConfiguration
+now: 2024-10-14T22:38:20Z

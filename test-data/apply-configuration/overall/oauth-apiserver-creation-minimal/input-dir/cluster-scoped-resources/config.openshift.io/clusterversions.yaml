@@ -1,0 +1,166 @@
+---
+apiVersion: config.openshift.io/v1
+items:
+- apiVersion: config.openshift.io/v1
+  kind: ClusterVersion
+  metadata:
+    creationTimestamp: "2024-10-17T22:22:41Z"
+    generation: 2
+    managedFields:
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:spec:
+          .: {}
+          f:clusterID: {}
+      manager: cluster-bootstrap
+      operation: Update
+      time: "2024-10-17T22:22:41Z"
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:status:
+          .: {}
+          f:availableUpdates: {}
+          f:capabilities:
+            .: {}
+            f:enabledCapabilities: {}
+            f:knownCapabilities: {}
+          f:conditions:
+            .: {}
+            k:{"type":"Available"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"Failing"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"ImplicitlyEnabledCapabilities"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"Progressing"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"ReleaseAccepted"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+            k:{"type":"RetrievedUpdates"}:
+              .: {}
+              f:lastTransitionTime: {}
+              f:message: {}
+              f:reason: {}
+              f:status: {}
+              f:type: {}
+          f:desired:
+            .: {}
+            f:image: {}
+            f:version: {}
+          f:history: {}
+          f:observedGeneration: {}
+          f:versionHash: {}
+      manager: cluster-version-operator
+      operation: Update
+      subresource: status
+      time: "2024-10-17T23:22:30Z"
+    name: version
+    resourceVersion: "35834"
+    uid: f14c83b2-12a6-41dc-b167-cf11c04cc508
+  spec:
+    clusterID: 9b1def5e-285c-47d9-a958-c63b4a5ca9a2
+  status:
+    availableUpdates: null
+    capabilities:
+      enabledCapabilities:
+      - Build
+      - CSISnapshot
+      - CloudControllerManager
+      - CloudCredential
+      - Console
+      - DeploymentConfig
+      - ImageRegistry
+      - Ingress
+      - Insights
+      - MachineAPI
+      - NodeTuning
+      - OperatorLifecycleManager
+      - Storage
+      - baremetal
+      - marketplace
+      - openshift-samples
+      knownCapabilities:
+      - Build
+      - CSISnapshot
+      - CloudControllerManager
+      - CloudCredential
+      - Console
+      - DeploymentConfig
+      - ImageRegistry
+      - Ingress
+      - Insights
+      - MachineAPI
+      - NodeTuning
+      - OperatorLifecycleManager
+      - Storage
+      - baremetal
+      - marketplace
+      - openshift-samples
+    conditions:
+    - lastTransitionTime: "2024-10-17T22:22:48Z"
+      message: The update channel has not been configured.
+      reason: NoChannel
+      status: "False"
+      type: RetrievedUpdates
+    - lastTransitionTime: "2024-10-17T22:22:48Z"
+      message: Capabilities match configured spec
+      reason: AsExpected
+      status: "False"
+      type: ImplicitlyEnabledCapabilities
+    - lastTransitionTime: "2024-10-17T22:22:48Z"
+      message: Payload loaded version="4.18.0-0.ci.test-2024-10-17-215241-ci-op-7f55686r-latest"
+        image="virthost.ostest.test.metalkube.org:5000/localimages/local-release-image@sha256:f61bc6f4b95f6b485ff5f6f5fe75843ac2a4f692abf81fd000e547bd6936da32"
+        architecture="amd64"
+      reason: PayloadLoaded
+      status: "True"
+      type: ReleaseAccepted
+    - lastTransitionTime: "2024-10-17T23:22:30Z"
+      message: Done applying 4.18.0-0.ci.test-2024-10-17-215241-ci-op-7f55686r-latest
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2024-10-17T23:22:30Z"
+      status: "False"
+      type: Failing
+    - lastTransitionTime: "2024-10-17T23:22:30Z"
+      message: Cluster version is 4.18.0-0.ci.test-2024-10-17-215241-ci-op-7f55686r-latest
+      status: "False"
+      type: Progressing
+    desired:
+      image: virthost.ostest.test.metalkube.org:5000/localimages/local-release-image@sha256:f61bc6f4b95f6b485ff5f6f5fe75843ac2a4f692abf81fd000e547bd6936da32
+      version: 4.18.0-0.ci.test-2024-10-17-215241-ci-op-7f55686r-latest
+    history:
+    - completionTime: "2024-10-17T23:22:30Z"
+      image: virthost.ostest.test.metalkube.org:5000/localimages/local-release-image@sha256:f61bc6f4b95f6b485ff5f6f5fe75843ac2a4f692abf81fd000e547bd6936da32
+      startedTime: "2024-10-17T22:22:48Z"
+      state: Completed
+      verified: false
+      version: 4.18.0-0.ci.test-2024-10-17-215241-ci-op-7f55686r-latest
+    observedGeneration: 2
+    versionHash: 0wcpBSm4Nmo=
+kind: ClusterVersionList
+metadata:
+  continue: ""
+  resourceVersion: "229157"
