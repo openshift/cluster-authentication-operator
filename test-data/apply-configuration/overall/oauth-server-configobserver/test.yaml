@@ -1,0 +1,18 @@
+binaryName: ./authentication-operator
+testName: creation of the oauth-server configuration
+controllers:
+  - "TODO-configObserver"
+description: >
+  This test runs only the controller, which produces the configuration for oauth-server.
+  
+  The purpose of this test is to show which input resources are required to run the operator and the controller.
+  
+  input-dir:
+  - config.openshift.io/clusterversions: required to "start the operator" (CreateOperatorStarter/prepareOauthOperator)
+  - config.openshift.io/oauths/cluster: required by observe_idps.go, observe_tokenconfig.go
+  - config.openshift.io/apiservers/cluster: required by observe_cors.go, observe_tlssecurityprofile.go
+  - config.openshift.io/consoles/cluster: required by some observer
+  - config.openshift.io/infrastructures/cluster: required by some observer
+  - core/configmaps/openshift-authentication/v4-0-config-system-router-certs: required by some observer
+testType: ApplyConfiguration
+now: 2025-08-07T22:38:20Z

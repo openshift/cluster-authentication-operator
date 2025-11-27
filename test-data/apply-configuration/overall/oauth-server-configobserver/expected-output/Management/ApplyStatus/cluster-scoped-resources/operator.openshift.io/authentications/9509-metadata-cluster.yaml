@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: TODO-configObserver
+fieldManager: oauth-server-ConfigObserver
+generateName: ""
+name: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1
