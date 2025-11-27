@@ -1,0 +1,8 @@
+action: Update
+controllerInstanceName: TODO-configObserver
+generateName: ""
+name: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1

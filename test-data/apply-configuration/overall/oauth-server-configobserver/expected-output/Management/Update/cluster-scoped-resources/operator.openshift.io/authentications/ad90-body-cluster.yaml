@@ -1,0 +1,52 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
+    include.release.openshift.io/single-node-developer: "true"
+    release.openshift.io/create-only: "true"
+  name: cluster
+spec:
+  managementState: Managed
+  observedConfig:
+    oauthServer:
+      corsAllowedOrigins:
+      - //127\.0\.0\.1(:|$)
+      - //localhost(:|$)
+      oauthConfig:
+        assetPublicURL: https://console-openshift-console.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX
+        loginURL: https://api.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX:6443
+        tokenConfig:
+          accessTokenMaxAgeSeconds: 86400
+          authorizeTokenMaxAgeSeconds: 300
+      serverArguments:
+        audit-log-format:
+        - json
+        audit-log-maxbackup:
+        - "10"
+        audit-log-maxsize:
+        - "100"
+        audit-log-path:
+        - /var/log/oauth-server/audit.log
+        audit-policy-file:
+        - /var/run/configmaps/audit/audit.yaml
+      servingInfo:
+        cipherSuites:
+        - TLS_AES_128_GCM_SHA256
+        - TLS_AES_256_GCM_SHA384
+        - TLS_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        minTLSVersion: VersionTLS12
+        namedCertificates:
+        - certFile: /var/config/system/secrets/v4-0-config-system-router-certs/apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX
+          keyFile: /var/config/system/secrets/v4-0-config-system-router-certs/apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX
+          names:
+          - '*.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX'
+      volumesToMount:
+        identityProviders: '{}'
+  unsupportedConfigOverrides: null

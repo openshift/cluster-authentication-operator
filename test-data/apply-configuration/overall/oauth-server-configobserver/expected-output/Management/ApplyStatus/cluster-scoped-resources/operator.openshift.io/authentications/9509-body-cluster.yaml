@@ -1,0 +1,9 @@
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+status:
+  conditions:
+  - lastTransitionTime: "2025-08-07T22:38:20Z"
+    status: "False"
+    type: OAuthServerConfigObservationDegraded

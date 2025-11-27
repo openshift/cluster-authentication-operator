@@ -1,0 +1,32 @@
+apiVersion: v1
+count: 1
+eventTime: null
+firstTimestamp: "2025-08-07T22:38:20Z"
+involvedObject:
+  kind: Deployment
+  name: authentication-operator
+  namespace: openshift-authentication-operator
+kind: Event
+lastTimestamp: "2025-08-07T22:38:20Z"
+message: 'Writing updated section ("oauthServer") of observed config: "\u00a0\u00a0map[string]any{\n+\u00a0\t\"corsAllowedOrigins\":
+  []any{string(`//127\\.0\\.0\\.1(:|$)`), string(\"//localhost(:|$)\")},\n+\u00a0\t\"oauthConfig\":
+  map[string]any{\n+\u00a0\t\t\"assetPublicURL\": string(\"https://console-openshift-console.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX\"),\n+\u00a0\t\t\"loginURL\":       string(\"https://api.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX:6443\"),\n+\u00a0\t\t\"tokenConfig\":
+  map[string]any{\n+\u00a0\t\t\t\"accessTokenMaxAgeSeconds\":    float64(86400),\n+\u00a0\t\t\t\"authorizeTokenMaxAgeSeconds\":
+  float64(300),\n+\u00a0\t\t},\n+\u00a0\t},\n-\u00a0\t\"serverArguments\": nil,\n+\u00a0\t\"serverArguments\":
+  map[string]any{\n+\u00a0\t\t\"audit-log-format\":    []any{string(\"json\")},\n+\u00a0\t\t\"audit-log-maxbackup\":
+  []any{string(\"10\")},\n+\u00a0\t\t\"audit-log-maxsize\":   []any{string(\"100\")},\n+\u00a0\t\t\"audit-log-path\":      []any{string(\"/var/log/oauth-server/audit.log\")},\n+\u00a0\t\t\"audit-policy-file\":   []any{string(\"/var/run/configmaps/audit/audit.yaml\")},\n+\u00a0\t},\n+\u00a0\t\"servingInfo\":
+  map[string]any{\n+\u00a0\t\t\"cipherSuites\": []any{\n+\u00a0\t\t\tstring(\"TLS_AES_128_GCM_SHA256\"),
+  string(\"TLS_AES_256_GCM_SHA384\"),\n+\u00a0\t\t\tstring(\"TLS_CHACHA20_POLY1305_SHA256\"),\n+\u00a0\t\t\tstring(\"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256\"),\n+\u00a0\t\t\tstring(\"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256\"),\n+\u00a0\t\t\tstring(\"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\"),\n+\u00a0\t\t\tstring(\"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384\"),\n+\u00a0\t\t\tstring(\"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256\"),
+  ...,\n+\u00a0\t\t},\n+\u00a0\t\t\"minTLSVersion\": string(\"VersionTLS12\"),\n+\u00a0\t\t\"namedCertificates\":
+  []any{\n+\u00a0\t\t\tmap[string]any{\n+\u00a0\t\t\t\t\"certFile\": string(\"/var/config/system/secrets/v4-0-\"...),\n+\u00a0\t\t\t\t\"keyFile\":  string(\"/var/config/system/secrets/v4-0-\"...),\n+\u00a0\t\t\t\t\"names\":    []any{...},\n+\u00a0\t\t\t},\n+\u00a0\t\t},\n+\u00a0\t},\n+\u00a0\t\"volumesToMount\":
+  map[string]any{\"identityProviders\": string(\"{}\")},\n\u00a0\u00a0}\n"'
+metadata:
+  creationTimestamp: null
+  name: authentication-operator.18599d2230299800.5f2cc1a1
+  namespace: openshift-authentication-operator
+reason: ObservedConfigChanged
+reportingComponent: ""
+reportingInstance: ""
+source:
+  component: cluster-authentication-operator-run-once-sync-context
+type: Normal
