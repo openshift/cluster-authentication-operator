@@ -773,7 +773,7 @@ func prepareExternalOIDC(
 		return nil, nil, fmt.Errorf("timed out waiting for FeatureGate detection")
 	}
 
-	if !(featureGates.Enabled(features.FeatureGateExternalOIDC) || featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings)) {
+	if !(featureGates.Enabled(features.FeatureGateExternalOIDC) || featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) || featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity)) {
 		return nil, nil, nil
 	}
 

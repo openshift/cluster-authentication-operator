@@ -193,9 +193,15 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating claimValidationRules for provider %q: %v", provider.Name, err)
 	}
 
+	userValidationRules, err := generateUserValidationRules(provider.UserValidationRules)
+	if err != nil {
+		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating userValidationRules for provider %q: %v", provider.Name, err)
+	}
+
 	out.Issuer = issuer
 	out.ClaimMappings = claimMappings
 	out.ClaimValidationRules = claimValidationRules
+	out.UserValidationRules = userValidationRules
 
 	return out, nil
 }
@@ -214,6 +220,10 @@ func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.C
 
 	for _, audience := range issuer.Audiences {
 		out.Audiences = append(out.Audiences, string(audience))
+	}
+
+	if issuer.DiscoveryURL != "" {
+		out.DiscoveryURL = &issuer.DiscoveryURL
 	}
 
 	if len(issuer.CertificateAuthority.Name) > 0 {
@@ -421,17 +431,53 @@ func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidati
 	// validation rule and does not allow setting a CEL expression and message like the upstream.
 	// This is likely to change in the near future to also allow setting a CEL expression.
 	switch claimValidationRule.Type {
-	case configv1.TokenValidationRuleTypeRequiredClaim:
+	case configv1.TokenValidationRuleRequiredClaim:
 		if claimValidationRule.RequiredClaim == nil {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleTypeRequiredClaim)
+			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleRequiredClaim)
 		}
 
 		out.Claim = claimValidationRule.RequiredClaim.Claim
 		out.RequiredValue = claimValidationRule.RequiredClaim.RequiredValue
+	case configv1.TokenValidationRuleExpression:
+		if claimValidationRule.Expression.Expression == "" {
+			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and expression is not set", configv1.TokenValidationRuleExpression)
+		}
+
+		// validate CEL expression
+		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+			Expression: claimValidationRule.Expression.Expression,
+		}); err != nil {
+			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("invalid CEL expression: %v", err)
+		}
+
+		out.Expression = claimValidationRule.Expression.Expression
+		out.Message = claimValidationRule.Expression.Message
+
 	default:
 		return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
 	}
 
+	return out, nil
+}
+
+func generateUserValidationRules(rules []configv1.TokenUserValidationRule) ([]apiserverv1beta1.UserValidationRule, error) {
+	out := []apiserverv1beta1.UserValidationRule{}
+	errs := []error{}
+	for _, r := range rules {
+		// Validate the expression is non-empty
+		if len(r.Expression) == 0 {
+			errs = append(errs, fmt.Errorf("userValidationRule expression must be non-empty"))
+			continue
+		}
+		uvr := apiserverv1beta1.UserValidationRule{
+			Expression: r.Expression,
+			Message:    r.Message,
+		}
+		out = append(out, uvr)
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
 	return out, nil
 }
 

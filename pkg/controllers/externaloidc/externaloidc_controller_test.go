@@ -63,6 +63,7 @@ var (
 				Issuer: configv1.TokenIssuer{
 					CertificateAuthority: configv1.ConfigMapNameReference{Name: "oidc-ca-bundle"},
 					Audiences:            []configv1.TokenAudience{"my-test-aud", "another-aud"},
+					DiscoveryURL:         "https://example.com/.well-known/openid-configuration",
 				},
 				OIDCClients: []configv1.OIDCClientConfig{
 					{
@@ -93,18 +94,24 @@ var (
 				},
 				ClaimValidationRules: []configv1.TokenClaimValidationRule{
 					{
-						Type: configv1.TokenValidationRuleTypeRequiredClaim,
+						Type: configv1.TokenValidationRuleRequiredClaim,
 						RequiredClaim: &configv1.TokenRequiredClaim{
 							Claim:         "username",
 							RequiredValue: "test-username",
 						},
 					},
 					{
-						Type: configv1.TokenValidationRuleTypeRequiredClaim,
-						RequiredClaim: &configv1.TokenRequiredClaim{
-							Claim:         "email",
-							RequiredValue: "test-email",
+						Type: configv1.TokenValidationRuleExpression,
+						Expression: configv1.TokenExpressionRule{
+							Expression: "claims.email.endsWith('@example.com')",
+							Message:    "email domain must be example.com",
 						},
+					},
+				},
+				UserValidationRules: []configv1.TokenUserValidationRule{
+					{
+						Expression: "user.groups.exists(g, g == 'system:authenticated')",
+						Message:    "user must be authenticated",
 					},
 				},
 			},
@@ -122,6 +129,7 @@ var (
 					Audiences:            []string{"my-test-aud", "another-aud"},
 					CertificateAuthority: testCertData,
 					AudienceMatchPolicy:  apiserverv1beta1.AudienceMatchPolicyMatchAny,
+					DiscoveryURL:         ptr.To("https://example.com/.well-known/openid-configuration"),
 				},
 				ClaimMappings: apiserverv1beta1.ClaimMappings{
 					Username: apiserverv1beta1.PrefixedClaimOrExpression{
@@ -139,17 +147,22 @@ var (
 						RequiredValue: "test-username",
 					},
 					{
-						Claim:         "email",
-						RequiredValue: "test-email",
+						Expression: "claims.email.endsWith('@example.com')",
+						Message:    "email domain must be example.com",
+					},
+				},
+				UserValidationRules: []apiserverv1beta1.UserValidationRule{
+					{
+						Expression: "user.groups.exists(g, g == 'system:authenticated')",
+						Message:    "user must be authenticated",
 					},
 				},
 			},
 		},
 	}
 
-	baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
-
-	baseAuthConfigCM = corev1.ConfigMap{
+	baseAuthConfigJSON = fmt.Sprintf(`{"kind":"%s","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"$URL","certificateAuthority":"%s","audiences":["my-test-aud","another-aud"],"audienceMatchPolicy":"MatchAny"},"claimValidationRules":[{"claim":"username","requiredValue":"test-username"},{"claim":"email","requiredValue":"test-email"},{"expression":"claims.email.endsWith('@example.com')","message":"email domain must be example.com"}],"userValidationRules":[{"expression":"user.groups.exists(g, g == 'system:authenticated')","message":"user must be authenticated"}],"claimMappings":{"username":{"claim":"username","prefix":"oidc-user:"},"groups":{"claim":"groups","prefix":"oidc-group:"},"uid":{}}}]}`, kindAuthenticationConfiguration, strings.ReplaceAll(testCertData, "\n", "\\n"))
+	baseAuthConfigCM   = corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      targetAuthConfigCMName,
 			Namespace: managedNamespace,
@@ -690,10 +703,13 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 						if len(copy.Spec.OIDCProviders[i].ClaimValidationRules) == 0 {
 							copy.Spec.OIDCProviders[i].ClaimValidationRules = make([]configv1.TokenClaimValidationRule, 0)
 						}
-						copy.Spec.OIDCProviders[i].ClaimValidationRules = append(copy.Spec.OIDCProviders[i].ClaimValidationRules, configv1.TokenClaimValidationRule{
-							Type:          configv1.TokenValidationRuleTypeRequiredClaim,
-							RequiredClaim: nil,
-						})
+						copy.Spec.OIDCProviders[i].ClaimValidationRules = append(
+							copy.Spec.OIDCProviders[i].ClaimValidationRules,
+							configv1.TokenClaimValidationRule{
+								Type:          configv1.TokenValidationRuleRequiredClaim, // updated constant
+								RequiredClaim: nil,
+							},
+						)
 					}
 				},
 			}),
@@ -701,8 +717,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-				},
+					features.FeatureGateExternalOIDCWithUpstreamParity},
 			),
 		},
 		{
@@ -1054,6 +1069,75 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
 				},
 				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name: "invalid discovery URL (empty)",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = ""
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name: "invalid discovery URL (http instead of https)",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.URL = "http://insecure-url.com"
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
+			),
+		},
+		{
+			name: "claim validation rule missing required claim",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].ClaimValidationRules = append(
+						auth.Spec.OIDCProviders[0].ClaimValidationRules,
+						configv1.TokenClaimValidationRule{
+							Type:          configv1.TokenValidationRuleRequiredClaim,
+							RequiredClaim: nil,
+						},
+					)
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name: "user validation rule invalid username prefix",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
+						Claim:        "username",
+						PrefixPolicy: configv1.UsernamePrefixPolicy("invalid-policy"),
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+				},
 			),
 		},
 	} {
