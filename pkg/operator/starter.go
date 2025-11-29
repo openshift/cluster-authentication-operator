@@ -515,7 +515,10 @@ func prepareOauthAPIServerOperator(
 		authAPIServerWorkload,
 		versionRecorder,
 		informerFactories.kubeInformersForNamespaces,
-		authOperatorInput.authenticationOperatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
+		append(
+			[]factory.Informer{authOperatorInput.authenticationOperatorClient.Informer()}, // TODO update the library so that the operator client informer is automatically added.
+			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
+		)...,
 	).WithStaticResourcesController(
 		"APIServerStaticResources",
 		bindata.Asset,

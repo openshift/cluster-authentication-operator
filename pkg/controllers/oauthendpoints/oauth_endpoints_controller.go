@@ -58,16 +58,19 @@ func NewOAuthRouteCheckController(
 
 	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
 
+	informers := []factory.Informer{
+		cmInformer,
+		secretInformer,
+		routeInformer,
+		ingressInformer,
+	}
+	informers = append(informers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerRoute",
 		operatorClient,
 		endpointListFunc, getTLSConfigFunc, endpointCheckDisabledFunc,
-		[]factory.Informer{
-			cmInformer,
-			secretInformer,
-			routeInformer,
-			ingressInformer,
-		},
+		informers,
 		recorder)
 }
 
@@ -88,14 +91,17 @@ func NewOAuthServiceCheckController(
 
 	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
 
+	informers := []factory.Informer{
+		kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
+		kubeInformersForTargetNS.Core().V1().Services().Informer(),
+	}
+	informers = append(informers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerService",
 		operatorClient,
 		endpointsListFunc, getTLSConfigFunc, endpointCheckDisabledFunc,
-		[]factory.Informer{
-			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
-			kubeInformersForTargetNS.Core().V1().Services().Informer(),
-		},
+		informers,
 		recorder)
 }
 
@@ -117,14 +123,17 @@ func NewOAuthServiceEndpointsCheckController(
 
 	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
 
+	informers := []factory.Informer{
+		kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
+		kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
+	}
+	informers = append(informers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
+
 	return endpointaccessible.NewEndpointAccessibleController(
 		"OAuthServerServiceEndpoints",
 		operatorClient,
 		endpointsListFn, getTLSConfigFunc, endpointCheckDisabledFunc,
-		[]factory.Informer{
-			kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
-			kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
-		},
+		informers,
 		recorder)
 }
 

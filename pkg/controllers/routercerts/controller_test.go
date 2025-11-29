@@ -30,6 +30,7 @@ import (
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	test "github.com/openshift/cluster-authentication-operator/test/library"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -263,9 +264,9 @@ func TestValidateRouterCertificates(t *testing.T) {
 				systemCertPool:    tc.systemCertPool,
 				secretsClient:     secretsClient.CoreV1(),
 				authConfigChecker: common.NewAuthConfigChecker(
-					newFakeInformer[configv1listers.AuthenticationLister](configv1listers.NewAuthenticationLister(authIndexer)),
-					newFakeInformer[operatorv1listers.KubeAPIServerLister](nil),
-					newFakeInformer[corelistersv1.ConfigMapLister](nil),
+					test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), true),
+					test.NewFakeSharedIndexInformerWithSync[operatorv1listers.KubeAPIServerLister](nil, true),
+					test.NewFakeSharedIndexInformerWithSync[corelistersv1.ConfigMapLister](nil, true),
 				),
 			}
 			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder", clocktesting.NewFakePassiveClock(time.Now()))))
@@ -478,20 +479,4 @@ func newServerCertificate(signer *cryptoMaterials, hosts ...string) *cryptoMater
 		panic(err)
 	}
 	return result
-}
-
-func newFakeInformer[T any](lister T) *fakeInformer[T] {
-	return &fakeInformer[T]{lister}
-}
-
-type fakeInformer[T any] struct {
-	lister T
-}
-
-func (f *fakeInformer[T]) Informer() cache.SharedIndexInformer {
-	return nil
-}
-
-func (f *fakeInformer[T]) Lister() T {
-	return f.lister
 }

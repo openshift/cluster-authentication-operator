@@ -7,6 +7,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
+	test "github.com/openshift/cluster-authentication-operator/test/library"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,23 +22,60 @@ const (
 
 func TestExternalOIDCConfigAvailable(t *testing.T) {
 	for _, tt := range []struct {
-		name            string
-		configMaps      []*corev1.ConfigMap
-		authType        configv1.AuthenticationType
-		nodeStatuses    []operatorv1.NodeStatus
-		expectAvailable bool
-		expectError     bool
+		name               string
+		authInformerSynced bool
+		kasInformerSynced  bool
+		cmInformerSynced   bool
+		configMaps         []*corev1.ConfigMap
+		authType           configv1.AuthenticationType
+		nodeStatuses       []operatorv1.NodeStatus
+		expectAvailable    bool
+		expectError        bool
 	}{
 		{
-			name:            "no node statuses observed",
-			authType:        configv1.AuthenticationTypeOIDC,
-			expectAvailable: false,
-			expectError:     false,
+			name:               "no node statuses observed",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			expectAvailable:    false,
+			expectError:        true,
 		},
 		{
-			name:       "oidc disabled, no rollout",
-			configMaps: []*corev1.ConfigMap{cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC)},
-			authType:   configv1.AuthenticationTypeIntegratedOAuth,
+			name:               "some node revisions are zero",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 0},
+			},
+			expectAvailable: false,
+			expectError:     true,
+		},
+		{
+			name:               "node revisions are zero",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 0},
+				{CurrentRevision: 0},
+				{CurrentRevision: 0},
+			},
+			expectAvailable: false,
+			expectError:     true,
+		},
+		{
+			name:               "oidc disabled, no rollout",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			configMaps:         []*corev1.ConfigMap{cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC)},
+			authType:           configv1.AuthenticationTypeIntegratedOAuth,
 			nodeStatuses: []operatorv1.NodeStatus{
 				{CurrentRevision: 10},
 				{CurrentRevision: 10},
@@ -47,7 +85,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc getting enabled, rollout in progress",
+			name:               "oidc getting enabled, rollout in progress",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
@@ -63,7 +104,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc getting enabled, rollout in progress, one node ready",
+			name:               "oidc getting enabled, rollout in progress, one node ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
@@ -79,7 +123,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc getting enabled, rollout in progress, two nodes ready",
+			name:               "oidc getting enabled, rollout in progress, two nodes ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
@@ -95,7 +142,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc got enabled",
+			name:               "oidc got enabled",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("auth-config-11", "", ""),
@@ -110,7 +160,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc enabled, rollout in progress",
+			name:               "oidc enabled, rollout in progress",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -127,7 +180,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc enabled, rollout in progress, one node ready",
+			name:               "oidc enabled, rollout in progress, one node ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -144,7 +200,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc enabled, rollout in progress, two nodes ready",
+			name:               "oidc enabled, rollout in progress, two nodes ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -161,7 +220,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc still enabled",
+			name:               "oidc still enabled",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -178,7 +240,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc getting disabled, rollout in progress",
+			name:               "oidc getting disabled, rollout in progress",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -196,7 +261,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc getting disabled, rollout in progress, one node ready",
+			name:               "oidc getting disabled, rollout in progress, one node ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -214,8 +282,11 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name:     "oidc getting disabled, rollout in progress, two nodes ready",
-			authType: configv1.AuthenticationTypeIntegratedOAuth,
+			name:               "oidc getting disabled, rollout in progress, two nodes ready",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeIntegratedOAuth,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
@@ -232,7 +303,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name: "oidc got disabled",
+			name:               "oidc got disabled",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
 				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
 				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
@@ -248,6 +322,43 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+		},
+		{
+			name:               "auth informer not synced",
+			authInformerSynced: false,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			expectAvailable:    false,
+			expectError:        true,
+		},
+		{
+			name:               "kas informer not synced",
+			authInformerSynced: true,
+			kasInformerSynced:  false,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: false,
+			expectError:     true,
+		},
+		{
+			name:               "configmap informer not synced",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   false,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: false,
+			expectError:     true,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -257,7 +368,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				cmIndexer.Add(cm)
 			}
 
-			kasIndexer := cache.NewIndexer(func(obj interface{}) (string, error) {
+			kasIndexer := cache.NewIndexer(func(obj any) (string, error) {
 				return "cluster", nil
 			}, cache.Indexers{})
 
@@ -272,7 +383,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				},
 			})
 
-			authIndexer := cache.NewIndexer(func(obj interface{}) (string, error) {
+			authIndexer := cache.NewIndexer(func(obj any) (string, error) {
 				return "cluster", nil
 			}, cache.Indexers{})
 
@@ -283,9 +394,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			})
 
 			authConfigChecker := NewAuthConfigChecker(
-				&fakeInformer[configv1listers.AuthenticationLister]{configv1listers.NewAuthenticationLister(authIndexer)},
-				&fakeInformer[operatorv1listers.KubeAPIServerLister]{operatorv1listers.NewKubeAPIServerLister(kasIndexer)},
-				&fakeInformer[corelistersv1.ConfigMapLister]{corelistersv1.NewConfigMapLister(cmIndexer)},
+				test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), tt.authInformerSynced),
+				test.NewFakeSharedIndexInformerWithSync(operatorv1listers.NewKubeAPIServerLister(kasIndexer), tt.kasInformerSynced),
+				test.NewFakeSharedIndexInformerWithSync(corelistersv1.NewConfigMapLister(cmIndexer), tt.cmInformerSynced),
 			)
 
 			available, err := authConfigChecker.OIDCAvailable()
@@ -316,16 +427,4 @@ func cm(name, dataKey, dataValue string) *corev1.ConfigMap {
 	}
 
 	return cm
-}
-
-type fakeInformer[T any] struct {
-	lister T
-}
-
-func (f *fakeInformer[T]) Informer() cache.SharedIndexInformer {
-	return nil
-}
-
-func (f *fakeInformer[T]) Lister() T {
-	return f.lister
 }

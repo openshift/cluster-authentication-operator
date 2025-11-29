@@ -59,6 +59,7 @@ func NewIngressNodesAvailableController(
 			ingressControllerInformer.Informer(),
 			nodeInformer.Informer(),
 		).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSync(controller.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController(controller.controllerInstanceName, eventRecorder)

@@ -65,6 +65,7 @@ func NewIngressStateController(
 			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
 		).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSync(c.sync).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		ToController(c.controllerInstanceName, recorder.WithComponentSuffix("ingress-state-controller"))
