@@ -10,12 +10,12 @@ import (
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
-	corev1informers "k8s.io/client-go/informers/core/v1"
-	"k8s.io/client-go/tools/cache"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	corev1informers "k8s.io/client-go/informers/core/v1"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 )
 
 type AuthConfigChecker struct {
@@ -56,9 +56,17 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 // that includes the structured auth-config ConfigMap, and the KAS args include the respective
 // arg that enables usage of the structured auth-config. It returns false otherwise.
 func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
-	if auth, err := c.authLister.Get("cluster"); err != nil {
-		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
-	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
+	var auth *configv1.Authentication
+	// Retry with exponential backoff to handle transient NotFound during upgrades.
+	err := retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
+		var retryErr error
+		auth, retryErr = c.authLister.Get("cluster")
+		return retryErr
+	})
+	if err != nil {
+		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %w", err)
+	}
+	if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		return false, nil
 	}
 
