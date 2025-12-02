@@ -2,6 +2,8 @@ package webhookauthenticator
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -28,6 +30,7 @@ import (
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/certrotation"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/status"
@@ -196,12 +199,26 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 
 	kubeconfigComplete := replacer.Replace(string(kubeconfigBytes))
 
+	pair, err := tls.X509KeyPair(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid TLS keypair in authenticator secret: %w", err)
+	}
+	if len(pair.Certificate) == 0 {
+		return nil, fmt.Errorf("no certificate data found in authenticator secret")
+	}
+	parsedCert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse leaf certificate from authenticator secret: %w", err)
+	}
+
 	requiredSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webhookSecretName,
 			Namespace: configNamespace,
 			Annotations: map[string]string{
-				annotations.OpenShiftComponent: "apiserver-auth",
+				annotations.OpenShiftComponent:              "apiserver-auth",
+				certrotation.CertificateNotBeforeAnnotation: parsedCert.NotBefore.Format(time.RFC3339),
+				certrotation.CertificateNotAfterAnnotation:  parsedCert.NotAfter.Format(time.RFC3339),
 			},
 		},
 		Data: map[string][]byte{
