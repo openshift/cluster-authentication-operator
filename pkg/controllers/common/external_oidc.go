@@ -16,6 +16,7 @@ import (
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/klog/v2"
 )
 
 type AuthConfigChecker struct {
@@ -61,6 +62,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 	err := retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
 		var retryErr error
 		auth, retryErr = c.authLister.Get("cluster")
+		klog.Infof("Get cluster auth: data: %s err: %v", auth, retryErr)
 		return retryErr
 	})
 	if err != nil {
