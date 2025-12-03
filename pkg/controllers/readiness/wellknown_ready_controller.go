@@ -97,6 +97,7 @@ func NewWellKnownReadyController(
 		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
 		routeInformer.Informer(),
 	).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).

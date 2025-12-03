@@ -58,6 +58,7 @@ func NewProxyConfigChecker(
 		WithInformers(
 			routeInformer.Informer(),
 		).
+		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		ResyncEvery(60 * time.Minute).
 		WithSyncDegradedOnError(operatorClient)
 
