@@ -56,18 +56,6 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 // that includes the structured auth-config ConfigMap, and the KAS args include the respective
 // arg that enables usage of the structured auth-config. It returns false otherwise.
 func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
-	if !c.authenticationsInformer.HasSynced() {
-		return false, fmt.Errorf("AuthConfigChecker authentications informer has not synced yet")
-	}
-
-	if !c.kubeAPIServersInformer.HasSynced() {
-		return false, fmt.Errorf("AuthConfigChecker kubeapiservers informer has not synced yet")
-	}
-
-	if !c.kasNamespaceConfigMapsInformer.HasSynced() {
-		return false, fmt.Errorf("AuthConfigChecker configmaps informer has not synced yet")
-	}
-
 	if auth, err := c.authLister.Get("cluster"); err != nil {
 		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
 	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
@@ -79,16 +67,13 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, fmt.Errorf("getting kubeapiservers.operator.openshift.io/cluster: %v", err)
 	}
 
-	if len(kas.Status.NodeStatuses) == 0 {
-		return false, fmt.Errorf("determining observed revisions in kubeapiservers.operator.openshift.io/cluster; no node statuses found")
-	}
-
 	observedRevisions := sets.New[int32]()
 	for _, nodeStatus := range kas.Status.NodeStatuses {
-		if nodeStatus.CurrentRevision <= 0 {
-			return false, fmt.Errorf("determining observed revisions in kubeapiservers.operator.openshift.io/cluster; some nodes do not have a valid CurrentRevision")
-		}
 		observedRevisions.Insert(nodeStatus.CurrentRevision)
+	}
+
+	if observedRevisions.Len() == 0 {
+		return false, nil
 	}
 
 	for _, revision := range observedRevisions.UnsortedList() {

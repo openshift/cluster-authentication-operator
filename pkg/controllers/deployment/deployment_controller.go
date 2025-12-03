@@ -113,13 +113,6 @@ func NewOAuthServerWorkloadController(
 		oauthDeploymentSyncer.bootstrapUserChangeRollOut = userExists
 	}
 
-	clusterScopedInformers := []factory.Informer{
-		configInformers.Config().V1().Ingresses().Informer(),
-		configInformers.Config().V1().Proxies().Informer(),
-		nodeInformer.Informer(),
-	}
-	clusterScopedInformers = append(clusterScopedInformers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
-
 	return workload.NewController(
 		"OAuthServer",
 		"cluster-authentication-operator",
@@ -130,7 +123,11 @@ func NewOAuthServerWorkloadController(
 		operatorClient,
 		kubeClient,
 		kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		clusterScopedInformers,
+		[]factory.Informer{
+			configInformers.Config().V1().Ingresses().Informer(),
+			configInformers.Config().V1().Proxies().Informer(),
+			nodeInformer.Informer(),
+		},
 		[]factory.Informer{
 			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer(),
