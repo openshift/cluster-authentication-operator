@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -38,6 +39,63 @@ const (
 	KeycloakCertFile       = "tls.crt"
 	KeycloakKeyFile        = "tls.key"
 )
+
+type NamespacedName struct {
+	Namespace string
+	Name string
+}
+
+func TeardownKeycloak(ctx context.Context, client *exutil.CLI, namespace string) error {
+	resources := map[schema.GroupVersionResource][]NamespacedName{
+		corev1.SchemeGroupVersion.WithResource("namespaces"): []NamespacedName{
+			NamespacedName{
+				Name: namespace,
+			},
+		},
+		corev1.SchemeGroupVersion.WithResource("serviceaccounts"): []NamespacedName{
+			NamespacedName{
+				Namespace: namespace,
+				Name: KeycloakResourceName,
+			},
+		},
+		corev1.SchemeGroupVersion.WithResource("services"): []NamespacedName{
+			NamespacedName{
+				Namespace: namespace,
+				Name: KeycloakResourceName,
+			},
+		},
+		corev1.SchemeGroupVersion.WithResource("configmaps"): []NamespacedName{
+			NamespacedName{
+				Namespace: namespace,
+				Name: fmt.Sprintf("%s-ca", KeycloakResourceName),
+			},
+		},
+		appsv1.SchemeGroupVersion.WithResource("deployments"): []NamespacedName{
+			NamespacedName{
+				Namespace: namespace,
+				Name: KeycloakResourceName,
+			},
+		},
+		routev1.GroupVersion.WithResource("routes"): []NamespacedName{
+			NamespacedName{
+				Namespace: namespace,
+				Name: KeycloakResourceName,
+			},
+		},
+	}
+
+	errs := []error{}
+	for gvr, items := range resources {
+		for _, item := range items {
+			err := client.DynamicClient().Resource(gvr).Namespace(item.Namespace).Delete(ctx, item.Name, metav1.DeleteOptions{})
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	return errors.Join(errs...)
+}
 
 func DeployKeycloak(ctx context.Context, client *exutil.CLI, namespace string, logger logr.Logger) error {
 	corev1Client := client.AdminKubeClient().CoreV1()

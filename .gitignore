@@ -21,3 +21,4 @@ authentication-operator
 telepresence.log
 /test-output/
 _output
+tests-extension/cluster-authentication-operator-tests-extension
