@@ -31,10 +31,6 @@ $(call build-image,ocp-cluster-authentication-operator,$(IMAGE_REGISTRY)/ocp/4.3
 
 $(call verify-golang-versions,Dockerfile.rhel7)
 
-clean:
-	$(RM) ./authentication-operator
-.PHONY: clean
-
 GO_TEST_PACKAGES :=./pkg/... ./cmd/...
 
 # Run e2e tests.
