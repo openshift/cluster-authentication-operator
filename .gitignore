@@ -18,6 +18,8 @@ origin.iml
 tags
 .envrc
 authentication-operator
+/cluster-authentication-operator-tests-ext
+/cluster-authentication-operator-tests-ext.gz
 telepresence.log
 /test-output/
 _output

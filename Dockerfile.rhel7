@@ -5,9 +5,12 @@ WORKDIR /go/src/github.com/openshift/cluster-authentication-operator
 COPY . .
 ENV GO_PACKAGE github.com/openshift/cluster-authentication-operator
 RUN go build -ldflags "-X $GO_PACKAGE/pkg/version.versionFromGit=$(git describe --long --tags --abbrev=7 --match 'v[0-9]*')" -tags="${TAGS}" -o authentication-operator ./cmd/authentication-operator
+RUN make build --warn-undefined-variables \
+    && gzip cluster-authentication-operator-tests-ext
 
 FROM registry.ci.openshift.org/ocp/4.21:base-rhel9
 COPY --from=builder /go/src/github.com/openshift/cluster-authentication-operator/authentication-operator /usr/bin/
+COPY --from=builder /go/src/github.com/openshift/cluster-authentication-operator/cluster-authentication-operator-tests-ext.gz /usr/bin/
 COPY manifests /manifests
 ENTRYPOINT ["/usr/bin/authentication-operator"]
 LABEL io.openshift.release.operator=true

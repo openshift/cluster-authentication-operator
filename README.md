@@ -18,9 +18,41 @@ Many OpenShift ClusterOperators share common build, test, deployment, and update
 For more information about how to build, deploy, test, update, and develop OpenShift ClusterOperators, see      
 [OpenShift ClusterOperator and Operand Developer Document](https://github.com/openshift/enhancements/blob/master/dev-guide/operators.md#how-do-i-buildupdateverifyrun-unit-tests)
 
-This section explains how to deploy OpenShift with your test cluster-authentication-operator image:        
+This section explains how to deploy OpenShift with your test cluster-authentication-operator image:
 [Testing a ClusterOperator/Operand image in a cluster](https://github.com/openshift/enhancements/blob/master/dev-guide/operators.md#how-can-i-test-changes-to-an-openshift-operatoroperandrelease-component)
 
+## Tests
+
+This repository is compatible with the [OpenShift Tests Extension (OTE)](https://github.com/openshift-eng/openshift-tests-extension) framework.
+
+### Building the test binary
+
+```bash
+make build
+```
+
+### Running test suites and tests
+
+```bash
+# Run a specific test suite or test
+./cluster-authentication-operator-tests-ext run-suite openshift/authentication-operator/all
+./cluster-authentication-operator-tests-ext run-test "test-name"
+
+# Run with JUnit output
+./cluster-authentication-operator-tests-ext run-suite openshift/authentication-operator/all --junit-path "${ARTIFACT_DIR}/junit.xml"
+```
+
+### Listing available tests and suites
+
+```bash
+# List all test suites
+./cluster-authentication-operator-tests-ext list suites
+
+# List tests in a suite
+./cluster-authentication-operator-tests-ext list tests --suite=openshift/authentication-operator/all
+```
+
+For more information about the OTE framework, see the [openshift-tests-extension documentation](https://github.com/openshift-eng/openshift-tests-extension).
 
 ## Add a basic IdP to test your stuff
 The most common identity provider for demoing and testing is the HTPasswd IdP.
