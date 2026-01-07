@@ -1,0 +1,37 @@
+binaryName: ./authentication-operator
+testName: creation of the oauth-server
+controllers:
+  - "TODO-deploymentController"
+description: >
+  This test runs only the controller, which produces the oauth-server deployment.
+
+  The purpose of this test is to show which input resources are required to run the operator and the controller.
+
+  input-dir:
+  - config.openshift.io/clusterversions: required to "start the operator" (CreateOperatorStarter/prepareOauthOperator)
+  - config.openshift.io/infrastructures: not strictly required (CreateOperatorStarter/prepareOauthAPIServerOperator), but if missing, SNO is assumed and a warning is produced
+  - config.openshift.io/authentications: required by the controller, specifically the "cluster" object
+  - operator.openshift.io/authentications: required by the controller, specifically the "cluster" object
+  - openshift-authentication/route.openshift.io/routes/oauth-openshift: required by the controller, single-item informer
+  - core/nodes: (i think) required, otherwise the replica count on the deployment will be 0
+  dependencies specified directly on the deployment:
+  configmaps:
+  - core/configmaps/openshift-authentication/audit: required, otherwise the pod won't start 
+  - core/configmaps/openshift-authentication/v4-0-config-system-cliconfig: required, otherwise the pod wont' start
+  - core/configmaps/openshift-authentication/v4-0-config-system-trusted-ca-bundle: this one is marked as optional, the pod will start when it is missing
+  secrets:
+  - core/configmaps/openshift-authentication/v4-0-config-system-session: required, otherwise the pod won't start
+  - core/configmaps/openshift-authentication/v4-0-config-system-serving-cert: required, otherwise the pod won't start
+  - core/configmaps/openshift-authentication/v4-0-config-system-router-certs: required, otherwise the pod won't start
+  - core/configmaps/openshift-authentication/v4-0-config-system-ocp-branding-template: required, otherwise the pod won't start
+  
+  
+  optional resources:
+  specified directly on the deployment:
+  secrets:
+  - core/configmaps/openshift-authentication/v4-0-config-user-template-login: optional, custom template provided by a user
+  - core/configmaps/openshift-authentication/v4-0-config-user-template-provider-selection: as above
+  - core/configmaps/openshift-authentication/v4-0-config-user-template-error: as above
+
+testType: ApplyConfiguration
+now: 2025-08-07T22:38:20Z
