@@ -1,0 +1,18 @@
+binaryName: ./authentication-operator
+testName: creation of the oauth-server configuration
+controllers:
+  - "TODO-payloadConfigController"
+description: >
+  This test runs only the controller, which produces the configuration for oauth-server.
+
+  The purpose of this test is to show which input resources are required to run the operator and the controller.
+
+  input-dir:
+  - config.openshift.io/clusterversions: required to "start the operator" (CreateOperatorStarter/prepareOauthOperator)
+  - config.openshift.io/authentications/cluster: required by the controller
+  - operator.openshift.io/authentications/cluster: required by the controller, otherwise OAuthConfigDegraded is put and no cfg
+  - openshift-authentication/route.openshift.io/routes/oauth-openshift: required by the controller, otherwise OAuthConfigRouteDegraded is put and no cfg
+  - openshift-authentication/core/services/oauth-openshift: required by the controller, otherwise OAuthConfigServiceDegraded is put and no cfg
+  - openshift-authentication/core/secrets/v4-0-config-system-session: not strictly required but it makes the test stable and on a real system this artefact will be created only once (?) and then reused
+testType: ApplyConfiguration
+now: 2025-08-07T22:38:20Z
