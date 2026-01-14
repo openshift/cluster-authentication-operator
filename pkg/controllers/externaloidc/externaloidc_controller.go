@@ -223,11 +223,7 @@ func generateIssuer(issuer configv1.TokenIssuer, featureGates featuregates.Featu
 	for _, audience := range issuer.Audiences {
 		out.Audiences = append(out.Audiences, string(audience))
 	}
-	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-		if issuer.DiscoveryURL != "" {
-			out.DiscoveryURL = &issuer.DiscoveryURL
-		}
-	}
+	out.DiscoveryURL = &issuer.DiscoveryURL
 
 	if len(issuer.CertificateAuthority.Name) > 0 {
 		ca, err := getCertificateAuthorityFromConfigMap(issuer.CertificateAuthority.Name, configMapLister)
@@ -434,32 +430,27 @@ func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidati
 	// validation rule and does not allow setting a CEL expression and message like the upstream.
 	// This is likely to change in the near future to also allow setting a CEL expression.
 	switch claimValidationRule.Type {
-	case configv1.TokenValidationRuleRequiredClaim:
+	case configv1.TokenValidationRuleTypeRequiredClaim:
 		if claimValidationRule.RequiredClaim == nil {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleRequiredClaim)
+			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleTypeRequiredClaim)
 		}
 
 		out.Claim = claimValidationRule.RequiredClaim.Claim
 		out.RequiredValue = claimValidationRule.RequiredClaim.RequiredValue
-	case configv1.TokenValidationRuleExpression:
-		if !featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-			// skip CEL expression handling if the feature is disabled
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf(
-				"TokenValidationRuleExpression is not enabled without the feature gate")
-		}
-		if len(claimValidationRule.Expression.Expression) == 0 {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and expression is not set", configv1.TokenValidationRuleExpression)
+	case configv1.TokenValidationRuleTypeCEL:
+		if len(claimValidationRule.CEL.Expression) == 0 {
+			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and expression is not set", configv1.TokenValidationRuleTypeCEL)
 		}
 
 		// validate CEL expression
 		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
-			Expression: claimValidationRule.Expression.Expression,
+			Expression: claimValidationRule.CEL.Expression,
 		}); err != nil {
 			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("invalid CEL expression: %v", err)
 		}
 
-		out.Expression = claimValidationRule.Expression.Expression
-		out.Message = claimValidationRule.Expression.Message
+		out.Expression = claimValidationRule.CEL.Expression
+		out.Message = claimValidationRule.CEL.Message
 
 	default:
 		return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
@@ -471,12 +462,6 @@ func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidati
 func generateUserValidationRule(rule configv1.TokenUserValidationRule, featureGates featuregates.FeatureGate) (apiserverv1beta1.UserValidationRule, error) {
 	if len(rule.Expression) == 0 {
 		return apiserverv1beta1.UserValidationRule{}, fmt.Errorf("userValidationRule expression must be non-empty")
-	}
-
-	// Optional: only enable user validation rules if a feature gate is active
-	if !featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-		return apiserverv1beta1.UserValidationRule{}, fmt.Errorf(
-			"userValidationRule cannot be used without the feature gate")
 	}
 
 	return apiserverv1beta1.UserValidationRule{

@@ -93,14 +93,14 @@ var (
 				},
 				ClaimValidationRules: []configv1.TokenClaimValidationRule{
 					{
-						Type: configv1.TokenValidationRuleRequiredClaim,
+						Type: configv1.TokenValidationRuleTypeRequiredClaim,
 						RequiredClaim: &configv1.TokenRequiredClaim{
 							Claim:         "username",
 							RequiredValue: "test-username",
 						},
 					},
 					{
-						Type: configv1.TokenValidationRuleRequiredClaim,
+						Type: configv1.TokenValidationRuleTypeRequiredClaim,
 						RequiredClaim: &configv1.TokenRequiredClaim{
 							Claim:         "email",
 							RequiredValue: "test-email",
@@ -709,7 +709,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 						copy.Spec.OIDCProviders[i].ClaimValidationRules = append(
 							copy.Spec.OIDCProviders[i].ClaimValidationRules,
 							configv1.TokenClaimValidationRule{
-								Type:          configv1.TokenValidationRuleRequiredClaim,
+								Type:          configv1.TokenValidationRuleTypeRequiredClaim,
 								RequiredClaim: nil,
 							},
 						)
@@ -1090,23 +1090,10 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			),
 		},
 		{
-			name: "invalid discovery URL (empty)",
-			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
-				func(auth *configv1.Authentication) {
-					auth.Spec.OIDCProviders[0].Issuer.URL = ""
-				},
-			}),
-			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{},
-			),
-		},
-		{
 			name: "invalid discovery URL (http instead of https)",
 			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
 				func(auth *configv1.Authentication) {
-					auth.Spec.OIDCProviders[0].Issuer.URL = "http://insecure-url.com"
+					auth.Spec.OIDCProviders[0].Issuer.DiscoveryURL = "http://insecure-url.com"
 				},
 			}),
 			expectError: true,
@@ -1122,7 +1109,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 					auth.Spec.OIDCProviders[0].ClaimValidationRules = append(
 						auth.Spec.OIDCProviders[0].ClaimValidationRules,
 						configv1.TokenClaimValidationRule{
-							Type:          configv1.TokenValidationRuleRequiredClaim,
+							Type:          configv1.TokenValidationRuleTypeRequiredClaim,
 							RequiredClaim: nil,
 						},
 					)
@@ -1135,12 +1122,14 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			),
 		},
 		{
-			name: "user validation rule invalid username prefix",
+			name: "user validation rule invalid  expression",
 			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
 				func(auth *configv1.Authentication) {
-					auth.Spec.OIDCProviders[0].ClaimMappings.Username = configv1.UsernameClaimMapping{
-						Claim:        "username",
-						PrefixPolicy: configv1.UsernamePrefixPolicy("invalid-policy"),
+					auth.Spec.OIDCProviders[0].UserValidationRules = []configv1.TokenUserValidationRule{
+						{
+							Expression: "", // invalid: empty expression
+							Message:    "must have a valid expression",
+						},
 					}
 				},
 			}),

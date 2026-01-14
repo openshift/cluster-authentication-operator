@@ -245,17 +245,15 @@ type OIDCProvider struct {
 	// +optional
 	ClaimValidationRules []TokenClaimValidationRule `json:"claimValidationRules,omitempty"`
 
-	// userValidationRules defines the set of rules used to validate claims in a user's token.
-	// Each rule is evaluated independently to determine whether the token subject is considered valid.
-	// Rules can either require specific claims and values to be present,
-	// or define CEL expressions that must evaluate to true for the token to be accepted.
-	// If the expression in a rule evaluates to false, the token is rejected.
-	// At least one rule must evaluate to true for the token to be considered valid.
-	// A maximum of 64 rules can be specified. This field is optional.
+	// userValidationRules is an optional field that configures the set of rules
+	// used to validate the cluster user identity that was constructed via
+	// mapping token claims to user identity attributes.
+	// Rules are CEL expressions that must evaluate to 'true' for authentication to succeed.
+	// If any rule in the chain of rules evaluates to 'false', authentication will fail.
+	// When specified, at least one rule must be specified and no more than 64 rules may be specified.
 	//
-	// See https://kubernetes.io/docs/reference/using-api/cel/ for CEL syntax.
-	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=expression
 	// +optional
@@ -312,13 +310,11 @@ type TokenIssuer struct {
 	CertificateAuthority ConfigMapNameReference `json:"issuerCertificateAuthority"`
 	// discoveryURL is an optional field that, if specified, overrides the default discovery endpoint
 	// used to retrieve OIDC configuration metadata. By default, the discovery URL is derived from `issuerURL`
-	// as "{url}/.well-known/openid-configuration".
+	// as "{issuerURL}/.well-known/openid-configuration".
 	//
-	// The discoveryURL must:
-	//   - Be a valid absolute URL.
-	//   - Use the HTTPS scheme.
-	//   - Not contain query parameters, user info, or fragments.
-	//   - Be different from the value of `url` (ignoring trailing slashes)
+	// The discoveryURL must be a valid absolute HTTPS URL. It must not contain query
+	// parameters, user information, or fragments. Additionally, it must differ from the value of `url` (ignoring trailing slashes).
+	// The discoveryURL value must be at least 1 character long and no longer than 2048 characters.
 	//
 	// +optional
 	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
@@ -326,7 +322,7 @@ type TokenIssuer struct {
 	// +kubebuilder:validation:XValidation:rule="url(self).getScheme() == 'https'",message="discoveryURL must be a valid https URL"
 	// +kubebuilder:validation:XValidation:rule="url(self).getQuery().size() == 0",message="discoveryURL must not contain query parameters"
 	// +kubebuilder:validation:XValidation:rule="self.matches('^[^#]*$')",message="discoveryURL must not contain fragments"
-	// +kubebuilder:validation:XValidation:rule="!(self.matches('^https:\\/\\/.+:.+@{1}.+\\/.*$'))",message="discoveryURL must not contain user info"
+	// +kubebuilder:validation:XValidation:rule="!self.matches('^https://.+:.+@.+/.*$')",message="discoveryURL must not contain user info"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	DiscoveryURL string `json:"discoveryURL,omitempty"`
@@ -759,61 +755,61 @@ type PrefixedClaimMapping struct {
 // TokenValidationRuleType defines the type of token validation rule.
 // +enum
 // +openshift:validation:FeatureGateAwareEnum:featureGate="",enum="RequiredClaim";
-// +openshift:validation:FeatureGateAwareEnum:featureGate=ExternalOIDCWithUpstreamParity,enum="RequiredClaim";"Expression"
-// +required
+// +openshift:validation:FeatureGateAwareEnum:featureGate=ExternalOIDC,enum="RequiredClaim";
+// +openshift:validation:FeatureGateAwareEnum:featureGate=ExternalOIDCWithUIDAndExtraClaimMappings,enum="RequiredClaim";
+// +openshift:validation:FeatureGateAwareEnum:featureGate=ExternalOIDCWithUpstreamParity,enum="RequiredClaim";"CEL"
 type TokenValidationRuleType string
 
 const (
-	// TokenValidationRuleRequiredClaim indicates that the token must contain a specific claim.
+	// TokenValidationRuleTypeRequiredClaim indicates that the token must contain a specific claim.
 	// Used as a value for TokenValidationRuleType.
-	TokenValidationRuleRequiredClaim = "RequiredClaim"
-	// TokenValidationRuleExpression indicates that the token validation is defined via a CEL expression.
+	TokenValidationRuleTypeRequiredClaim = "RequiredClaim"
+	// TokenValidationRuleTypeCEL indicates that the token validation is defined via a CEL expression.
 	// Used as a value for TokenValidationRuleType.
-	TokenValidationRuleExpression = "Expression"
+	TokenValidationRuleTypeCEL = "CEL"
 )
 
 // TokenClaimValidationRule represents a validation rule based on token claims.
 // If type is RequiredClaim, requiredClaim must be set.
-// If type is Expression, expression must be set.
+// If Type is CEL, CEL must be set and RequiredClaim must be omitted.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.type) && self.type == 'RequiredClaim' ? has(self.requiredClaim) : !has(self.requiredClaim)",message="requiredClaim must be set when type is 'RequiredClaim', and forbidden otherwise"
-// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDCWithUpstreamParity,rule="has(self.type) && self.type == 'Expression' ? has(self.expression) : !has(self.expression)",message="expression must be set when type is 'Expression', and forbidden otherwise"
+// +openshift:validation:FeatureGateAwareXValidation:featureGate=ExternalOIDCWithUpstreamParity,rule="has(self.type) && self.type == 'CEL' ? has(self.cel) : !has(self.cel)",message="cel must be set when type is 'CEL', and forbidden otherwise"
 type TokenClaimValidationRule struct {
 	// type is an optional field that configures the type of the validation rule.
 	//
-	// Allowed values are "RequiredClaim" and "Expression".
+	// Allowed values are "RequiredClaim" and "CEL".
 	//
 	// When set to 'RequiredClaim', the Kubernetes API server will be configured
 	// to validate that the incoming JWT contains the required claim and that its
 	// value matches the required value.
 	//
-	// When set to 'Expression', the Kubernetes API server will be configured
+	// When set to 'CEL', the Kubernetes API server will be configured
 	// to validate the incoming JWT against the configured CEL expression.
+	// +required
 	Type TokenValidationRuleType `json:"type"`
 
 	// requiredClaim allows configuring a required claim name and its expected value.
-	// When type is RequiredClaim, this field is used by the Kubernetes API server
+	// This field is required when `type` is set to RequiredClaim, and must be omitted
+	// when `type` is set to any other value. The Kubernetes API server uses this field
 	// to validate if an incoming JWT is valid for this identity provider.
 	//
 	// +optional
 	RequiredClaim *TokenRequiredClaim `json:"requiredClaim,omitempty"`
 
-	// expression configures a CEL expression that will be used
-	// by the Kubernetes API server to validate if an incoming JWT
-	// is valid for this identity provider. The CEL expression must
-	// return a boolean value where 'true' signals a valid state.
-	// Expression must be set when 'type' is 'Expression', and
-	// is forbidden otherwise.
-	//
+	// cel holds the CEL expression and message for validation.
+	// Must be set when Type is "CEL", and forbidden otherwise.
 	// +optional
 	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
-	Expression TokenExpressionRule `json:"expression,omitzero,omitempty"`
+	CEL TokenClaimValidationCELRule `json:"cel,omitempty,omitzero"`
 }
 
 type TokenRequiredClaim struct {
+	// claim is a required field that configures the name of the required claim.
 	// When taken from the JWT claims, claim must be a string value.
 	//
 	// claim must not be an empty string ("").
+	//
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Claim string `json:"claim"`
@@ -830,49 +826,44 @@ type TokenRequiredClaim struct {
 	RequiredValue string `json:"requiredValue"`
 }
 
-type TokenExpressionRule struct {
+type TokenClaimValidationCELRule struct {
 	// expression is a CEL expression evaluated against token claims.
-	// The expression must be a non-empty string and no longer than 1024 characters.
+	// expression is required, must be at least 1 character in length and must not exceed 1024 characters.
 	// The expression must return a boolean value where 'true' signals a valid token and 'false' an invalid one.
-	// This field is required.
 	//
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	// +required
-	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
 	Expression string `json:"expression,omitempty"`
 
-	// message allows configuring a human-readable message that is logged by the Kubernetes API server
-	// when a token fails validation based on the CEL expression defined in 'Expression'.
-	// This field is optional. If provided, the message must be at least 1 character long
-	// and cannot exceed 256 characters. This message is logged and not returned to the caller.
-	// +optional
+	// message is a required human-readable message to be logged by the Kubernetes API server
+	// if the CEL expression defined in 'expression' fails.
+	// message must be at least 1 character in length and must not exceed 256 characters.
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
-	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
 	Message string `json:"message,omitempty"`
 }
 
 // TokenUserValidationRule provides a CEL-based rule used to validate a token subject.
 // Each rule contains a CEL expression that is evaluated against the token’s claims.
 type TokenUserValidationRule struct {
-	// expression is a CEL expression that must evaluate
-	// to true for the token to be accepted. The expression is evaluated against the token's
-	// user information (e.g., username, groups).
-	// This field must be non-empty and may not exceed 1024 characters.
+	// expression is a required CEL expression that performs a validation
+	// on cluster user identity attributes like username, groups, etc.
+	// The expression must evaluate to a boolean value.
+	// When the expression evaluates to 'true', the cluster user identity is considered valid.
+	// When the expression evaluates to 'false', the cluster user identity is not considered valid.
+	// expression must be at least 1 character in length and must not exceed 1024 characters.
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
-	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
 	Expression string `json:"expression,omitempty"`
-	// message allows configuring a human-readable message that is logged by the Kubernetes API server
-	// when a token fails validation based on the CEL expression defined in 'Expression'.
-	// This field is optional. If provided, the message must be at least 1 character long
-	// and cannot exceed 256 characters. This message is logged and not returned to the caller.
-	// +optional
+	// message is a required human-readable message to be logged by the Kubernetes API server
+	// if the CEL expression defined in 'expression' fails.
+	// message must be at least 1 character in length and must not exceed 256 characters.
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
-	// +openshift:enable:FeatureGate=ExternalOIDCWithUpstreamParity
 	Message string `json:"message,omitempty"`
 }
