@@ -10,7 +10,7 @@ require (
 	github.com/openshift-eng/openshift-tests-extension v0.0.0-20251205182537-ff5553e56f33
 	github.com/openshift/api v0.0.0-20260113121726-a0ffeb320368
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
-	github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235
+	github.com/openshift/client-go v0.0.0-20260108185524-48f4ccfc4e13
 	github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.9.1
