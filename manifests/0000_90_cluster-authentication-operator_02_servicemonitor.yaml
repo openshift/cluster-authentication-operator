@@ -29,6 +29,7 @@ spec:
   selector:
     matchLabels:
       app: authentication-operator
+  serviceDiscoveryRole: EndpointSlice
 ---
 # Configure cluster-monitoring for cluster authentication resources
 apiVersion: monitoring.coreos.com/v1
@@ -60,6 +61,7 @@ spec:
   selector:
     matchLabels:
       app: oauth-openshift
+  serviceDiscoveryRole: EndpointSlice
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -113,3 +115,4 @@ spec:
   selector:
     matchLabels:
       app: openshift-oauth-apiserver
+  serviceDiscoveryRole: EndpointSlice

@@ -19,6 +19,14 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
 ---
 # Role for accessing metrics exposed by authentication resources
 apiVersion: rbac.authorization.k8s.io/v1
@@ -41,6 +49,14 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
 ---
 # oauth-apiserver role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -59,6 +75,14 @@ rules:
   - services
   - endpoints
   - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
   verbs:
   - get
   - list
