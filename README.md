@@ -34,12 +34,17 @@ make build
 ### Running test suites and tests
 
 ```bash
-# Run a specific test suite or test
-./cluster-authentication-operator-tests-ext run-suite openshift/authentication-operator/all
-./cluster-authentication-operator-tests-ext run-test "test-name"
+# Run a specific test suite
+./cluster-authentication-operator-tests-ext run-suite openshift/cluster-authentication-operator/operator/serial
+
+# Run with serial execution (1 worker)
+./cluster-authentication-operator-tests-ext run-suite openshift/cluster-authentication-operator/operator/serial -c 1
 
 # Run with JUnit output
-./cluster-authentication-operator-tests-ext run-suite openshift/authentication-operator/all --junit-path "${ARTIFACT_DIR}/junit.xml"
+./cluster-authentication-operator-tests-ext run-suite openshift/cluster-authentication-operator/operator/serial --junit-path "${ARTIFACT_DIR}/junit.xml"
+
+# Run a specific test
+./cluster-authentication-operator-tests-ext run-test "test-name"
 ```
 
 ### Listing available tests and suites
@@ -49,7 +54,7 @@ make build
 ./cluster-authentication-operator-tests-ext list suites
 
 # List tests in a suite
-./cluster-authentication-operator-tests-ext list tests --suite=openshift/authentication-operator/all
+./cluster-authentication-operator-tests-ext list tests --suite=openshift/cluster-authentication-operator/operator/serial
 ```
 
 For more information about the OTE framework, see the [openshift-tests-extension documentation](https://github.com/openshift-eng/openshift-tests-extension).
