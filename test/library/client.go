@@ -20,7 +20,7 @@ import (
 )
 
 // NewClientConfigForTest returns a config configured to connect to the api server
-func NewClientConfigForTest(t *testing.T) *rest.Config {
+func NewClientConfigForTest(t testing.TB) *rest.Config {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
@@ -85,7 +85,7 @@ func (b *testNamespaceBuilder) WithPrivilegedPSaEnforcement() *testNamespaceBuil
 	return b.WithPSaEnforcement(psapi.LevelPrivileged)
 }
 
-func (b *testNamespaceBuilder) Create(t *testing.T, kubeClient corev1client.NamespaceInterface) string {
+func (b *testNamespaceBuilder) Create(t testing.TB, kubeClient corev1client.NamespaceInterface) string {
 	ns, err := kubeClient.Create(context.Background(), b.ns, metav1.CreateOptions{})
 	require.NoError(t, err)
 

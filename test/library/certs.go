@@ -24,7 +24,7 @@ type CryptoMaterials struct {
 
 // NewServerCertificate returns crypto materials suitable for use by a server. The hosts specified will be added as
 // subject alternate names.
-func NewServerCertificate(t *testing.T, signer *CryptoMaterials, hosts ...string) *CryptoMaterials {
+func NewServerCertificate(t testing.TB, signer *CryptoMaterials, hosts ...string) *CryptoMaterials {
 	var err error
 	server := &CryptoMaterials{}
 	if server.PrivateKey, err = rsa.GenerateKey(rand.Reader, 2048); err != nil {
@@ -57,7 +57,7 @@ func NewServerCertificate(t *testing.T, signer *CryptoMaterials, hosts ...string
 
 // NewCertificateAuthorityCertificate returns crypto materials for a certificate authority. If no parent certificate
 // is specified, the generated certificate will be self-signed.
-func NewCertificateAuthorityCertificate(t *testing.T, parent *CryptoMaterials) *CryptoMaterials {
+func NewCertificateAuthorityCertificate(t testing.TB, parent *CryptoMaterials) *CryptoMaterials {
 	result := &CryptoMaterials{}
 	var err error
 	if result.PrivateKey, err = rsa.GenerateKey(rand.Reader, 2048); err != nil {
@@ -103,7 +103,7 @@ func NewCertificateAuthorityCertificate(t *testing.T, parent *CryptoMaterials) *
 // to the openshift-config NS as a CA suited for an IdP configuration.
 // Useful when deploying an IDP behind a reencrypt/edge-termination route.
 // Returns a cleanup function for the CM.
-func SyncDefaultIngressCAToConfig(t *testing.T, cmClient corev1client.ConfigMapsGetter, name string) func() {
+func SyncDefaultIngressCAToConfig(t testing.TB, cmClient corev1client.ConfigMapsGetter, name string) func() {
 	ca, err := cmClient.ConfigMaps("openshift-config-managed").Get(context.TODO(), "default-ingress-cert", metav1.GetOptions{})
 	require.NoError(t, err)
 
