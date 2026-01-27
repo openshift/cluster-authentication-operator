@@ -22,7 +22,7 @@ import (
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
-func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.ConfigV1Interface, name string) error {
+func WaitForOperatorToPickUpChanges(t testing.TB, configClient configv1client.ConfigV1Interface, name string) error {
 	if err := WaitForClusterOperatorProgressing(t, configClient, name); err != nil {
 		return fmt.Errorf("authentication operator never became progressing: %v", err)
 	}
@@ -34,7 +34,7 @@ func WaitForOperatorToPickUpChanges(t *testing.T, configClient configv1client.Co
 	return nil
 }
 
-func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
+func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t testing.TB, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatus(t, client, name,
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionFalse},
@@ -42,19 +42,19 @@ func WaitForClusterOperatorAvailableNotProgressingNotDegraded(t *testing.T, clie
 	)
 }
 
-func WaitForClusterOperatorDegraded(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
+func WaitForClusterOperatorDegraded(t testing.TB, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatus(t, client, name,
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionTrue},
 	)
 }
 
-func WaitForClusterOperatorProgressing(t *testing.T, client configv1client.ConfigV1Interface, name string) error {
+func WaitForClusterOperatorProgressing(t testing.TB, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatus(t, client, name,
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorProgressing, Status: configv1.ConditionTrue},
 	)
 }
 
-func WaitForClusterOperatorStatus(t *testing.T, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+func WaitForClusterOperatorStatus(t testing.TB, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
 	var done bool
 	var conditions []configv1.ClusterOperatorStatusCondition
 	var checkErr error
@@ -113,7 +113,7 @@ func conditionsStatusString(conditions []configv1.ClusterOperatorStatusCondition
 	return strings.Join(conditionStrings, "/")
 }
 
-func WaitForRouteAdmitted(t *testing.T, client routev1client.RouteV1Interface, name, ns string) (string, error) {
+func WaitForRouteAdmitted(t testing.TB, client routev1client.RouteV1Interface, name, ns string) (string, error) {
 	var admittedURL string
 
 	t.Logf("waiting for route %s/%s to be admitted", ns, name)
@@ -135,7 +135,7 @@ func WaitForRouteAdmitted(t *testing.T, client routev1client.RouteV1Interface, n
 	return admittedURL, err
 }
 
-func WaitForHTTPStatus(t *testing.T, waitDuration time.Duration, client *http.Client, targetURL string, expectedStatus int) error {
+func WaitForHTTPStatus(t testing.TB, waitDuration time.Duration, client *http.Client, targetURL string, expectedStatus int) error {
 	t.Logf("waiting for HEAD at %q to report %d", targetURL, expectedStatus)
 
 	var lastObservedStatus int
@@ -196,7 +196,7 @@ func WaitForClusterOperatorStatusAlwaysAvailable(t *testing.T, ctx context.Conte
 	)
 }
 
-func CheckClusterOperatorStatus(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) (bool, []configv1.ClusterOperatorStatusCondition, error) {
+func CheckClusterOperatorStatus(t testing.TB, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) (bool, []configv1.ClusterOperatorStatusCondition, error) {
 	clusterOperator, err := client.ClusterOperators().Get(ctx, name, metav1.GetOptions{})
 	if kerrors.IsNotFound(err) || retry.IsHTTPClientError(err) {
 		t.Logf("error while getting clusteroperators.config.openshift.io/%v, will retry: %v", name, err)

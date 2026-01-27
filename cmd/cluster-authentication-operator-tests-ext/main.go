@@ -12,6 +12,8 @@ import (
 	oteginkgo "github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo"
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
+
 	"k8s.io/klog/v2"
 )
 
