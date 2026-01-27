@@ -25,7 +25,7 @@ import (
 )
 
 func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to simplify cleanup
-	t *testing.T,
+	t testing.TB,
 	kubeconfig *rest.Config,
 ) (idpURL, idpName string, cleanups []func()) {
 	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
@@ -126,12 +126,12 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 
 type gitlabClient struct {
 	gitlabURL   *url.URL
-	testContext *testing.T
+	testContext testing.TB
 	token       string
 	client      *http.Client
 }
 
-func GitLabClientFor(t *testing.T, transport http.RoundTripper, gitlabURL string) *gitlabClient {
+func GitLabClientFor(t testing.TB, transport http.RoundTripper, gitlabURL string) *gitlabClient {
 	u, err := url.Parse(gitlabURL)
 	require.NoError(t, err)
 

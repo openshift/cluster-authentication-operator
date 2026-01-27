@@ -27,7 +27,7 @@ import (
 )
 
 func AddKeycloakIDP(
-	t *testing.T,
+	t testing.TB,
 	kubeconfig *rest.Config,
 	directOIDC bool,
 ) (kcClient *KeycloakClient, idpName string, cleanups []func()) {
@@ -190,7 +190,7 @@ func AddKeycloakIDP(
 type KeycloakClient struct {
 	keycloakAdminURL *url.URL
 	realm            string
-	testT            *testing.T
+	testT            testing.TB
 	client           *http.Client
 
 	accessToken string
@@ -199,7 +199,7 @@ type KeycloakClient struct {
 
 // KeycloakClientFor creates a Keycloak REST client for the default (master) realm
 // using the supplied transport
-func KeycloakClientFor(t *testing.T, transport http.RoundTripper, keycloakURL, keycloakRealm string) *KeycloakClient {
+func KeycloakClientFor(t testing.TB, transport http.RoundTripper, keycloakURL, keycloakRealm string) *KeycloakClient {
 	u, err := url.Parse(keycloakURL)
 	require.NoError(t, err)
 
