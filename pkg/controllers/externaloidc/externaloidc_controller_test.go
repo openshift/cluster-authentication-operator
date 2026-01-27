@@ -241,6 +241,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -251,6 +252,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -263,6 +265,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -275,6 +278,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -289,6 +293,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -308,6 +313,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -326,6 +332,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -344,6 +351,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -366,6 +374,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -389,6 +398,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -424,6 +434,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -611,6 +622,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -623,6 +635,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -635,6 +648,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -657,6 +671,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -678,6 +693,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -690,10 +706,13 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 						if len(copy.Spec.OIDCProviders[i].ClaimValidationRules) == 0 {
 							copy.Spec.OIDCProviders[i].ClaimValidationRules = make([]configv1.TokenClaimValidationRule, 0)
 						}
-						copy.Spec.OIDCProviders[i].ClaimValidationRules = append(copy.Spec.OIDCProviders[i].ClaimValidationRules, configv1.TokenClaimValidationRule{
-							Type:          configv1.TokenValidationRuleTypeRequiredClaim,
-							RequiredClaim: nil,
-						})
+						copy.Spec.OIDCProviders[i].ClaimValidationRules = append(
+							copy.Spec.OIDCProviders[i].ClaimValidationRules,
+							configv1.TokenClaimValidationRule{
+								Type:          configv1.TokenValidationRuleTypeRequiredClaim,
+								RequiredClaim: nil,
+							},
+						)
 					}
 				},
 			}),
@@ -702,6 +721,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -725,6 +745,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -749,6 +770,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -782,6 +804,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -815,6 +838,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -848,6 +872,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -884,6 +909,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -904,6 +930,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
 		},
@@ -922,6 +949,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -943,6 +971,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -972,6 +1001,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -994,6 +1024,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -1016,6 +1047,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 				[]configv1.FeatureGateName{},
 			),
@@ -1052,7 +1084,58 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 			featureGates: featuregates.NewFeatureGate(
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name: "invalid discovery URL (http instead of https)",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].Issuer.DiscoveryURL = "http://insecure-url.com"
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name: "claim validation rule missing required claim",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].ClaimValidationRules = append(
+						auth.Spec.OIDCProviders[0].ClaimValidationRules,
+						configv1.TokenClaimValidationRule{
+							Type:          configv1.TokenValidationRuleTypeRequiredClaim,
+							RequiredClaim: nil,
+						},
+					)
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name: "user validation rule invalid  expression",
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					auth.Spec.OIDCProviders[0].UserValidationRules = []configv1.TokenUserValidationRule{
+						{
+							Expression: "", // invalid: empty expression
+							Message:    "must have a valid expression",
+						},
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
 				[]configv1.FeatureGateName{},
 			),
 		},
