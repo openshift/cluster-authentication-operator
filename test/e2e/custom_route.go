@@ -152,8 +152,6 @@ func waitForDistributedCert(t testing.TB, kubeClient kubernetes.Interface, expec
 	err := wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {
 		// check that the trust-distribution works by publishing the server certificate
 		distributedServerCert, err := kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(context.Background(), "oauth-serving-cert", metav1.GetOptions{})
-		require.NoError(t, err)
-
 		if err != nil {
 			t.Logf("failed to retrieve the server cert for distributed trust: %v", err)
 			return false, nil

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -110,7 +110,7 @@ func testTemplatesConfig(t testing.TB) {
 	oauthURL.Path = "/oauth/token/request" // should redirect to where the providers are
 	resp, err := httpClient.Get(oauthURL.String())
 	require.NoError(t, err)
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "provider selection test")
 
@@ -120,7 +120,7 @@ func testTemplatesConfig(t testing.TB) {
 	oauthURL.Path = "/oauth/authorize"
 	resp, err = httpClient.Get(oauthURL.String())
 	require.NoError(t, err)
-	body, err = ioutil.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "login test")
 }
@@ -139,7 +139,7 @@ func createSecret(t testing.TB, secrets corev1client.SecretInterface, name, key,
 
 	return func() {
 		if err := secrets.Delete(context.TODO(), name, metav1.DeleteOptions{}); err != nil {
-			t.Logf("failed to remove secret openshif-config/%s: %v", name, err)
+			t.Logf("failed to remove secret openshift-config/%s: %v", name, err)
 		}
 	}
 }

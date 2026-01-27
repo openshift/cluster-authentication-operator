@@ -161,6 +161,11 @@ func checkTokenAccess(t testing.TB,
 	cleanup = createOAuthClient(t, oauthClientClient, oauthClientName, redirectURIs, oauthClientTimeout)
 	defer cleanup()
 
+	expectedInactivityTimeout := configInactivityTimeout
+	if oauthClientTimeout != nil {
+		expectedInactivityTimeout = *oauthClientTimeout
+	}
+
 	tokenWithTimeoutClear, tokenWithTimeoutHash := test.GenerateOAuthTokenPair()
 	tokenWithTimeout := &oauthapi.OAuthAccessToken{
 		ObjectMeta: metav1.ObjectMeta{
@@ -173,7 +178,7 @@ func checkTokenAccess(t testing.TB,
 		UserName:                 userName,
 		UserUID:                  string(uid),
 		AuthorizeToken:           "mJOQ7Es5l9V7WYDl0bvl3E_hRjnJ21ZZxXH6YZj3yeS",
-		InactivityTimeoutSeconds: 60,
+		InactivityTimeoutSeconds: int32(expectedInactivityTimeout),
 	}
 
 	tokenWithoutTimeoutClear, tokenWithoutTimeoutHash := test.GenerateOAuthTokenPair()
@@ -199,11 +204,6 @@ func checkTokenAccess(t testing.TB,
 				t.Logf("%v", err)
 			}
 		}(accessToken.Name)
-	}
-
-	expectedInactivityTimeout := configInactivityTimeout
-	if oauthClientTimeout != nil {
-		expectedInactivityTimeout = *oauthClientTimeout
 	}
 	testAccess(t, tokenWithTimeoutClear, tokenWithoutTimeoutClear, time.Duration(expectedInactivityTimeout)*time.Second)
 }
@@ -263,7 +263,7 @@ func createIdentity(t testing.TB, userClient *userclient.UserV1Client, userName,
 		},
 	}
 
-	err := wait.PollImmediate(300*time.Second, 2*time.Second, func() (bool, error) {
+	err := wait.PollImmediate(2*time.Second, 300*time.Second, func() (bool, error) {
 		_, err := userClient.Identities().Create(context.TODO(), identity, metav1.CreateOptions{})
 		if err != nil {
 			t.Logf("failed to create user identity: %v", err)

@@ -182,7 +182,7 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 
 	}
 	require.NoError(t, kcClient.DeleteUserFromGroups(userId, userGroupsIDMap["group2"], userGroupsIDMap["group3"]))
-	removedGroups := sets.NewString("group2", "group3")
+	removedGroups := sets.New[string]("group2", "group3")
 
 	_, err = tokenrequest.RequestTokenWithChallengeHandlers(kubeConfig, createChallengeHandler(username, "password42"))
 	require.NoError(t, err)
