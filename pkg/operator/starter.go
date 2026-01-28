@@ -451,6 +451,11 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
 	)
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
 		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
@@ -461,6 +466,7 @@ func prepareOauthAPIServerOperator(
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
 		authConfigChecker,
+		featureGateAccessor,
 		versionRecorder)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
@@ -658,11 +664,6 @@ func prepareOauthAPIServerOperator(
 		WithoutLogLevelController().
 		WithoutConfigUpgradableController().
 		PrepareRun()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err
 	}
