@@ -21,6 +21,8 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
+	encryptionkms "github.com/openshift/library-go/pkg/operator/encryption/kms"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
@@ -56,6 +58,7 @@ type OAuthAPIServerWorkload struct {
 	versionRecorder           status.VersionGetter
 	deploymentsLister         appsv1listers.DeploymentLister
 	authConfigChecker         common.AuthConfigChecker
+	featureGateAccessor       featuregates.FeatureGateAccess
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -69,6 +72,7 @@ func NewOAuthAPIServerWorkload(
 	kubeClient kubernetes.Interface,
 	deploymentsLister appsv1listers.DeploymentLister,
 	authConfigChecker common.AuthConfigChecker,
+	featureGateAccessor featuregates.FeatureGateAccess,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
@@ -82,6 +86,7 @@ func NewOAuthAPIServerWorkload(
 		versionRecorder:           versionRecorder,
 		deploymentsLister:         deploymentsLister,
 		authConfigChecker:         authConfigChecker,
+		featureGateAccessor:       featureGateAccessor,
 	}
 }
 
@@ -263,6 +268,10 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
 	}
 	required.Spec.Replicas = masterNodeCount
+
+	if err := encryptionkms.AddKMSPluginVolumeAndMountToPodSpec(&required.Spec.Template.Spec, "oauth-apiserver", c.featureGateAccessor); err != nil {
+		return nil, fmt.Errorf("failed to add KMS encryption volumes: %w", err)
+	}
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
