@@ -34,7 +34,7 @@ func boolptr(b bool) *bool {
 }
 
 func deployPod(
-	t *testing.T,
+	t testing.TB,
 	clients *kubernetes.Clientset,
 	routeClient routev1client.RouteV1Interface,
 	name, image string,
@@ -247,7 +247,7 @@ func routeTemplate(useTLS bool) *routev1.Route {
 	return r
 }
 
-func CleanIDPConfigByName(t *testing.T, configClient configv1client.OAuthInterface, idpName string) {
+func CleanIDPConfigByName(t testing.TB, configClient configv1client.OAuthInterface, idpName string) {
 	config, err := configClient.Get(context.TODO(), "cluster", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("cleanup: failed to retrieve oauth/cluster: %v", err)
@@ -299,7 +299,7 @@ func CAOE2ETestLabels() map[string]string {
 }
 
 func addOIDCIDentityProvider(
-	t *testing.T,
+	t testing.TB,
 	kubeClients *kubernetes.Clientset,
 	configClient *configv1client.ConfigV1Client,
 	clientID, clientSecret, idpName, idpURL string,
@@ -364,7 +364,7 @@ func addOIDCIDentityProvider(
 	return cleanups, err
 }
 
-func addIdentityProvider(t *testing.T, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
+func addIdentityProvider(t testing.TB, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
 	cleanups := []func(){}
 
 	oauth, err := configClient.OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
