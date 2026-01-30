@@ -8,13 +8,11 @@ involvedObject:
   namespace: openshift-authentication-operator
 kind: Event
 lastTimestamp: "2025-08-07T22:38:20Z"
-message: AuditProfile changed from '%!s(<nil>)' to 'map[audit-log-format:[json] audit-log-maxbackup:[10]
-  audit-log-maxsize:[100] audit-log-path:[/var/log/oauth-server/audit.log] audit-policy-file:[/var/run/configmaps/audit/audit.yaml]]'
+message: accessTokenMaxAgeSeconds changed from %!d(float64=0) to %!d(float64=86400)
 metadata:
-  creationTimestamp: null
-  name: authentication-operator.18599d2230299800.a8ecfbce
+  name: authentication-operator.18599d2230299800.2df24af9
   namespace: openshift-authentication-operator
-reason: ObserveAuditProfile
+reason: ObserveTokenConfig
 reportingComponent: ""
 reportingInstance: ""
 source:
