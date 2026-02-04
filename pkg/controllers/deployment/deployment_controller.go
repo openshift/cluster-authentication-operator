@@ -19,14 +19,17 @@ import (
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 
 	configv1 "github.com/openshift/api/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/scaling"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -188,17 +191,17 @@ func (c *oauthServerDeploymentSyncer) PreconditionFulfilled(_ context.Context) (
 	return true, nil
 }
 
-func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []error) {
+func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext factory.SyncContext) (*appsv1.Deployment, bool, []*applyoperatorv1.OperatorConditionApplyConfiguration, []error) {
 	errs := []error{}
 
 	operatorSpec, operatorStatus, _, err := c.operatorClient.GetOperatorState()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, nil, append(errs, err)
 	}
 
 	proxyConfig, err := c.getProxyConfig()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, nil, append(errs, err)
 	}
 
 	// resourceVersions serves to store versions of config resources so that we
@@ -215,7 +218,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	configResourceVersions, err := c.getConfigResourceVersions()
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, nil, append(errs, err)
 	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
@@ -230,10 +233,16 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		}
 	}
 
+	deploymentTemplate := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-openshift/deployment.yaml"))
+	existingDeployment, err := c.deploymentsLister.Deployments(deploymentTemplate.Namespace).Get(deploymentTemplate.Name)
+	if err != nil && !errors.IsNotFound(err) {
+		return nil, false, nil, append(errs, err)
+	}
+
 	// deployment, have RV of all resources
 	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
-		return nil, false, append(errs, err)
+		return nil, false, nil, append(errs, err)
 	}
 
 	if _, err := c.secretLister.Secrets("openshift-authentication").Get("v4-0-config-system-custom-router-certs"); err == nil {
@@ -254,19 +263,26 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 
 	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
+		return nil, false, nil, append(errs, fmt.Errorf("unable to ensure at most one pod per node: %v", err))
 	}
 
 	// Set the replica count to the number of control plane nodes.
 	controlPlaneCount, err := c.countNodes(expectedDeployment.Spec.Template.Spec.NodeSelector)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("failed to determine number of control plane nodes: %v", err))
+		return nil, false, nil, append(errs, fmt.Errorf("failed to determine number of control plane nodes: %v", err))
 	}
 	if controlPlaneCount == nil {
-		return nil, false, append(errs, fmt.Errorf("found nil control plane nodes count"))
+		return nil, false, nil, append(errs, fmt.Errorf("found nil control plane nodes count"))
 	}
 
 	expectedDeployment.Spec.Replicas = controlPlaneCount
+
+	// This must be called before we set the rolling update parameters.
+	conditionOverwrites, err := scaling.ProcessDeployment(existingDeployment, expectedDeployment, clock.RealClock{}, "OAuthServer")
+	if err != nil {
+		return nil, false, nil, append(errs, err)
+	}
+
 	setRollingUpdateParameters(*controlPlaneCount, expectedDeployment)
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
@@ -275,10 +291,10 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
 	)
 	if err != nil {
-		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
+		return nil, false, nil, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
 	}
 
-	return deployment, true, errs
+	return deployment, true, conditionOverwrites, errs
 }
 
 func (c *oauthServerDeploymentSyncer) getProxyConfig() (*configv1.Proxy, error) {
