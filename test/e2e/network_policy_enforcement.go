@@ -24,13 +24,13 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][NetworkPolicy][Serial] should enforce NetworkPolicy allow/deny basics in a test namespace", func() {
+	g.It("[Operator][NetworkPolicy] should enforce NetworkPolicy allow/deny basics in a test namespace", func() {
 		testGenericNetworkPolicyEnforcement()
 	})
-	g.It("[Operator][NetworkPolicy][Serial] should enforce auth NetworkPolicies", func() {
+	g.It("[Operator][NetworkPolicy] should enforce auth NetworkPolicies", func() {
 		testAuthNetworkPolicyEnforcement()
 	})
-	g.It("[Operator][NetworkPolicy][Serial] should enforce oauth-apiserver NetworkPolicies", func() {
+	g.It("[Operator][NetworkPolicy] should enforce oauth-apiserver NetworkPolicies", func() {
 		testOAuthAPIServerNetworkPolicyEnforcement()
 	})
 })
