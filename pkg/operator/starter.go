@@ -456,6 +456,8 @@ func prepareOauthAPIServerOperator(
 		return nil, nil, err
 	}
 
+	const apiServerConditionsPrefix = "APIServer"
+
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
 		workloadcontroller.CountNodesFuncWrapper(informerFactories.kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes().Lister()),
@@ -467,7 +469,9 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
 		authConfigChecker,
 		featureGateAccessor,
-		versionRecorder)
+		versionRecorder,
+		apiServerConditionsPrefix,
+	)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
@@ -502,8 +506,6 @@ func prepareOauthAPIServerOperator(
 
 		return s
 	})
-
-	const apiServerConditionsPrefix = "APIServer"
 
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",

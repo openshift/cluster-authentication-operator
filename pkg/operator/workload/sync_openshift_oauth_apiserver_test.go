@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	clientgotesting "k8s.io/client-go/testing"
@@ -141,15 +142,17 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("", clocktesting.NewFakePassiveClock(time.Now()))
 			fakeKubeClient := fake.NewSimpleClientset()
+			fakeInformers := informers.NewSharedInformerFactory(fakeKubeClient, 0)
 
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
+				deploymentsLister:         fakeInformers.Apps().V1().Deployments().Lister(),
 				featureGateAccessor:       featuregates.NewHardcodedFeatureGateAccessForTesting(nil, nil, make(chan struct{}), nil),
 			}
 
-			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			actualDeployment, _, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +168,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				}
 
 				if !equality.Semantic.DeepEqual(actualDeployment, goldenDeployment) {
-					t.Errorf("created Deployment is different from the expected one (file) : %s", cmp.Diff(actualDeployment, goldenDeployment))
+					t.Errorf("created Deployment is different from the expected one (file) : %s", cmp.Diff(goldenDeployment, actualDeployment))
 				}
 			}
 		})
