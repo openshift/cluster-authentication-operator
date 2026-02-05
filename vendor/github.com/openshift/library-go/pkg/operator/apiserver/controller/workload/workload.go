@@ -16,6 +16,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -33,7 +34,9 @@ const (
 // Delegate captures a set of methods that hold a custom logic
 type Delegate interface {
 	// Sync a method that will be used for delegation. It should bring the desired workload into operation.
-	Sync(ctx context.Context, controllerContext factory.SyncContext) (*appsv1.Deployment, bool, []error)
+	//
+	// Returned conditions will replace the generated conditions of the same type.
+	Sync(ctx context.Context, controllerContext factory.SyncContext) (*appsv1.Deployment, bool, []*applyoperatorv1.OperatorConditionApplyConfiguration, []error)
 
 	// PreconditionFulfilled a method that indicates whether all prerequisites are met and we can Sync.
 	//
@@ -131,13 +134,13 @@ func (c *Controller) sync(ctx context.Context, controllerContext factory.SyncCon
 	}
 
 	if fulfilled, err := c.delegate.PreconditionFulfilled(ctx); err != nil {
-		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, []error{err})
+		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, nil, []error{err})
 	} else if !fulfilled {
-		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, nil)
+		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, nil, nil)
 	}
 
 	if deleted, operandName, err := c.delegate.WorkloadDeleted(ctx); err != nil {
-		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, []error{err})
+		return c.updateOperatorStatus(ctx, operatorStatus, nil, false, false, nil, []error{err})
 	} else if deleted {
 		// Server-Side-Apply with an empty operator status for the specific field manager will effectively
 		// remove any conditions and generations owned by it, because the respective API fields have 'map'
@@ -150,9 +153,9 @@ func (c *Controller) sync(ctx context.Context, controllerContext factory.SyncCon
 		return nil
 	}
 
-	workload, operatorConfigAtHighestGeneration, errs := c.delegate.Sync(ctx, controllerContext)
+	workload, operatorConfigAtHighestGeneration, conditionOverwrites, errs := c.delegate.Sync(ctx, controllerContext)
 
-	return c.updateOperatorStatus(ctx, operatorStatus, workload, operatorConfigAtHighestGeneration, true, errs)
+	return c.updateOperatorStatus(ctx, operatorStatus, workload, operatorConfigAtHighestGeneration, true, conditionOverwrites, errs)
 }
 
 // shouldSync checks ManagementState to determine if we can run this operator, probably set by a cluster administrator.
@@ -174,7 +177,15 @@ func (c *Controller) shouldSync(ctx context.Context, operatorSpec *operatorv1.Op
 }
 
 // updateOperatorStatus updates the status based on the actual workload and errors that might have occurred during synchronization.
-func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *operatorv1.OperatorStatus, workload *appsv1.Deployment, operatorConfigAtHighestGeneration bool, preconditionsReady bool, errs []error) (err error) {
+func (c *Controller) updateOperatorStatus(
+	ctx context.Context,
+	previousStatus *operatorv1.OperatorStatus,
+	workload *appsv1.Deployment,
+	operatorConfigAtHighestGeneration bool,
+	preconditionsReady bool,
+	conditionOverwrites []*applyoperatorv1.OperatorConditionApplyConfiguration,
+	errs []error,
+) (err error) {
 	if errs == nil {
 		errs = []error{}
 	}
@@ -210,6 +221,17 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 			deploymentProgressingCondition,
 			workloadDegradedCondition,
 		)
+
+	OverwritesLoop:
+		for _, overwrite := range conditionOverwrites {
+			for i, cond := range status.Conditions {
+				if ptr.Equal(cond.Type, overwrite.Type) {
+					status.Conditions[i] = *overwrite
+					continue OverwritesLoop
+				}
+			}
+			status.Conditions = append(status.Conditions, *overwrite)
+		}
 
 		if applyError := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); applyError != nil {
 			err = applyError
