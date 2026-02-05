@@ -12,7 +12,7 @@ require (
 	github.com/openshift/api v0.0.0-20260126183958-606bd613f9f7
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
 	github.com/openshift/client-go v0.0.0-20260108185524-48f4ccfc4e13
-	github.com/openshift/library-go v0.0.0-20260129122340-60005ae435eb
+	github.com/openshift/library-go v0.0.0-20260205090821-b15d656dc16c
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
