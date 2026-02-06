@@ -33,7 +33,7 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Tokens][Parallel] TestTokenInactivityTimeout", func() {
+	g.It("[Tokens][Serial] TestTokenInactivityTimeout", func() {
 		testTokenInactivityTimeout(g.GinkgoTB())
 	})
 })
