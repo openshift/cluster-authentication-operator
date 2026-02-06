@@ -33,6 +33,15 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 	g.It("[Operator][NetworkPolicy] should enforce oauth-apiserver NetworkPolicies", func() {
 		testOAuthAPIServerNetworkPolicyEnforcement()
 	})
+	g.It("[Operator][NetworkPolicy] should enforce authentication-operator NetworkPolicies", func() {
+		testAuthenticationOperatorNetworkPolicyEnforcement()
+	})
+	g.It("[Operator][NetworkPolicy] should enforce cross-namespace ingress traffic", func() {
+		testCrossNamespaceIngressEnforcement()
+	})
+	g.It("[Operator][NetworkPolicy] should block unauthorized namespace traffic", func() {
+		testUnauthorizedNamespaceBlocking()
+	})
 })
 
 func testGenericNetworkPolicyEnforcement() {
@@ -130,9 +139,152 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	g.By("Verifying allowed port 8443")
 	g.GinkgoWriter.Printf("expecting allow from %s to %s:%d\n", clientNamespace, allowedServerIP, 8443)
 	expectConnectivity(kubeClient, clientNamespace, clientLabels, allowedServerIP, 8443, true)
+
 	g.By("Verifying denied port 12345")
 	g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", clientNamespace, deniedServerIP, 12345)
 	expectConnectivity(kubeClient, clientNamespace, clientLabels, deniedServerIP, 12345, false)
+
+	g.By("Verifying denied ports even from allowed namespace")
+	for _, port := range []int32{80, 443, 6443, 9090} {
+		g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", clientNamespace, allowedServerIP, port)
+		expectConnectivity(kubeClient, clientNamespace, clientLabels, allowedServerIP, port, false)
+	}
+}
+
+func testAuthenticationOperatorNetworkPolicyEnforcement() {
+	kubeConfig := e2e.NewClientConfigForTest(g.GinkgoTB())
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	namespace := "openshift-authentication-operator"
+	serverLabels := map[string]string{"app": "authentication-operator"}
+
+	g.By("Creating authentication-operator test pods for policy checks")
+	g.GinkgoWriter.Printf("creating auth-operator server pod in %s\n", namespace)
+	serverIP, cleanupServer := createServerPod(kubeClient, namespace, "np-auth-op-server", serverLabels, 8443)
+	defer cleanupServer()
+
+	g.By("Verifying within-namespace traffic is blocked (policy only allows monitoring)")
+	g.GinkgoWriter.Printf("expecting deny from same namespace to %s:%d (only monitoring allowed)\n", serverIP, 8443)
+	expectConnectivity(kubeClient, namespace, map[string]string{"app": "authentication-operator"}, serverIP, 8443, false)
+
+	g.By("Verifying cross-namespace traffic from monitoring is allowed")
+	g.GinkgoWriter.Printf("expecting allow from openshift-monitoring to %s:%d\n", serverIP, 8443)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app.kubernetes.io/name": "prometheus"}, serverIP, 8443, true)
+
+	g.By("Verifying unauthorized ports are denied")
+	g.GinkgoWriter.Printf("expecting deny from openshift-monitoring to %s:%d (unauthorized port)\n", serverIP, 12345)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app.kubernetes.io/name": "prometheus"}, serverIP, 12345, false)
+}
+
+func testCrossNamespaceIngressEnforcement() {
+	kubeConfig := e2e.NewClientConfigForTest(g.GinkgoTB())
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Creating test server pods in auth namespaces")
+	authServerIP, cleanupAuthServer := createServerPod(kubeClient, "openshift-authentication", "np-auth-xns", map[string]string{"app": "oauth-openshift"}, 6443)
+	defer cleanupAuthServer()
+	oauthAPIServerIP, cleanupOAuthAPIServer := createServerPod(kubeClient, "openshift-oauth-apiserver", "np-oauth-api-xns", map[string]string{"app": "openshift-oauth-apiserver"}, 8443)
+	defer cleanupOAuthAPIServer()
+	authOperatorIP, cleanupAuthOperator := createServerPod(kubeClient, "openshift-authentication-operator", "np-auth-op-xns", map[string]string{"app": "authentication-operator"}, 8443)
+	defer cleanupAuthOperator()
+
+	g.By("Testing cross-namespace ingress: auth-operator -> oauth-server:6443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-authentication-operator to %s:6443\n", authServerIP)
+	expectConnectivity(kubeClient, "openshift-authentication-operator", map[string]string{"app": "authentication-operator"}, authServerIP, 6443, true)
+
+	g.By("Testing cross-namespace ingress: auth-operator -> oauth-apiserver:8443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-authentication-operator to %s:8443\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "openshift-authentication-operator", map[string]string{"app": "authentication-operator"}, oauthAPIServerIP, 8443, true)
+
+	g.By("Testing cross-namespace ingress: oauth-server -> oauth-apiserver:8443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-authentication to %s:8443\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "oauth-openshift"}, oauthAPIServerIP, 8443, true)
+
+	g.By("Testing cross-namespace ingress: monitoring -> oauth-server:6443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-monitoring to %s:6443\n", authServerIP)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app.kubernetes.io/name": "prometheus"}, authServerIP, 6443, true)
+
+	g.By("Testing cross-namespace ingress: monitoring -> oauth-apiserver:8443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-monitoring to %s:8443\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app.kubernetes.io/name": "prometheus"}, oauthAPIServerIP, 8443, true)
+
+	g.By("Testing cross-namespace ingress: monitoring -> auth-operator:8443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-monitoring to %s:8443\n", authOperatorIP)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app.kubernetes.io/name": "prometheus"}, authOperatorIP, 8443, true)
+
+	g.By("Testing allow-all ingress: arbitrary namespace -> oauth-server:6443")
+	g.GinkgoWriter.Printf("expecting allow from any namespace to %s:6443 (oauth-proxy sidecars)\n", authServerIP)
+	expectConnectivity(kubeClient, "openshift-ingress", map[string]string{"test": "arbitrary-client"}, authServerIP, 6443, true)
+
+	g.By("Testing denied cross-namespace: unauthorized namespace -> oauth-server on unauthorized port")
+	g.GinkgoWriter.Printf("expecting deny from openshift-ingress to %s:8080\n", authServerIP)
+	expectConnectivity(kubeClient, "openshift-ingress", map[string]string{"test": "arbitrary-client"}, authServerIP, 8080, false)
+
+	g.By("Testing allow-all includes other auth components: oauth-apiserver -> oauth-server:6443")
+	g.GinkgoWriter.Printf("expecting allow from openshift-oauth-apiserver to %s:6443 (via allow-all rule)\n", authServerIP)
+	expectConnectivity(kubeClient, "openshift-oauth-apiserver", map[string]string{"app": "openshift-oauth-apiserver"}, authServerIP, 6443, true)
+
+	g.By("Testing denied cross-namespace: wrong labels from allowed namespace")
+	g.GinkgoWriter.Printf("expecting deny from openshift-authentication (wrong labels) to %s:8443\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "wrong-app"}, oauthAPIServerIP, 8443, false)
+}
+
+func testUnauthorizedNamespaceBlocking() {
+	kubeConfig := e2e.NewClientConfigForTest(g.GinkgoTB())
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Creating test server pods in auth namespaces")
+	authServerIP, cleanupAuthServer := createServerPod(kubeClient, "openshift-authentication", "np-auth-unauth", map[string]string{"app": "oauth-openshift"}, 6443)
+	defer cleanupAuthServer()
+	oauthAPIServerIP, cleanupOAuthAPIServer := createServerPod(kubeClient, "openshift-oauth-apiserver", "np-oauth-api-unauth", map[string]string{"app": "openshift-oauth-apiserver"}, 8443)
+	defer cleanupOAuthAPIServer()
+	authOperatorIP, cleanupAuthOperator := createServerPod(kubeClient, "openshift-authentication-operator", "np-auth-op-unauth", map[string]string{"app": "authentication-operator"}, 8443)
+	defer cleanupAuthOperator()
+
+	g.By("Testing allow-all rules: oauth-server:6443 (oauth-proxy sidecars)")
+	g.GinkgoWriter.Printf("expecting allow from default namespace to %s:6443 (oauth-proxy sidecar access)\n", authServerIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, authServerIP, 6443, true)
+
+	g.By("Testing allow-all rules: oauth-apiserver:8443 (kube-apiserver webhook/aggregated APIs)")
+	g.GinkgoWriter.Printf("expecting allow from default namespace to %s:8443 (kube-apiserver access)\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, oauthAPIServerIP, 8443, true)
+
+	g.By("Testing strict blocking: unauthorized namespace -> auth-operator:8443")
+	g.GinkgoWriter.Printf("expecting deny from default to %s:8443 (only monitoring allowed)\n", authOperatorIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, false)
+
+	g.By("Testing strict blocking: unauthorized namespace -> auth-operator:8443")
+	g.GinkgoWriter.Printf("expecting deny from openshift-etcd to %s:8443\n", authOperatorIP)
+	expectConnectivity(kubeClient, "openshift-etcd", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, false)
+
+	g.By("Testing port-based blocking: unauthorized port even from any namespace")
+	g.GinkgoWriter.Printf("expecting deny from default to %s:9999 (unauthorized port)\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, oauthAPIServerIP, 9999, false)
+
+	g.By("Testing port-based blocking: unauthorized port on oauth-server")
+	g.GinkgoWriter.Printf("expecting deny from default to %s:9999 (unauthorized port)\n", authServerIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, authServerIP, 9999, false)
+
+	g.By("Testing label-based blocking: wrong labels from allowed namespace")
+	g.GinkgoWriter.Printf("expecting deny from openshift-monitoring with wrong labels to %s:8443\n", authOperatorIP)
+	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app": "wrong-label"}, authOperatorIP, 8443, false)
+
+	g.By("Testing label-based blocking: wrong labels from openshift-authentication")
+	g.GinkgoWriter.Printf("expecting deny from openshift-authentication with wrong labels to %s:8443\n", oauthAPIServerIP)
+	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "wrong-label"}, oauthAPIServerIP, 8443, false)
+
+	g.By("Testing multiple unauthorized ports on oauth-server")
+	for _, port := range []int32{80, 443, 8080, 8443, 22, 3306} {
+		g.GinkgoWriter.Printf("expecting deny from default to %s:%d (unauthorized port)\n", authServerIP, port)
+		expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, authServerIP, port, false)
+	}
+
+	g.By("Testing cross-namespace blocking: oauth-server cannot reach auth-operator")
+	g.GinkgoWriter.Printf("expecting deny from openshift-authentication to %s:8443\n", authOperatorIP)
+	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "oauth-openshift"}, authOperatorIP, 8443, false)
 }
 
 func netexecPod(name, namespace string, labels map[string]string, port int32) *corev1.Pod {

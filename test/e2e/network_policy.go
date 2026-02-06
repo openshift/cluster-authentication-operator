@@ -91,9 +91,28 @@ func testAuthNetworkPolicies() {
 	logIngressHostNetworkOrAllowAll(oauthPolicy, 8443)
 	logEgressAllowAllTCP(oauthPolicy)
 
+	g.By("Validating NetworkPolicies in openshift-authentication-operator")
+	operatorDefaultDeny := getNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", defaultDenyAllPolicyName)
+	logNetworkPolicySummary("auth-operator/default-deny-all", operatorDefaultDeny)
+	logNetworkPolicyDetails("auth-operator/default-deny-all", operatorDefaultDeny)
+	requireDefaultDenyAll(operatorDefaultDeny)
+
+	operatorPolicy := getNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", "authentication-operator-networkpolicy")
+	logNetworkPolicySummary("auth-operator/authentication-operator-networkpolicy", operatorPolicy)
+	logNetworkPolicyDetails("auth-operator/authentication-operator-networkpolicy", operatorPolicy)
+	requirePodSelectorLabel(operatorPolicy, "app", "authentication-operator")
+	requireIngressPort(operatorPolicy, corev1.ProtocolTCP, 8443)
+	requireIngressFromNamespace(operatorPolicy, 8443, "openshift-monitoring")
+	requireEgressPort(operatorPolicy, corev1.ProtocolTCP, 5353)
+	requireEgressPort(operatorPolicy, corev1.ProtocolUDP, 5353)
+	requireEgressPort(operatorPolicy, corev1.ProtocolTCP, 6443)
+	requireEgressPort(operatorPolicy, corev1.ProtocolTCP, 8443)
+	logEgressAllowAllTCP(operatorPolicy)
+
 	g.By("Verifying pods are ready in auth namespaces")
 	waitForPodsReadyByLabel(ctx, kubeClient, authNamespace, "app=oauth-openshift")
 	waitForPodsReadyByLabel(ctx, kubeClient, oauthAPINamespace, "app=openshift-oauth-apiserver")
+	waitForPodsReadyByLabel(ctx, kubeClient, "openshift-authentication-operator", "app=authentication-operator")
 }
 
 func testAuthNetworkPolicyReconcile() {
@@ -109,17 +128,37 @@ func testAuthNetworkPolicyReconcile() {
 	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(g.GinkgoTB(), configClient, "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
-	g.By("Deleting policies and waiting for restoration")
+	g.By("Deleting main policies and waiting for restoration")
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
 	restoreNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", oauthAPINamespace, oauthAPIServerPolicyName)
 	restoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", "openshift-authentication-operator", "authentication-operator-networkpolicy")
+	restoreNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", "authentication-operator-networkpolicy")
 
-	g.By("Mutating policies and waiting for reconciliation")
+	g.By("Deleting default-deny-all policies and waiting for restoration")
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authNamespace, defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", oauthAPINamespace, defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", "openshift-authentication-operator", defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", defaultDenyAllPolicyName)
+
+	g.By("Mutating main policies and waiting for reconciliation")
 	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
 	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", oauthAPINamespace, oauthAPIServerPolicyName)
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", "openshift-authentication-operator", "authentication-operator-networkpolicy")
+	mutateAndRestoreNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", "authentication-operator-networkpolicy")
+
+	g.By("Mutating default-deny-all policies and waiting for reconciliation")
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", authNamespace, defaultDenyAllPolicyName)
+	mutateAndRestoreNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", oauthAPINamespace, defaultDenyAllPolicyName)
+	mutateAndRestoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", "openshift-authentication-operator", defaultDenyAllPolicyName)
+	mutateAndRestoreNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", defaultDenyAllPolicyName)
 
 	g.By("Checking NetworkPolicy-related events (best-effort)")
 	logNetworkPolicyEvents(ctx, kubeClient, []string{"openshift-authentication-operator", authNamespace, oauthAPINamespace}, oauthServerPolicyName)
