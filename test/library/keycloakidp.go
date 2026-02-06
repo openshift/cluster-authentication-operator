@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,7 +128,9 @@ func AddKeycloakIDP(
 
 	// even though configured via env vars and even though we checked Keycloak reports
 	// ready on /health/ready, it still appears that we may need some time to log in properly
-	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+	// In resource-constrained CI environments with parallel test execution, Keycloak can take
+	// 40-60+ seconds to fully initialize its admin API even after passing readiness probes
+	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		err := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
 		if err != nil {
 			t.Logf("failed to authenticate to Keycloak: %v", err)
@@ -248,9 +251,20 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		return err
 	}
 
+	// Check for non-success HTTP status codes before attempting to parse JSON
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("authentication failed: HTTP %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	// Verify we received JSON response (Keycloak may return HTML error pages during startup)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !containsIgnoreCase(contentType, "application/json") {
+		return fmt.Errorf("expected JSON response but got Content-Type %q: %s", contentType, string(respBytes))
+	}
+
 	authResp := map[string]any{}
 	if err := json.Unmarshal(respBytes, &authResp); err != nil {
-		return err
+		return fmt.Errorf("failed to parse JSON response: %w (response body: %s)", err, string(respBytes))
 	}
 
 	accessToken, err := retrieveValue("access_token", authResp)
@@ -711,4 +725,8 @@ func retrieveValue(field string, sourceMap map[string]any) (string, error) {
 	}
 
 	return value, nil
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

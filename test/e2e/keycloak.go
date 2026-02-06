@@ -5,12 +5,14 @@ import (
 	"math/rand"
 	"strconv"
 	"testing"
+	"time"
 
 	g "github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -24,7 +26,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[OIDC][Serial] TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync", func() {
+	g.It("[OIDC][Parallel] TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync", func() {
 		testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(g.GinkgoTB())
 	})
 })
@@ -62,19 +64,32 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 
 	require.Equal(t, false, kcIDPConfig.UseAsChallenger, "keycloak is configured as challenger but it should not be")
 
-	oauthConfig, err := configClient.OAuths().Get(testContext, "cluster", metav1.GetOptions{})
-	require.NoError(t, err)
-
 	// =======================================================================
 	// Test that we do consider the provider as a challenger if ROPC is set up
 	// =======================================================================
+	// Wait for the IDP to appear in the OAuth config with proper OpenID configuration
 	var configIDP configv1.IdentityProvider
-	for _, idp := range oauthConfig.Spec.IdentityProviders {
-		if idp.Name == idpName {
-			configIDP = idp
-			break
+	err = wait.PollImmediate(2*time.Second, 3*time.Minute, func() (bool, error) {
+		oauthConfig, err := configClient.OAuths().Get(testContext, "cluster", metav1.GetOptions{})
+		if err != nil {
+			t.Logf("failed to get OAuth config: %v", err)
+			return false, nil
 		}
-	}
+
+		for _, idp := range oauthConfig.Spec.IdentityProviders {
+			if idp.Name == idpName {
+				if idp.OpenID != nil && idp.OpenID.Issuer != "" && idp.OpenID.ClientSecret.Name != "" {
+					configIDP = idp
+					return true, nil
+				}
+				t.Logf("found IDP %q but OpenID config is incomplete", idpName)
+				return false, nil
+			}
+		}
+		t.Logf("IDP %q not found in OAuth config yet", idpName)
+		return false, nil
+	})
+	require.NoError(t, err, "IDP %q did not appear in OAuth config with valid OpenID configuration", idpName)
 
 	// Get a keycloak client for the external KC URL
 	transport, err := rest.TransportFor(kubeConfig)
