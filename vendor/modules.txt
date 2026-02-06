@@ -376,7 +376,7 @@ github.com/openshift/client-go/user/applyconfigurations/internal
 github.com/openshift/client-go/user/applyconfigurations/user/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-# github.com/openshift/library-go v0.0.0-20260129122340-60005ae435eb
+# github.com/openshift/library-go v0.0.0-20260205090821-b15d656dc16c
 ## explicit; go 1.24.0
 github.com/openshift/library-go/pkg/apiserver/jsonpatch
 github.com/openshift/library-go/pkg/apps/deployment
@@ -450,6 +450,7 @@ github.com/openshift/library-go/pkg/route/routeapihelpers
 github.com/openshift/library-go/pkg/serviceability
 github.com/openshift/library-go/test/library
 github.com/openshift/library-go/test/library/encryption
+github.com/openshift/library-go/test/library/encryption/kms
 # github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 ## explicit; go 1.22.0
 github.com/openshift/multi-operator-manager/pkg/flagtypes
