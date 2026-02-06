@@ -77,11 +77,6 @@ func TestKMSEncryptionProvidersMigration(t *testing.T) {
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
-		EncryptionProviders:            library.ShuffleEncryptionProviders([]configv1.EncryptionType{configv1.EncryptionTypeKMS, pickAESEncryptionProvider()}),
+		EncryptionProviders:            library.ShuffleEncryptionProviders([]configv1.EncryptionType{configv1.EncryptionTypeKMS, library.SupportedStaticEncryptionProviders[rand.IntN(len(library.SupportedStaticEncryptionProviders))]}),
 	})
-}
-
-func pickAESEncryptionProvider() configv1.EncryptionType {
-	providers := []configv1.EncryptionType{configv1.EncryptionTypeAESGCM, configv1.EncryptionTypeAESCBC}
-	return providers[rand.IntN(len(providers))]
 }
