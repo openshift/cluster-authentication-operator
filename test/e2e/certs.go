@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/pem"
-	"strings"
 	"testing"
 	"time"
 
@@ -28,7 +27,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Certs][Serial] TestRouterCerts", func() {
+	g.It("[Operator][Certs][Parallel] TestRouterCerts", func() {
 		testRouterCerts(g.GinkgoTB())
 	})
 })
@@ -59,17 +58,7 @@ func testRouterCerts(t testing.TB) {
 	privateKey, err := keyutil.MarshalPrivateKeyToPEM(server.PrivateKey)
 	require.NoError(t, err)
 	// Generate a valid Kubernetes name from the test name
-	// Replace invalid characters with hyphens and ensure it starts/ends with alphanumeric
-	secretName := strings.ToLower(t.Name())
-	secretName = strings.ReplaceAll(secretName, "/", "-")
-	secretName = strings.ReplaceAll(secretName, " ", "-")
-	secretName = strings.ReplaceAll(secretName, "[", "")
-	secretName = strings.ReplaceAll(secretName, "]", "")
-	secretName = strings.Trim(secretName, "-")
-	if len(secretName) > 63 {
-		secretName = secretName[:63]
-	}
-	secretName = strings.TrimRight(secretName, "-")
+	secretName := e2e.SanitizeResourceName(t.Name())
 
 	secret, err := kubeClient.CoreV1().Secrets("openshift-ingress").Create(
 		context.TODO(),

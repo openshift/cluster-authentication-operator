@@ -33,7 +33,7 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Tokens][Serial] TestTokenInactivityTimeout", func() {
+	g.It("[Tokens][Parallel] TestTokenInactivityTimeout", func() {
 		testTokenInactivityTimeout(g.GinkgoTB())
 	})
 })
@@ -74,7 +74,7 @@ func testTokenInactivityTimeout(t testing.TB) {
 		req, err := http.NewRequest(http.MethodGet, kubeConfig.Host+"/apis/user.openshift.io/v1/users/~", &bytes.Buffer{})
 		require.NoError(t, err)
 
-		time.Sleep(timeout + 10*time.Second)
+		time.Sleep(timeout + 5*time.Second)
 
 		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
@@ -92,19 +92,19 @@ func testTokenInactivityTimeout(t testing.TB) {
 		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
-		time.Sleep(120 * time.Second)
+		time.Sleep(20 * time.Second)
 
 		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
-		time.Sleep(timeout + 10*time.Second)
+		time.Sleep(timeout + 5*time.Second)
 
 		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 	}
 
-	configInactivityTimeout := int32(420) // 420 is the minimum possible timeout + 2min to distinguish it from oauth client timeouts
-	oauthClientTimeout := int32(300)      // 300 is the minimum possible timeout
+	configInactivityTimeout := int32(300) // minimum acceptable token timeout value is 300 seconds
+	oauthClientTimeout := int32(300)      // minimum acceptable token timeout value is 300 seconds
 
 	// No OAuthClient timeout and no OAuth config timeout.
 	checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
@@ -144,7 +144,7 @@ func checkTokenAccess(t testing.TB,
 	testAccess func(testing.TB, string, string, time.Duration)) {
 	// Create the user, identity, oauthclient and oauthaccesstoken objects needed for authentication using Bearer tokens.
 	subTestNameHierarchy := strings.Split(t.Name(), "/")
-	prefix := strings.ToLower(subTestNameHierarchy[len(subTestNameHierarchy)-1]) + "-"
+	prefix := test.SanitizeResourceName(subTestNameHierarchy[len(subTestNameHierarchy)-1]) + "-"
 
 	userName := prefix + "testuser"
 	idpName := "htpasswd"
@@ -309,7 +309,7 @@ func createOAuthClient(t testing.TB, oauthClientClient *oauthclient.OauthV1Clien
 func waitOAuthServerReplicasReady(t testing.TB, kubeClient kubernetes.Interface) {
 	t.Logf("waiting all oauth-apiserver replicas to be updated and ready")
 
-	err := wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
+	err := wait.PollImmediate(time.Second, 5*time.Minute, func() (bool, error) {
 		deployment, err := kubeClient.AppsV1().Deployments("openshift-oauth-apiserver").Get(context.Background(), "apiserver", metav1.GetOptions{})
 		if err != nil {
 			t.Logf("failed to retrieve oauth-apiserver's deployment: %v", err)

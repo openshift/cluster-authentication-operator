@@ -12,7 +12,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[OIDC][Serial] TestGitLabAsOIDCPasswordGrantCheck", func() {
+	g.It("[OIDC][Parallel] TestGitLabAsOIDCPasswordGrantCheck", func() {
 		testGitLabAsOIDCPasswordGrantCheck(g.GinkgoTB())
 	})
 })

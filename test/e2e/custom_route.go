@@ -30,7 +30,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Routes][Serial] TestCustomRouterCerts", func() {
+	g.It("[Operator][Routes][Parallel] TestCustomRouterCerts", func() {
 		testCustomRouterCerts(g.GinkgoTB())
 	})
 })
@@ -62,17 +62,7 @@ func testCustomRouterCerts(t testing.TB) {
 	customServerCertPEM := pem.EncodeToMemory(&pem.Block{Type: cert.CertificateBlockType, Bytes: server.Certificate.Raw})
 
 	// Generate a valid Kubernetes name from the test name
-	// Replace invalid characters with hyphens and ensure it starts/ends with alphanumeric
-	secretName := strings.ToLower(t.Name())
-	secretName = strings.ReplaceAll(secretName, "/", "-")
-	secretName = strings.ReplaceAll(secretName, " ", "-")
-	secretName = strings.ReplaceAll(secretName, "[", "")
-	secretName = strings.ReplaceAll(secretName, "]", "")
-	secretName = strings.Trim(secretName, "-")
-	if len(secretName) > 63 {
-		secretName = secretName[:63]
-	}
-	secretName = strings.TrimRight(secretName, "-")
+	secretName := e2e.SanitizeResourceName(t.Name())
 
 	secret, err := kubeClient.CoreV1().Secrets("openshift-config").Create(
 		context.TODO(),
