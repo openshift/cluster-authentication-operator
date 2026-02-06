@@ -43,6 +43,7 @@ func testGenericNetworkPolicyEnforcement() {
 	g.By("Creating a temporary namespace for policy enforcement checks")
 	nsName := e2e.NewTestNamespaceBuilder("np-enforcement-").Create(g.GinkgoTB(), kubeClient.CoreV1().Namespaces())
 	defer func() {
+		g.GinkgoWriter.Printf("deleting test namespace %s\n", nsName)
 		_ = kubeClient.CoreV1().Namespaces().Delete(context.TODO(), nsName, metav1.DeleteOptions{})
 	}()
 
@@ -62,20 +63,27 @@ func testGenericNetworkPolicyEnforcement() {
 	g.GinkgoWriter.Printf("server pod %s/%s ip=%s\n", nsName, serverName, server.Status.PodIP)
 
 	g.By("Verifying allow-all when no policies select the pod")
+	g.GinkgoWriter.Printf("expecting allow from %s to %s:%d\n", nsName, server.Status.PodIP, 8080)
 	expectConnectivity(kubeClient, nsName, clientLabels, server.Status.PodIP, 8080, true)
 
 	g.By("Applying default deny and verifying traffic is blocked")
+	g.GinkgoWriter.Printf("creating default-deny policy in %s\n", nsName)
 	_, err = kubeClient.NetworkingV1().NetworkPolicies(nsName).Create(context.TODO(), defaultDenyPolicy("default-deny", nsName), metav1.CreateOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
+	g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", nsName, server.Status.PodIP, 8080)
 
 	g.By("Adding ingress allow only and verifying traffic is still blocked")
+	g.GinkgoWriter.Printf("creating allow-ingress policy in %s\n", nsName)
 	_, err = kubeClient.NetworkingV1().NetworkPolicies(nsName).Create(context.TODO(), allowIngressPolicy("allow-ingress", nsName, serverLabels, clientLabels, 8080), metav1.CreateOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
+	g.GinkgoWriter.Printf("expecting deny from %s to %s:%d (egress still blocked)\n", nsName, server.Status.PodIP, 8080)
 	expectConnectivity(kubeClient, nsName, clientLabels, server.Status.PodIP, 8080, false)
 
 	g.By("Adding egress allow and verifying traffic is permitted")
+	g.GinkgoWriter.Printf("creating allow-egress policy in %s\n", nsName)
 	_, err = kubeClient.NetworkingV1().NetworkPolicies(nsName).Create(context.TODO(), allowEgressPolicy("allow-egress", nsName, clientLabels, serverLabels, 8080), metav1.CreateOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
+	g.GinkgoWriter.Printf("expecting allow from %s to %s:%d\n", nsName, server.Status.PodIP, 8080)
 	expectConnectivity(kubeClient, nsName, clientLabels, server.Status.PodIP, 8080, true)
 }
 
@@ -89,14 +97,17 @@ func testAuthNetworkPolicyEnforcement() {
 	serverLabels := map[string]string{"app": "oauth-openshift"}
 
 	g.By("Creating oauth server test pods for allow/deny checks")
+	g.GinkgoWriter.Printf("creating auth server pods in %s\n", namespace)
 	allowedServerIP, cleanupAllowed := createServerPod(kubeClient, namespace, "np-auth-allowed", serverLabels, 6443)
 	defer cleanupAllowed()
 	deniedServerIP, cleanupDenied := createServerPod(kubeClient, namespace, "np-auth-denied", serverLabels, 12345)
 	defer cleanupDenied()
 
 	g.By("Verifying allowed port 6443")
+	g.GinkgoWriter.Printf("expecting allow from %s to %s:%d\n", namespace, allowedServerIP, 6443)
 	expectConnectivity(kubeClient, namespace, clientLabels, allowedServerIP, 6443, true)
 	g.By("Verifying denied port 12345")
+	g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", namespace, deniedServerIP, 12345)
 	expectConnectivity(kubeClient, namespace, clientLabels, deniedServerIP, 12345, false)
 }
 
@@ -110,14 +121,17 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	clientLabels := map[string]string{"app": "oauth-openshift"}
 
 	g.By("Creating oauth-apiserver test pods for allow/deny checks")
+	g.GinkgoWriter.Printf("creating oauth-apiserver server pods in %s\n", serverNamespace)
 	allowedServerIP, cleanupAllowed := createServerPod(kubeClient, serverNamespace, "np-oauth-api-allowed", map[string]string{"app": "openshift-oauth-apiserver"}, 8443)
 	defer cleanupAllowed()
 	deniedServerIP, cleanupDenied := createServerPod(kubeClient, serverNamespace, "np-oauth-api-denied", map[string]string{"app": "openshift-oauth-apiserver"}, 12345)
 	defer cleanupDenied()
 
 	g.By("Verifying allowed port 8443")
+	g.GinkgoWriter.Printf("expecting allow from %s to %s:%d\n", clientNamespace, allowedServerIP, 8443)
 	expectConnectivity(kubeClient, clientNamespace, clientLabels, allowedServerIP, 8443, true)
 	g.By("Verifying denied port 12345")
+	g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", clientNamespace, deniedServerIP, 12345)
 	expectConnectivity(kubeClient, clientNamespace, clientLabels, deniedServerIP, 12345, false)
 }
 
@@ -158,6 +172,7 @@ func netexecPod(name, namespace string, labels map[string]string, port int32) *c
 func createServerPod(kubeClient kubernetes.Interface, namespace, name string, labels map[string]string, port int32) (string, func()) {
 	g.GinkgoHelper()
 
+	g.GinkgoWriter.Printf("creating server pod %s/%s port=%d labels=%v\n", namespace, name, port, labels)
 	pod := netexecPod(name, namespace, labels, port)
 	_, err := kubeClient.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
@@ -166,8 +181,10 @@ func createServerPod(kubeClient kubernetes.Interface, namespace, name string, la
 	created, err := kubeClient.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
 	o.Expect(created.Status.PodIP).NotTo(o.BeEmpty())
+	g.GinkgoWriter.Printf("server pod %s/%s ip=%s\n", namespace, name, created.Status.PodIP)
 
 	return created.Status.PodIP, func() {
+		g.GinkgoWriter.Printf("deleting server pod %s/%s\n", namespace, name)
 		_ = kubeClient.CoreV1().Pods(namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	}
 }

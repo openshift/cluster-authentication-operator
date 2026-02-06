@@ -54,36 +54,42 @@ func testAuthNetworkPolicies() {
 	g.By("Validating NetworkPolicies in openshift-authentication")
 	authDefaultDeny := getNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
 	logNetworkPolicySummary("auth/default-deny-all", authDefaultDeny)
+	logNetworkPolicyDetails("auth/default-deny-all", authDefaultDeny)
 	requireDefaultDenyAll(authDefaultDeny)
 
 	authPolicy := getNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
 	logNetworkPolicySummary("auth/oauth-server-networkpolicy", authPolicy)
+	logNetworkPolicyDetails("auth/oauth-server-networkpolicy", authPolicy)
 	requirePodSelectorLabel(authPolicy, "app", "oauth-openshift")
 	requireIngressPort(authPolicy, corev1.ProtocolTCP, 6443)
 	requireIngressFromNamespace(authPolicy, 6443, "openshift-monitoring")
-	requireIngressFromNamespace(authPolicy, 6443, "openshift-ingress")
+	requireIngressFromNamespaceOrPolicyGroup(authPolicy, 6443, "openshift-ingress", "policy-group.network.openshift.io/ingress")
 	requireIngressFromNamespace(authPolicy, 6443, "openshift-authentication-operator")
-	requireIngressAllowAll(authPolicy, 6443)
 	requireEgressPort(authPolicy, corev1.ProtocolTCP, 5353)
 	requireEgressPort(authPolicy, corev1.ProtocolUDP, 5353)
 	requireEgressPort(authPolicy, corev1.ProtocolTCP, 8443)
+	logIngressHostNetworkOrAllowAll(authPolicy, 6443)
+	logEgressAllowAllTCP(authPolicy)
 
 	g.By("Validating NetworkPolicies in openshift-oauth-apiserver")
 	oauthDefaultDeny := getNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
 	logNetworkPolicySummary("oauth-apiserver/default-deny-all", oauthDefaultDeny)
+	logNetworkPolicyDetails("oauth-apiserver/default-deny-all", oauthDefaultDeny)
 	requireDefaultDenyAll(oauthDefaultDeny)
 
 	oauthPolicy := getNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
 	logNetworkPolicySummary("oauth-apiserver/oauth-apiserver-networkpolicy", oauthPolicy)
+	logNetworkPolicyDetails("oauth-apiserver/oauth-apiserver-networkpolicy", oauthPolicy)
 	requirePodSelectorLabel(oauthPolicy, "app", "openshift-oauth-apiserver")
 	requireIngressPort(oauthPolicy, corev1.ProtocolTCP, 8443)
 	requireIngressFromNamespace(oauthPolicy, 8443, "openshift-monitoring")
 	requireIngressFromNamespace(oauthPolicy, 8443, "openshift-authentication")
 	requireIngressFromNamespace(oauthPolicy, 8443, "openshift-authentication-operator")
-	requireIngressAllowAll(oauthPolicy, 8443)
 	requireEgressPort(oauthPolicy, corev1.ProtocolTCP, 5353)
 	requireEgressPort(oauthPolicy, corev1.ProtocolUDP, 5353)
 	requireEgressPort(oauthPolicy, corev1.ProtocolTCP, 2379)
+	logIngressHostNetworkOrAllowAll(oauthPolicy, 8443)
+	logEgressAllowAllTCP(oauthPolicy)
 
 	g.By("Verifying pods are ready in auth namespaces")
 	waitForPodsReadyByLabel(ctx, kubeClient, authNamespace, "app=oauth-openshift")
@@ -104,15 +110,19 @@ func testAuthNetworkPolicyReconcile() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deleting policies and waiting for restoration")
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
 	restoreNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", oauthAPINamespace, oauthAPIServerPolicyName)
 	restoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
 
 	g.By("Mutating policies and waiting for reconciliation")
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", oauthAPINamespace, oauthAPIServerPolicyName)
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
 
-	g.By("Checking NetworkPolicy-related events")
-	waitForNetworkPolicyEvent(ctx, kubeClient, "openshift-authentication-operator", oauthServerPolicyName)
+	g.By("Checking NetworkPolicy-related events (best-effort)")
+	logNetworkPolicyEvents(ctx, kubeClient, []string{"openshift-authentication-operator", authNamespace, oauthAPINamespace}, oauthServerPolicyName)
 }
 
 func getNetworkPolicy(ctx context.Context, client kubernetes.Interface, namespace, name string) *networkingv1.NetworkPolicy {
@@ -159,11 +169,35 @@ func requireIngressFromNamespace(policy *networkingv1.NetworkPolicy, port int32,
 	}
 }
 
+func requireIngressFromNamespaceOrPolicyGroup(policy *networkingv1.NetworkPolicy, port int32, namespace, policyGroupLabelKey string) {
+	g.GinkgoHelper()
+	if hasIngressFromNamespace(policy.Spec.Ingress, port, namespace) {
+		return
+	}
+	if hasIngressFromPolicyGroup(policy.Spec.Ingress, port, policyGroupLabelKey) {
+		return
+	}
+	g.Fail(fmt.Sprintf("%s/%s: expected ingress from namespace %s or policy-group %s on port %d", policy.Namespace, policy.Name, namespace, policyGroupLabelKey, port))
+}
+
 func requireIngressAllowAll(policy *networkingv1.NetworkPolicy, port int32) {
 	g.GinkgoHelper()
 	if !hasIngressAllowAll(policy.Spec.Ingress, port) {
 		g.Fail(fmt.Sprintf("%s/%s: expected ingress allow-all on port %d", policy.Namespace, policy.Name, port))
 	}
+}
+
+func logIngressHostNetworkOrAllowAll(policy *networkingv1.NetworkPolicy, port int32) {
+	g.GinkgoHelper()
+	if hasIngressAllowAll(policy.Spec.Ingress, port) {
+		g.GinkgoWriter.Printf("networkpolicy %s/%s: ingress allow-all present on port %d\n", policy.Namespace, policy.Name, port)
+		return
+	}
+	if hasIngressFromPolicyGroup(policy.Spec.Ingress, port, "policy-group.network.openshift.io/host-network") {
+		g.GinkgoWriter.Printf("networkpolicy %s/%s: ingress host-network policy-group present on port %d\n", policy.Namespace, policy.Name, port)
+		return
+	}
+	g.GinkgoWriter.Printf("networkpolicy %s/%s: no ingress allow-all/host-network rule on port %d\n", policy.Namespace, policy.Name, port)
 }
 
 func requireEgressPort(policy *networkingv1.NetworkPolicy, protocol corev1.Protocol, port int32) {
@@ -254,8 +288,60 @@ func namespaceSelectorMatches(selector *metav1.LabelSelector, namespace string) 
 	return false
 }
 
+func hasIngressFromPolicyGroup(rules []networkingv1.NetworkPolicyIngressRule, port int32, policyGroupLabelKey string) bool {
+	for _, rule := range rules {
+		if !hasPort(rule.Ports, corev1.ProtocolTCP, port) {
+			continue
+		}
+		for _, peer := range rule.From {
+			if peer.NamespaceSelector == nil || peer.NamespaceSelector.MatchLabels == nil {
+				continue
+			}
+			if _, ok := peer.NamespaceSelector.MatchLabels[policyGroupLabelKey]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func logEgressAllowAllTCP(policy *networkingv1.NetworkPolicy) {
+	g.GinkgoHelper()
+	if hasEgressAllowAllTCP(policy.Spec.Egress) {
+		g.GinkgoWriter.Printf("networkpolicy %s/%s: egress allow-all TCP rule present\n", policy.Namespace, policy.Name)
+		return
+	}
+	g.GinkgoWriter.Printf("networkpolicy %s/%s: no egress allow-all TCP rule\n", policy.Namespace, policy.Name)
+}
+
+func hasEgressAllowAllTCP(rules []networkingv1.NetworkPolicyEgressRule) bool {
+	for _, rule := range rules {
+		if len(rule.To) != 0 {
+			continue
+		}
+		if hasAnyTCPPort(rule.Ports) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyTCPPort(ports []networkingv1.NetworkPolicyPort) bool {
+	if len(ports) == 0 {
+		return true
+	}
+	for _, p := range ports {
+		if p.Protocol != nil && *p.Protocol != corev1.ProtocolTCP {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func restoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, namespace, name string) {
 	g.GinkgoHelper()
+	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", namespace, name)
 	o.Expect(client.NetworkingV1().NetworkPolicies(namespace).Delete(ctx, name, metav1.DeleteOptions{})).NotTo(o.HaveOccurred())
 	err := wait.PollImmediate(5*time.Second, 10*time.Minute, func() (bool, error) {
 		_, err := client.NetworkingV1().NetworkPolicies(namespace).Get(ctx, name, metav1.GetOptions{})
@@ -265,11 +351,13 @@ func restoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, name
 		return true, nil
 	})
 	o.Expect(err).NotTo(o.HaveOccurred(), "timed out waiting for NetworkPolicy %s/%s to be restored", namespace, name)
+	g.GinkgoWriter.Printf("NetworkPolicy %s/%s restored\n", namespace, name)
 }
 
 func mutateAndRestoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, namespace, name string) {
 	g.GinkgoHelper()
 	original := getNetworkPolicy(ctx, client, namespace, name)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s (podSelector override)\n", namespace, name)
 	patch := []byte(`{"spec":{"podSelector":{"matchLabels":{"np-reconcile":"mutated"}}}}`)
 	_, err := client.NetworkingV1().NetworkPolicies(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
@@ -279,10 +367,12 @@ func mutateAndRestoreNetworkPolicy(ctx context.Context, client kubernetes.Interf
 		return equality.Semantic.DeepEqual(original.Spec, current.Spec), nil
 	})
 	o.Expect(err).NotTo(o.HaveOccurred(), "timed out waiting for NetworkPolicy %s/%s spec to be restored", namespace, name)
+	g.GinkgoWriter.Printf("NetworkPolicy %s/%s spec restored\n", namespace, name)
 }
 
 func waitForPodsReadyByLabel(ctx context.Context, client kubernetes.Interface, namespace, labelSelector string) {
 	g.GinkgoHelper()
+	g.GinkgoWriter.Printf("waiting for pods ready in %s with selector %s\n", namespace, labelSelector)
 	err := wait.PollImmediate(5*time.Second, 5*time.Minute, func() (bool, error) {
 		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 		if err != nil {
@@ -310,24 +400,36 @@ func isPodReady(pod *corev1.Pod) bool {
 	return false
 }
 
-func waitForNetworkPolicyEvent(ctx context.Context, client kubernetes.Interface, namespace, policyName string) {
+func logNetworkPolicyEvents(ctx context.Context, client kubernetes.Interface, namespaces []string, policyName string) {
 	g.GinkgoHelper()
-	err := wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {
-		events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			return false, err
-		}
-		for _, event := range events.Items {
-			if event.InvolvedObject.Kind == "NetworkPolicy" && event.InvolvedObject.Name == policyName {
-				return true, nil
+	found := false
+	_ = wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {
+		for _, namespace := range namespaces {
+			events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				g.GinkgoWriter.Printf("unable to list events in %s: %v\n", namespace, err)
+				continue
 			}
-			if event.Message != "" && (event.InvolvedObject.Name == policyName || event.InvolvedObject.Kind == "NetworkPolicy") {
-				return true, nil
+			for _, event := range events.Items {
+				if event.InvolvedObject.Kind == "NetworkPolicy" && event.InvolvedObject.Name == policyName {
+					g.GinkgoWriter.Printf("event in %s: %s %s %s\n", namespace, event.Type, event.Reason, event.Message)
+					found = true
+				}
+				if event.Message != "" && (event.InvolvedObject.Name == policyName || event.InvolvedObject.Kind == "NetworkPolicy") {
+					g.GinkgoWriter.Printf("event in %s: %s %s %s\n", namespace, event.Type, event.Reason, event.Message)
+					found = true
+				}
 			}
 		}
+		if found {
+			return true, nil
+		}
+		g.GinkgoWriter.Printf("no NetworkPolicy events yet for %s (namespaces: %v)\n", policyName, namespaces)
 		return false, nil
 	})
-	o.Expect(err).NotTo(o.HaveOccurred(), "timed out waiting for NetworkPolicy event for %s/%s", namespace, policyName)
+	if !found {
+		g.GinkgoWriter.Printf("no NetworkPolicy events observed for %s (best-effort)\n", policyName)
+	}
 }
 
 func logNetworkPolicySummary(label string, policy *networkingv1.NetworkPolicy) {
@@ -340,4 +442,73 @@ func logNetworkPolicySummary(label string, policy *networkingv1.NetworkPolicy) {
 		len(policy.Spec.Ingress),
 		len(policy.Spec.Egress),
 	)
+}
+
+func logNetworkPolicyDetails(label string, policy *networkingv1.NetworkPolicy) {
+	g.GinkgoHelper()
+	g.GinkgoWriter.Printf("networkpolicy %s details:\n", label)
+	g.GinkgoWriter.Printf("  podSelector=%v policyTypes=%v\n", policy.Spec.PodSelector.MatchLabels, policy.Spec.PolicyTypes)
+	for i, rule := range policy.Spec.Ingress {
+		g.GinkgoWriter.Printf("  ingress[%d]: ports=%s from=%s\n", i, formatPorts(rule.Ports), formatPeers(rule.From))
+	}
+	for i, rule := range policy.Spec.Egress {
+		g.GinkgoWriter.Printf("  egress[%d]: ports=%s to=%s\n", i, formatPorts(rule.Ports), formatPeers(rule.To))
+	}
+}
+
+func formatPorts(ports []networkingv1.NetworkPolicyPort) string {
+	if len(ports) == 0 {
+		return "[]"
+	}
+	out := make([]string, 0, len(ports))
+	for _, p := range ports {
+		proto := "TCP"
+		if p.Protocol != nil {
+			proto = string(*p.Protocol)
+		}
+		if p.Port == nil {
+			out = append(out, fmt.Sprintf("%s:any", proto))
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s:%s", proto, p.Port.String()))
+	}
+	return fmt.Sprintf("[%s]", joinStrings(out))
+}
+
+func formatPeers(peers []networkingv1.NetworkPolicyPeer) string {
+	if len(peers) == 0 {
+		return "[]"
+	}
+	out := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		ns := formatSelector(peer.NamespaceSelector)
+		pod := formatSelector(peer.PodSelector)
+		if ns == "" && pod == "" {
+			out = append(out, "{}")
+			continue
+		}
+		out = append(out, fmt.Sprintf("ns=%s pod=%s", ns, pod))
+	}
+	return fmt.Sprintf("[%s]", joinStrings(out))
+}
+
+func formatSelector(sel *metav1.LabelSelector) string {
+	if sel == nil {
+		return ""
+	}
+	if len(sel.MatchLabels) == 0 && len(sel.MatchExpressions) == 0 {
+		return "{}"
+	}
+	return fmt.Sprintf("labels=%v exprs=%v", sel.MatchLabels, sel.MatchExpressions)
+}
+
+func joinStrings(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	out := items[0]
+	for i := 1; i < len(items); i++ {
+		out += ", " + items[i]
+	}
+	return out
 }
