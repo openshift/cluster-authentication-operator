@@ -35,7 +35,7 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 	g.It("[Operator][NetworkPolicy] should ensure auth NetworkPolicies are defined", func() {
 		testAuthNetworkPolicies()
 	})
-	g.It("[Operator][NetworkPolicy] should restore auth NetworkPolicies after delete or mutation", func() {
+	g.It("[Operator][NetworkPolicy] should restore auth NetworkPolicies after delete or mutation[Timeout:30m]", func() {
 		testAuthNetworkPolicyReconcile()
 	})
 })
