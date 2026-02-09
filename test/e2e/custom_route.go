@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"net/http"
@@ -23,33 +22,26 @@ import (
 	"k8s.io/client-go/util/keyutil"
 
 	configv1 "github.com/openshift/api/config/v1"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
-	routeclient "github.com/openshift/client-go/route/clientset/versioned"
+	configclient "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
+	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 
 	e2e "github.com/openshift/cluster-authentication-operator/test/library"
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Routes][Serial] TestCustomRouterCerts", func() {
+	g.It("[Operator][Routes] TestCustomRouterCerts", func() {
 		testCustomRouterCerts(g.GinkgoTB())
 	})
 })
 
 func testCustomRouterCerts(t testing.TB) {
-	kubeConfig := e2e.NewClientConfigForTest(t)
-
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	configClient, err := configclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	routeClient, err := routeclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
+	clients := e2e.NewTestClients(t)
 
 	// generate crypto materials
 	rootCA := e2e.NewCertificateAuthorityCertificate(t, nil)
 	intermediateCA := e2e.NewCertificateAuthorityCertificate(t, rootCA)
 	// check that the route is set to defaults if a non-existant secret is provided
-	ingressConfig, err := configClient.ConfigV1().Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
+	ingressConfig, err := clients.ConfigClient.ConfigV1().Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	fooHostname := "foo." + ingressConfig.Spec.Domain
@@ -62,19 +54,9 @@ func testCustomRouterCerts(t testing.TB) {
 	customServerCertPEM := pem.EncodeToMemory(&pem.Block{Type: cert.CertificateBlockType, Bytes: server.Certificate.Raw})
 
 	// Generate a valid Kubernetes name from the test name
-	// Replace invalid characters with hyphens and ensure it starts/ends with alphanumeric
-	secretName := strings.ToLower(t.Name())
-	secretName = strings.ReplaceAll(secretName, "/", "-")
-	secretName = strings.ReplaceAll(secretName, " ", "-")
-	secretName = strings.ReplaceAll(secretName, "[", "")
-	secretName = strings.ReplaceAll(secretName, "]", "")
-	secretName = strings.Trim(secretName, "-")
-	if len(secretName) > 63 {
-		secretName = secretName[:63]
-	}
-	secretName = strings.TrimRight(secretName, "-")
+	secretName := e2e.SanitizeResourceName(t.Name())
 
-	secret, err := kubeClient.CoreV1().Secrets("openshift-config").Create(
+	secret, err := clients.KubeClient.CoreV1().Secrets("openshift-config").Create(
 		context.TODO(),
 		&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: secretName + "-"},
@@ -86,21 +68,21 @@ func testCustomRouterCerts(t testing.TB) {
 		}, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
-		err = removeComponentRoute(t, configClient, "openshift-authentication", "oauth-openshift")
+		err = removeComponentRoute(t, clients.ConfigClient.ConfigV1(), "openshift-authentication", "oauth-openshift")
 		require.NoError(t, err)
-		err = kubeClient.CoreV1().Secrets(secret.Namespace).Delete(context.TODO(), secret.Name, metav1.DeleteOptions{})
+		err = clients.KubeClient.CoreV1().Secrets(secret.Namespace).Delete(context.TODO(), secret.Name, metav1.DeleteOptions{})
 		require.NoError(t, err)
 	}()
 
 	// check that the trust-distribution works by publishing the server certificate
-	distributedServerCert, err := kubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(context.Background(), "oauth-serving-cert", metav1.GetOptions{})
+	distributedServerCert, err := clients.KubeClient.CoreV1().ConfigMaps("openshift-config-managed").Get(context.Background(), "oauth-serving-cert", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	distributedServerCertPem := distributedServerCert.Data["ca-bundle.crt"]
 	require.NotZero(t, len(distributedServerCertPem))
 
 	// set a custom hostname without a secret
-	err = getAndUpdateComponentRoute(t, configClient, &configv1.ComponentRouteSpec{
+	err = getAndUpdateComponentRoute(t, clients.ConfigClient.ConfigV1(), &configv1.ComponentRouteSpec{
 		Namespace: "openshift-authentication",
 		Name:      "oauth-openshift",
 		Hostname:  "foo.bar.com",
@@ -108,11 +90,11 @@ func testCustomRouterCerts(t testing.TB) {
 	require.NoError(t, err)
 
 	// check that the hostname was updated
-	err = checkRouteHostname(t, routeClient, "openshift-authentication", "oauth-openshift", "foo.bar.com")
+	err = checkRouteHostname(t, clients.RouteClient.RouteV1(), "openshift-authentication", "oauth-openshift", "foo.bar.com")
 	require.NoError(t, err)
 
 	// update the hostname and provide a custom secret that does not exist
-	err = getAndUpdateComponentRoute(t, configClient, &configv1.ComponentRouteSpec{
+	err = getAndUpdateComponentRoute(t, clients.ConfigClient.ConfigV1(), &configv1.ComponentRouteSpec{
 		Namespace: "openshift-authentication",
 		Name:      "oauth-openshift",
 		Hostname:  "new.foo.bar.com",
@@ -123,11 +105,11 @@ func testCustomRouterCerts(t testing.TB) {
 	require.NoError(t, err)
 
 	// check that the hostname of the route is not changed because a missing secret was provided
-	err = checkRouteHostname(t, routeClient, "openshift-authentication", "oauth-openshift", "foo.bar.com")
+	err = checkRouteHostname(t, clients.RouteClient.RouteV1(), "openshift-authentication", "oauth-openshift", "foo.bar.com")
 	require.NoError(t, err)
 
 	// Update the hostname and use a valid secret
-	err = getAndUpdateComponentRoute(t, configClient, &configv1.ComponentRouteSpec{
+	err = getAndUpdateComponentRoute(t, clients.ConfigClient.ConfigV1(), &configv1.ComponentRouteSpec{
 		Namespace: "openshift-authentication",
 		Name:      "oauth-openshift",
 		Hostname:  configv1.Hostname(fooHostname),
@@ -137,9 +119,9 @@ func testCustomRouterCerts(t testing.TB) {
 	})
 	require.NoError(t, err)
 
-	waitForDistributedCert(t, kubeClient, customServerCertPEM)
+	waitForDistributedCert(t, clients.KubeClient, customServerCertPEM)
 
-	err = checkRouteHostname(t, routeClient, "openshift-authentication", "oauth-openshift", fooHostname)
+	err = checkRouteHostname(t, clients.RouteClient.RouteV1(), "openshift-authentication", "oauth-openshift", fooHostname)
 	require.NoError(t, err)
 
 	// Check that the route is serving
@@ -165,16 +147,7 @@ func waitForDistributedCert(t testing.TB, kubeClient kubernetes.Interface, expec
 }
 
 func pollForCustomServingCertificates(t testing.TB, hostname string, certificate *x509.Certificate) error {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-	httpClient := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: transport,
-	}
+	httpClient := e2e.NewInsecureHTTPClient(5 * time.Second)
 	req, err := http.NewRequest(http.MethodGet, hostname, nil)
 	if err != nil {
 		return err
@@ -206,9 +179,9 @@ func pollForCustomServingCertificates(t testing.TB, hostname string, certificate
 	})
 }
 
-func getAndUpdateComponentRoute(t testing.TB, configClient *configclient.Clientset, componentRoute *configv1.ComponentRouteSpec) error {
+func getAndUpdateComponentRoute(t testing.TB, configClient configclient.ConfigV1Interface, componentRoute *configv1.ComponentRouteSpec) error {
 	return wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
-		ingressConfig, err := configClient.ConfigV1().Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
+		ingressConfig, err := configClient.Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			t.Logf("Unable to retrieve ingress config: %v", err)
 			return false, nil
@@ -229,7 +202,7 @@ func getAndUpdateComponentRoute(t testing.TB, configClient *configclient.Clients
 			ingressConfig.Spec.ComponentRoutes = append(ingressConfig.Spec.ComponentRoutes, *componentRoute)
 		}
 
-		ingressConfig, err = configClient.ConfigV1().Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
+		ingressConfig, err = configClient.Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
 		if err != nil {
 			return false, nil
 		}
@@ -237,9 +210,9 @@ func getAndUpdateComponentRoute(t testing.TB, configClient *configclient.Clients
 	})
 }
 
-func checkRouteHostname(t testing.TB, routeClient *routeclient.Clientset, routeNamespace string, routeName string, hostname string) error {
+func checkRouteHostname(t testing.TB, routeClient routeclient.RouteV1Interface, routeNamespace string, routeName string, hostname string) error {
 	return wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
-		route, err := routeClient.RouteV1().Routes(routeNamespace).Get(context.TODO(), routeName, metav1.GetOptions{})
+		route, err := routeClient.Routes(routeNamespace).Get(context.TODO(), routeName, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			t.Logf("Unable to retrieve route: %v", err)
 			return false, nil
@@ -252,9 +225,9 @@ func checkRouteHostname(t testing.TB, routeClient *routeclient.Clientset, routeN
 	})
 }
 
-func removeComponentRoute(t testing.TB, configClient *configclient.Clientset, namespace string, name string) error {
+func removeComponentRoute(t testing.TB, configClient configclient.ConfigV1Interface, namespace string, name string) error {
 	return wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
-		ingressConfig, err := configClient.ConfigV1().Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
+		ingressConfig, err := configClient.Ingresses().Get(context.TODO(), "cluster", metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			t.Logf("Unable to retrieve ingress config: %v", err)
 			return false, nil
@@ -270,7 +243,7 @@ func removeComponentRoute(t testing.TB, configClient *configclient.Clientset, na
 				ingressConfig.Spec.ComponentRoutes = append(ingressConfig.Spec.ComponentRoutes[:i], ingressConfig.Spec.ComponentRoutes[i+1:]...)
 
 				// update the ingress resource
-				_, err = configClient.ConfigV1().Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
+				_, err = configClient.Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
 				if err != nil {
 					return false, nil
 				}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/pem"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,35 +14,26 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
-	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	e2e "github.com/openshift/cluster-authentication-operator/test/library"
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Certs][Serial] TestRouterCerts", func() {
+	g.It("[Operator][Certs] TestRouterCerts", func() {
 		testRouterCerts(g.GinkgoTB())
 	})
 })
 
 func testRouterCerts(t testing.TB) {
-	kubeConfig := e2e.NewClientConfigForTest(t)
+	clients := e2e.NewTestClients(t)
 
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	configClient, err := configclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	operatorClientset, err := operatorclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
 	// make sure cluster operator is settled before continuing
-	err = e2e.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient.ConfigV1(), "authentication")
+	err := e2e.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err)
 
 	// generate crypto materials
@@ -59,19 +49,9 @@ func testRouterCerts(t testing.TB) {
 	privateKey, err := keyutil.MarshalPrivateKeyToPEM(server.PrivateKey)
 	require.NoError(t, err)
 	// Generate a valid Kubernetes name from the test name
-	// Replace invalid characters with hyphens and ensure it starts/ends with alphanumeric
-	secretName := strings.ToLower(t.Name())
-	secretName = strings.ReplaceAll(secretName, "/", "-")
-	secretName = strings.ReplaceAll(secretName, " ", "-")
-	secretName = strings.ReplaceAll(secretName, "[", "")
-	secretName = strings.ReplaceAll(secretName, "]", "")
-	secretName = strings.Trim(secretName, "-")
-	if len(secretName) > 63 {
-		secretName = secretName[:63]
-	}
-	secretName = strings.TrimRight(secretName, "-")
+	secretName := e2e.SanitizeResourceName(t.Name())
 
-	secret, err := kubeClient.CoreV1().Secrets("openshift-ingress").Create(
+	secret, err := clients.KubeClient.CoreV1().Secrets("openshift-ingress").Create(
 		context.TODO(),
 		&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: secretName + "-"},
@@ -83,27 +63,27 @@ func testRouterCerts(t testing.TB) {
 		}, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
-		_ = kubeClient.CoreV1().Secrets(secret.Namespace).Delete(context.TODO(), secret.Name, metav1.DeleteOptions{})
+		_ = clients.KubeClient.CoreV1().Secrets(secret.Namespace).Delete(context.TODO(), secret.Name, metav1.DeleteOptions{})
 	}()
 
 	// set custom ingress defaultCertificate
-	ingressController, err := operatorClientset.OperatorV1().IngressControllers("openshift-ingress-operator").Get(context.TODO(), "default", metav1.GetOptions{})
+	ingressController, err := clients.OperatorClient.OperatorV1().IngressControllers("openshift-ingress-operator").Get(context.TODO(), "default", metav1.GetOptions{})
 	require.NoError(t, err)
 	backup := ingressController.Spec.DefaultCertificate
 	defer func() {
-		ingressController, err := operatorClientset.OperatorV1().IngressControllers("openshift-ingress-operator").Get(context.TODO(), "default", metav1.GetOptions{})
+		ingressController, err := clients.OperatorClient.OperatorV1().IngressControllers("openshift-ingress-operator").Get(context.TODO(), "default", metav1.GetOptions{})
 		require.NoError(t, err)
 		ingressController.Spec.DefaultCertificate = backup
-		_, _ = operatorClientset.OperatorV1().IngressControllers(ingressController.Namespace).Update(context.TODO(), ingressController, metav1.UpdateOptions{})
+		_, _ = clients.OperatorClient.OperatorV1().IngressControllers(ingressController.Namespace).Update(context.TODO(), ingressController, metav1.UpdateOptions{})
 	}()
 	ingressController.Spec.DefaultCertificate = &corev1.LocalObjectReference{Name: secret.Name}
-	_, err = operatorClientset.OperatorV1().IngressControllers(ingressController.Namespace).Update(context.TODO(), ingressController, metav1.UpdateOptions{})
+	_, err = clients.OperatorClient.OperatorV1().IngressControllers(ingressController.Namespace).Update(context.TODO(), ingressController, metav1.UpdateOptions{})
 	require.NoError(t, err)
 
 	// wait for RouterCertsDegraded == true
 	var condition *operatorv1.OperatorCondition
 	err = wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
-		config, err := operatorClientset.OperatorV1().Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
+		config, err := clients.OperatorClient.OperatorV1().Authentications().Get(context.TODO(), "cluster", metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			t.Logf("Unable to retrieve operator config: %v", err)
 			return false, nil

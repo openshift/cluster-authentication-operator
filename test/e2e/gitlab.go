@@ -6,8 +6,6 @@ import (
 	g "github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/client-go/kubernetes"
-
 	test "github.com/openshift/cluster-authentication-operator/test/library"
 )
 
@@ -18,10 +16,8 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 })
 
 func testGitLabAsOIDCPasswordGrantCheck(t testing.TB) {
+	clients := test.NewTestClients(t)
 	kubeConfig := test.NewClientConfigForTest(t)
-
-	kubeClients, err := kubernetes.NewForConfig(kubeConfig)
-	require.NoError(t, err)
 
 	_, idpName, cleanups := test.AddGitlabIDP(t, kubeConfig)
 	defer test.IDPCleanupWrapper(func() {
@@ -30,7 +26,7 @@ func testGitLabAsOIDCPasswordGrantCheck(t testing.TB) {
 		}
 	})()
 
-	config, err := test.GrabOAuthServerConfig(kubeClients.CoreV1())
+	config, err := test.GrabOAuthServerConfig(clients.KubeClient.CoreV1())
 	require.NoError(t, err)
 
 	gitlabIDPConfig := test.GetIDPByName(config, idpName)
