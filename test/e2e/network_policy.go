@@ -130,21 +130,29 @@ func testAuthNetworkPolicyReconcile() {
 	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(g.GinkgoTB(), configClient, "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
+	g.By("Capturing expected NetworkPolicy specs")
+	expectedAuthPolicy := getNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
+	expectedOAuthAPIPolicy := getNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
+	expectedAuthOperatorPolicy := getNetworkPolicy(ctx, kubeClient, authOperatorNamespace, authOperatorPolicyName)
+	expectedAuthDefaultDeny := getNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
+	expectedOAuthAPIDefaultDeny := getNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
+	expectedAuthOperatorDefaultDeny := getNetworkPolicy(ctx, kubeClient, authOperatorNamespace, defaultDenyAllPolicyName)
+
 	g.By("Deleting main policies and waiting for restoration")
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, authNamespace, oauthServerPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedAuthPolicy)
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", oauthAPINamespace, oauthAPIServerPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, oauthAPIServerPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedOAuthAPIPolicy)
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authOperatorNamespace, authOperatorPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, authOperatorNamespace, authOperatorPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedAuthOperatorPolicy)
 
 	g.By("Deleting default-deny-all policies and waiting for restoration")
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authNamespace, defaultDenyAllPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedAuthDefaultDeny)
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", oauthAPINamespace, defaultDenyAllPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedOAuthAPIDefaultDeny)
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", authOperatorNamespace, defaultDenyAllPolicyName)
-	restoreNetworkPolicy(ctx, kubeClient, authOperatorNamespace, defaultDenyAllPolicyName)
+	restoreNetworkPolicy(ctx, kubeClient, expectedAuthOperatorDefaultDeny)
 
 	g.By("Mutating main policies and waiting for reconciliation")
 	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", authNamespace, oauthServerPolicyName)
@@ -159,8 +167,8 @@ func testAuthNetworkPolicyReconcile() {
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, authNamespace, defaultDenyAllPolicyName)
 	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", oauthAPINamespace, defaultDenyAllPolicyName)
 	mutateAndRestoreNetworkPolicy(ctx, kubeClient, oauthAPINamespace, defaultDenyAllPolicyName)
-	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", "openshift-authentication-operator", defaultDenyAllPolicyName)
-	mutateAndRestoreNetworkPolicy(ctx, kubeClient, "openshift-authentication-operator", defaultDenyAllPolicyName)
+	g.GinkgoWriter.Printf("mutating NetworkPolicy %s/%s\n", authOperatorNamespace, defaultDenyAllPolicyName)
+	mutateAndRestoreNetworkPolicy(ctx, kubeClient, authOperatorNamespace, defaultDenyAllPolicyName)
 
 	g.By("Checking NetworkPolicy-related events (best-effort)")
 	logNetworkPolicyEvents(ctx, kubeClient, []string{"openshift-authentication-operator", authNamespace, oauthAPINamespace}, oauthServerPolicyName)
@@ -380,19 +388,21 @@ func hasAnyTCPPort(ports []networkingv1.NetworkPolicyPort) bool {
 	return false
 }
 
-func restoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, namespace, name string) {
+func restoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, expected *networkingv1.NetworkPolicy) {
 	g.GinkgoHelper()
+	namespace := expected.Namespace
+	name := expected.Name
 	g.GinkgoWriter.Printf("deleting NetworkPolicy %s/%s\n", namespace, name)
 	o.Expect(client.NetworkingV1().NetworkPolicies(namespace).Delete(ctx, name, metav1.DeleteOptions{})).NotTo(o.HaveOccurred())
 	err := wait.PollImmediate(5*time.Second, 10*time.Minute, func() (bool, error) {
-		_, err := client.NetworkingV1().NetworkPolicies(namespace).Get(ctx, name, metav1.GetOptions{})
+		current, err := client.NetworkingV1().NetworkPolicies(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return false, nil
 		}
-		return true, nil
+		return equality.Semantic.DeepEqual(expected.Spec, current.Spec), nil
 	})
-	o.Expect(err).NotTo(o.HaveOccurred(), "timed out waiting for NetworkPolicy %s/%s to be restored", namespace, name)
-	g.GinkgoWriter.Printf("NetworkPolicy %s/%s restored\n", namespace, name)
+	o.Expect(err).NotTo(o.HaveOccurred(), "timed out waiting for NetworkPolicy %s/%s spec to be restored", namespace, name)
+	g.GinkgoWriter.Printf("NetworkPolicy %s/%s spec restored after delete\n", namespace, name)
 }
 
 func mutateAndRestoreNetworkPolicy(ctx context.Context, client kubernetes.Interface, namespace, name string) {

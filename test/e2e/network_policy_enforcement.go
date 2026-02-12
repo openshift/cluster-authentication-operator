@@ -128,6 +128,7 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	serverNamespace := "openshift-oauth-apiserver"
 	clientNamespace := "openshift-authentication"
 	clientLabels := map[string]string{"app": "oauth-openshift"}
+	oauthClientLabels := map[string]string{"app": "openshift-oauth-apiserver"}
 
 	g.By("Creating oauth-apiserver test pods for allow/deny checks")
 	g.GinkgoWriter.Printf("creating oauth-apiserver server pods in %s\n", serverNamespace)
@@ -149,6 +150,20 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 		g.GinkgoWriter.Printf("expecting deny from %s to %s:%d\n", clientNamespace, allowedServerIP, port)
 		expectConnectivity(kubeClient, clientNamespace, clientLabels, allowedServerIP, port, false)
 	}
+
+	g.By("Verifying oauth-apiserver egress to DNS")
+	dnsSvc, err := kubeClient.CoreV1().Services("openshift-dns").Get(context.TODO(), "dns-default", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
+	dnsIP := dnsSvc.Spec.ClusterIP
+	g.GinkgoWriter.Printf("expecting allow from %s to DNS %s:53\n", serverNamespace, dnsIP)
+	expectConnectivity(kubeClient, serverNamespace, oauthClientLabels, dnsIP, 53, true)
+
+	g.By("Verifying oauth-apiserver egress to etcd")
+	etcdSvc, err := kubeClient.CoreV1().Services("openshift-etcd").Get(context.TODO(), "etcd", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
+	etcdIP := etcdSvc.Spec.ClusterIP
+	g.GinkgoWriter.Printf("expecting allow from %s to etcd %s:2379\n", serverNamespace, etcdIP)
+	expectConnectivity(kubeClient, serverNamespace, oauthClientLabels, etcdIP, 2379, true)
 }
 
 func testAuthenticationOperatorNetworkPolicyEnforcement() {
