@@ -13,14 +13,13 @@ message: 'Status for clusteroperator/authentication changed: Degraded set to Unk
   to Unknown (""),EvaluationConditionsDetected set to Unknown (""),status.relatedObjects
   changed from [] to [{"operator.openshift.io" "authentications" "" "cluster"} {"config.openshift.io"
   "authentications" "" "cluster"} {"config.openshift.io" "infrastructures" "" "cluster"}
-  {"config.openshift.io" "oauths" "" "cluster"} {"route.openshift.io" "routes" "openshift-authentication"
-  "oauth-openshift"} {"" "services" "openshift-authentication" "oauth-openshift"}
-  {"" "namespaces" "" "openshift-config"} {"" "namespaces" "" "openshift-config-managed"}
-  {"" "namespaces" "" "openshift-authentication"} {"" "namespaces" "" "openshift-authentication-operator"}
-  {"" "namespaces" "" "openshift-ingress"} {"" "namespaces" "" "openshift-oauth-apiserver"}],status.versions
-  changed from [] to [{"operator" ""}]'
+  {"config.openshift.io" "oauths" "" "cluster"} {"" "namespaces" "" "openshift-config"}
+  {"" "namespaces" "" "openshift-config-managed"} {"" "namespaces" "" "openshift-authentication"}
+  {"" "namespaces" "" "openshift-authentication-operator"} {"" "namespaces" "" "openshift-ingress"}
+  {"" "namespaces" "" "openshift-oauth-apiserver"}],status.versions changed from []
+  to [{"operator" ""}]'
 metadata:
-  name: authentication-operator.17fe72c59b829800.ad6de22d
+  name: authentication-operator.17fe72c59b829800.f737230b
   namespace: openshift-authentication-operator
 reason: OperatorStatusChanged
 reportingComponent: ""

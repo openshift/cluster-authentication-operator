@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: APIServerStaticResources-StaticResources
+generateName: ""
+name: oauth-apiserver-networkpolicy
+namespace: openshift-oauth-apiserver
+resourceType:
+  Group: networking.k8s.io
+  Resource: networkpolicies
+  Version: v1

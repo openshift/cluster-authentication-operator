@@ -12,7 +12,6 @@ message: namedCertificates changed to []interface {}{map[string]interface {}{"ce
   "keyFile":"/var/config/system/secrets/v4-0-config-system-router-certs/apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX",
   "names":[]interface {}{"*.apps.ci-op-gn2pz6q7-69aee.XXXXXXXXXXXXXXXXXXXXXX"}}}
 metadata:
-  creationTimestamp: null
   name: authentication-operator.18599d2230299800.6d9ca9b2
   namespace: openshift-authentication-operator
 reason: ObserveRouterSecret
