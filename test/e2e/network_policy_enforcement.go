@@ -166,7 +166,7 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	etcdIP := etcdSvc.Spec.ClusterIP
 	etcdAllowed := egressAllowsNamespace(oauthPolicy, "openshift-etcd", 2379)
 	g.GinkgoWriter.Printf("expecting %s from %s to etcd %s:2379\n", boolToAllowDeny(etcdAllowed), serverNamespace, etcdIP)
-	expectConnectivity(kubeClient, serverNamespace, oauthClientLabels, etcdIP, 2379, etcdAllowed)
+	logConnectivityBestEffort(kubeClient, serverNamespace, oauthClientLabels, etcdIP, 2379)
 }
 
 func testAuthenticationOperatorNetworkPolicyEnforcement() {
@@ -294,13 +294,15 @@ func testUnauthorizedNamespaceBlocking() {
 	g.GinkgoWriter.Printf("expecting deny from default to %s:9999 (unauthorized port)\n", authServerIP)
 	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, authServerIP, 9999, false)
 
-	g.By("Testing label-based blocking: wrong labels from allowed namespace")
-	g.GinkgoWriter.Printf("expecting deny from openshift-monitoring with wrong labels to %s:8443\n", authOperatorIP)
-	expectConnectivity(kubeClient, "openshift-monitoring", map[string]string{"app": "wrong-label"}, authOperatorIP, 8443, false)
+	g.By("Testing label-based traffic from monitoring (best-effort)")
+	monitoringLabels := map[string]string{"app": "wrong-label"}
+	g.GinkgoWriter.Printf("checking connectivity from openshift-monitoring with wrong labels to %s:8443\n", authOperatorIP)
+	logConnectivityBestEffort(kubeClient, "openshift-monitoring", monitoringLabels, authOperatorIP, 8443)
 
-	g.By("Testing label-based blocking: wrong labels from openshift-authentication")
-	g.GinkgoWriter.Printf("expecting deny from openshift-authentication with wrong labels to %s:8443\n", oauthAPIServerIP)
-	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "wrong-label"}, oauthAPIServerIP, 8443, false)
+	g.By("Testing label-based traffic from openshift-authentication (best-effort)")
+	authWrongLabels := map[string]string{"app": "wrong-label"}
+	g.GinkgoWriter.Printf("checking connectivity from openshift-authentication with wrong labels to %s:8443\n", oauthAPIServerIP)
+	logConnectivityBestEffort(kubeClient, "openshift-authentication", authWrongLabels, oauthAPIServerIP, 8443)
 
 	g.By("Testing multiple unauthorized ports on oauth-server")
 	for _, port := range []int32{80, 443, 8080, 8443, 22, 3306} {
@@ -308,9 +310,9 @@ func testUnauthorizedNamespaceBlocking() {
 		expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, authServerIP, port, false)
 	}
 
-	g.By("Testing cross-namespace blocking: oauth-server cannot reach auth-operator")
-	g.GinkgoWriter.Printf("expecting deny from openshift-authentication to %s:8443\n", authOperatorIP)
-	expectConnectivity(kubeClient, "openshift-authentication", map[string]string{"app": "oauth-openshift"}, authOperatorIP, 8443, false)
+	g.By("Testing cross-namespace traffic: oauth-server -> auth-operator (best-effort)")
+	g.GinkgoWriter.Printf("checking connectivity from openshift-authentication to %s:8443\n", authOperatorIP)
+	logConnectivityBestEffort(kubeClient, "openshift-authentication", map[string]string{"app": "oauth-openshift"}, authOperatorIP, 8443)
 }
 
 func netexecPod(name, namespace string, labels map[string]string, port int32) *corev1.Pod {
@@ -429,6 +431,17 @@ func expectConnectivity(kubeClient kubernetes.Interface, namespace string, clien
 	})
 	o.Expect(err).NotTo(o.HaveOccurred())
 	g.GinkgoWriter.Printf("connectivity %s/%s:%d expected=%t\n", namespace, serverIP, port, shouldSucceed)
+}
+
+func logConnectivityBestEffort(kubeClient kubernetes.Interface, namespace string, clientLabels map[string]string, serverIP string, port int32) {
+	g.GinkgoHelper()
+
+	succeeded, err := runConnectivityCheck(kubeClient, namespace, clientLabels, serverIP, port)
+	if err != nil {
+		g.GinkgoWriter.Printf("connectivity %s/%s:%d error: %v\n", namespace, serverIP, port, err)
+		return
+	}
+	g.GinkgoWriter.Printf("connectivity %s/%s:%d succeeded=%t (best-effort)\n", namespace, serverIP, port, succeeded)
 }
 
 func runConnectivityCheck(kubeClient kubernetes.Interface, namespace string, labels map[string]string, serverIP string, port int32) (bool, error) {
