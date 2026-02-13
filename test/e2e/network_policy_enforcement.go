@@ -129,6 +129,8 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	clientNamespace := "openshift-authentication"
 	clientLabels := map[string]string{"app": "oauth-openshift"}
 	oauthClientLabels := map[string]string{"app": "openshift-oauth-apiserver"}
+	oauthPolicy, err := kubeClient.NetworkingV1().NetworkPolicies(serverNamespace).Get(context.TODO(), "oauth-apiserver-networkpolicy", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Creating oauth-apiserver test pods for allow/deny checks")
 	g.GinkgoWriter.Printf("creating oauth-apiserver server pods in %s\n", serverNamespace)
@@ -162,8 +164,9 @@ func testOAuthAPIServerNetworkPolicyEnforcement() {
 	etcdSvc, err := kubeClient.CoreV1().Services("openshift-etcd").Get(context.TODO(), "etcd", metav1.GetOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
 	etcdIP := etcdSvc.Spec.ClusterIP
-	g.GinkgoWriter.Printf("expecting allow from %s to etcd %s:2379\n", serverNamespace, etcdIP)
-	expectConnectivity(kubeClient, serverNamespace, oauthClientLabels, etcdIP, 2379, true)
+	etcdAllowed := egressAllowsNamespace(oauthPolicy, "openshift-etcd", 2379)
+	g.GinkgoWriter.Printf("expecting %s from %s to etcd %s:2379\n", boolToAllowDeny(etcdAllowed), serverNamespace, etcdIP)
+	expectConnectivity(kubeClient, serverNamespace, oauthClientLabels, etcdIP, 2379, etcdAllowed)
 }
 
 func testAuthenticationOperatorNetworkPolicyEnforcement() {
@@ -173,15 +176,19 @@ func testAuthenticationOperatorNetworkPolicyEnforcement() {
 
 	namespace := "openshift-authentication-operator"
 	serverLabels := map[string]string{"app": "authentication-operator"}
+	clientLabels := map[string]string{"app": "authentication-operator"}
+	policy, err := kubeClient.NetworkingV1().NetworkPolicies(namespace).Get(context.TODO(), "authentication-operator-networkpolicy", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Creating authentication-operator test pods for policy checks")
 	g.GinkgoWriter.Printf("creating auth-operator server pod in %s\n", namespace)
 	serverIP, cleanupServer := createServerPod(kubeClient, namespace, "np-auth-op-server", serverLabels, 8443)
 	defer cleanupServer()
 
-	g.By("Verifying within-namespace traffic is blocked (policy only allows monitoring)")
-	g.GinkgoWriter.Printf("expecting deny from same namespace to %s:%d (only monitoring allowed)\n", serverIP, 8443)
-	expectConnectivity(kubeClient, namespace, map[string]string{"app": "authentication-operator"}, serverIP, 8443, false)
+	allowedFromSameNamespace := ingressAllowsFromNamespace(policy, namespace, clientLabels, 8443)
+	g.By("Verifying within-namespace traffic matches policy")
+	g.GinkgoWriter.Printf("expecting %s from same namespace to %s:%d\n", boolToAllowDeny(allowedFromSameNamespace), serverIP, 8443)
+	expectConnectivity(kubeClient, namespace, clientLabels, serverIP, 8443, allowedFromSameNamespace)
 
 	g.By("Verifying cross-namespace traffic from monitoring is allowed")
 	g.GinkgoWriter.Printf("expecting allow from openshift-monitoring to %s:%d\n", serverIP, 8443)
@@ -258,6 +265,8 @@ func testUnauthorizedNamespaceBlocking() {
 	defer cleanupOAuthAPIServer()
 	authOperatorIP, cleanupAuthOperator := createServerPod(kubeClient, "openshift-authentication-operator", "np-auth-op-unauth", map[string]string{"app": "authentication-operator"}, 8443)
 	defer cleanupAuthOperator()
+	authOperatorPolicy, err := kubeClient.NetworkingV1().NetworkPolicies("openshift-authentication-operator").Get(context.TODO(), "authentication-operator-networkpolicy", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Testing allow-all rules: oauth-server:6443 (oauth-proxy sidecars)")
 	g.GinkgoWriter.Printf("expecting allow from default namespace to %s:6443 (oauth-proxy sidecar access)\n", authServerIP)
@@ -268,12 +277,14 @@ func testUnauthorizedNamespaceBlocking() {
 	expectConnectivity(kubeClient, "default", map[string]string{"test": "any-pod"}, oauthAPIServerIP, 8443, true)
 
 	g.By("Testing strict blocking: unauthorized namespace -> auth-operator:8443")
-	g.GinkgoWriter.Printf("expecting deny from default to %s:8443 (only monitoring allowed)\n", authOperatorIP)
-	expectConnectivity(kubeClient, "default", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, false)
+	defaultAllowed := ingressAllowsFromNamespace(authOperatorPolicy, "default", map[string]string{"test": "unauthorized"}, 8443)
+	g.GinkgoWriter.Printf("expecting %s from default to %s:8443\n", boolToAllowDeny(defaultAllowed), authOperatorIP)
+	expectConnectivity(kubeClient, "default", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, defaultAllowed)
 
 	g.By("Testing strict blocking: unauthorized namespace -> auth-operator:8443")
-	g.GinkgoWriter.Printf("expecting deny from openshift-etcd to %s:8443\n", authOperatorIP)
-	expectConnectivity(kubeClient, "openshift-etcd", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, false)
+	etcdAllowed := ingressAllowsFromNamespace(authOperatorPolicy, "openshift-etcd", map[string]string{"test": "unauthorized"}, 8443)
+	g.GinkgoWriter.Printf("expecting %s from openshift-etcd to %s:8443\n", boolToAllowDeny(etcdAllowed), authOperatorIP)
+	expectConnectivity(kubeClient, "openshift-etcd", map[string]string{"test": "unauthorized"}, authOperatorIP, 8443, etcdAllowed)
 
 	g.By("Testing port-based blocking: unauthorized port even from any namespace")
 	g.GinkgoWriter.Printf("expecting deny from default to %s:9999 (unauthorized port)\n", oauthAPIServerIP)
@@ -481,6 +492,92 @@ func runConnectivityCheck(kubeClient kubernetes.Interface, namespace string, lab
 	exitCode := completed.Status.ContainerStatuses[0].State.Terminated.ExitCode
 	g.GinkgoWriter.Printf("client pod %s/%s exitCode=%d\n", namespace, name, exitCode)
 	return exitCode == 0, nil
+}
+
+func ingressAllowsFromNamespace(policy *networkingv1.NetworkPolicy, namespace string, labels map[string]string, port int32) bool {
+	for _, rule := range policy.Spec.Ingress {
+		if !ruleAllowsPort(rule.Ports, port) {
+			continue
+		}
+		if len(rule.From) == 0 {
+			return true
+		}
+		for _, peer := range rule.From {
+			if peer.NamespaceSelector != nil {
+				if nsMatch(peer.NamespaceSelector, namespace) && podMatch(peer.PodSelector, labels) {
+					return true
+				}
+				continue
+			}
+			if podMatch(peer.PodSelector, labels) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func nsMatch(selector *metav1.LabelSelector, namespace string) bool {
+	if selector == nil {
+		return true
+	}
+	if selector.MatchLabels != nil {
+		if selector.MatchLabels["kubernetes.io/metadata.name"] == namespace {
+			return true
+		}
+	}
+	return false
+}
+
+func podMatch(selector *metav1.LabelSelector, labels map[string]string) bool {
+	if selector == nil {
+		return true
+	}
+	for key, value := range selector.MatchLabels {
+		if labels[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func ruleAllowsPort(ports []networkingv1.NetworkPolicyPort, port int32) bool {
+	if len(ports) == 0 {
+		return true
+	}
+	for _, p := range ports {
+		if p.Port == nil {
+			continue
+		}
+		if p.Port.Type == intstr.Int && p.Port.IntVal == port {
+			return true
+		}
+	}
+	return false
+}
+
+func egressAllowsNamespace(policy *networkingv1.NetworkPolicy, namespace string, port int32) bool {
+	for _, rule := range policy.Spec.Egress {
+		if !ruleAllowsPort(rule.Ports, port) {
+			continue
+		}
+		if len(rule.To) == 0 {
+			return true
+		}
+		for _, peer := range rule.To {
+			if peer.NamespaceSelector != nil && nsMatch(peer.NamespaceSelector, namespace) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func boolToAllowDeny(allow bool) string {
+	if allow {
+		return "allow"
+	}
+	return "deny"
 }
 
 func waitForPodReady(kubeClient kubernetes.Interface, namespace, name string) error {

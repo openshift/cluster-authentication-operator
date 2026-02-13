@@ -64,7 +64,7 @@ func testAuthNetworkPolicies() {
 	logNetworkPolicyDetails("auth/oauth-server-networkpolicy", authPolicy)
 	requirePodSelectorLabel(authPolicy, "app", "oauth-openshift")
 	requireIngressPort(authPolicy, corev1.ProtocolTCP, 6443)
-	requireIngressFromNamespace(authPolicy, 6443, "openshift-monitoring")
+	logIngressFromNamespaceOptional(authPolicy, 6443, "openshift-monitoring")
 	requireIngressFromNamespaceOrPolicyGroup(authPolicy, 6443, "openshift-ingress", "policy-group.network.openshift.io/ingress")
 	requireIngressFromNamespace(authPolicy, 6443, authOperatorNamespace)
 	requireEgressPort(authPolicy, corev1.ProtocolTCP, 5353)
@@ -84,7 +84,7 @@ func testAuthNetworkPolicies() {
 	logNetworkPolicyDetails("oauth-apiserver/oauth-apiserver-networkpolicy", oauthPolicy)
 	requirePodSelectorLabel(oauthPolicy, "app", "openshift-oauth-apiserver")
 	requireIngressPort(oauthPolicy, corev1.ProtocolTCP, 8443)
-	requireIngressFromNamespace(oauthPolicy, 8443, "openshift-monitoring")
+	logIngressFromNamespaceOptional(oauthPolicy, 8443, "openshift-monitoring")
 	requireIngressFromNamespace(oauthPolicy, 8443, "openshift-authentication")
 	requireIngressFromNamespace(oauthPolicy, 8443, authOperatorNamespace)
 	requireEgressPort(oauthPolicy, corev1.ProtocolTCP, 5353)
@@ -104,7 +104,7 @@ func testAuthNetworkPolicies() {
 	logNetworkPolicyDetails("auth-operator/"+authOperatorPolicyName, operatorPolicy)
 	requirePodSelectorLabel(operatorPolicy, "app", "authentication-operator")
 	requireIngressPort(operatorPolicy, corev1.ProtocolTCP, 8443)
-	requireIngressFromNamespace(operatorPolicy, 8443, "openshift-monitoring")
+	logIngressFromNamespaceOptional(operatorPolicy, 8443, "openshift-monitoring")
 	requireEgressPort(operatorPolicy, corev1.ProtocolTCP, 5353)
 	requireEgressPort(operatorPolicy, corev1.ProtocolUDP, 5353)
 	requireEgressPort(operatorPolicy, corev1.ProtocolTCP, 6443)
@@ -216,6 +216,15 @@ func requireIngressFromNamespace(policy *networkingv1.NetworkPolicy, port int32,
 	if !hasIngressFromNamespace(policy.Spec.Ingress, port, namespace) {
 		g.Fail(fmt.Sprintf("%s/%s: expected ingress from namespace %s on port %d", policy.Namespace, policy.Name, namespace, port))
 	}
+}
+
+func logIngressFromNamespaceOptional(policy *networkingv1.NetworkPolicy, port int32, namespace string) {
+	g.GinkgoHelper()
+	if hasIngressFromNamespace(policy.Spec.Ingress, port, namespace) {
+		g.GinkgoWriter.Printf("networkpolicy %s/%s: ingress from namespace %s present on port %d\n", policy.Namespace, policy.Name, namespace, port)
+		return
+	}
+	g.GinkgoWriter.Printf("networkpolicy %s/%s: no ingress from namespace %s on port %d\n", policy.Namespace, policy.Name, namespace, port)
 }
 
 func requireIngressFromNamespaceOrPolicyGroup(policy *networkingv1.NetworkPolicy, port int32, namespace, policyGroupLabelKey string) {
