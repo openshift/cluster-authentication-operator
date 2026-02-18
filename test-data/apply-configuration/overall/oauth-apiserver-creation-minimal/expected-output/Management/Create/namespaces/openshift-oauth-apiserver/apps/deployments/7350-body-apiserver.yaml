@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: b8ea01ab9a9bcf14e72373c020dfae9a968e1b8e5cd4b467a3fc6ae9fdbacff1
+    operator.openshift.io/spec-hash: eb0817f2a3f0fed0fee4b6bed759e7c7ef24752833a3d84b8141a02a0d333ffd
   labels:
     apiserver: "true"
     app: openshift-oauth-apiserver
@@ -11,6 +11,7 @@ metadata:
   name: apiserver
   namespace: openshift-oauth-apiserver
 spec:
+  progressDeadlineSeconds: 900
   replicas: 0
   selector:
     matchLabels:
