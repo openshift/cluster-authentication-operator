@@ -7,7 +7,7 @@ require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/go-cmp v0.7.0
-	github.com/openshift/api v0.0.0-20251106190826-ebe535b08719
+	github.com/openshift/api v0.0.0-20251111013132-5c461e21bdb7
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
 	github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235
 	github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5
@@ -31,6 +31,9 @@ require (
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/kube-storage-version-migrator v0.0.6-0.20230721195810-5c8923c5ff96
 )
+
+// PR 2131: OCPBUGS-74418 add KMS test helpers (release-4.21)
+replace github.com/openshift/library-go => github.com/gangwgr/library-go v0.0.0-20260225055023-b41850fe248b
 
 require (
 	cel.dev/expr v0.24.0 // indirect

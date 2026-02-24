@@ -86,6 +86,14 @@ test-e2e-oidc: GO_TEST_FLAGS += -count 1
 test-e2e-oidc: test-unit
 .PHONY: test-e2e-oidc
 
+# KMS encryption tests
+test-e2e-encryption-kms: GO_TEST_PACKAGES :=./test/e2e-encryption-kms/...
+test-e2e-encryption-kms: GO_TEST_FLAGS += -v
+test-e2e-encryption-kms: GO_TEST_FLAGS += -timeout 4h
+test-e2e-encryption-kms: GO_TEST_FLAGS += -p 1
+test-e2e-encryption-kms: test-unit
+.PHONY: test-e2e-encryption-kms
+
 # Configure the 'telepresence' target
 # See vendor/github.com/openshift/build-machinery-go/scripts/run-telepresence.sh for usage and configuration details
 export TP_DEPLOYMENT_YAML ?=./manifests/07_deployment.yaml
