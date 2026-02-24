@@ -9,10 +9,10 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/onsi/ginkgo/v2 v2.21.0
 	github.com/openshift-eng/openshift-tests-extension v0.0.0-20251205182537-ff5553e56f33
-	github.com/openshift/api v0.0.0-20260126183958-606bd613f9f7
+	github.com/openshift/api v0.0.0-20260212193555-c06ab675261f
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
 	github.com/openshift/client-go v0.0.0-20260108185524-48f4ccfc4e13
-	github.com/openshift/library-go v0.0.0-20260210145149-d0e860e8d752
+	github.com/openshift/library-go v0.0.0-20260223145824-7b234b47a906
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
