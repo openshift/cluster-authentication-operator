@@ -52,6 +52,8 @@ github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
 github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/gangwgr/library-go v0.0.0-20260225055023-b41850fe248b h1:jJ+JmHT4Jswv+sOug/ZXDy1rvDKsec4vAHK8cW4QB7s=
+github.com/gangwgr/library-go v0.0.0-20260225055023-b41850fe248b/go.mod h1:tptKNust9MdRI0p90DoBSPHIrBa9oh+Rok59tF0vT8c=
 github.com/ghodss/yaml v1.0.0 h1:wQHKEahhL6wmXdzwWG11gIVCkOv05bNOh+Rxn0yngAk=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
@@ -147,14 +149,12 @@ github.com/onsi/ginkgo/v2 v2.21.0 h1:7rg/4f3rB88pb5obDgNZrNHrQ4e6WpjonchcpuBRnZM
 github.com/onsi/ginkgo/v2 v2.21.0/go.mod h1:7Du3c42kxCUegi0IImZ1wUQzMBVecgIHjR1C+NkhLQo=
 github.com/onsi/gomega v1.35.1 h1:Cwbd75ZBPxFSuZ6T+rN/WCb/gOc6YgFBXLlZLhC7Ds4=
 github.com/onsi/gomega v1.35.1/go.mod h1:PvZbdDc8J6XJEpDK4HCuRBm8a6Fzp9/DmhC9C7yFlog=
-github.com/openshift/api v0.0.0-20251106190826-ebe535b08719 h1:KEwYyKaJniwhoyLB75tAMmJn9pMlk0PUlRfrsXYOhwM=
-github.com/openshift/api v0.0.0-20251106190826-ebe535b08719/go.mod h1:d5uzF0YN2nQQFA0jIEWzzOZ+edmo6wzlGLvx5Fhz4uY=
+github.com/openshift/api v0.0.0-20251111013132-5c461e21bdb7 h1:fdvcDJySvjVJctbPbdLPoMiMk+bls34+eq6tWOqdFZg=
+github.com/openshift/api v0.0.0-20251111013132-5c461e21bdb7/go.mod h1:d5uzF0YN2nQQFA0jIEWzzOZ+edmo6wzlGLvx5Fhz4uY=
 github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee h1:+Sp5GGnjHDhT/a/nQ1xdp43UscBMr7G5wxsYotyhzJ4=
 github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235 h1:9JBeIXmnHlpXTQPi7LPmu1jdxznBhAE7bb1K+3D8gxY=
 github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235/go.mod h1:L49W6pfrZkfOE5iC1PqEkuLkXG4W0BX4w8b+L2Bv7fM=
-github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5 h1:Gq8jCFgSrilZ2ZHjQleFZWlblikc1aaRZ0hqs+yvrP4=
-github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5/go.mod h1:OlFFws1AO51uzfc48MsStGE4SFMWlMZD0+f5a/zCtKI=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d h1:Rzx23P63JFNNz5D23ubhC0FCN5rK8CeJhKcq5QKcdyU=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d/go.mod h1:iVi9Bopa5cLhjG5ie9DoZVVqkH8BGb1FQVTtecOLn4I=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=

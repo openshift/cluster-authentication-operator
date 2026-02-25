@@ -173,7 +173,7 @@ github.com/modern-go/reflect2
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
-# github.com/openshift/api v0.0.0-20251106190826-ebe535b08719
+# github.com/openshift/api v0.0.0-20251111013132-5c461e21bdb7
 ## explicit; go 1.24.0
 github.com/openshift/api
 github.com/openshift/api/annotations
@@ -319,7 +319,7 @@ github.com/openshift/client-go/user/applyconfigurations/internal
 github.com/openshift/client-go/user/applyconfigurations/user/v1
 github.com/openshift/client-go/user/clientset/versioned/scheme
 github.com/openshift/client-go/user/clientset/versioned/typed/user/v1
-# github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5
+# github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5 => github.com/gangwgr/library-go v0.0.0-20260225055023-b41850fe248b
 ## explicit; go 1.24.0
 github.com/openshift/library-go/pkg/apiserver/jsonpatch
 github.com/openshift/library-go/pkg/apps/deployment
@@ -392,6 +392,7 @@ github.com/openshift/library-go/pkg/route/routeapihelpers
 github.com/openshift/library-go/pkg/serviceability
 github.com/openshift/library-go/test/library
 github.com/openshift/library-go/test/library/encryption
+github.com/openshift/library-go/test/library/encryption/kms
 # github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 ## explicit; go 1.22.0
 github.com/openshift/multi-operator-manager/pkg/flagtypes
@@ -1552,3 +1553,4 @@ sigs.k8s.io/structured-merge-diff/v6/value
 # sigs.k8s.io/yaml v1.6.0
 ## explicit; go 1.22
 sigs.k8s.io/yaml
+# github.com/openshift/library-go => github.com/gangwgr/library-go v0.0.0-20260225055023-b41850fe248b

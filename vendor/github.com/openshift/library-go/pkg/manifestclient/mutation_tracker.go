@@ -53,7 +53,7 @@ type ActionMetadata struct {
 type ResourceMetadata struct {
 	ResourceType schema.GroupVersionResource `json:"resourceType"`
 	Namespace    string                      `json:"namespace,omitempty"`
-	Name         string                      `json:"name"`
+	Name         string                      `json:"mame"`
 	GenerateName string                      `json:"generateName"`
 }
 
@@ -92,11 +92,7 @@ func (a *AllActionsTracker[T]) ListActions() []Action {
 
 func (a *AllActionsTracker[T]) RequestsForAction(action Action) []SerializedRequestish {
 	ret := []SerializedRequestish{}
-	tracker, ok := a.actionToTracker[action]
-	if !ok {
-		return nil
-	}
-	mutations := tracker.Mutations()
+	mutations := a.actionToTracker[action].Mutations()
 	for _, mutation := range mutations {
 		ret = append(ret, mutation)
 	}
@@ -105,11 +101,7 @@ func (a *AllActionsTracker[T]) RequestsForAction(action Action) []SerializedRequ
 
 func (a *AllActionsTracker[T]) RequestsForResource(metadata ActionMetadata) []SerializedRequestish {
 	ret := []SerializedRequestish{}
-	tracker, ok := a.actionToTracker[metadata.Action]
-	if !ok {
-		return nil
-	}
-	mutations := tracker.Mutations()
+	mutations := a.actionToTracker[metadata.Action].Mutations()
 	for _, mutation := range mutations {
 		if mutation.GetSerializedRequest().GetLookupMetadata() == metadata {
 			ret = append(ret, mutation)

@@ -3,12 +3,13 @@ package v1helpers
 import (
 	"bytes"
 	"fmt"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/utils/clock"
-	"strings"
 
 	configv1 "github.com/openshift/api/config/v1"
 )
