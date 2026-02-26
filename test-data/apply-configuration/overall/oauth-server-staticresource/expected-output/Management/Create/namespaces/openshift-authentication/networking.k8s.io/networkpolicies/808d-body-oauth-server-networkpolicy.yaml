@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oauth-server-networkpolicy
+  namespace: openshift-authentication
+spec:
+  egress:
+  - ports:
+    - port: 5353
+      protocol: TCP
+    - port: 5353
+      protocol: UDP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-dns
+      podSelector:
+        matchLabels:
+          dns.operator.openshift.io/daemonset-dns: default
+  - ports:
+    - port: 8443
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-oauth-apiserver
+      podSelector:
+        matchLabels:
+          app: openshift-oauth-apiserver
+  - {}
+  ingress:
+  - ports:
+    - port: 6443
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          policy-group.network.openshift.io/ingress: ""
+    ports:
+    - port: 6443
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-authentication-operator
+      podSelector:
+        matchLabels:
+          app: authentication-operator
+    ports:
+    - port: 6443
+      protocol: TCP
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - port: 6443
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: oauth-openshift
+  policyTypes:
+  - Ingress
+  - Egress

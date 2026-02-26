@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: TODO-staticResourceController
+generateName: ""
+name: oauth-server-networkpolicy
+namespace: openshift-authentication
+resourceType:
+  Group: networking.k8s.io
+  Resource: networkpolicies
+  Version: v1

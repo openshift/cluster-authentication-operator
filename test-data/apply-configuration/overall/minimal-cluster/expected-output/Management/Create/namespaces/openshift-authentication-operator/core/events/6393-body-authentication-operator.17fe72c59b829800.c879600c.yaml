@@ -1,20 +1,19 @@
 apiVersion: v1
 count: 1
 eventTime: null
-firstTimestamp: "2025-08-07T22:38:20Z"
+firstTimestamp: "2024-10-14T22:38:20Z"
 involvedObject:
   kind: Deployment
   name: authentication-operator
   namespace: openshift-authentication-operator
 kind: Event
-lastTimestamp: "2025-08-07T22:38:20Z"
-message: Created ConfigMap/v4-0-config-system-cliconfig -n openshift-authentication
+lastTimestamp: "2024-10-14T22:38:20Z"
+message: Created NetworkPolicy.networking.k8s.io/default-deny-all -n openshift-oauth-apiserver
   because it was missing
 metadata:
-  creationTimestamp: null
-  name: authentication-operator.18599d2230299800.18b41977
+  name: authentication-operator.17fe72c59b829800.c879600c
   namespace: openshift-authentication-operator
-reason: ConfigMapCreated
+reason: NetworkPolicyCreated
 reportingComponent: ""
 reportingInstance: ""
 source:

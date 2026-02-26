@@ -1,19 +1,19 @@
 apiVersion: v1
 count: 1
 eventTime: null
-firstTimestamp: "2025-08-07T22:38:20Z"
+firstTimestamp: "2024-10-14T22:38:20Z"
 involvedObject:
   kind: Deployment
   name: authentication-operator
   namespace: openshift-authentication-operator
 kind: Event
-lastTimestamp: "2025-08-07T22:38:20Z"
-message: accessTokenMaxAgeSeconds changed from %!d(float64=0) to %!d(float64=86400)
+lastTimestamp: "2024-10-14T22:38:20Z"
+message: Created NetworkPolicy.networking.k8s.io/oauth-server-networkpolicy -n openshift-authentication
+  because it was missing
 metadata:
-  creationTimestamp: null
-  name: authentication-operator.18599d2230299800.2df24af9
+  name: authentication-operator.17fe72c59b829800.2a6d0210
   namespace: openshift-authentication-operator
-reason: ObserveTokenConfig
+reason: NetworkPolicyCreated
 reportingComponent: ""
 reportingInstance: ""
 source:

@@ -1,0 +1,71 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oauth-server-networkpolicy
+  namespace: openshift-authentication
+spec:
+  podSelector:
+    matchLabels:
+      app: oauth-openshift
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+    # allow metrics scraping from anywhere
+    - ports:
+      - protocol: TCP
+        port: 6443
+    # allow ingress from the router
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            policy-group.network.openshift.io/ingress: ""
+      ports:
+      - protocol: TCP
+        port: 6443
+    # allow ingress from the cluster-authentication-operator due to health checks
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-authentication-operator
+        podSelector:
+          matchLabels:
+            app: authentication-operator
+      ports:
+      - protocol: TCP
+        port: 6443
+    # allow ingress from oauth-proxy as it can live in any namespace and pod (it's a sidecar)
+    - from:
+      - namespaceSelector: {}
+      ports:
+      - protocol: TCP
+        port: 6443
+  egress:
+    # allow egress to DNS
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-dns
+        podSelector:
+          matchLabels:
+            dns.operator.openshift.io/daemonset-dns: default
+      ports:
+      - protocol: TCP
+        port: 5353
+      - protocol: UDP
+        port: 5353
+    # allow egress traffic to oauth-apiserver pods to access oauth APIs
+    # this rule overlaps with the generic TCP egress rule but exists for documentation purposes
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-oauth-apiserver
+        podSelector:
+          matchLabels:
+            app: openshift-oauth-apiserver
+      ports:
+      - protocol: TCP
+        port: 8443
+    # allow all egress traffic
+    # required for egress to kube-apiserver pods and configured IDPs
+    - {}

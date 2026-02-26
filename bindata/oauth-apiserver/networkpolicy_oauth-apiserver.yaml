@@ -1,0 +1,72 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oauth-apiserver-networkpolicy
+  namespace: openshift-oauth-apiserver
+spec:
+  podSelector:
+    matchLabels:
+      app: openshift-oauth-apiserver
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+    # allow metrics scraping from anywhere
+    - ports:
+      - protocol: TCP
+        port: 8443
+    # allow ingress from the oauth-server
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-authentication
+        podSelector:
+          matchLabels:
+            app: oauth-openshift
+      ports:
+      - protocol: TCP
+        port: 8443
+    # allow ingress from the cluster-authentication-operator due to health checks
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-authentication-operator
+        podSelector:
+          matchLabels:
+            app: authentication-operator
+      ports:
+      - protocol: TCP
+        port: 8443
+    # allow ingress TCP traffic
+    # required for ingress from the kube-apiserver due to the webhook authenticator and aggregated APIs
+    - ports:
+      - protocol: TCP
+        port: 8443
+  egress:
+    # allow egress to DNS
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-dns
+        podSelector:
+          matchLabels:
+            dns.operator.openshift.io/daemonset-dns: default
+      ports:
+      - protocol: TCP
+        port: 5353
+      - protocol: UDP
+        port: 5353
+    # allow egress to etcd
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: openshift-etcd
+        podSelector:
+          matchLabels:
+            app: etcd
+      ports:
+      - protocol: TCP
+        port: 2379
+    # allow all egress traffic
+    # required for egress to kube-apiserver pods
+    - {}

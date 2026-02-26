@@ -41,6 +41,11 @@ func runOutputResources(ctx context.Context) (*libraryoutputresources.OutputReso
 				libraryoutputresources.ExactRoleBinding("openshift-config-managed", "system:openshift:oauth-servercert-trust"),
 
 				libraryoutputresources.ExactPDB("openshift-oauth-apiserver", "oauth-apiserver-pdb"),
+
+				libraryoutputresources.ExactResource("networking.k8s.io", "v1", "networkpolicies", "openshift-authentication", "oauth-server-networkpolicy"),
+				libraryoutputresources.ExactResource("networking.k8s.io", "v1", "networkpolicies", "openshift-authentication", "default-deny-all"),
+				libraryoutputresources.ExactResource("networking.k8s.io", "v1", "networkpolicies", "openshift-oauth-apiserver", "oauth-apiserver-networkpolicy"),
+				libraryoutputresources.ExactResource("networking.k8s.io", "v1", "networkpolicies", "openshift-oauth-apiserver", "default-deny-all"),
 			},
 			EventingNamespaces: []string{
 				"openshift-authentication-operator",

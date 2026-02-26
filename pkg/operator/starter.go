@@ -142,6 +142,8 @@ func prepareOauthOperator(
 		[]string{ // required resources
 			"oauth-openshift/audit-policy.yaml",
 			"oauth-openshift/ns.yaml",
+			"oauth-openshift/networkpolicy_oauth-server.yaml",
+			"oauth-openshift/networkpolicy_namespace_default-deny-all.yaml",
 			"oauth-openshift/authorization.openshift.io_rolebindingrestrictions.yaml",
 		},
 		resourceapply.NewKubeClientHolder(authOperatorInput.kubeClient).WithAPIExtensionsClient(authOperatorInput.apiextensionClient),
@@ -532,6 +534,8 @@ func prepareOauthAPIServerOperator(
 			{
 				Files: []string{
 					"oauth-apiserver/ns.yaml",
+					"oauth-apiserver/networkpolicy_oauth-apiserver.yaml",
+					"oauth-apiserver/networkpolicy_namespace_default-deny-all.yaml",
 				},
 			},
 			{
