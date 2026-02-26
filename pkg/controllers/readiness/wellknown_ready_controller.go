@@ -170,13 +170,51 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		return err
 	}
 
-	if err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig); err != nil {
+	// Retry the well-known endpoint check for up to 15 seconds with 1-second intervals
+	retryStart := time.Now()
+	const retryTimeout = 15 * time.Second
+	const retryInterval = 1 * time.Second
+
+	for {
+		err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig)
+		if err == nil {
+			// Success - well-known endpoints are ready
+			break
+		}
+
+		elapsed := time.Since(retryStart)
+
+		// If we've exceeded the retry timeout, handle the final error
+		if elapsed >= retryTimeout {
+			// After retries are exhausted, set to Unavailable with reason NotReady
+			available = available.
+				WithStatus(operatorv1.ConditionFalse).
+				WithReason("NotReady").
+				WithMessage(fmt.Sprintf("The well-known endpoint failed after %v of retries: %s", retryTimeout, err.Error()))
+			progressing = progressing.
+				WithStatus(operatorv1.ConditionTrue)
+			return err
+		}
+
+		// Wait before retrying, but check context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryInterval):
+			// Continue with retry
+		}
+	}
+
+	// After retries are exhausted, handle the final error with proper progressingErr logic
+	if err != nil {
 		available = available.
 			WithStatus(operatorv1.ConditionFalse).
 			WithReason("NotReady").
-			WithMessage(fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()))
+			WithMessage(fmt.Sprintf("The well-known endpoint failed after %v of retries: %s", retryTimeout, err.Error()))
 		progressing = progressing.
 			WithStatus(operatorv1.ConditionTrue)
+
+		// Handle ControllerProgressingError specially
 		if progressingErr, ok := err.(*common.ControllerProgressingError); ok {
 			if progressingErr.IsDegraded(controllerName, operatorStatus) {
 				return progressingErr.Unwrap()
