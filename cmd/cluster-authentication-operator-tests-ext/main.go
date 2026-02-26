@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"k8s.io/component-base/cli"
@@ -13,6 +14,12 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption"
+	// TODO: Uncomment when e2e-encryption-kms is migrated to Ginkgo format
+	// _ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-perf"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-rotation"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-oidc"
 
 	"k8s.io/klog/v2"
 )
@@ -77,6 +84,60 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 		Parallelism: 1,
 		Qualifiers: []string{
 			`name.contains("[Serial]") && (name.contains("[Operator]") || name.contains("[OIDC]") || name.contains("[Templates]") || name.contains("[Tokens]"))`,
+		},
+	})
+
+	// The following suite runs basic encryption tests that modify cluster-wide encryption configuration.
+	// These tests must run serially as they configure encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && !name.contains("Rotation") && !name.contains("Perf") && !name.contains("KMS")`,
+		},
+	})
+
+	// The following suite runs encryption rotation tests.
+	// These tests must run serially as they configure encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-rotation/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("Rotation")`,
+		},
+	})
+
+	// The following suite runs encryption performance tests.
+	// These tests must run serially as they configure encryption settings and measure performance.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-perf/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("Perf")`,
+		},
+	})
+
+	// The following suite runs KMS encryption tests.
+	// These tests must run serially as they configure KMS encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-kms/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("KMS")`,
+		},
+	})
+
+	// The following suite runs OIDC-specific disruptive tests.
+	// These tests must run serially as they modify cluster authentication configuration
+	// and may disrupt cluster operations.
+	defaultTimeout := 120 * time.Minute
+	extension.AddSuite(oteextension.Suite{
+		Name:             "openshift/cluster-authentication-operator/oidc/serial-disruptive",
+		Parallelism:      1,
+		ClusterStability: oteextension.ClusterStabilityDisruptive,
+		TestTimeout:      &defaultTimeout,
+		Qualifiers: []string{
+			`name.contains("[OIDC]") && name.contains("[Serial]") && name.contains("[Disruptive]")`,
 		},
 	})
 
