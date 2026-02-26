@@ -60,6 +60,17 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 
 	// The following suite runs tests that verify the operator's behaviour.
 	// This suite is executed only on pull requests targeting this repository.
+	// Tests that are not tagged with [Serial] and have any of [Operator], [Templates], [Tokens] are included in this suite.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator/parallel",
+		Parallelism: 4,
+		Qualifiers: []string{
+			`!name.contains("[Serial]") && (name.contains("[Operator]") || name.contains("[Templates]") || name.contains("[Tokens]"))`,
+		},
+	})
+
+	// The following suite runs tests that must execute serially (one at a time)
+	// because they modify cluster-wide resources like OAuth configuration.
 	// Tests tagged with [Serial] and any of [Operator], [OIDC], [Templates], [Tokens] are included in this suite.
 	extension.AddSuite(oteextension.Suite{
 		Name:        "openshift/cluster-authentication-operator/operator/serial",

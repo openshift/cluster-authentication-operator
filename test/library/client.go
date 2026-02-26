@@ -3,20 +3,31 @@ package library
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	mathrand "math/rand"
+	"net"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 	psapi "k8s.io/pod-security-admission/api"
+
+	configclient "github.com/openshift/client-go/config/clientset/versioned"
+	oauthclient "github.com/openshift/client-go/oauth/clientset/versioned"
+	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
+	routeclient "github.com/openshift/client-go/route/clientset/versioned"
+	userclient "github.com/openshift/client-go/user/clientset/versioned/typed/user/v1"
 )
 
 // NewClientConfigForTest returns a config configured to connect to the api server
@@ -30,6 +41,71 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 
 	require.NoError(t, err)
 	return config
+}
+
+// TestClients holds commonly used Kubernetes and OpenShift clients for e2e tests
+type TestClients struct {
+	KubeClient     kubernetes.Interface
+	ConfigClient   *configclient.Clientset
+	OperatorClient *operatorclient.Clientset
+	RouteClient    *routeclient.Clientset
+	OAuthClient    *oauthclient.Clientset
+	UserClient     userclient.UserV1Interface
+}
+
+// NewTestClients creates a TestClients struct with all common clients initialized
+func NewTestClients(t testing.TB) *TestClients {
+	kubeConfig := NewClientConfigForTest(t)
+
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	configClient, err := configclient.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	operatorClient, err := operatorclient.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	routeClient, err := routeclient.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	oauthClient, err := oauthclient.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	userClient, err := userclient.NewForConfig(kubeConfig)
+	require.NoError(t, err)
+
+	return &TestClients{
+		KubeClient:     kubeClient,
+		ConfigClient:   configClient,
+		OperatorClient: operatorClient,
+		RouteClient:    routeClient,
+		OAuthClient:    oauthClient,
+		UserClient:     userClient,
+	}
+}
+
+// NewInsecureHTTPClient creates an HTTP client that skips TLS verification for testing
+func NewInsecureHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: NewInsecureHTTPTransport(),
+	}
+}
+
+// NewInsecureHTTPTransport creates an HTTP transport that skips TLS verification for testing
+func NewInsecureHTTPTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
 }
 
 // GenerateOAuthTokenPair returns two tokens to use with OpenShift OAuth-based authentication.

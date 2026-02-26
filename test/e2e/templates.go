@@ -2,45 +2,34 @@ package e2e
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	g "github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	configv1 "github.com/openshift/api/config/v1"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
-	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 
 	e2e "github.com/openshift/cluster-authentication-operator/test/library"
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Templates][Serial] TestTemplatesConfig", func() {
+	g.It("[Templates] TestTemplatesConfig", func() {
 		testTemplatesConfig(g.GinkgoTB())
 	})
 })
 
 func testTemplatesConfig(t testing.TB) {
-	kubeConfig := e2e.NewClientConfigForTest(t)
+	clients := e2e.NewTestClients(t)
 
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	configClient, err := configclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-	routeClient, err := routeclient.NewForConfig(kubeConfig)
-	require.NoError(t, err)
-
-	configSecretsClient := kubeClient.CoreV1().Secrets("openshift-config")
+	configSecretsClient := clients.KubeClient.CoreV1().Secrets("openshift-config")
 
 	cleanup := createSecret(t, configSecretsClient, "login", "login.html", "login test")
 	defer cleanup()
@@ -51,7 +40,7 @@ func testTemplatesConfig(t testing.TB) {
 	cleanup = createSecret(t, configSecretsClient, "htpasswd1", "htpasswd", "test:$2y$05$9Co/ojOvEs6IZUTxAdlHbO8leelkkmcwPMtlGTHFkxcTLrC86EbLG") // test:password
 	defer cleanup()
 
-	oauthConfig, err := configClient.ConfigV1().OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
+	oauthConfig, err := clients.ConfigClient.ConfigV1().OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	oauthConfigCopy := oauthConfig.DeepCopy()
@@ -74,39 +63,32 @@ func testTemplatesConfig(t testing.TB) {
 		},
 	}
 
-	_, err = configClient.ConfigV1().OAuths().Update(context.TODO(), oauthConfigCopy, metav1.UpdateOptions{})
+	_, err = clients.ConfigClient.ConfigV1().OAuths().Update(context.TODO(), oauthConfigCopy, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	defer func() {
-		oauthConfigNew, err := configClient.ConfigV1().OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
+		oauthConfigNew, err := clients.ConfigClient.ConfigV1().OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
 		require.NoError(t, err)
 
 		oauthConfigNew.Spec.IdentityProviders = oauthConfig.Spec.IdentityProviders
 		oauthConfigNew.Spec.Templates = oauthConfig.Spec.Templates
 
-		_, err = configClient.ConfigV1().OAuths().Update(context.TODO(), oauthConfigNew, metav1.UpdateOptions{})
+		_, err = clients.ConfigClient.ConfigV1().OAuths().Update(context.TODO(), oauthConfigNew, metav1.UpdateOptions{})
 		require.NoError(t, err)
 	}()
 
 	// wait for new rollout
-	err = e2e.WaitForClusterOperatorProgressing(t, configClient.ConfigV1(), "authentication")
+	err = e2e.WaitForClusterOperatorProgressing(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err, "authentication operator never became progressing")
 
-	err = e2e.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient.ConfigV1(), "authentication")
+	err = e2e.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err, "failed to wait for the authentication operator to become available")
 
-	route, err := routeClient.RouteV1().Routes("openshift-authentication").Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
+	route, err := clients.RouteClient.RouteV1().Routes("openshift-authentication").Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
 	require.NoError(t, err)
 	oauthURL, err := url.Parse("https://" + route.Spec.Host)
 	require.NoError(t, err)
 
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // we don't care about certs in this test
-			},
-		},
-	}
+	httpClient := e2e.NewInsecureHTTPClient(30 * time.Second)
 	oauthURL.Path = "/oauth/token/request" // should redirect to where the providers are
 	resp, err := httpClient.Get(oauthURL.String())
 	require.NoError(t, err)

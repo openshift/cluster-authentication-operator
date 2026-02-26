@@ -3,8 +3,6 @@ package e2e
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -33,29 +31,16 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Tokens][Serial] TestTokenInactivityTimeout", func() {
+	g.It("[Tokens] TestTokenInactivityTimeout [Timeout:1h]", func() {
 		testTokenInactivityTimeout(g.GinkgoTB())
 	})
 })
 
 func testTokenInactivityTimeout(t testing.TB) {
+	clients := test.NewTestClients(t)
 	kubeConfig := test.NewClientConfigForTest(t)
 
-	userClient := userclient.NewForConfigOrDie(kubeConfig)
-	oauthClientClient := oauthclient.NewForConfigOrDie(kubeConfig)
-	configClient := configclient.NewForConfigOrDie(kubeConfig)
-
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
+	transport := test.NewInsecureHTTPTransport()
 
 	testTokenValidity := func(t testing.TB, req *http.Request, statusCode int, bearerToken, errMsg string) {
 		req.Header.Set("Authorization", "Bearer "+bearerToken)
@@ -74,7 +59,7 @@ func testTokenInactivityTimeout(t testing.TB) {
 		req, err := http.NewRequest(http.MethodGet, kubeConfig.Host+"/apis/user.openshift.io/v1/users/~", &bytes.Buffer{})
 		require.NoError(t, err)
 
-		time.Sleep(timeout + 10*time.Second)
+		time.Sleep(timeout + 5*time.Second)
 
 		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
@@ -92,59 +77,59 @@ func testTokenInactivityTimeout(t testing.TB) {
 		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
-		time.Sleep(120 * time.Second)
+		time.Sleep(20 * time.Second)
 
 		testTokenValidity(t, req, http.StatusOK, tokenWithTimeout, "accessing token before it timed out should work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 
-		time.Sleep(timeout + 10*time.Second)
+		time.Sleep(timeout + 5*time.Second)
 
 		testTokenValidity(t, req, http.StatusUnauthorized, tokenWithTimeout, "accessing token after it timed out should not work")
 		testTokenValidity(t, req, http.StatusOK, tokenWithoutTimeout, "token with out timeout should work")
 	}
 
-	configInactivityTimeout := int32(420) // 420 is the minimum possible timeout + 2min to distinguish it from oauth client timeouts
-	oauthClientTimeout := int32(300)      // 300 is the minimum possible timeout
+	configInactivityTimeout := int32(300) // minimum acceptable token timeout value is 300 seconds
+	oauthClientTimeout := int32(300)      // minimum acceptable token timeout value is 300 seconds
 
 	// No OAuthClient timeout and no OAuth config timeout.
-	checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
+	checkTokenAccess(t, clients.UserClient, clients.OAuthClient.OauthV1(), configInactivityTimeout, nil, testTokenTimeouts)
 
 	// With only OAuth config timeout.
-	updateOAuthConfigInactivityTimeout(t, configClient, &metav1.Duration{Duration: time.Duration(configInactivityTimeout) * time.Second})
+	updateOAuthConfigInactivityTimeout(t, clients.ConfigClient.ConfigV1(), &metav1.Duration{Duration: time.Duration(configInactivityTimeout) * time.Second})
 
-	err := test.WaitForClusterOperatorProgressing(t, configClient, "authentication")
+	err := test.WaitForClusterOperatorProgressing(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err, "authentication operator never became progressing")
-	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
+	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err)
 	client := kubernetes.NewForConfigOrDie(kubeConfig)
 	waitOAuthServerReplicasReady(t, client)
 
-	checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testInactivityTimeoutScenarios)
+	checkTokenAccess(t, clients.UserClient, clients.OAuthClient.OauthV1(), configInactivityTimeout, nil, testInactivityTimeoutScenarios)
 
 	// With both OAuth config timeout and OAuthClient timeout.
-	checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, &oauthClientTimeout, testInactivityTimeoutScenarios)
+	checkTokenAccess(t, clients.UserClient, clients.OAuthClient.OauthV1(), configInactivityTimeout, &oauthClientTimeout, testInactivityTimeoutScenarios)
 
 	// No OAuthClient timeout and no OAuth config timeout.
-	updateOAuthConfigInactivityTimeout(t, configClient, nil)
+	updateOAuthConfigInactivityTimeout(t, clients.ConfigClient.ConfigV1(), nil)
 
-	err = test.WaitForClusterOperatorProgressing(t, configClient, "authentication")
+	err = test.WaitForClusterOperatorProgressing(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err, "authentication operator never became progressing")
-	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, configClient, "authentication")
+	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	require.NoError(t, err)
 	client = kubernetes.NewForConfigOrDie(kubeConfig)
 	waitOAuthServerReplicasReady(t, client)
 
-	checkTokenAccess(t, userClient, oauthClientClient, configInactivityTimeout, nil, testTokenTimeouts)
+	checkTokenAccess(t, clients.UserClient, clients.OAuthClient.OauthV1(), configInactivityTimeout, nil, testTokenTimeouts)
 }
 
 func checkTokenAccess(t testing.TB,
-	userClient *userclient.UserV1Client,
-	oauthClientClient *oauthclient.OauthV1Client,
+	userClient userclient.UserV1Interface,
+	oauthClient oauthclient.OauthV1Interface,
 	configInactivityTimeout int32, oauthClientTimeout *int32,
 	testAccess func(testing.TB, string, string, time.Duration)) {
 	// Create the user, identity, oauthclient and oauthaccesstoken objects needed for authentication using Bearer tokens.
 	subTestNameHierarchy := strings.Split(t.Name(), "/")
-	prefix := strings.ToLower(subTestNameHierarchy[len(subTestNameHierarchy)-1]) + "-"
+	prefix := test.SanitizeResourceName(subTestNameHierarchy[len(subTestNameHierarchy)-1]) + "-"
 
 	userName := prefix + "testuser"
 	idpName := "htpasswd"
@@ -158,7 +143,7 @@ func checkTokenAccess(t testing.TB,
 	cleanup = createIdentity(t, userClient, userName, identityName, idpName, uid)
 	defer cleanup()
 
-	cleanup = createOAuthClient(t, oauthClientClient, oauthClientName, redirectURIs, oauthClientTimeout)
+	cleanup = createOAuthClient(t, oauthClient, oauthClientName, redirectURIs, oauthClientTimeout)
 	defer cleanup()
 
 	expectedInactivityTimeout := configInactivityTimeout
@@ -197,10 +182,10 @@ func checkTokenAccess(t testing.TB,
 
 	// create tokens with and without timeouts
 	for _, accessToken := range []*oauthapi.OAuthAccessToken{tokenWithTimeout, tokenWithoutTimeout} {
-		_, err := oauthClientClient.OAuthAccessTokens().Create(context.TODO(), accessToken, metav1.CreateOptions{})
+		_, err := oauthClient.OAuthAccessTokens().Create(context.TODO(), accessToken, metav1.CreateOptions{})
 		require.NoError(t, err)
 		defer func(name string) {
-			if err := oauthClientClient.OAuthAccessTokens().Delete(context.TODO(), name, metav1.DeleteOptions{}); err != nil {
+			if err := oauthClient.OAuthAccessTokens().Delete(context.TODO(), name, metav1.DeleteOptions{}); err != nil {
 				t.Logf("%v", err)
 			}
 		}(accessToken.Name)
@@ -208,7 +193,7 @@ func checkTokenAccess(t testing.TB,
 	testAccess(t, tokenWithTimeoutClear, tokenWithoutTimeoutClear, time.Duration(expectedInactivityTimeout)*time.Second)
 }
 
-func updateOAuthConfigInactivityTimeout(t testing.TB, client *configclient.ConfigV1Client, duration *metav1.Duration) {
+func updateOAuthConfigInactivityTimeout(t testing.TB, client configclient.ConfigV1Interface, duration *metav1.Duration) {
 	oauthConfig, err := client.OAuths().Get(context.TODO(), "cluster", metav1.GetOptions{})
 	require.NoError(t, err)
 
@@ -225,7 +210,7 @@ func updateOAuthConfigInactivityTimeout(t testing.TB, client *configclient.Confi
 	require.NoError(t, err)
 }
 
-func createUser(t testing.TB, userClient *userclient.UserV1Client, userName, identity string) (types.UID, func()) {
+func createUser(t testing.TB, userClient userclient.UserV1Interface, userName, identity string) (types.UID, func()) {
 	user := &userapi.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: userName,
@@ -250,7 +235,7 @@ func createUser(t testing.TB, userClient *userclient.UserV1Client, userName, ide
 	}
 }
 
-func createIdentity(t testing.TB, userClient *userclient.UserV1Client, userName, identityName, idpName string, uid types.UID) func() {
+func createIdentity(t testing.TB, userClient userclient.UserV1Interface, userName, identityName, idpName string, uid types.UID) func() {
 	identity := &userapi.Identity{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: identityName,
@@ -279,8 +264,8 @@ func createIdentity(t testing.TB, userClient *userclient.UserV1Client, userName,
 	}
 }
 
-func createOAuthClient(t testing.TB, oauthClientClient *oauthclient.OauthV1Client, oauthClientName string, redirectURIs []string, timeout *int32) func() {
-	oauthClient := &oauthapi.OAuthClient{
+func createOAuthClient(t testing.TB, oauthClient oauthclient.OauthV1Interface, oauthClientName string, redirectURIs []string, timeout *int32) func() {
+	oauthClientObj := &oauthapi.OAuthClient{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: oauthClientName,
 		},
@@ -291,7 +276,7 @@ func createOAuthClient(t testing.TB, oauthClientClient *oauthclient.OauthV1Clien
 	}
 
 	err := wait.PollImmediate(300*time.Millisecond, 2*time.Second, func() (bool, error) {
-		_, err := oauthClientClient.OAuthClients().Create(context.TODO(), oauthClient, metav1.CreateOptions{})
+		_, err := oauthClient.OAuthClients().Create(context.TODO(), oauthClientObj, metav1.CreateOptions{})
 		if err != nil {
 			t.Logf("failed to create oauth client: %v", err)
 			return false, nil
@@ -300,7 +285,7 @@ func createOAuthClient(t testing.TB, oauthClientClient *oauthclient.OauthV1Clien
 	})
 	require.NoError(t, err)
 	return func() {
-		if err := oauthClientClient.OAuthClients().Delete(context.TODO(), oauthClient.Name, metav1.DeleteOptions{}); err != nil {
+		if err := oauthClient.OAuthClients().Delete(context.TODO(), oauthClientObj.Name, metav1.DeleteOptions{}); err != nil {
 			t.Logf("%v", err)
 		}
 	}
@@ -309,7 +294,7 @@ func createOAuthClient(t testing.TB, oauthClientClient *oauthclient.OauthV1Clien
 func waitOAuthServerReplicasReady(t testing.TB, kubeClient kubernetes.Interface) {
 	t.Logf("waiting all oauth-apiserver replicas to be updated and ready")
 
-	err := wait.PollImmediate(time.Second, 10*time.Minute, func() (bool, error) {
+	err := wait.PollImmediate(time.Second, 5*time.Minute, func() (bool, error) {
 		deployment, err := kubeClient.AppsV1().Deployments("openshift-oauth-apiserver").Get(context.Background(), "apiserver", metav1.GetOptions{})
 		if err != nil {
 			t.Logf("failed to retrieve oauth-apiserver's deployment: %v", err)
