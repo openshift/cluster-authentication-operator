@@ -5,17 +5,18 @@ metadata:
 status:
   conditions:
   - lastTransitionTime: "2025-08-07T22:38:20Z"
-    message: no oauth-openshift.openshift-authentication pods available on any node.
+    message: no oauth-openshift.openshift-authentication pods available on any node
     reason: NoPod
     status: "False"
     type: OAuthServerDeploymentAvailable
-  - lastTransitionTime: "2025-08-01T18:45:36Z"
-    reason: AsExpected
-    status: "False"
+  - lastTransitionTime: "2025-08-07T22:38:20Z"
+    message: no oauth-openshift.openshift-authentication pods available on any node
+    reason: Unavailable
+    status: "True"
     type: OAuthServerDeploymentDegraded
   - lastTransitionTime: "2025-08-07T22:38:20Z"
     message: 'deployment/oauth-openshift.openshift-authentication: 0/1 pods have been
-      updated to the latest generation and 0/1 pods are available'
+      updated to the latest revision and 0/1 pods are available'
     reason: PodsUpdating
     status: "True"
     type: OAuthServerDeploymentProgressing

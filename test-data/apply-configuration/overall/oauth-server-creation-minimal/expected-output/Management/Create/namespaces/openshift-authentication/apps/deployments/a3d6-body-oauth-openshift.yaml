@@ -3,12 +3,13 @@ kind: Deployment
 metadata:
   annotations:
     operator.openshift.io/rvs-hash: f4V-TOKKLhC7zxXahsybviIQ6XFZf_Ua2SFe2jckw9gL4UuCiEXYmFPtjUvFGC13xB72tEYqR0N1somiZq0-JQ
-    operator.openshift.io/spec-hash: 0a0b624d81acaa84b703ae631aa8552ec31f538924445ffe696cf9a6c39d7dac
+    operator.openshift.io/spec-hash: 5097c5990047d75248d34d13299d208892a1cef4b827575b927549c549562778
   labels:
     app: oauth-openshift
   name: oauth-openshift
   namespace: openshift-authentication
 spec:
+  progressDeadlineSeconds: 900
   replicas: 3
   selector:
     matchLabels:

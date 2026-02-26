@@ -15,6 +15,7 @@ spec:
   selector:
     matchLabels:
       app: oauth-openshift
+  progressDeadlineSeconds: 900
   template:
     metadata:
       namespace: openshift-authentication

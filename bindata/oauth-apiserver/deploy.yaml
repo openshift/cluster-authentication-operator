@@ -22,6 +22,7 @@ spec:
     matchLabels:
       app: openshift-oauth-apiserver
       apiserver: "true"
+  progressDeadlineSeconds: 900
   template:
     metadata:
       name: openshift-oauth-apiserver
