@@ -193,17 +193,17 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating claimValidationRules for provider %q: %v", provider.Name, err)
 	}
 
-	var userValidationRules []apiserverv1beta1.UserValidationRule
 	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
+		var userValidationRules []apiserverv1beta1.UserValidationRule
 		userValidationRules, err = generateUserValidationRules(provider.UserValidationRules)
 		if err != nil {
 			return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating userValidationRules for provider %q: %v", provider.Name, err)
 		}
+		out.UserValidationRules = userValidationRules
 	}
 	out.Issuer = issuer
 	out.ClaimMappings = claimMappings
 	out.ClaimValidationRules = claimValidationRules
-	out.UserValidationRules = userValidationRules
 
 	return out, nil
 }
