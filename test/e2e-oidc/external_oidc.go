@@ -61,7 +61,7 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[OIDC][Serial][Disruptive] TestExternalOIDCWithKeycloak", func() {
+	g.It("[OIDC][Serial][Disruptive] TestExternalOIDCWithKeycloak [Timeout:1h]", func() {
 		testExternalOIDCWithKeycloak(g.GinkgoTB())
 	})
 })
