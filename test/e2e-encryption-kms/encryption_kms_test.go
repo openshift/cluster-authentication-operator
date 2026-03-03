@@ -15,15 +15,15 @@ import (
 
 // TestKMSEncryptionOnOff tests KMS encryption on/off cycle.
 // This test:
-// 2. Creates a test OAuth access token (TokenOfLife)
-// 3. Enables KMS encryption
-// 4. Verifies token is encrypted
-// 5. Disables encryption (Identity)
-// 6. Verifies token is NOT encrypted
-// 7. Re-enables KMS encryption
-// 8. Verifies token is encrypted again
-// 9. Disables encryption (Identity) again
-// 10. Verifies token is NOT encrypted again
+// 1. Creates a test OAuth access token (TokenOfLife)
+// 2. Enables KMS encryption
+// 3. Verifies token is encrypted
+// 4. Disables encryption (Identity)
+// 5. Verifies token is NOT encrypted
+// 6. Re-enables KMS encryption
+// 7. Verifies token is encrypted again
+// 8. Disables encryption (Identity) again
+// 9. Verifies token is NOT encrypted again
 func TestKMSEncryptionOnOff(t *testing.T) {
 	// Deploy the mock KMS plugin for testing.
 	// NOTE: This manual deployment is only required for KMS v1. In the future,
