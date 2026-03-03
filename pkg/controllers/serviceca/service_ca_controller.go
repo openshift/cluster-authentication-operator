@@ -106,7 +106,7 @@ func getServiceCAConfig() *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "v4-0-config-system-service-ca",
-			Annotations: map[string]string{"service.alpha.openshift.io/inject-cabundle": "true"},
+			Annotations: map[string]string{"service.beta.openshift.io/inject-cabundle": "true"},
 			Namespace:   "openshift-authentication",
 			Labels: map[string]string{
 				"app": "oauth-openshift",
@@ -141,7 +141,7 @@ func (c *serviceCAController) getServiceCA(ctx context.Context, recorder events.
 		}}, nil
 	}
 
-	if serviceCA.Annotations["service.alpha.openshift.io/inject-cabundle"] != "true" {
+	if serviceCA.Annotations["service.beta.openshift.io/inject-cabundle"] != "true" {
 		// return fmt.Errorf("config map missing injection annotation: %#v", ca)
 		// delete the service CA config map so that it is replaced with the proper one in next reconcile loop
 		opts := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &serviceCA.UID}}
