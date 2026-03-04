@@ -67,7 +67,7 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 })
 
 func testExternalOIDCWithKeycloak(t testing.TB) {
-	testCtx := context.Background()
+	testCtx := t.Context()
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
@@ -208,7 +208,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			requireFeatureGates: []configv1.FeatureGateName{features.FeatureGateExternalOIDCWithAdditionalClaimMappings},
 		},
 	} {
-		t.Logf("  sub-test: %s", tt.name)
+		g.By(fmt.Sprintf("testing: %s", tt.name))
 		skip := false
 		for _, fg := range tt.requireFeatureGates {
 			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
@@ -245,7 +245,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			requireFeatureGates: []configv1.FeatureGateName{},
 		},
 	} {
-		t.Logf("  sub-test: %s", tt.name)
+		g.By(fmt.Sprintf("testing: %s", tt.name))
 		skip := false
 		for _, fg := range tt.requireFeatureGates {
 			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
@@ -290,7 +290,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			policyStr = string(tt.prefixPolicy)
 		}
 		testName := fmt.Sprintf("username claim %s prefix policy %s", tt.claim, policyStr)
-		t.Logf("  sub-test: %s", testName)
+		g.By(fmt.Sprintf("testing: %s", testName))
 
 		testClient.checkPreconditions(t, testCtx, nil, operatorAvailable, operatorAvailable)
 
@@ -363,18 +363,6 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 	testClient.validateOAuthState(t, testCtx, true)
 
 	testClient.testOIDCAuthentication(t, testCtx, kcClient, "", "", false)
-}
-
-type oidcAuthResponse struct {
-	AccessToken      string `json:"access_token"`
-	ExpiresIn        int    `json:"expires_in"`
-	RefreshToken     string `json:"refresh_token"`
-	RefreshExpiresIn int    `json:"refresh_expires_in"`
-	TokenType        string `json:"token_type"`
-	IdToken          string `json:"id_token"`
-	NotBeforePolicy  int    `json:"not_before_policy"`
-	SessionState     string `json:"session_state"`
-	Scope            string `json:"scope"`
 }
 
 type expectedClaims struct {
