@@ -7,10 +7,10 @@ require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/go-cmp v0.7.0
-	github.com/openshift/api v0.0.0-20251106190826-ebe535b08719
+	github.com/openshift/api v0.0.0-20251111013132-5c461e21bdb7
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
 	github.com/openshift/client-go v0.0.0-20251015124057-db0dee36e235
-	github.com/openshift/library-go v0.0.0-20251107090138-0de9712313a5
+	github.com/openshift/library-go v0.0.0-20260303081410-9c30edf843c6
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
