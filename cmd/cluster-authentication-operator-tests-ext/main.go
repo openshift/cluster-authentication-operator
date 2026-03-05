@@ -14,8 +14,7 @@ import (
 
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption"
-	// TODO: Uncomment when e2e-encryption-kms is migrated to Ginkgo format
-	// _ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-perf"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-rotation"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-oidc"

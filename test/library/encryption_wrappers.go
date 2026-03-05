@@ -43,3 +43,9 @@ func TestEncryptionRotation(tb testing.TB, scenario library.RotationScenario) {
 func TestPerfEncryption(tb testing.TB, scenario library.PerfScenario) {
 	localEncryption.TestPerfEncryption(tb, scenario)
 }
+
+// TestEncryptionProvidersMigration tests migration between encryption providers.
+// This calls the local implementation instead of library-go to avoid unsafe conversions.
+func TestEncryptionProvidersMigration(tb testing.TB, scenario library.ProvidersMigrationScenario) {
+	localEncryption.TestEncryptionProvidersMigration(tb, scenario)
+}

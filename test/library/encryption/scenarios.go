@@ -205,6 +205,71 @@ func TestPerfEncryption(tb testing.TB, scenario library.PerfScenario) {
 	tb.Logf("Encryption performance test completed")
 }
 
+// TestEncryptionProvidersMigration tests migration between given encryption providers.
+// It creates a resource, migrates through each provider,
+// verifies the resource is encrypted after each migration, and finally
+// switches to identity (off).
+// This is a local implementation that accepts testing.TB instead of *testing.T
+// to be compatible with Ginkgo v2's GinkgoTB().
+func TestEncryptionProvidersMigration(tb testing.TB, scenario library.ProvidersMigrationScenario) {
+	if len(scenario.EncryptionProviders) < 2 {
+		tb.Fatalf("ProvidersMigrationScenario requires at least 2 encryption providers, got %d", len(scenario.EncryptionProviders))
+	}
+
+	for _, provider := range scenario.EncryptionProviders {
+		if provider == configv1.EncryptionTypeIdentity || provider == "" {
+			tb.Fatalf("Unsupported encryption provider %q passed", provider)
+		}
+	}
+
+	// Helper to get library clientset
+	getLibClientSet := func() library.ClientSet {
+		return createLibraryClientSet(tb)
+	}
+
+	// step 1: create the resource
+	tb.Logf("CreateAndStore%s", scenario.ResourceName)
+	scenario.CreateResourceFunc(tb, getLibClientSet(), scenario.Namespace)
+	if tb.Failed() {
+		tb.Errorf("stopping the test as CreateAndStore%s step failed", scenario.ResourceName)
+		return
+	}
+
+	// step 2: migrate through each provider in sequence
+	for i, provider := range scenario.EncryptionProviders {
+		prefix := "EncryptWith"
+		if i > 0 {
+			prefix = "MigrateTo"
+		}
+
+		stepName := fmt.Sprintf("%s%s", prefix, string(provider))
+		tb.Logf("%s", stepName)
+		TestEncryptionType(tb, scenario.BasicScenario, provider)
+		if tb.Failed() {
+			tb.Errorf("stopping the test as %q step failed", stepName)
+			return
+		}
+
+		assertStepName := fmt.Sprintf("Assert%sEncrypted", scenario.ResourceName)
+		tb.Logf("%s", assertStepName)
+		scenario.AssertResourceEncryptedFunc(tb, getLibClientSet(), scenario.ResourceFunc(tb, scenario.Namespace))
+		if tb.Failed() {
+			tb.Errorf("stopping the test as %q step failed", assertStepName)
+			return
+		}
+	}
+
+	// step 3: switch to identity (off) to verify the resource is re-written unencrypted
+	stepName := fmt.Sprintf("OffIdentityAndAssert%sNotEncrypted", scenario.ResourceName)
+	tb.Logf("%s", stepName)
+	TestEncryptionTypeIdentity(tb, scenario.BasicScenario)
+	scenario.AssertResourceNotEncryptedFunc(tb, getLibClientSet(), scenario.ResourceFunc(tb, scenario.Namespace))
+	if tb.Failed() {
+		tb.Errorf("stopping the test as %q step failed", stepName)
+		return
+	}
+}
+
 // runTestEncryptionPerf is a helper that runs the encryption test and captures the end timestamp.
 func runTestEncryptionPerf(tb testing.TB, scenario library.PerfScenario) time.Time {
 	var ts time.Time
