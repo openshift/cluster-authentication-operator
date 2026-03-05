@@ -67,7 +67,7 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 })
 
 func testExternalOIDCWithKeycloak(t testing.TB) {
-	testCtx := t.Context()
+	testCtx := context.Background()
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
@@ -208,7 +208,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			requireFeatureGates: []configv1.FeatureGateName{features.FeatureGateExternalOIDCWithAdditionalClaimMappings},
 		},
 	} {
-		g.By(fmt.Sprintf("testing: %s", tt.name))
+		t.Logf("testing: %s", tt.name)
 		skip := false
 		for _, fg := range tt.requireFeatureGates {
 			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
@@ -245,7 +245,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			requireFeatureGates: []configv1.FeatureGateName{},
 		},
 	} {
-		g.By(fmt.Sprintf("testing: %s", tt.name))
+		t.Logf("testing: %s", tt.name)
 		skip := false
 		for _, fg := range tt.requireFeatureGates {
 			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
@@ -290,7 +290,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 			policyStr = string(tt.prefixPolicy)
 		}
 		testName := fmt.Sprintf("username claim %s prefix policy %s", tt.claim, policyStr)
-		g.By(fmt.Sprintf("testing: %s", testName))
+		t.Logf("testing: %s", testName)
 
 		testClient.checkPreconditions(t, testCtx, nil, operatorAvailable, operatorAvailable)
 
