@@ -61,6 +61,12 @@ func TestEncryptionTypeAESGCM(tb testing.TB, scenario library.BasicScenario) {
 	testEncryptionTypeBase(tb, scenario, configv1.EncryptionTypeAESGCM, configv1.EncryptionTypeAESGCM)
 }
 
+// TestEncryptionTypeKMS tests KMS encryption.
+// This is a local implementation that accepts testing.TB instead of *testing.T.
+func TestEncryptionTypeKMS(tb testing.TB, scenario library.BasicScenario) {
+	testEncryptionTypeBase(tb, scenario, configv1.EncryptionTypeKMS, configv1.EncryptionTypeKMS)
+}
+
 // TestEncryptionType is a helper that dispatches to the appropriate encryption type test.
 // This is a local implementation that accepts testing.TB instead of *testing.T.
 func TestEncryptionType(tb testing.TB, scenario library.BasicScenario, provider configv1.EncryptionType) {
@@ -69,6 +75,8 @@ func TestEncryptionType(tb testing.TB, scenario library.BasicScenario, provider 
 		TestEncryptionTypeAESCBC(tb, scenario)
 	case configv1.EncryptionTypeAESGCM:
 		TestEncryptionTypeAESGCM(tb, scenario)
+	case configv1.EncryptionTypeKMS:
+		TestEncryptionTypeKMS(tb, scenario)
 	case configv1.EncryptionTypeIdentity, "":
 		TestEncryptionTypeIdentity(tb, scenario)
 	default:
