@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -145,6 +146,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
+				featureGateAccessor:       featuregates.NewHardcodedFeatureGateAccessForTesting(nil, nil, make(chan struct{}), nil),
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
