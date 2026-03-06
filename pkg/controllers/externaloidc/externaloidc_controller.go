@@ -120,11 +120,17 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
-	if _, err := c.configMaps.ConfigMaps(managedNamespace).Apply(ctx, expectedApplyConfig, metav1.ApplyOptions{FieldManager: c.name, Force: true}); err != nil {
-		return fmt.Errorf("could not apply changes to auth configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
+	applyNamespace := managedNamespace
+
+	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = "openshift-oauth-apiserver"
 	}
 
-	syncCtx.Recorder().Eventf(c.eventName, "Synced auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
+	if _, err := c.configMaps.ConfigMaps(applyNamespace).Apply(ctx, expectedApplyConfig, metav1.ApplyOptions{FieldManager: c.name, Force: true}); err != nil {
+		return fmt.Errorf("could not apply changes to auth configmap %s/%s: %v", applyNamespace, targetAuthConfigCMName, err)
+	}
+
+	syncCtx.Recorder().Eventf(c.eventName, "Synced auth configmap %s/%s", applyNamespace, targetAuthConfigCMName)
 
 	return nil
 }
@@ -132,16 +138,22 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 // deleteAuthConfig checks if the auth config ConfigMap exists in the managed namespace, and deletes it
 // if it does; it returns an error if it encounters one.
 func (c *externalOIDCController) deleteAuthConfig(ctx context.Context, syncCtx factory.SyncContext) error {
-	if _, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
+	applyNamespace := managedNamespace
+
+	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = "openshift-oauth-apiserver"
+	}
+
+	if _, err := c.configMapLister.ConfigMaps(applyNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
 
-	if err := c.configMaps.ConfigMaps(managedNamespace).Delete(ctx, targetAuthConfigCMName, metav1.DeleteOptions{}); err == nil {
-		syncCtx.Recorder().Eventf(c.eventName, "Removed auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
+	if err := c.configMaps.ConfigMaps(applyNamespace).Delete(ctx, targetAuthConfigCMName, metav1.DeleteOptions{}); err == nil {
+		syncCtx.Recorder().Eventf(c.eventName, "Removed auth configmap %s/%s", applyNamespace, targetAuthConfigCMName)
 	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("could not delete existing configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
+		return fmt.Errorf("could not delete existing configmap %s/%s: %v", applyNamespace, targetAuthConfigCMName, err)
 	}
 
 	return nil

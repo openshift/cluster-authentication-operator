@@ -18,6 +18,8 @@ import (
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/klog/v2"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -97,6 +99,19 @@ func (c *OAuthAPIServerWorkload) WorkloadDeleted(ctx context.Context) (bool, str
 		return false, "", nil
 	}
 
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, "", fmt.Errorf("checking if workload should be deleted: %s", "initial feature gates have not been observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, "", fmt.Errorf("checking if workload should be deleted: getting current feature gates: %w", err)
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return false, "", nil
+	}
+
 	// OIDC has been configured and rolled out; delete deployment if it exists
 
 	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-apiserver/deploy.yaml"))
@@ -170,13 +185,42 @@ func (c *OAuthAPIServerWorkload) Sync(ctx context.Context, syncCtx factory.SyncC
 	return actualDeployment, true, errs
 }
 
+const (
+	defaultDeploymentPath      = "oauth-apiserver/deploy.yaml"
+	externalOIDCDeploymentPath = "oauth-apiserver/external-oidc-deploy.yaml"
+)
+
+func (c *OAuthAPIServerWorkload) getDeploymentFilePath() string {
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return defaultDeploymentPath
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return defaultDeploymentPath
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		authCfg, err := c.authConfigChecker.AuthConfig()
+		if err != nil {
+			return defaultDeploymentPath
+		}
+
+		if authCfg.Spec.Type == configv1.AuthenticationTypeOIDC {
+			return externalOIDCDeploymentPath
+		}
+	}
+
+	return defaultDeploymentPath
+}
+
 func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
 	if operatorStatus.LatestAvailableRevision == 0 {
 		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
 		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
 	}
 
-	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
+	tmpl, err := bindata.Asset(c.getDeploymentFilePath())
 	if err != nil {
 		return nil, err
 	}

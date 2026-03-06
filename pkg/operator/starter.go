@@ -130,10 +130,16 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting feature gate accessor: %w", err)
+	}
+
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -445,16 +451,17 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
-	authConfigChecker := common.NewAuthConfigChecker(
-		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
-		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
-		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
-	)
-
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	authConfigChecker := common.NewAuthConfigChecker(
+		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
+	)
 
 	authAPIServerWorkload := workload.NewOAuthAPIServerWorkload(
 		authOperatorInput.authenticationOperatorClient,
@@ -532,6 +539,8 @@ func prepareOauthAPIServerOperator(
 			{
 				Files: []string{
 					"oauth-apiserver/ns.yaml",
+					"oauth-apiserver/svc.yaml",
+					"oauth-apiserver/sa.yaml",
 				},
 			},
 			{
@@ -571,8 +580,6 @@ func prepareOauthAPIServerOperator(
 				// OAuth specific resources; deleted when OIDC is enabled
 				Files: []string{
 					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
-					"oauth-apiserver/sa.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
 				},
@@ -688,6 +695,7 @@ func prepareOauthAPIServerOperator(
 		authConfigChecker,
 		versionRecorder,
 		eventRecorder,
+		featureGateAccessor,
 	)
 
 	authenticatorCertRequester, err := csr.NewClientCertificateController(

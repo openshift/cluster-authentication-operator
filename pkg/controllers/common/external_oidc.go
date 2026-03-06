@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -26,9 +28,11 @@ type AuthConfigChecker struct {
 	authLister         configv1listers.AuthenticationLister
 	kasLister          operatorv1listers.KubeAPIServerLister
 	kasConfigMapLister corelistersv1.ConfigMapLister
+
+	featureGateAccessor featuregates.FeatureGateAccess
 }
 
-func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, configmaps corev1informers.ConfigMapInformer) AuthConfigChecker {
+func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, configmaps corev1informers.ConfigMapInformer, featureGateAccessor featuregates.FeatureGateAccess) AuthConfigChecker {
 	return AuthConfigChecker{
 		authenticationsInformer:        authentications.Informer(),
 		kubeAPIServersInformer:         kubeapiservers.Informer(),
@@ -36,6 +40,7 @@ func NewAuthConfigChecker(authentications configv1informers.AuthenticationInform
 		authLister:                     authentications.Lister(),
 		kasLister:                      kubeapiservers.Lister(),
 		kasConfigMapLister:             configmaps.Lister(),
+		featureGateAccessor:            featureGateAccessor,
 	}
 }
 
@@ -56,6 +61,16 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 // that includes the structured auth-config ConfigMap, and the KAS args include the respective
 // arg that enables usage of the structured auth-config. It returns false otherwise.
 func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
+
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, fmt.Errorf("AuthConfigChecker initial feature gates are not observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, fmt.Errorf("AuthConfigChecker getting current feature gates: %w", err)
+	}
+
 	if !c.authenticationsInformer.HasSynced() {
 		return false, fmt.Errorf("AuthConfigChecker authentications informer has not synced yet")
 	}
@@ -68,10 +83,17 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, fmt.Errorf("AuthConfigChecker configmaps informer has not synced yet")
 	}
 
-	if auth, err := c.authLister.Get("cluster"); err != nil {
+	auth, err := c.authLister.Get("cluster"); 
+	if err != nil {
 		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
-	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
+	}
+
+	if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		return false, nil
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return true, nil
 	}
 
 	kas, err := c.kasLister.Get("cluster")
