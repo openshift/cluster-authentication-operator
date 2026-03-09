@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	celgo "github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/operators"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -23,7 +25,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"golang.org/x/net/http/httpproxy"
-
+	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +46,14 @@ const (
 	oidcDiscoveryEndpointPath       = "/.well-known/openid-configuration"
 	kindAuthenticationConfiguration = "AuthenticationConfiguration"
 )
+
+// oidcGenerationState holds compilation results gathered during JWT generation
+// that are needed for cross-field validation (e.g. email_verified enforcement).
+type oidcGenerationState struct {
+	usernameResult         *authenticationcel.CompilationResult
+	extraResults           []authenticationcel.CompilationResult
+	claimValidationResults []authenticationcel.CompilationResult
+}
 
 type externalOIDCController struct {
 	name            string
@@ -183,17 +193,26 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating issuer for provider %q: %v", provider.Name, err)
 	}
 
-	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL, featureGates)
+	state := &oidcGenerationState{}
+
+	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL, featureGates, state)
 	if err != nil {
 		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating claimMappings for provider %q: %v", provider.Name, err)
 	}
 
-	claimValidationRules, err := generateClaimValidationRules(provider.ClaimValidationRules...)
+	claimValidationRules, err := generateClaimValidationRules(state, provider.ClaimValidationRules...)
 	if err != nil {
 		return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("generating claimValidationRules for provider %q: %v", provider.Name, err)
 	}
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
+		if err := validateEmailVerifiedUsage(
+			state.usernameResult,
+			state.extraResults,
+			state.claimValidationResults,
+		); err != nil {
+			return apiserverv1beta1.JWTAuthenticator{}, fmt.Errorf("validating email claim usage for provider %q: %v", provider.Name, err)
+		}
 		var userValidationRules []apiserverv1beta1.UserValidationRule
 		userValidationRules, err = generateUserValidationRules(provider.UserValidationRules)
 		if err != nil {
@@ -274,16 +293,19 @@ func getCertificateAuthorityFromConfigMap(name string, configMapLister corev1lis
 	return caData, nil
 }
 
-func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, featureGates featuregates.FeatureGate) (apiserverv1beta1.ClaimMappings, error) {
+func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, featureGates featuregates.FeatureGate, state *oidcGenerationState) (apiserverv1beta1.ClaimMappings, error) {
 	out := apiserverv1beta1.ClaimMappings{}
 
-	username, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL)
+	username, usernameResult, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL, featureGates)
 	if err != nil {
 		return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating username claim mapping: %v", err)
 	}
+	state.usernameResult = usernameResult
 
-	groups := generateGroupsClaimMapping(claimMappings.Groups)
-
+	groups, err := generateGroupsClaimMapping(claimMappings.Groups, featureGates)
+	if err != nil {
+		return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating group claim mapping: %v", err)
+	}
 	out.Username = username
 	out.Groups = groups
 
@@ -293,65 +315,107 @@ func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL 
 			return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating uid claim mapping: %v", err)
 		}
 
-		extras, err := generateExtraClaimMapping(claimMappings.Extra...)
+		extras, extraResults, err := generateExtraClaimMapping(claimMappings.Extra...)
 		if err != nil {
 			return apiserverv1beta1.ClaimMappings{}, fmt.Errorf("generating extra claim mapping: %v", err)
 		}
 
 		out.UID = uid
 		out.Extra = extras
+		state.extraResults = extraResults
 	}
 
 	return out, nil
 }
 
-func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (apiserverv1beta1.PrefixedClaimOrExpression, error) {
+func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string, featureGates featuregates.FeatureGate) (apiserverv1beta1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
+	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
+		return generateUsernameClaimMappingWithParity(usernameClaimMapping, issuerURL)
+	}
+	return generateUsernameClaimMappingLegacy(usernameClaimMapping, issuerURL)
+}
+
+func generateUsernameClaimMappingWithParity(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (apiserverv1beta1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
 	out := apiserverv1beta1.PrefixedClaimOrExpression{}
 
-	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
-	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
-	// but for now just set the claim.
+	if usernameClaimMapping.Expression != "" && usernameClaimMapping.Claim != "" {
+		return out, nil, fmt.Errorf("username claim mapping must not set both claim and expression")
+	}
+
+	if usernameClaimMapping.Expression != "" {
+		// TODO: update the API-side validations to ensure that prefixPolicy is set to
+		// NoPrefix or omitted when expression is set, for stronger admission time
+		// validation prior to GA.
+		if usernameClaimMapping.PrefixPolicy == configv1.Prefix {
+			return out, nil, fmt.Errorf("username claim mapping must not set prefix when expression is set")
+		}
+		result, err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+			Expression: usernameClaimMapping.Expression,
+		})
+		if err != nil {
+			return out, nil, fmt.Errorf("invalid CEL expression: %v", err)
+		}
+		out.Expression = usernameClaimMapping.Expression
+		return out, &result, nil
+	}
+
+	// expression is not set, fall through to claim-based mapping
+	return generateUsernameClaimMappingLegacy(usernameClaimMapping, issuerURL)
+}
+
+func generateUsernameClaimMappingLegacy(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (apiserverv1beta1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
+	out := apiserverv1beta1.PrefixedClaimOrExpression{}
+
 	if len(usernameClaimMapping.Claim) == 0 {
-		return apiserverv1beta1.PrefixedClaimOrExpression{}, fmt.Errorf("username claim is required but an empty value was provided")
+		return out, nil, fmt.Errorf("username claim is required but an empty value was provided")
 	}
 	out.Claim = usernameClaimMapping.Claim
 
 	switch usernameClaimMapping.PrefixPolicy {
-
 	case configv1.Prefix:
 		if usernameClaimMapping.Prefix == nil {
-			return apiserverv1beta1.PrefixedClaimOrExpression{}, fmt.Errorf("nil username prefix while policy expects one")
-		} else {
-			out.Prefix = &usernameClaimMapping.Prefix.PrefixString
+			return out, nil, fmt.Errorf("nil username prefix while policy expects one")
 		}
-
+		out.Prefix = &usernameClaimMapping.Prefix.PrefixString
 	case configv1.NoPrefix:
 		out.Prefix = ptr.To("")
-
 	case configv1.NoOpinion:
 		prefix := ""
 		if usernameClaimMapping.Claim != "email" {
 			prefix = issuerURL + "#"
 		}
 		out.Prefix = &prefix
-
 	default:
-		return apiserverv1beta1.PrefixedClaimOrExpression{}, fmt.Errorf("invalid username prefix policy: %s", usernameClaimMapping.PrefixPolicy)
+		return out, nil, fmt.Errorf("invalid username prefix policy: %s", usernameClaimMapping.PrefixPolicy)
 	}
 
-	return out, nil
+	return out, nil, nil
 }
 
-func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping) apiserverv1beta1.PrefixedClaimOrExpression {
+func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping, featureGates featuregates.FeatureGate) (apiserverv1beta1.PrefixedClaimOrExpression, error) {
 	out := apiserverv1beta1.PrefixedClaimOrExpression{}
+	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
+		if groupsMapping.Expression != "" && groupsMapping.Claim != "" {
+			return out, fmt.Errorf("groups claim mapping must not set both claim and expression")
+		}
+		if groupsMapping.Expression != "" {
+			if len(groupsMapping.Prefix) > 0 {
+				return apiserverv1beta1.PrefixedClaimOrExpression{}, fmt.Errorf("groups claim mapping must not set prefix when expression is set")
+			}
+			if _, err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+				Expression: groupsMapping.Expression,
+			}); err != nil {
+				return apiserverv1beta1.PrefixedClaimOrExpression{}, fmt.Errorf("invalid CEL expression: %v", err)
+			}
+			out.Expression = groupsMapping.Expression
+			return out, nil
+		}
+	}
 
-	// Currently, the authentications.config.openshift.io CRD only allows setting a claim for the mapping
-	// and does not allow setting a CEL expression like the upstream. This is likely to change in the future,
-	// but for now just set the claim.
 	out.Claim = groupsMapping.Claim
 	out.Prefix = &groupsMapping.Prefix
 
-	return out
+	return out, nil
 }
 
 func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apiserverv1beta1.ClaimOrExpression, error) {
@@ -368,7 +432,7 @@ func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apise
 	case len(uid.Claim) > 0 && len(uid.Expression) == 0:
 		out.Claim = uid.Claim
 	case len(uid.Expression) > 0 && len(uid.Claim) == 0:
-		if err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
+		if _, err := validateCELExpression(&authenticationcel.ClaimMappingExpression{
 			Expression: uid.Expression,
 		}); err != nil {
 			return apiserverv1beta1.ClaimOrExpression{}, fmt.Errorf("validating expression: %v", err)
@@ -383,113 +447,106 @@ func generateUIDClaimMapping(uid *configv1.TokenClaimOrExpressionMapping) (apise
 	return out, nil
 }
 
-func generateExtraClaimMapping(extraMappings ...configv1.ExtraMapping) ([]apiserverv1beta1.ExtraMapping, error) {
+func generateExtraClaimMapping(extraMappings ...configv1.ExtraMapping) ([]apiserverv1beta1.ExtraMapping, []authenticationcel.CompilationResult, error) {
 	out := []apiserverv1beta1.ExtraMapping{}
+	var compilationResults []authenticationcel.CompilationResult
 	errs := []error{}
 	for _, extraMapping := range extraMappings {
-		extra, err := generateExtraMapping(extraMapping)
+		extra, result, err := generateExtraMapping(extraMapping)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-
 		out = append(out, extra)
+		if result != nil {
+			compilationResults = append(compilationResults, *result)
+		}
 	}
-
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return nil, nil, errors.Join(errs...)
 	}
-
-	return out, nil
+	return out, compilationResults, nil
 }
 
-func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.ExtraMapping, error) {
+func generateExtraMapping(extraMapping configv1.ExtraMapping) (apiserverv1beta1.ExtraMapping, *authenticationcel.CompilationResult, error) {
 	out := apiserverv1beta1.ExtraMapping{}
 
 	if len(extraMapping.Key) == 0 {
-		return apiserverv1beta1.ExtraMapping{}, fmt.Errorf("extra mapping must set a key, but none was provided: %v", extraMapping)
+		return apiserverv1beta1.ExtraMapping{}, nil, fmt.Errorf("extra mapping must set a key, but none was provided: %v", extraMapping)
 	}
 
 	if len(extraMapping.ValueExpression) == 0 {
-		return apiserverv1beta1.ExtraMapping{}, fmt.Errorf("extra mapping must set a valueExpression, but none was provided: %v", extraMapping)
+		return apiserverv1beta1.ExtraMapping{}, nil, fmt.Errorf("extra mapping must set a valueExpression, but none was provided: %v", extraMapping)
 	}
 
-	if err := validateCELExpression(&authenticationcel.ExtraMappingExpression{
+	result, err := validateCELExpression(&authenticationcel.ExtraMappingExpression{
 		Key:        extraMapping.Key,
 		Expression: extraMapping.ValueExpression,
-	}); err != nil {
-		return apiserverv1beta1.ExtraMapping{}, fmt.Errorf("validating expression: %v", err)
+	})
+	if err != nil {
+		return apiserverv1beta1.ExtraMapping{}, nil, fmt.Errorf("validating expression: %v", err)
 	}
 
 	out.Key = extraMapping.Key
 	out.ValueExpression = extraMapping.ValueExpression
 
-	return out, nil
+	return out, &result, nil
 }
 
-func generateClaimValidationRules(claimValidationRules ...configv1.TokenClaimValidationRule) ([]apiserverv1beta1.ClaimValidationRule, error) {
+func generateClaimValidationRules(state *oidcGenerationState, claimValidationRules ...configv1.TokenClaimValidationRule) ([]apiserverv1beta1.ClaimValidationRule, error) {
 	out := []apiserverv1beta1.ClaimValidationRule{}
 	errs := []error{}
 	for _, claimValidationRule := range claimValidationRules {
-		rule, err := generateClaimValidationRule(claimValidationRule)
+		rule, result, err := generateClaimValidationRule(claimValidationRule)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("generating claimValidationRule: %v", err))
 			continue
 		}
-
 		out = append(out, rule)
+		if result != nil {
+			state.claimValidationResults = append(state.claimValidationResults, *result)
+		}
 	}
-
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-
 	return out, nil
 }
 
-func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidationRule) (apiserverv1beta1.ClaimValidationRule, error) {
+func generateClaimValidationRule(claimValidationRule configv1.TokenClaimValidationRule) (apiserverv1beta1.ClaimValidationRule, *authenticationcel.CompilationResult, error) {
 	out := apiserverv1beta1.ClaimValidationRule{}
-
-	// Currently, the authentications.config.openshift.io CRD only allows setting a claim and required value for the
-	// validation rule and does not allow setting a CEL expression and message like the upstream.
-	// This is likely to change in the near future to also allow setting a CEL expression.
 	switch claimValidationRule.Type {
 	case configv1.TokenValidationRuleTypeRequiredClaim:
 		if claimValidationRule.RequiredClaim == nil {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleTypeRequiredClaim)
+			return apiserverv1beta1.ClaimValidationRule{}, nil, fmt.Errorf("claimValidationRule.type is %s and requiredClaim is not set", configv1.TokenValidationRuleTypeRequiredClaim)
 		}
-
 		out.Claim = claimValidationRule.RequiredClaim.Claim
 		out.RequiredValue = claimValidationRule.RequiredClaim.RequiredValue
 	case configv1.TokenValidationRuleTypeCEL:
 		if len(claimValidationRule.CEL.Expression) == 0 {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("claimValidationRule.type is %s and expression is not set", configv1.TokenValidationRuleTypeCEL)
+			return apiserverv1beta1.ClaimValidationRule{}, nil, fmt.Errorf("claimValidationRule.type is %s and expression is not set", configv1.TokenValidationRuleTypeCEL)
 		}
-
-		// validate CEL expression
-		if err := validateCELExpression(&authenticationcel.ClaimValidationCondition{
+		result, err := validateCELExpression(&authenticationcel.ClaimValidationCondition{
 			Expression: claimValidationRule.CEL.Expression,
-		}); err != nil {
-			return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("invalid CEL expression: %v", err)
+		})
+		if err != nil {
+			return apiserverv1beta1.ClaimValidationRule{}, nil, fmt.Errorf("invalid CEL expression: %v", err)
 		}
-
 		out.Expression = claimValidationRule.CEL.Expression
 		out.Message = claimValidationRule.CEL.Message
-
+		return out, &result, nil
 	default:
-		return apiserverv1beta1.ClaimValidationRule{}, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
+		return apiserverv1beta1.ClaimValidationRule{}, nil, fmt.Errorf("unknown claimValidationRule type %q", claimValidationRule.Type)
 	}
-
-	return out, nil
+	return out, nil, nil
 }
-
 func generateUserValidationRule(rule configv1.TokenUserValidationRule) (apiserverv1beta1.UserValidationRule, error) {
 	if len(rule.Expression) == 0 {
 		return apiserverv1beta1.UserValidationRule{}, fmt.Errorf("userValidationRule expression must be non-empty")
 	}
 
 	// validate CEL expression
-	if err := validateUserCELExpression(&authenticationcel.UserValidationCondition{
+	if _, err := validateUserCELExpression(&authenticationcel.UserValidationCondition{
 		Expression: rule.Expression,
 	}); err != nil {
 		return apiserverv1beta1.UserValidationRule{}, fmt.Errorf("invalid CEL expression: %v", err)
@@ -633,13 +690,145 @@ func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 // It uses the default authentication CEL compiler that the KAS uses and thus defaults to
 // validating CEL expressions based on the version of the k8s dependencies used by the
 // cluster-authentication-operator.
-func validateCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) error {
-	_, err := authenticationcel.NewDefaultCompiler().CompileClaimsExpression(expressionAccessor)
-	return err
+func validateCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) (authenticationcel.CompilationResult, error) {
+	return authenticationcel.NewDefaultCompiler().CompileClaimsExpression(expressionAccessor)
 }
 
 // validateUserCELExpression validates a user CEL expression using the user.* scope.
-func validateUserCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) error {
-	_, err := authenticationcel.NewDefaultCompiler().CompileUserExpression(expressionAccessor)
-	return err
+func validateUserCELExpression(expressionAccessor authenticationcel.ExpressionAccessor) (authenticationcel.CompilationResult, error) {
+	return authenticationcel.NewDefaultCompiler().CompileUserExpression(expressionAccessor)
+}
+
+// validateEmailVerifiedUsage enforces that when claims.email is used in the
+// username expression, claims.email_verified must be referenced in at least
+// one of: username.expression, extra[*].valueExpression, or
+// claimValidationRules[*].cel.expression.
+// This mirrors the upstream KAS validation logic.
+func validateEmailVerifiedUsage(
+	usernameResult *authenticationcel.CompilationResult,
+	extraResults []authenticationcel.CompilationResult,
+	claimValidationResults []authenticationcel.CompilationResult,
+) error {
+	if usernameResult == nil {
+		return nil
+	}
+
+	if !usesEmailClaim(usernameResult.AST) {
+		return nil
+	}
+
+	if usesEmailVerifiedClaim(usernameResult.AST) || anyUsesEmailVerifiedClaim(extraResults) || anyUsesEmailVerifiedClaim(claimValidationResults) {
+		return nil
+	}
+
+	return fmt.Errorf("claims.email_verified must be used in claimMappings.username.expression or claimMappings.extra[*].valueExpression or claimValidationRules[*].expression when claims.email is used in claimMappings.username.expression")
+}
+
+// usesEmailClaim, usesEmailVerifiedClaim, anyUsesEmailVerifiedClaim, hasSelectExp,
+// isIdentOperand, and isConstField are copied from the upstream Kubernetes apiserver
+// CEL validation logic introduced in https://github.com/kubernetes/kubernetes/pull/123737 (commit 121607e):
+// https://github.com/kubernetes/kubernetes/blob/bfb362c57578518bed8e08a56a7318bab9b57429/staging/src/k8s.io/apiserver/pkg/apis/apiserver/validation/validation.go#L443
+func usesEmailClaim(ast *celgo.Ast) bool {
+	return hasSelectExp(ast.Expr(), "claims", "email")
+}
+
+func usesEmailVerifiedClaim(ast *celgo.Ast) bool {
+	return hasSelectExp(ast.Expr(), "claims", "email_verified")
+}
+
+func anyUsesEmailVerifiedClaim(results []authenticationcel.CompilationResult) bool {
+	for _, result := range results {
+		if usesEmailVerifiedClaim(result.AST) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSelectExp(exp *exprpb.Expr, operand, field string) bool {
+	if exp == nil {
+		return false
+	}
+	switch e := exp.ExprKind.(type) {
+	case *exprpb.Expr_ConstExpr,
+		*exprpb.Expr_IdentExpr:
+		return false
+	case *exprpb.Expr_SelectExpr:
+		s := e.SelectExpr
+		if s == nil {
+			return false
+		}
+		if isIdentOperand(s.Operand, operand) && s.Field == field {
+			return true
+		}
+		return hasSelectExp(s.Operand, operand, field)
+	case *exprpb.Expr_CallExpr:
+		c := e.CallExpr
+		if c == nil {
+			return false
+		}
+		if c.Target == nil && c.Function == operators.OptSelect && len(c.Args) == 2 &&
+			isIdentOperand(c.Args[0], operand) && isConstField(c.Args[1], field) {
+			return true
+		}
+		for _, arg := range c.Args {
+			if hasSelectExp(arg, operand, field) {
+				return true
+			}
+		}
+		return hasSelectExp(c.Target, operand, field)
+	case *exprpb.Expr_ListExpr:
+		l := e.ListExpr
+		if l == nil {
+			return false
+		}
+		for _, element := range l.Elements {
+			if hasSelectExp(element, operand, field) {
+				return true
+			}
+		}
+		return false
+	case *exprpb.Expr_StructExpr:
+		s := e.StructExpr
+		if s == nil {
+			return false
+		}
+		for _, entry := range s.Entries {
+			if hasSelectExp(entry.GetMapKey(), operand, field) {
+				return true
+			}
+			if hasSelectExp(entry.Value, operand, field) {
+				return true
+			}
+		}
+		return false
+	case *exprpb.Expr_ComprehensionExpr:
+		c := e.ComprehensionExpr
+		if c == nil {
+			return false
+		}
+		return hasSelectExp(c.IterRange, operand, field) ||
+			hasSelectExp(c.AccuInit, operand, field) ||
+			hasSelectExp(c.LoopCondition, operand, field) ||
+			hasSelectExp(c.LoopStep, operand, field) ||
+			hasSelectExp(c.Result, operand, field)
+	default:
+		return false
+	}
+}
+
+func isIdentOperand(exp *exprpb.Expr, operand string) bool {
+	if len(operand) == 0 {
+		return false
+	}
+	id := exp.GetIdentExpr()
+	return id != nil && id.Name == operand
+}
+
+func isConstField(exp *exprpb.Expr, field string) bool {
+	if len(field) == 0 {
+		return false
+	}
+	c := exp.GetConstExpr()
+	return c != nil && c.GetStringValue() == field
 }
