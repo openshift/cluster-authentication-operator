@@ -397,6 +397,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), tt.authInformerSynced),
 				test.NewFakeSharedIndexInformerWithSync(operatorv1listers.NewKubeAPIServerLister(kasIndexer), tt.kasInformerSynced),
 				test.NewFakeSharedIndexInformerWithSync(corelistersv1.NewConfigMapLister(cmIndexer), tt.cmInformerSynced),
+				nil,
 			)
 
 			available, err := authConfigChecker.OIDCAvailable()
