@@ -43,6 +43,7 @@ const (
 	authConfigDataKey               = "auth-config.json"
 	oidcDiscoveryEndpointPath       = "/.well-known/openid-configuration"
 	kindAuthenticationConfiguration = "AuthenticationConfiguration"
+	externalOIDCApplyNamespace      = "openshift-oauth-apiserver"
 )
 
 type externalOIDCController struct {
@@ -75,7 +76,7 @@ func NewExternalOIDCController(
 	applyNamespace := managedNamespace
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		applyNamespace = "oauth-apiserver"
+		applyNamespace = externalOIDCApplyNamespace
 	}
 
 	return factory.New().WithInformers(
@@ -111,7 +112,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 	applyNamespace := managedNamespace
 
 	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		applyNamespace = "openshift-oauth-apiserver"
+		applyNamespace = externalOIDCApplyNamespace
 	}
 
 	expectedApplyConfig, err := getExpectedApplyConfig(*authConfig, applyNamespace)
@@ -147,7 +148,7 @@ func (c *externalOIDCController) deleteAuthConfig(ctx context.Context, syncCtx f
 	applyNamespace := managedNamespace
 
 	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		applyNamespace = "openshift-oauth-apiserver"
+		applyNamespace = externalOIDCApplyNamespace
 	}
 
 	if _, err := c.configMapLister.ConfigMaps(applyNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
@@ -558,10 +559,10 @@ func getExpectedApplyConfig(authConfig apiserverv1beta1.AuthenticationConfigurat
 // getExistingApplyConfig checks if an authConfig configmap already exists, and returns an apply configuration
 // that represents it if it does; it returns nil otherwise.
 func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapApplyConfiguration, error) {
-	applyNamespace := managedNamespace 
+	applyNamespace := managedNamespace
 
 	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		applyNamespace = "oauth-apiserver"
+		applyNamespace = externalOIDCApplyNamespace
 	}
 
 	existingCM, err := c.configMapLister.ConfigMaps(applyNamespace).Get(targetAuthConfigCMName)
