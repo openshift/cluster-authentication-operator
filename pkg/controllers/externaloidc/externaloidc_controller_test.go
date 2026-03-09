@@ -1216,6 +1216,362 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 				[]configv1.FeatureGateName{},
 			),
 		},
+		{
+			name:              "auth config with invalid username expression, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "#@!$&*(^)",
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with invalid groups expression, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Groups = configv1.PrefixedClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Expression: "#@!$&*(^)",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression mapping",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "claims.sub",
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.Username = apiserverv1beta1.PrefixedClaimOrExpression{
+							Expression: "claims.sub",
+						}
+						authConfig.JWT[i].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with groups expression mapping",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Groups = configv1.PrefixedClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Expression: "claims.groups",
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.Groups = apiserverv1beta1.PrefixedClaimOrExpression{
+							Expression: "claims.groups",
+						}
+						authConfig.JWT[i].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username claim and expression both set, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Claim:      "username",
+							Expression: "claims.email",
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with groups claim and expression both set, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Groups = configv1.PrefixedClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Claim:      "groups",
+								Expression: "claims.groups",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression and prefix set, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression:   "claims.email",
+							PrefixPolicy: configv1.Prefix,
+							Prefix: &configv1.UsernamePrefix{
+								PrefixString: "oidc-user:",
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with groups expression and prefix set, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Groups = configv1.PrefixedClaimMapping{
+							TokenClaimMapping: configv1.TokenClaimMapping{
+								Expression: "claims.groups",
+							},
+							Prefix: "oidc-group:",
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression using claims.email without claims.email_verified, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "claims.email",
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression using claims.email with claims.email_verified in claimValidationRule, success",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "claims.email",
+						}
+						auth.Spec.OIDCProviders[i].ClaimValidationRules = []configv1.TokenClaimValidationRule{
+							{
+								Type: configv1.TokenValidationRuleTypeCEL,
+								CEL: configv1.TokenClaimValidationCELRule{
+									Expression: "claims.email_verified == true",
+									Message:    "email must be verified",
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.Username = apiserverv1beta1.PrefixedClaimOrExpression{
+							Expression: "claims.email",
+						}
+						authConfig.JWT[i].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+						authConfig.JWT[i].ClaimValidationRules = []apiserverv1beta1.ClaimValidationRule{
+							{
+								Expression: "claims.email_verified == true",
+								Message:    "email must be verified",
+							},
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression using both claims.email and claims.email_verified, success",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "claims.email_verified ? claims.email : 'unverified'",
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.Username = apiserverv1beta1.PrefixedClaimOrExpression{
+							Expression: "claims.email_verified ? claims.email : 'unverified'",
+						}
+						authConfig.JWT[i].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:              "auth config with username expression using claims.email with claims.email_verified in extra, success",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].ClaimMappings.Username = configv1.UsernameClaimMapping{
+							Expression: "claims.email",
+						}
+						auth.Spec.OIDCProviders[i].ClaimMappings.Extra = []configv1.ExtraMapping{
+							{
+								Key:             "example.com/email-verified",
+								ValueExpression: "claims.email_verified ? 'true' : 'false'",
+							},
+						}
+						auth.Spec.OIDCProviders[i].ClaimValidationRules = []configv1.TokenClaimValidationRule{}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].ClaimMappings.Username = apiserverv1beta1.PrefixedClaimOrExpression{
+							Expression: "claims.email",
+						}
+						authConfig.JWT[i].ClaimMappings.UID = apiserverv1beta1.ClaimOrExpression{
+							Claim: "sub",
+						}
+						authConfig.JWT[i].ClaimMappings.Extra = []apiserverv1beta1.ExtraMapping{
+							{
+								Key:             "example.com/email-verified",
+								ValueExpression: "claims.email_verified ? 'true' : 'false'",
+							},
+						}
+						authConfig.JWT[i].ClaimValidationRules = []apiserverv1beta1.ClaimValidationRule{}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.configMapIndexer == nil {
