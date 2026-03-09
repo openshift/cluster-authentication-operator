@@ -539,8 +539,8 @@ func prepareOauthAPIServerOperator(
 			{
 				Files: []string{
 					"oauth-apiserver/ns.yaml",
-					"oauth-apiserver/svc.yaml",
 					"oauth-apiserver/sa.yaml",
+					"oauth-apiserver/token-review-svc.yaml",
 				},
 			},
 			{
@@ -582,6 +582,7 @@ func prepareOauthAPIServerOperator(
 					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+					"oauth-apiserver/svc.yaml",
 				},
 				ShouldCreateFn: func() bool {
 					return !oidcAvailable(authConfigChecker)
