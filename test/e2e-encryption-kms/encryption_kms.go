@@ -6,13 +6,10 @@ import (
 	"testing"
 
 	g "github.com/onsi/ginkgo/v2"
-	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	testlibrary "github.com/openshift/cluster-authentication-operator/test/library"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
