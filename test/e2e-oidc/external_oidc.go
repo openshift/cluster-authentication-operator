@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -71,7 +72,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
-	checkFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
+	test.CheckFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
 
 	// post-test cluster cleanup
 	var cleanups []func()
@@ -465,34 +466,6 @@ func extractRSAPubKeyFunc(issuerJWKS *jwks) func(*jwt.Token) (any, error) {
 		}
 
 		return nil, fmt.Errorf("could not find an RSA key for signing use in the provided JWKS")
-	}
-}
-
-func checkFeatureGatesOrSkip(t testing.TB, ctx context.Context, configClient *configclient.Clientset, features ...configv1.FeatureGateName) {
-	featureGates, err := configClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
-	require.NoError(t, err)
-
-	if len(featureGates.Status.FeatureGates) != 1 {
-		// fail test if there are multiple feature gate versions (i.e. ongoing upgrade)
-		t.Fatalf("multiple feature gate versions detected")
-	}
-
-	atLeastOneFeatureEnabled := false
-	for _, feature := range features {
-		for _, gate := range featureGates.Status.FeatureGates[0].Enabled {
-			if gate.Name == feature {
-				atLeastOneFeatureEnabled = true
-				break
-			}
-		}
-
-		if atLeastOneFeatureEnabled {
-			break
-		}
-	}
-
-	if !atLeastOneFeatureEnabled {
-		t.Skipf("skipping as none of the feature gates in %v are enabled", features)
 	}
 }
 
@@ -1084,19 +1057,23 @@ func (tc *testClient) requireKASRolloutSuccessful(t testing.TB, testCtx context.
 
 func (tc *testClient) authResourceRollback(ctx context.Context, origAuthSpec *configv1.AuthenticationSpec) error {
 	const authName = "cluster"
-	auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, authName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("rollback failed for authentication '%s' while retrieving fresh object: %v", authName, err)
-	}
 
-	if !equality.Semantic.DeepEqual(auth.Spec, *origAuthSpec) {
-		auth.Spec = *origAuthSpec
-		if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("rollback failed for authentication '%s' while updating object: %v", authName, err)
+	// Use retry logic to handle resource conflicts during rollback
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		auth, err := tc.configClient.ConfigV1().Authentications().Get(ctx, authName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("rollback failed for authentication '%s' while retrieving fresh object: %v", authName, err)
 		}
-	}
 
-	return nil
+		if !equality.Semantic.DeepEqual(auth.Spec, *origAuthSpec) {
+			auth.Spec = *origAuthSpec
+			if _, err := tc.configClient.ConfigV1().Authentications().Update(ctx, auth, metav1.UpdateOptions{}); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func featureGateEnabled(ctx context.Context, configClient *configclient.Clientset, feature configv1.FeatureGateName) bool {
