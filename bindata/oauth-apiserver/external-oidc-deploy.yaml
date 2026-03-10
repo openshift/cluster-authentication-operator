@@ -50,8 +50,7 @@ spec:
               --secure-port=8443 \
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
-              --config=/var/run/configmaps/auth-config/auth-config.json \
-              ${FLAGS}
+              --config=/var/run/configmaps/auth-config/auth-config.json
         env:
           # used to emit shutdown lifecycles events in the correct namespace
           - name: POD_NAME
