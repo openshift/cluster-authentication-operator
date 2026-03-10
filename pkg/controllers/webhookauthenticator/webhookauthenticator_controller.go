@@ -160,9 +160,9 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return nil
 	}
 
-	oauthAPIsvc, err := c.svcLister.Services("openshift-oauth-apiserver").Get("token-review")
+	oauthAPIsvc, err := c.svcLister.Services("openshift-oauth-apiserver").Get("api")
 	if err != nil {
-		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/token-review: %w", err)
+		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/api: %w", err)
 	}
 
 	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, syncCtx.Recorder())
