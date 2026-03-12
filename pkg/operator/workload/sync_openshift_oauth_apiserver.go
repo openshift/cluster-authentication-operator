@@ -18,7 +18,6 @@ import (
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/klog/v2"
 
-	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -190,37 +189,8 @@ const (
 	externalOIDCDeploymentPath = "oauth-apiserver/external-oidc-deploy.yaml"
 )
 
-func (c *OAuthAPIServerWorkload) getDeploymentFilePath() string {
-	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
-		return defaultDeploymentPath
-	}
-
-	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
-	if err != nil {
-		return defaultDeploymentPath
-	}
-
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		authCfg, err := c.authConfigChecker.AuthConfig()
-		if err != nil {
-			return defaultDeploymentPath
-		}
-
-		if authCfg.Spec.Type == configv1.AuthenticationTypeOIDC {
-			return externalOIDCDeploymentPath
-		}
-	}
-
-	return defaultDeploymentPath
-}
-
-func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
-	if operatorStatus.LatestAvailableRevision == 0 {
-		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
-		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
-	}
-
-	tmpl, err := bindata.Asset(c.getDeploymentFilePath())
+func (c *OAuthAPIServerWorkload) getStandardOAuthAPIServerDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus) (*appsv1.Deployment, error) {
+	tmpl, err := bindata.Asset(defaultDeploymentPath)
 	if err != nil {
 		return nil, err
 	}
@@ -315,6 +285,124 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 
 	if err := encryptionkms.AddKMSPluginVolumeAndMountToPodSpec(&required.Spec.Template.Spec, "oauth-apiserver", c.featureGateAccessor); err != nil {
 		return nil, fmt.Errorf("failed to add KMS encryption volumes: %w", err)
+	}
+
+	return required, nil
+}
+
+func (c *OAuthAPIServerWorkload) getExternalOIDCOAuthAPIServerDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus) (*appsv1.Deployment, error) {
+	tmpl, err := bindata.Asset(externalOIDCDeploymentPath)
+	if err != nil {
+		return nil, err
+	}
+
+	argsRaw, err := GetAPIServerArgumentsRaw(*operatorSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	args, err := arguments.Parse(argsRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	// log level verbosity is taken from the spec always
+	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+
+	// use string replacer for simple things
+	r := strings.NewReplacer(
+		"${IMAGE}", c.targetImagePullSpec,
+	)
+
+	required := resourceread.ReadDeploymentV1OrDie(tmpl)
+
+	for containerIndex, container := range required.Spec.Template.Spec.Containers {
+		for argIndex, arg := range container.Args {
+			required.Spec.Template.Spec.Containers[containerIndex].Args[argIndex] = r.Replace(arg)
+		}
+	}
+
+	// we set this so that when the requested image pull spec changes, we always have a diff.  Remember that we don't directly
+	// diff any fields on the deployment because they can be rewritten by admission and we don't want to constantly be fighting
+	// against admission or defaults.  That was a problem with original versions of apply.
+	if required.Annotations == nil {
+		required.Annotations = map[string]string{}
+	}
+	required.Annotations["openshiftapiservers.operator.openshift.io/operator-pull-spec"] = c.operatorImagePullSpec
+
+	required.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
+	required.Spec.Template.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
+
+	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
+	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
+		ctx,
+		c.kubeClient,
+		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("trusted-ca-bundle"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid dependency reference: %q", err)
+	}
+
+	for k, v := range inputHashes {
+		annotationKey := fmt.Sprintf("operator.openshift.io/dep-%s", k)
+		required.Annotations[annotationKey] = v
+		if required.Spec.Template.Annotations == nil {
+			required.Spec.Template.Annotations = map[string]string{}
+		}
+		required.Spec.Template.Annotations[annotationKey] = v
+	}
+
+	err = c.ensureAtMostOnePodPerNode(&required.Spec, "oauth-apiserver")
+	if err != nil {
+		return nil, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
+	}
+
+	// Set the replica count to the number of master nodes.
+	masterNodeCount, err := c.countNodes(required.Spec.Template.Spec.NodeSelector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
+	}
+	required.Spec.Replicas = masterNodeCount
+
+	return required, nil
+}
+
+func (c *OAuthAPIServerWorkload) getDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus) (*appsv1.Deployment, error) {
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		klog.Info("feature gates not yet observed. Falling back to standard oauth-apiserver deployment.")
+		return c.getStandardOAuthAPIServerDeployment(ctx, operatorSpec, operatorStatus)
+	}
+
+	currentGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		klog.Errorf("could not get current feature gates: %v . Falling back to standard oauth-apiserver deployment.", err)
+		return c.getStandardOAuthAPIServerDeployment(ctx, operatorSpec, operatorStatus)
+	}
+
+	if currentGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
+		if err != nil {
+			klog.Errorf("could not get external oidc availability: %v . Falling back to standard oauth-apiserver deployment.", err)
+			return c.getStandardOAuthAPIServerDeployment(ctx, operatorSpec, operatorStatus)
+		}
+
+		if oidcAvailable {
+			return c.getExternalOIDCOAuthAPIServerDeployment(ctx, operatorSpec, operatorStatus)
+		}
+	}
+
+	return c.getStandardOAuthAPIServerDeployment(ctx, operatorSpec, operatorStatus)
+}
+
+func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+	if operatorStatus.LatestAvailableRevision == 0 {
+		// this a backstop during the migration from 4.17 whe this information is in .status.oauthAPIServer.latestAvailableRevision
+		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
+	}
+
+	required, err := c.getDeployment(ctx, operatorSpec, operatorStatus)
+	if err != nil {
+		return nil, fmt.Errorf("getting required deployment: %w", err)
 	}
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))

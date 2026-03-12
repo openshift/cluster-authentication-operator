@@ -30,7 +30,6 @@ spec:
         apiserver: "true"
       annotations:
         target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
-        openshift.io/required-scc: privileged
     spec:
       serviceAccountName: oauth-apiserver-sa
       priorityClassName: system-node-critical
@@ -66,10 +65,6 @@ spec:
           requests:
             memory: 200Mi
             cpu: 150m
-        # we need to set this to privileged to be able to write audit to /var/log/oauth-apiserver
-        securityContext:
-          privileged: true
-          runAsUser: 0
         ports:
         - containerPort: 8443
         volumeMounts:
@@ -91,17 +86,12 @@ spec:
           items:
           - key: ca-bundle.crt
             path: tls-ca-bundle.pem
-      - name: encryption-config
-        secret:
-          secretName: encryption-config-${REVISION}
-          optional: true
       - name: auth-config
         configMap:
           name: auth-config
           items:
           - key: auth-config.json
             path: auth-config.json
-
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
