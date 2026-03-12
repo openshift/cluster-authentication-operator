@@ -314,13 +314,13 @@ func (c *OAuthAPIServerWorkload) getExternalOIDCOAuthAPIServerDeployment(ctx con
 		"${IMAGE}", c.targetImagePullSpec,
 	)
 
-	required := resourceread.ReadDeploymentV1OrDie(tmpl)
-
-	for containerIndex, container := range required.Spec.Template.Spec.Containers {
-		for argIndex, arg := range container.Args {
-			required.Spec.Template.Spec.Containers[containerIndex].Args[argIndex] = r.Replace(arg)
-		}
+	tmpl = []byte(r.Replace(string(tmpl)))
+	re := regexp.MustCompile(`\$\{[^}]*}`)
+	if match := re.Find(tmpl); len(match) > 0 {
+		return nil, fmt.Errorf("invalid template reference %q", string(match))
 	}
+
+	required := resourceread.ReadDeploymentV1OrDie(tmpl)
 
 	// we set this so that when the requested image pull spec changes, we always have a diff.  Remember that we don't directly
 	// diff any fields on the deployment because they can be rewritten by admission and we don't want to constantly be fighting
