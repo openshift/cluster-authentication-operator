@@ -170,6 +170,13 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return err
 	}
 
+	// TODO: (everettraven) Come up with a more concrete communication method for the CAO
+	// to tell the CKASO which secret to use in the default case. In the short-term for PoC
+	// purposes just use the hardcoded namespace/names.
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return nil
+	}
+
 	if authConfig.Spec.WebhookTokenAuthenticator == nil {
 		authConfig.Spec.WebhookTokenAuthenticator = &configv1.WebhookTokenAuthenticator{}
 	}
