@@ -1248,7 +1248,7 @@ func TestExternalOIDCController_generateAuthConfig(t *testing.T) {
 }
 
 func TestExternalOIDCController_getExpectedApplyConfig(t *testing.T) {
-	ac, err := getExpectedApplyConfig(baseAuthConfig)
+	ac, err := getExpectedApplyConfig(baseAuthConfig, managedNamespace)
 	if err != nil {
 		t.Errorf("unexpected error while getting expected apply config: %v", err)
 	}

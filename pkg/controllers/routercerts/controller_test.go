@@ -267,6 +267,7 @@ func TestValidateRouterCertificates(t *testing.T) {
 					test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), true),
 					test.NewFakeSharedIndexInformerWithSync[operatorv1listers.KubeAPIServerLister](nil, true),
 					test.NewFakeSharedIndexInformerWithSync[corelistersv1.ConfigMapLister](nil, true),
+					nil,
 				),
 			}
 			err = controller.sync(context.TODO(), factory.NewSyncContext("testctx", events.NewInMemoryRecorder("test-recorder", clocktesting.NewFakePassiveClock(time.Now()))))

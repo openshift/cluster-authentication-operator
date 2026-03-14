@@ -43,6 +43,7 @@ const (
 	authConfigDataKey               = "auth-config.json"
 	oidcDiscoveryEndpointPath       = "/.well-known/openid-configuration"
 	kindAuthenticationConfiguration = "AuthenticationConfiguration"
+	externalOIDCApplyNamespace      = "openshift-oauth-apiserver"
 )
 
 type externalOIDCController struct {
@@ -72,6 +73,12 @@ func NewExternalOIDCController(
 		featureGates:    featureGates,
 	}
 
+	applyNamespace := managedNamespace
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = externalOIDCApplyNamespace
+	}
+
 	return factory.New().WithInformers(
 		// track openshift-config for changes to the provider's CA bundle
 		kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().ConfigMaps().Informer(),
@@ -80,7 +87,7 @@ func NewExternalOIDCController(
 	).WithFilteredEventsInformers(
 		// track openshift-config-managed/auth-config cm in case it gets changed externally
 		factory.NamesFilter(targetAuthConfigCMName),
-		kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
+		kubeInformersForNamespaces.InformersFor(applyNamespace).Core().V1().ConfigMaps().Informer(),
 	).WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
@@ -102,7 +109,13 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return err
 	}
 
-	expectedApplyConfig, err := getExpectedApplyConfig(*authConfig)
+	applyNamespace := managedNamespace
+
+	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = externalOIDCApplyNamespace
+	}
+
+	expectedApplyConfig, err := getExpectedApplyConfig(*authConfig, applyNamespace)
 	if err != nil {
 		return err
 	}
@@ -120,11 +133,11 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return fmt.Errorf("auth config validation failed: %v", err)
 	}
 
-	if _, err := c.configMaps.ConfigMaps(managedNamespace).Apply(ctx, expectedApplyConfig, metav1.ApplyOptions{FieldManager: c.name, Force: true}); err != nil {
-		return fmt.Errorf("could not apply changes to auth configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
+	if _, err := c.configMaps.ConfigMaps(applyNamespace).Apply(ctx, expectedApplyConfig, metav1.ApplyOptions{FieldManager: c.name, Force: true}); err != nil {
+		return fmt.Errorf("could not apply changes to auth configmap %s/%s: %v", applyNamespace, targetAuthConfigCMName, err)
 	}
 
-	syncCtx.Recorder().Eventf(c.eventName, "Synced auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
+	syncCtx.Recorder().Eventf(c.eventName, "Synced auth configmap %s/%s", applyNamespace, targetAuthConfigCMName)
 
 	return nil
 }
@@ -132,16 +145,22 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 // deleteAuthConfig checks if the auth config ConfigMap exists in the managed namespace, and deletes it
 // if it does; it returns an error if it encounters one.
 func (c *externalOIDCController) deleteAuthConfig(ctx context.Context, syncCtx factory.SyncContext) error {
-	if _, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
+	applyNamespace := managedNamespace
+
+	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = externalOIDCApplyNamespace
+	}
+
+	if _, err := c.configMapLister.ConfigMaps(applyNamespace).Get(targetAuthConfigCMName); apierrors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
 
-	if err := c.configMaps.ConfigMaps(managedNamespace).Delete(ctx, targetAuthConfigCMName, metav1.DeleteOptions{}); err == nil {
-		syncCtx.Recorder().Eventf(c.eventName, "Removed auth configmap %s/%s", managedNamespace, targetAuthConfigCMName)
+	if err := c.configMaps.ConfigMaps(applyNamespace).Delete(ctx, targetAuthConfigCMName, metav1.DeleteOptions{}); err == nil {
+		syncCtx.Recorder().Eventf(c.eventName, "Removed auth configmap %s/%s", applyNamespace, targetAuthConfigCMName)
 	} else if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("could not delete existing configmap %s/%s: %v", managedNamespace, targetAuthConfigCMName, err)
+		return fmt.Errorf("could not delete existing configmap %s/%s: %v", applyNamespace, targetAuthConfigCMName, err)
 	}
 
 	return nil
@@ -523,13 +542,13 @@ func generateUserValidationRules(rules []configv1.TokenUserValidationRule) ([]ap
 
 // getExpectedApplyConfig serializes the input authConfig into JSON and creates an apply configuration
 // for a configmap with the serialized authConfig in the right key.
-func getExpectedApplyConfig(authConfig apiserverv1beta1.AuthenticationConfiguration) (*corev1ac.ConfigMapApplyConfiguration, error) {
+func getExpectedApplyConfig(authConfig apiserverv1beta1.AuthenticationConfiguration, applyNamespace string) (*corev1ac.ConfigMapApplyConfiguration, error) {
 	authConfigBytes, err := json.Marshal(authConfig)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal auth config into JSON: %v", err)
 	}
 
-	expectedCMApplyConfig := corev1ac.ConfigMap(targetAuthConfigCMName, managedNamespace).
+	expectedCMApplyConfig := corev1ac.ConfigMap(targetAuthConfigCMName, applyNamespace).
 		WithData(map[string]string{
 			authConfigDataKey: string(authConfigBytes),
 		})
@@ -540,7 +559,13 @@ func getExpectedApplyConfig(authConfig apiserverv1beta1.AuthenticationConfigurat
 // getExistingApplyConfig checks if an authConfig configmap already exists, and returns an apply configuration
 // that represents it if it does; it returns nil otherwise.
 func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapApplyConfiguration, error) {
-	existingCM, err := c.configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName)
+	applyNamespace := managedNamespace
+
+	if c.featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		applyNamespace = externalOIDCApplyNamespace
+	}
+
+	existingCM, err := c.configMapLister.ConfigMaps(applyNamespace).Get(targetAuthConfigCMName)
 	if apierrors.IsNotFound(err) {
 		return nil, nil
 	} else if err != nil {
