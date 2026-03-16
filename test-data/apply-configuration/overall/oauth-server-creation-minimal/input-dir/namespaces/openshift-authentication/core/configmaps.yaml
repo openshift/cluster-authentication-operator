@@ -86,7 +86,7 @@ items:
       openshift.io/description: Configmap is added/updated with a data item containing
         the CA signing bundle that can be used to verify service-serving certificates
       openshift.io/owning-component: service-ca
-      service.alpha.openshift.io/inject-cabundle: "true"
+      service.beta.openshift.io/inject-cabundle: "true"
     creationTimestamp: "2025-08-01T18:34:35Z"
     labels:
       app: oauth-openshift
@@ -97,7 +97,7 @@ items:
           f:metadata:
             f:annotations:
               .: {}
-              f:service.alpha.openshift.io/inject-cabundle: {}
+              f:service.beta.openshift.io/inject-cabundle: {}
             f:labels:
               .: {}
               f:app: {}
