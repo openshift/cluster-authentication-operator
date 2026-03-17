@@ -83,7 +83,6 @@ github.com/go-task/slim-sprig/v3
 github.com/gogo/protobuf/gogoproto
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/protoc-gen-gogo/descriptor
-github.com/gogo/protobuf/sortkeys
 # github.com/golang-jwt/jwt/v5 v5.2.2
 ## explicit; go 1.18
 github.com/golang-jwt/jwt/v5
@@ -227,8 +226,8 @@ github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo
 github.com/openshift-eng/openshift-tests-extension/pkg/junit
 github.com/openshift-eng/openshift-tests-extension/pkg/util/sets
 github.com/openshift-eng/openshift-tests-extension/pkg/version
-# github.com/openshift/api v0.0.0-20260304122341-cf5d8996109f
-## explicit; go 1.24.0
+# github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c
+## explicit; go 1.25.0
 github.com/openshift/api
 github.com/openshift/api/annotations
 github.com/openshift/api/apiextensions
