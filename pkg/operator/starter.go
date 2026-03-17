@@ -688,6 +688,7 @@ func prepareOauthAPIServerOperator(
 		authConfigChecker,
 		versionRecorder,
 		eventRecorder,
+		featureGateAccessor,
 	)
 
 	authenticatorCertRequester, err := csr.NewClientCertificateController(

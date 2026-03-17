@@ -3,6 +3,7 @@ package webhookauthenticator
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -24,10 +24,12 @@ import (
 
 	"github.com/openshift/api/annotations"
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/status"
@@ -62,6 +64,8 @@ type webhookAuthenticatorController struct {
 
 	apiServerVersionWaitEventsLimiter flowcontrol.RateLimiter
 	versionGetter                     status.VersionGetter
+
+	featureGateAccessor featuregates.FeatureGateAccess
 }
 
 func NewWebhookAuthenticatorController(
@@ -75,6 +79,7 @@ func NewWebhookAuthenticatorController(
 	authConfigChecker common.AuthConfigChecker,
 	versionGetter status.VersionGetter,
 	recorder events.Recorder,
+	featureGateAccessor featuregates.FeatureGateAccess,
 ) factory.Controller {
 	c := &webhookAuthenticatorController{
 		controllerInstanceName:            factory.ControllerInstanceName(instanceName, "WebhookAuthenticator"),
@@ -89,6 +94,7 @@ func NewWebhookAuthenticatorController(
 		apiServerVersionWaitEventsLimiter: flowcontrol.NewTokenBucketRateLimiter(0.0167, 1), // set it so that the event may only occur once per minute
 		authConfigChecker:                 authConfigChecker,
 		versionGetter:                     versionGetter,
+		featureGateAccessor:               featureGateAccessor,
 	}
 	return factory.New().
 		WithInformers(
@@ -106,6 +112,15 @@ func NewWebhookAuthenticatorController(
 }
 
 func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return errors.New("observing feature gates: initial feature gates have not been observed yet")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return fmt.Errorf("observing feature gates: %w", err)
+	}
+
 	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
 		return err
 	} else if oidcAvailable {
@@ -148,6 +163,24 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, syncCtx.Recorder())
 	if kubeConfigSecret == nil {
 		return err
+	}
+
+	// As part of the new approach for configuring the OIDC authentication method, we no longer want to
+	// explicitly set the `authentications.config.openshift.io/cluster.spec.webhookTokenAuthenticator`
+	// field as part of this controller's behavior.
+	// This allows us to disallow setting `.spec.webhookTokenAuthenticator` when `.spec.type`
+	// is set to one that consumes the single KAS webhook token authenticator slot with the
+	// oauth-apiserver.
+	// Combined with a change in the cluster-kube-apiserver-operator to default
+	// the secret that it attempts to read from the openshift-config namespaces when `.spec.webhookTokenAuthenticator`
+	// is not set, simply returning here should be backwards compatible.
+	// Backwards compatibility example:
+	// - `.spec.webhookTokenAuthenticator` was previously set by this controller
+	// - CAO + CKASO have been updated to use a shared constant for default behavior
+	// - CAO returns early and does not attempt to set the field (field is still set)
+	// - CKASO sees the field is set - it reads from the set field instead of using its hardcoded default
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return nil
 	}
 
 	if authConfig.Spec.WebhookTokenAuthenticator == nil {
@@ -271,14 +304,14 @@ func (c *webhookAuthenticatorController) getAuthenticatorCertKeyPair(ctx context
 
 func (c *webhookAuthenticatorController) removeOperands(ctx context.Context) error {
 	_, err := c.configNSSecretsLister.Secrets(configNamespace).Get(webhookSecretName)
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("getting secret %s/%s: %v", configNamespace, webhookSecretName, err)
 	}
 
 	err = c.secrets.Secrets(configNamespace).Delete(ctx, webhookSecretName, metav1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting secret %s/%s: %v", configNamespace, webhookSecretName, err)
 	}
 
