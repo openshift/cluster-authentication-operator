@@ -80,6 +80,16 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 		},
 	})
 
+	// The following suite runs tests that are disruptive to the cluster.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator/disruptive",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Disruptive]") && name.contains("[Serial]")`,
+		},
+		ClusterStability: oteextension.ClusterStabilityDisruptive,
+	})
+
 	specs, err := oteginkgo.BuildExtensionTestSpecsFromOpenShiftGinkgoSuite()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't build extension test specs from ginkgo: %w", err)
