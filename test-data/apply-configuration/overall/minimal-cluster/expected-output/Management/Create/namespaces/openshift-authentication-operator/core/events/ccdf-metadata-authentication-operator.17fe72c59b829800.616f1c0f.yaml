@@ -1,0 +1,9 @@
+action: Create
+controllerInstanceName: ""
+generateName: ""
+name: authentication-operator.17fe72c59b829800.616f1c0f
+namespace: openshift-authentication-operator
+resourceType:
+  Group: ""
+  Resource: events
+  Version: v1
