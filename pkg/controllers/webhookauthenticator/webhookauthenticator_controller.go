@@ -18,7 +18,6 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
@@ -32,7 +31,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/cluster-authentication-operator/bindata"
@@ -51,21 +49,25 @@ const (
 type webhookAuthenticatorController struct {
 	controllerInstanceName string
 	authentication         configv1client.AuthenticationInterface
-	serviceAccounts        corev1client.ServiceAccountsGetter
 
-	saLister              corev1listers.ServiceAccountLister
 	svcLister             corev1listers.ServiceLister
 	secrets               corev1client.SecretsGetter
 	secretsLister         corev1listers.SecretLister
 	configNSSecretsLister corev1listers.SecretLister
-	authConfigChecker     common.AuthConfigChecker
+	authConfigChecker     oidcAvailabler
 
 	operatorClient v1helpers.OperatorClient
 
-	apiServerVersionWaitEventsLimiter flowcontrol.RateLimiter
-	versionGetter                     status.VersionGetter
+	featureGateAccessor  featuregates.FeatureGateAccess
+	webhookSecretBuilder webhookSecretBuilder
+}
 
-	featureGateAccessor featuregates.FeatureGateAccess
+type oidcAvailabler interface {
+	OIDCAvailable() (bool, error)
+}
+
+type webhookSecretBuilder interface {
+	BuildWebhookSecret(context.Context, *corev1.Service, []byte, []byte) (*corev1.Secret, error)
 }
 
 func NewWebhookAuthenticatorController(
@@ -73,36 +75,37 @@ func NewWebhookAuthenticatorController(
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
 	kubeInformersForConfigNamespace informers.SharedInformerFactory,
 	secrets corev1client.SecretsGetter,
-	serviceAccounts corev1client.ServiceAccountsGetter,
 	authentication configv1client.AuthenticationInterface,
 	operatorClient v1helpers.OperatorClient,
-	authConfigChecker common.AuthConfigChecker,
-	versionGetter status.VersionGetter,
+	authConfigChecker oidcAvailabler,
 	recorder events.Recorder,
 	featureGateAccessor featuregates.FeatureGateAccess,
 ) factory.Controller {
 	c := &webhookAuthenticatorController{
-		controllerInstanceName:            factory.ControllerInstanceName(instanceName, "WebhookAuthenticator"),
-		secrets:                           secrets,
-		serviceAccounts:                   serviceAccounts,
-		configNSSecretsLister:             kubeInformersForConfigNamespace.Core().V1().Secrets().Lister(),
-		secretsLister:                     kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		svcLister:                         kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		saLister:                          kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Lister(),
-		authentication:                    authentication,
-		operatorClient:                    operatorClient,
-		apiServerVersionWaitEventsLimiter: flowcontrol.NewTokenBucketRateLimiter(0.0167, 1), // set it so that the event may only occur once per minute
-		authConfigChecker:                 authConfigChecker,
-		versionGetter:                     versionGetter,
-		featureGateAccessor:               featureGateAccessor,
+		controllerInstanceName: factory.ControllerInstanceName(instanceName, "WebhookAuthenticator"),
+		secrets:                secrets,
+		configNSSecretsLister:  kubeInformersForConfigNamespace.Core().V1().Secrets().Lister(),
+		secretsLister:          kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		svcLister:              kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		authentication:         authentication,
+		operatorClient:         operatorClient,
+		authConfigChecker:      authConfigChecker,
+		featureGateAccessor:    featureGateAccessor,
+		webhookSecretBuilder:   newDefaultWebhookSecretBuilder(),
 	}
+
+	authCfgInformers := []factory.Informer{}
+	if _, ok := authConfigChecker.(*common.AuthConfigChecker); ok {
+		authCfgInformers = append(authCfgInformers, common.AuthConfigCheckerInformers[factory.Informer](authConfigChecker.(*common.AuthConfigChecker))...)
+	}
+
 	return factory.New().
 		WithInformers(
 			kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
 		).
-		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
+		WithInformers(authCfgInformers...).
 		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
 		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
@@ -129,20 +132,6 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		}
 
 		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
-	}
-
-	// TODO: remove in 4.9; this is to ensure we don't configure webhook authenticators
-	// before the oauth-apiserver revision that's capable of handling it is ready
-	// during upgrade
-	versions := c.versionGetter.GetVersions()
-	if apiserverVersion, ok := versions["oauth-apiserver"]; ok {
-		// a previous version found means this could be an upgrade, unless the version is already current
-		if expectedVersion := os.Getenv("OPERATOR_IMAGE_VERSION"); apiserverVersion != expectedVersion {
-			if c.apiServerVersionWaitEventsLimiter.TryAccept() {
-				syncCtx.Recorder().Eventf("OAuthAPIServerWaitForLatest", "the oauth-apiserver hasn't reported its version to be %q yet, its current version is %q", expectedVersion, apiserverVersion)
-			}
-			return nil
-		}
 	}
 
 	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
@@ -210,36 +199,9 @@ func (c *webhookAuthenticatorController) ensureKubeConfigSecret(ctx context.Cont
 		return nil, err
 	}
 
-	caBundle, err := os.ReadFile("/var/run/configmaps/service-ca-bundle/service-ca.crt")
+	requiredSecret, err := c.webhookSecretBuilder.BuildWebhookSecret(ctx, svc, key, cert)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read service-ca crt bundle: %w", err)
-	}
-
-	kubeconfigBytes, err := bindata.Asset("oauth-apiserver/authenticator-kubeconfig.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read kubeconfig template: %w", err)
-	}
-
-	replacer := strings.NewReplacer(
-		"${CA_DATA}", base64.StdEncoding.EncodeToString(caBundle),
-		"${APISERVER_IP}", net.JoinHostPort(svc.Spec.ClusterIP, strconv.Itoa(int(svc.Spec.Ports[0].Port))),
-		"${CLIENT_CERT}", base64.StdEncoding.EncodeToString(cert),
-		"${CLIENT_KEY}", base64.StdEncoding.EncodeToString(key),
-	)
-
-	kubeconfigComplete := replacer.Replace(string(kubeconfigBytes))
-
-	requiredSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      webhookSecretName,
-			Namespace: configNamespace,
-			Annotations: map[string]string{
-				annotations.OpenShiftComponent: "apiserver-auth",
-			},
-		},
-		Data: map[string][]byte{
-			"kubeConfig": []byte(kubeconfigComplete),
-		},
+		return nil, fmt.Errorf("building webhook secret: %w", err)
 	}
 
 	secret, _, err := resourceapply.ApplySecret(ctx, c.secrets, recorder, requiredSecret)
@@ -316,4 +278,50 @@ func (c *webhookAuthenticatorController) removeOperands(ctx context.Context) err
 	}
 
 	return nil
+}
+
+func newDefaultWebhookSecretBuilder() webhookSecretBuilder {
+	return &defaultWebhookSecretBuilder{}
+}
+
+type defaultWebhookSecretBuilder struct{}
+
+func (d *defaultWebhookSecretBuilder) BuildWebhookSecret(ctx context.Context, svc *corev1.Service, key, cert []byte) (*corev1.Secret, error) {
+	if key == nil || cert == nil {
+		return nil, fmt.Errorf("nil key or cert")
+	}
+
+	caBundle, err := os.ReadFile("/var/run/configmaps/service-ca-bundle/service-ca.crt")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read service-ca crt bundle: %w", err)
+	}
+
+	kubeconfigBytes, err := bindata.Asset("oauth-apiserver/authenticator-kubeconfig.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read kubeconfig template: %w", err)
+	}
+
+	replacer := strings.NewReplacer(
+		"${CA_DATA}", base64.StdEncoding.EncodeToString(caBundle),
+		"${APISERVER_IP}", net.JoinHostPort(svc.Spec.ClusterIP, strconv.Itoa(int(svc.Spec.Ports[0].Port))),
+		"${CLIENT_CERT}", base64.StdEncoding.EncodeToString(cert),
+		"${CLIENT_KEY}", base64.StdEncoding.EncodeToString(key),
+	)
+
+	kubeconfigComplete := replacer.Replace(string(kubeconfigBytes))
+
+	requiredSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookSecretName,
+			Namespace: configNamespace,
+			Annotations: map[string]string{
+				annotations.OpenShiftComponent: "apiserver-auth",
+			},
+		},
+		Data: map[string][]byte{
+			"kubeConfig": []byte(kubeconfigComplete),
+		},
+	}
+
+	return requiredSecret, nil
 }
