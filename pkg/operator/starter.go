@@ -682,12 +682,11 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver"),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config"),
 		authOperatorInput.kubeClient.CoreV1(),
-		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.configClient.ConfigV1().Authentications(),
 		authOperatorInput.authenticationOperatorClient,
-		authConfigChecker,
-		versionRecorder,
+		&authConfigChecker,
 		eventRecorder,
+		featureGateAccessor,
 	)
 
 	authenticatorCertRequester, err := csr.NewClientCertificateController(
