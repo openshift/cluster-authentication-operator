@@ -124,14 +124,16 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return fmt.Errorf("observing feature gates: %w", err)
 	}
 
-	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
-		return err
-	} else if oidcAvailable {
-		if err := c.removeOperands(ctx); err != nil {
+	if !featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
 			return err
-		}
+		} else if oidcAvailable {
+			if err := c.removeOperands(ctx); err != nil {
+				return err
+			}
 
-		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+		}
 	}
 
 	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
