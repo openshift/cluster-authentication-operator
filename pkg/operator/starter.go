@@ -130,10 +130,17 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -447,14 +454,49 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
 	)
 
-	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
-	if err != nil {
+	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
+	// to the openshift-oauth-apiserver if OIDC is available and FeatureGateExternalOIDCExternalClaimsSourcing is enabled.
+	// This precondition never returns an error to prevent unnecessary degradation.
+	if err := resourceSyncController.SyncConfigMapConditionally(
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "auth-config"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "auth-config"},
+		func() (bool, error) {
+			if !featureGateAccessor.AreInitialFeatureGatesObserved() {
+				klog.Error("checking oauth-apiserver auth-config sync preconditions failed: initial feature gates not observed")
+				return false, nil
+			}
+			featureGates, err := featureGateAccessor.CurrentFeatureGates()
+			if err != nil {
+				klog.Errorf("checking oauth-apiserver auth-config sync preconditions failed: getting current feature gates: %v", err)
+				return false, nil
+			}
+
+			if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+				authConfig, err := authConfigChecker.AuthConfig()
+				if err != nil {
+					klog.Errorf("checking oauth-apiserver auth-config sync preconditions failed: getting authentications/cluster: %v", err)
+					return false, nil
+				}
+
+				return authConfig.Spec.Type == configv1.AuthenticationTypeOIDC, nil
+			}
+
+			return false, nil
+		},
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -467,7 +509,7 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
-		authConfigChecker,
+		&authConfigChecker,
 		featureGateAccessor,
 		versionRecorder)
 
@@ -574,9 +616,6 @@ func prepareOauthAPIServerOperator(
 			{
 				// OAuth specific resources; deleted when OIDC is enabled
 				Files: []string{
-					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
-					"oauth-apiserver/sa.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
 				},
@@ -584,6 +623,33 @@ func prepareOauthAPIServerOperator(
 					return !oidcAvailable(authConfigChecker)
 				},
 				ShouldDeleteFn: func() bool {
+					return oidcAvailable(authConfigChecker)
+				},
+			},
+			{
+				// OAuth specific resources; deleted when OIDC is enabled and FeatureGateExternalOIDCExternalClaimsSourcing is disabled.
+				// Not deleted when OIDC is enabled when FeatureGateExternalOIDCExternalClaimsSourcing gate is enabled.
+				Files: []string{
+					"oauth-apiserver/sa.yaml",
+					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
+					"oauth-apiserver/svc.yaml",
+				},
+				ShouldCreateFn: func() bool {
+					// If this call errors out, fallback to the existing approach
+					gates, err := featureGateAccessor.CurrentFeatureGates()
+					if err == nil && gates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+						return true
+					}
+
+					return !oidcAvailable(authConfigChecker)
+				},
+				ShouldDeleteFn: func() bool {
+					// If this call errors out, fallback to the existing approach
+					gates, err := featureGateAccessor.CurrentFeatureGates()
+					if err == nil && gates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+						return false
+					}
+
 					return oidcAvailable(authConfigChecker)
 				},
 			},
@@ -766,7 +832,6 @@ func prepareExternalOIDC(
 	authOperatorInput *authenticationOperatorInput,
 	informerFactories authenticationOperatorInformerFactories,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
-
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err

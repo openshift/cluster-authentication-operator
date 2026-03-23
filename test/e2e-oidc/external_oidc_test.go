@@ -65,6 +65,8 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 
 	checkFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
 
+	newExternalOIDCArchitectureEnabled := featureGateEnabled(testCtx, testClient.configClient, features.FeatureGateExternalOIDCExternalClaimsSourcing)
+
 	// post-test cluster cleanup
 	var cleanups []func()
 	defer test.IDPCleanupWrapper(func() {
@@ -83,10 +85,15 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		err := testClient.authResourceRollback(testCtx, origAuthSpec)
 		require.NoError(t, err, "failed to rollback auth resource during cleanup")
 
-		err = test.WaitForNewKASRollout(t, testCtx, testClient.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
-		require.NoError(t, err, "failed to wait for KAS rollout during cleanup")
+		// KAS should not need to perform a rollout when the new architecture is enabled.
+		// The oauth-apiserver will, but that should be fairly quick and handled by cluster operator
+		// stability checks prior to running tests.
+		if !newExternalOIDCArchitectureEnabled {
+			err = test.WaitForNewKASRollout(t, testCtx, testClient.operatorConfigClient.OperatorV1().KubeAPIServers(), kasOriginalRevision)
+			require.NoError(t, err, "failed to wait for KAS rollout during cleanup")
+		}
 
-		testClient.validateOAuthState(t, testCtx, false)
+		testClient.validateOAuthState(t, testCtx, false, newExternalOIDCArchitectureEnabled)
 	})
 
 	// keycloak setup
@@ -227,7 +234,7 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 
 				require.NoError(t, test.WaitForClusterOperatorDegraded(t, testClient.configClient.ConfigV1(), "authentication"))
 
-				testClient.validateOAuthState(t, testCtx, false)
+				testClient.validateOAuthState(t, testCtx, false, newExternalOIDCArchitectureEnabled)
 			})
 		}
 	})
@@ -266,11 +273,13 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 				require.NoError(t, err, "failed to update authentication/cluster")
 
 				require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "authentication"))
-				require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
 
-				testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, tt.expectedPrefix)
+				if !newExternalOIDCArchitectureEnabled {
+					require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
+					testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, tt.expectedPrefix)
+				}
 
-				testClient.validateOAuthState(t, testCtx, true)
+				testClient.validateOAuthState(t, testCtx, true, newExternalOIDCArchitectureEnabled)
 
 				testClient.testOIDCAuthentication(t, testCtx, kcClient, tt.claim, tt.expectedPrefix, true)
 			})
@@ -318,11 +327,13 @@ func TestExternalOIDCWithKeycloak(t *testing.T) {
 		require.NoError(t, err, "failed to update authentication/cluster")
 
 		require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "authentication"))
-		require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
 
-		testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, "")
+		if !newExternalOIDCArchitectureEnabled {
+			require.NoError(t, test.WaitForClusterOperatorStatusAlwaysAvailable(t, testCtx, testClient.configClient.ConfigV1(), "kube-apiserver"))
+			testClient.requireKASRolloutSuccessful(t, testCtx, &auth.Spec, kasOriginalRevision, "")
+		}
 
-		testClient.validateOAuthState(t, testCtx, true)
+		testClient.validateOAuthState(t, testCtx, true, newExternalOIDCArchitectureEnabled)
 
 		testClient.testOIDCAuthentication(t, testCtx, kcClient, "", "", false)
 	})
@@ -718,17 +729,17 @@ func (tc *testClient) validateAuthConfigJSON(t *testing.T, ctx context.Context, 
 	}
 }
 
-func (tc *testClient) validateOAuthState(t *testing.T, ctx context.Context, requireMissing bool) {
+func (tc *testClient) validateOAuthState(t *testing.T, ctx context.Context, requireMissing, newExternalOIDCArchitectureEnabled bool) {
 	dynamicClient, err := dynamic.NewForConfig(tc.kubeConfig)
 	require.NoError(t, err, "unexpected error while creating dynamic client")
 
 	var validationErrs []error
 	waitErr := wait.PollUntilContextTimeout(ctx, 30*time.Second, 5*time.Minute, false, func(_ context.Context) (bool, error) {
 		validationErrs = make([]error, 0)
-		validationErrs = append(validationErrs, validateOAuthResources(ctx, dynamicClient, requireMissing)...)
+		validationErrs = append(validationErrs, validateOAuthResources(ctx, dynamicClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
 		validationErrs = append(validationErrs, validateOAuthRoutes(ctx, tc.routeClient, tc.configClient, requireMissing)...)
-		validationErrs = append(validationErrs, validateOAuthControllerConditions(tc.operatorClient, requireMissing)...)
-		validationErrs = append(validationErrs, validateOperandVersions(ctx, tc.configClient, requireMissing)...)
+		validationErrs = append(validationErrs, validateOAuthControllerConditions(tc.operatorClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
+		validationErrs = append(validationErrs, validateOperandVersions(ctx, tc.configClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
 		validationErrs = append(validationErrs, validateOAuthRelatedObjects(ctx, tc.configClient, requireMissing)...)
 		return len(validationErrs) == 0, nil
 	})
@@ -737,13 +748,16 @@ func (tc *testClient) validateOAuthState(t *testing.T, ctx context.Context, requ
 	require.NoError(t, waitErr, "failed to wait for OAuth state validation")
 }
 
-func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicClient, requireMissing bool) []error {
+func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicClient, requireMissing, newExternalOIDCArchitectureEnabled bool) []error {
 	errs := make([]error, 0)
-	for _, obj := range []struct {
+
+	type resourceReference struct {
 		gvr       schema.GroupVersionResource
 		namespace string
 		name      string
-	}{
+	}
+
+	resourceReferences := []resourceReference{
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-cliconfig"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-metadata"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-authentication", "v4-0-config-system-service-ca"},
@@ -751,23 +765,32 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}, "openshift-config-managed", "oauth-serving-cert"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-ocp-branding-template"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-session"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-config", "webhook-authentication-integrated-oauth"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-authentication", "oauth-openshift"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-oauth-apiserver", "oauth-apiserver-sa"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-authentication", "oauth-openshift"},
-		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "api"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.oauth.openshift.io"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.user.openshift.io"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-browser-client"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-challenging-client"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-cli-client"},
-		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:oauth-apiserver"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:openshift-authentication"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:useroauthaccesstoken-manager"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"}, "", "system:openshift:useroauthaccesstoken-manager"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}, "openshift-config-managed", "system:openshift:oauth-servercert-trust"},
 		{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}, "openshift-config-managed", "system:openshift:oauth-servercert-trust"},
-	} {
+	}
+
+	// when running under the new architecture, the following resources should
+	// always be present and shouldn't be included in our checks
+	if !newExternalOIDCArchitectureEnabled {
+		resourceReferences = append(resourceReferences,
+			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-config", "webhook-authentication-integrated-oauth"},
+			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "api"},
+			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-oauth-apiserver", "oauth-apiserver-sa"},
+			resourceReference{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:oauth-apiserver"},
+		)
+	}
+
+	for _, obj := range resourceReferences {
 		_, err := dynamicClient.Resource(obj.gvr).Namespace(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("unexpected error while getting resource %s/%s: %v", obj.namespace, obj.name, err))
@@ -815,7 +838,7 @@ func validateOAuthRoutes(ctx context.Context, routeClient routeclient.Interface,
 	return errs
 }
 
-func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, requireMissing bool) []error {
+func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, requireMissing, newExternalOIDCArchitectureEnabled bool) []error {
 	errs := make([]error, 0)
 	controllerConditionTypes := sets.New[string](
 		// endpointAccessibleController
@@ -842,12 +865,15 @@ func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, 
 		// serviceCAController
 		"OAuthServiceDegraded",
 		"SystemServiceCAConfigDegraded",
-		// webhookAuthenticatorController
-		"AuthenticatorCertKeyProgressing",
 		// wellKnownReadyController
 		"WellKnownAvailable",
 		"WellKnownReadyControllerProgressing",
 	)
+
+	if !newExternalOIDCArchitectureEnabled {
+		// webhookAuthenticatorController
+		controllerConditionTypes.Insert("AuthenticatorCertKeyProgressing")
+	}
 
 	_, operatorStatus, _, err := operatorClient.GetOperatorState()
 	if err != nil {
@@ -875,8 +901,15 @@ func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, 
 	return nil
 }
 
-func validateOperandVersions(ctx context.Context, cfgClient *configclient.Clientset, requireMissing bool) []error {
-	operands := sets.New("oauth-apiserver", "oauth-openshift")
+func validateOperandVersions(ctx context.Context, cfgClient *configclient.Clientset, requireMissing, newExternalOIDCArchitectureEnabled bool) []error {
+	operands := sets.New("oauth-openshift")
+
+	// If the new architecture for external OIDC is not enabled,
+	// test this as we always did and ensure that the oauth-apiserver
+	// operand version gets removed appropriately.
+	if !newExternalOIDCArchitectureEnabled {
+		operands.Insert("oauth-apiserver")
+	}
 
 	authnClusterOperator, err := cfgClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
 	if err != nil {
@@ -897,6 +930,22 @@ func validateOperandVersions(ctx context.Context, cfgClient *configclient.Client
 	foundSet := sets.New(foundOperands...)
 	if !requireMissing && !foundSet.Equal(operands) {
 		return []error{fmt.Errorf("authentication ClusterOperator status expected to have operands %v in versions but got %v", operands.UnsortedList(), foundOperands)}
+	}
+
+	// If the new architecture for external OIDC is enabled,
+	// ensure the oauth-apiserver operand is always present.
+	if newExternalOIDCArchitectureEnabled {
+		found := false
+		for _, version := range authnClusterOperator.Status.Versions {
+			if version.Name == "oauth-apiserver" {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return []error{fmt.Errorf("authentication ClusterOperator status expected to have operand \"oauth-apiserver\" in versions but it was missing")}
+		}
 	}
 
 	return nil
