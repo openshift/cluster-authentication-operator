@@ -130,10 +130,16 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -447,14 +453,48 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		featureGateAccessor,
 	)
 
-	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
-	if err != nil {
+	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
+	// to the openshift-oauth-apiserver if OIDC is available.
+	// This precondition never returns an error to prevent unnecesary degradation.
+	if err := resourceSyncController.SyncConfigMapConditionally(
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "auth-config"},
+		resourcesynccontroller.ResourceLocation{Namespace: "openshift-config-managed", Name: "auth-config"},
+		func() (bool, error) {
+			if !featureGateAccessor.AreInitialFeatureGatesObserved() {
+				klog.Error("checking oauth-apiserver auth-config sync preconditions failed: initial feature gates not observed")
+				return false, nil
+			}
+			featureGates, err := featureGateAccessor.CurrentFeatureGates()
+			if err != nil {
+				klog.Errorf("checking oauth-apiserver auth-config sync preconditions failed: getting current feature gates: %v", err)
+				return false, nil
+			}
+
+			if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+				authConfig, err := authConfigChecker.AuthConfig()
+				if err != nil {
+					klog.Errorf("checking oauth-apiserver auth-config sync preconditions failed: getting authentications/cluster: %v", err)
+					return false, nil
+				}
+
+				return authConfig.Spec.Type == configv1.AuthenticationTypeOIDC, nil
+			}
+
+			return false, nil
+		},
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -536,6 +576,16 @@ func prepareOauthAPIServerOperator(
 					"oauth-apiserver/ns.yaml",
 					"oauth-apiserver/networkpolicy_oauth-apiserver.yaml",
 					"oauth-apiserver/networkpolicy_namespace_default-deny-all.yaml",
+					"oauth-apiserver/sa.yaml",
+
+					// TODO: need to sort out some serving certificate clashing behaviors
+					// here. If this service is present before the 'api' service, the
+					// oauth-apiserver will serve with a certificate that maps to this
+					// service name as opposed to 'api' which seems to be breaking.
+					// The alternative is to just always create the 'api' service
+					// and deal with potentially breaking expectations of what is available behind this service.
+					//"oauth-apiserver/token-review-svc.yaml",
+					"oauth-apiserver/svc.yaml",
 				},
 			},
 			{
@@ -575,8 +625,15 @@ func prepareOauthAPIServerOperator(
 				// OAuth specific resources; deleted when OIDC is enabled
 				Files: []string{
 					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
-					"oauth-apiserver/sa.yaml",
+
+					// TODO: need to sort out some serving certificate clashing behaviors
+					// here. If this service is present before the 'api' service, the
+					// oauth-apiserver will serve with a certificate that maps to this
+					// service name as opposed to 'api' which seems to be breaking.
+					// The alternative is to just always create the 'api' service
+					// and deal with potentially breaking expectations of what is available behind this service.
+					//"oauth-apiserver/svc.yaml",
+
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
 				},
@@ -766,7 +823,6 @@ func prepareExternalOIDC(
 	authOperatorInput *authenticationOperatorInput,
 	informerFactories authenticationOperatorInformerFactories,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
-
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err
