@@ -1,6 +1,9 @@
 reviewers:
+  - everettraven
   - ibihim
   - liouk
 approvers:
+  - everettraven
+  - ibihim
   - liouk
 components: apiserver-auth
