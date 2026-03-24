@@ -12,12 +12,23 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+)
+
+// The following constants are put together so that
+// all attempts fit safely into resyncInterval.
+const (
+	resyncInterval = 1 * time.Minute
+
+	defaultRequestTimeout = 10 * time.Second
+	defaultRetryInterval  = 5 * time.Second
+	defaultAttemptCount   = 3
 )
 
 type endpointAccessibleController struct {
@@ -27,6 +38,17 @@ type endpointAccessibleController struct {
 	getTLSConfigFn            EndpointTLSConfigFunc
 	availableConditionName    string
 	endpointCheckDisabledFunc EndpointCheckDisabledFunc
+	// httpClient overrides the default TLS client when set; used in tests.
+	httpClient *http.Client
+	// requestTimeout is the per-request context timeout. Zero means no
+	// timeout; defaults to defaultRequestTimeout when unset.
+	requestTimeout time.Duration
+	// retryInterval is the sleep duration between retry attempts. Zero means
+	// no sleep; defaults to defaultRetryInterval when unset.
+	retryInterval time.Duration
+	// attemptCount is the maximum number of fetch+check cycles; defaults to
+	// defaultAttemptCount when unset.
+	attemptCount int
 }
 
 type EndpointListFunc func() ([]string, error)
@@ -59,7 +81,7 @@ func NewEndpointAccessibleController(
 		WithInformers(triggers...).
 		WithInformers(operatorClient.Informer()).
 		WithSync(c.sync).
-		ResyncEvery(wait.Jitter(time.Minute, 1.0)).
+		ResyncEvery(wait.Jitter(resyncInterval, 1.0)).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(
 			controllerName, // Don't change what is passed here unless you also remove the old FooDegraded condition
@@ -88,59 +110,104 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		}
 	}
 
-	endpoints, err := c.endpointListFn()
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			status := applyoperatorv1.OperatorStatus().
-				WithConditions(applyoperatorv1.OperatorCondition().
-					WithType(c.availableConditionName).
-					WithStatus(operatorv1.ConditionFalse).
-					WithReason("ResourceNotFound").
-					WithMessage(err.Error()))
-			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status)
+	client := c.httpClient
+	if client == nil {
+		var err error
+		client, err = c.buildTLSClient()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Retry the full fetch+check cycle so that stale pod IPs from a rolling
+	// upgrade are replaced with fresh ones as soon as the Endpoints object is
+	// updated between attempts.
+	var (
+		endpoints []string
+		errors    []error
+	)
+	attempts := c.attemptCount
+	if attempts <= 0 {
+		attempts = defaultAttemptCount
+	}
+	requestTimeout := c.requestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = defaultRequestTimeout
+	}
+	retryInterval := c.retryInterval
+	if retryInterval <= 0 {
+		retryInterval = defaultRetryInterval
+	}
+	for i := range attempts {
+		// Sleep before the next attempt to give the Endpoints object time to
+		// be updated (e.g. during a rolling upgrade).
+		if i > 0 {
+			select {
+			case <-time.After(retryInterval):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 
-		return err
-	}
-
-	client, err := c.buildTLSClient()
-	if err != nil {
-		return err
-	}
-	// check all the endpoints in parallel.  This matters for pods.
-	errCh := make(chan error, len(endpoints))
-	wg := sync.WaitGroup{}
-	for _, endpoint := range endpoints {
-		wg.Add(1)
-		go func(endpoint string) {
-			defer wg.Done()
-
-			reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second) // avoid waiting forever
-			defer cancel()
-			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
-			if err != nil {
-				errCh <- humanizeError(err)
-				return
+		var err error
+		endpoints, err = c.endpointListFn()
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				status := applyoperatorv1.OperatorStatus().
+					WithConditions(applyoperatorv1.OperatorCondition().
+						WithType(c.availableConditionName).
+						WithStatus(operatorv1.ConditionFalse).
+						WithReason("ResourceNotFound").
+						WithMessage(err.Error()))
+				return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status)
 			}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				errCh <- humanizeError(err)
-				return
+			if i == attempts-1 {
+				return err
 			}
-			defer resp.Body.Close()
+			klog.FromContext(ctx).Error(err, "Failed to list endpoints, retrying...", "attempt", i)
+			continue
+		}
 
-			if resp.StatusCode > 299 || resp.StatusCode < 200 {
-				errCh <- fmt.Errorf("%q returned %q", endpoint, resp.Status)
-			}
-		}(endpoint)
-	}
-	wg.Wait()
-	close(errCh)
+		// Check all the endpoints in parallel. This matters for pods.
+		errCh := make(chan error, len(endpoints))
+		wg := sync.WaitGroup{}
+		for _, endpoint := range endpoints {
+			wg.Add(1)
+			go func(endpoint string) {
+				defer wg.Done()
 
-	var errors []error
-	for err := range errCh {
-		errors = append(errors, err)
+				reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+				defer cancel()
+
+				req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+				if err != nil {
+					errCh <- humanizeError(err)
+					return
+				}
+
+				resp, err := client.Do(req)
+				if err != nil {
+					errCh <- humanizeError(err)
+					return
+				}
+				defer resp.Body.Close() //nolint:errcheck
+
+				if resp.StatusCode > 299 || resp.StatusCode < 200 {
+					errCh <- fmt.Errorf("%q returned %q", endpoint, resp.Status)
+				}
+			}(endpoint)
+		}
+		wg.Wait()
+		close(errCh)
+
+		errors = nil
+		for err := range errCh {
+			errors = append(errors, err)
+		}
+
+		if len(endpoints) > 0 && len(errors) < len(endpoints) {
+			break // at least one endpoint responded; no need to retry
+		}
 	}
 
 	// if at least one endpoint responded, we are available
@@ -189,7 +256,6 @@ func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
 		transport.TLSClientConfig = tlsConfig
 	}
 	return &http.Client{
-		Timeout:   5 * time.Second,
 		Transport: transport,
 	}, nil
 }
