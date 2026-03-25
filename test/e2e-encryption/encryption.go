@@ -2,7 +2,6 @@ package e2eencryption
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	g "github.com/onsi/ginkgo/v2"
@@ -32,7 +31,7 @@ func testEncryptionTypeIdentity(t testing.TB) {
 	testlibrary.TestEncryptionTypeIdentity(t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
+		EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
 		TargetGRs:                       operatorencryption.DefaultTargetGRs,
@@ -44,7 +43,7 @@ func testEncryptionTypeUnset(t testing.TB) {
 	testlibrary.TestEncryptionTypeUnset(t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
+		EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
 		TargetGRs:                       operatorencryption.DefaultTargetGRs,
@@ -57,7 +56,7 @@ func testEncryptionTurnOnAndOff(t testing.TB) {
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
+			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
 			TargetGRs:                       operatorencryption.DefaultTargetGRs,

@@ -49,7 +49,7 @@ func testKMSEncryptionOnOff(t testing.TB) {
 	// Currently, while the API accepts encryption.type: "KMS" and the operator mounts the KMS
 	// plugin socket, it does not generate the EncryptionConfiguration with KMS provider stanza.
 	// This causes tests to timeout waiting for encryption keys to be created and migration to complete.
-	// See: https://issues.redhat.com/browse/AUTH-XXX
+	// See: https://redhat.atlassian.net/browse/OCPSTRAT-108 it is still under techincal preview
 	t.Skip("Skipping KMS encryption test: operator implementation is incomplete")
 
 	// Deploy the mock KMS plugin for testing.
@@ -96,7 +96,7 @@ func testKMSEncryptionProvidersMigration(t testing.TB) {
 	// Currently, while the API accepts encryption.type: "KMS" and the operator mounts the KMS
 	// plugin socket, it does not generate the EncryptionConfiguration with KMS provider stanza.
 	// This causes tests to timeout waiting for encryption keys to be created and migration to complete.
-	// See: https://issues.redhat.com/browse/AUTH-XXX
+	// See: https://redhat.atlassian.net/browse/OCPSTRAT-108 it is still under techincal preview
 	t.Skip("Skipping KMS encryption test: operator implementation is incomplete")
 
 	librarykms.DeployUpstreamMockKMSPlugin(ctx, t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage)

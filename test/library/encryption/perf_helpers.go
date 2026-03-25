@@ -1,6 +1,7 @@
 package encryption
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -32,7 +33,8 @@ func watchForMigrationControllerProgressingCondition(t testing.TB, getOperatorCo
 	t.Helper()
 
 	t.Logf("Waiting up to %s for the condition %q with the reason %q to be set to true", waitPollTimeout.String(), "EncryptionMigrationControllerProgressing", "Migrating")
-	err := wait.Poll(waitPollInterval, waitPollTimeout, func() (bool, error) {
+	ctx := context.Background()
+	err := wait.PollUntilContextTimeout(ctx, waitPollInterval, waitPollTimeout, true, func(ctx context.Context) (bool, error) {
 		conditions, err := getOperatorConditionsFn(t)
 		if err != nil {
 			return false, err
