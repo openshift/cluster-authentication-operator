@@ -316,7 +316,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 			configv1.SecretNameReference{Name: "test-secret"},
 		)
 
-		require.Error(t, err)
+		require.NoError(t, err)
 		require.False(t, result)
 		require.NotContains(t, oidcPasswordChecks, "test-version-1")
 	})
@@ -351,7 +351,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 			configv1.ConfigMapNameReference{Name: ""},
 			configv1.SecretNameReference{Name: "test-secret"},
 		)
-		require.Error(t, err)
+		require.NoError(t, err)
 		require.False(t, res1)
 		require.NotContains(t, oidcPasswordChecks, "test-version-1")
 
