@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -26,9 +28,11 @@ type AuthConfigChecker struct {
 	authLister         configv1listers.AuthenticationLister
 	kasLister          operatorv1listers.KubeAPIServerLister
 	kasConfigMapLister corelistersv1.ConfigMapLister
+
+	featureGateAccessor featuregates.FeatureGateAccess
 }
 
-func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, configmaps corev1informers.ConfigMapInformer) AuthConfigChecker {
+func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, configmaps corev1informers.ConfigMapInformer, featureGateAccessor featuregates.FeatureGateAccess) AuthConfigChecker {
 	return AuthConfigChecker{
 		authenticationsInformer:        authentications.Informer(),
 		kubeAPIServersInformer:         kubeapiservers.Informer(),
@@ -36,6 +40,7 @@ func NewAuthConfigChecker(authentications configv1informers.AuthenticationInform
 		authLister:                     authentications.Lister(),
 		kasLister:                      kubeapiservers.Lister(),
 		kasConfigMapLister:             configmaps.Lister(),
+		featureGateAccessor:            featureGateAccessor,
 	}
 }
 
@@ -68,10 +73,29 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, fmt.Errorf("AuthConfigChecker configmaps informer has not synced yet")
 	}
 
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, fmt.Errorf("AuthConfigChecker initial feature gates not yet observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, fmt.Errorf("AuthConfigChecker getting current feature gates: %w", err)
+	}
+
 	if auth, err := c.authLister.Get("cluster"); err != nil {
 		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
 	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		return false, nil
+	}
+
+	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled then we are attempting to use the new
+	// external oidc architecture that re-uses the oauth-apiserver as a webhook authenticator
+	// with a new mode of operation. Because of this shift back to using the oauth-apiserver, it is
+	// safe to assume that if the authentications/cluster resource has its spec.type set to OIDC
+	// that OIDC is "available" as we no longer have to actually wait for a kube-apiserver revision rollout
+	// to have completed prior to switching to the external OIDC operational mode.
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return true, nil
 	}
 
 	kas, err := c.kasLister.Get("cluster")

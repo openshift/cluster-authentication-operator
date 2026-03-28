@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -67,6 +69,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		goldenFile      string
 		operator        *operatorv1.Authentication
 		expectedActions []string
+		featureGates    featuregates.FeatureGateAccess
 	}{
 		// scenario 1
 		{
@@ -87,6 +90,12 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 
 		// scenario 2
@@ -110,6 +119,12 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 
 		// scenario 3
@@ -134,6 +149,12 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 	}
 
