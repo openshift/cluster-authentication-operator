@@ -12,6 +12,9 @@ import (
 	oteginkgo "github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo"
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
+	// Import init package first to configure klog before test packages load
+	_ "github.com/openshift/cluster-authentication-operator/pkg/test/init"
+
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
@@ -21,13 +24,6 @@ import (
 
 	"k8s.io/klog/v2"
 )
-
-func init() {
-	// Configure klog to write to stderr BEFORE any package initialization
-	// that might generate klog output. This prevents warnings from corrupting
-	// JSON output on stdout during test listing.
-	klog.SetOutput(os.Stderr)
-}
 
 func main() {
 
