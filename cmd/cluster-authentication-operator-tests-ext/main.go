@@ -22,9 +22,14 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func main() {
-	// Configure klog to write to stderr to prevent warnings from corrupting JSON output on stdout
+func init() {
+	// Configure klog to write to stderr BEFORE any package initialization
+	// that might generate klog output. This prevents warnings from corrupting
+	// JSON output on stdout during test listing.
 	klog.SetOutput(os.Stderr)
+}
+
+func main() {
 
 	cmd, err := newOperatorTestCommand()
 	if err != nil {
