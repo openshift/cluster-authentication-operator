@@ -35,11 +35,10 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
-	if err == nil {
-		fmt.Printf("Found configuration for host %v.\n", config.Host)
-	}
-
 	require.NoError(t, err)
+	if t != nil {
+		t.Logf("Found configuration for host %v", config.Host)
+	}
 	return config
 }
 
