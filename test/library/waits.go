@@ -78,7 +78,7 @@ func WaitForClusterOperatorStatus(t testing.TB, client configv1client.ConfigV1In
 // WaitForClusterOperatorStatusStable checks that the specified cluster operator's status does not diverge
 // from the conditions specified for 10 minutes. It returns nil if all conditions were matching expectations for that
 // period, and an error otherwise.
-func WaitForClusterOperatorStatusStable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
+func WaitForClusterOperatorStatusStable(t testing.TB, ctx context.Context, client configv1client.ConfigV1Interface, name string, requiredConditions ...configv1.ClusterOperatorStatusCondition) error {
 	t.Logf("will wait up to 10m for clusteroperators.config.openshift.io/%s status to be stable: %v", name, conditionsStatusString(requiredConditions))
 
 	var endConditions []configv1.ClusterOperatorStatusCondition
@@ -157,7 +157,7 @@ func WaitForHTTPStatus(t testing.TB, waitDuration time.Duration, client *http.Cl
 	})
 }
 
-func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv1client.KubeAPIServerInterface, origRevision int32) error {
+func WaitForNewKASRollout(t testing.TB, ctx context.Context, kasClient operatorv1client.KubeAPIServerInterface, origRevision int32) error {
 	t.Logf("will wait for KAS rollout; latest available revision: %d", origRevision)
 	var latestRevision int32
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 30*time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -189,7 +189,7 @@ func WaitForNewKASRollout(t *testing.T, ctx context.Context, kasClient operatorv
 	return nil
 }
 
-func WaitForClusterOperatorStatusAlwaysAvailable(t *testing.T, ctx context.Context, client configv1client.ConfigV1Interface, name string) error {
+func WaitForClusterOperatorStatusAlwaysAvailable(t testing.TB, ctx context.Context, client configv1client.ConfigV1Interface, name string) error {
 	return WaitForClusterOperatorStatusStable(t, ctx, client, name,
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorAvailable, Status: configv1.ConditionTrue},
 		configv1.ClusterOperatorStatusCondition{Type: configv1.OperatorDegraded, Status: configv1.ConditionFalse},
