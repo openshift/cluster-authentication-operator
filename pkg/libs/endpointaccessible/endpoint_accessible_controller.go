@@ -41,14 +41,14 @@ type endpointAccessibleController struct {
 	endpointCheckDisabledFunc EndpointCheckDisabledFunc
 	// httpClient overrides the default TLS client when set; used in tests.
 	httpClient *http.Client
-	// requestTimeout is the per-request context timeout. Zero means no
-	// timeout; defaults to defaultRequestTimeout when unset.
+	// requestTimeout is the per-request context timeout.
+	// Defaults to defaultRequestTimeout when unset.
 	requestTimeout time.Duration
-	// retryInterval is the sleep duration between retry attempts. Zero means
-	// no sleep; defaults to defaultRetryInterval when unset.
+	// retryInterval is the sleep duration between retry attempts.
+	// Defaults to defaultRetryInterval when unset.
 	retryInterval time.Duration
-	// attemptCount is the maximum number of fetch+check cycles; defaults to
-	// defaultAttemptCount when unset.
+	// attemptCount is the maximum number of fetch+check cycles.
+	// Defaults to defaultAttemptCount when unset.
 	attemptCount int
 }
 
