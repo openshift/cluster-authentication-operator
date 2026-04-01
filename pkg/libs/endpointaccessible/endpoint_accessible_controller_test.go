@@ -105,11 +105,15 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 	}
 }
 
-// TestEndpointAccessibleController_sync_retry verifies the retry logic.
+// TestEndpointAccessibleController_sync_retry verifies the retry logic for
+// fast (non-timeout) failures: the controller sleeps for retryInterval between
+// attempts, and either recovers or gives up after attemptCount tries.
 func TestEndpointAccessibleController_sync_retry(t *testing.T) {
+	const attemptCount = 3
+
 	tests := []struct {
 		name       string
-		failFirstN int // how many initial requests the server should reject with 500
+		failFirstN int32 // how many initial requests the server should reject with 500
 		wantErr    bool
 	}{
 		{
@@ -125,31 +129,45 @@ func TestEndpointAccessibleController_sync_retry(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			var requestCount atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if int(requestCount.Add(1)) <= tt.failFirstN {
-					w.WriteHeader(http.StatusInternalServerError)
-					return
+			syncCtx := newSyncContext(t)
+			synctest.Test(t, func(t *testing.T) {
+				c := &endpointAccessibleController{
+					operatorClient: v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
+					endpointListFn: func() ([]string, error) {
+						return []string{"http://example.com"}, nil
+					},
+					httpClient:     &http.Client{Transport: &failFastTransport{maxFails: tt.failFirstN}},
+					requestTimeout: defaultRequestTimeout,
+					retryInterval:  10 * time.Second,
+					attemptCount:   attemptCount,
 				}
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
 
-			c := &endpointAccessibleController{
-				operatorClient: v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
-				endpointListFn: func() ([]string, error) {
-					return []string{server.URL}, nil
-				},
-				httpClient:    server.Client(),
-				retryInterval: time.Millisecond,
-				attemptCount:  3,
-			}
-			if err := c.sync(ctx, newSyncContext(t)); (err != nil) != tt.wantErr {
-				t.Errorf("sync() error = %v, wantErr %v", err, tt.wantErr)
-			}
+				start := time.Now()
+				done := make(chan error, 1)
+				go func() {
+					done <- c.sync(context.Background(), syncCtx)
+				}()
+
+				// Advance time for each backoff sleep between attempts.
+				backoffs := min(int(tt.failFirstN), attemptCount-1)
+				for range backoffs {
+					synctest.Wait()
+					time.Sleep(c.retryInterval + time.Millisecond)
+				}
+				synctest.Wait()
+
+				err := <-done
+				if (err != nil) != tt.wantErr {
+					t.Errorf("sync() error = %v, wantErr %v", err, tt.wantErr)
+				}
+
+				// Verify that each retry used the backoff sleep.
+				elapsed := time.Since(start)
+				expectedBackoff := time.Duration(backoffs) * c.retryInterval
+				if elapsed < expectedBackoff {
+					t.Errorf("elapsed %v < %v; backoff was skipped for fast failures", elapsed, expectedBackoff)
+				}
+			})
 		})
 	}
 }
@@ -198,10 +216,12 @@ func TestEndpointAccessibleController_sync_retryStaleEndpoint(t *testing.T) {
 }
 
 // TestEndpointAccessibleController_sync_requestTimeout verifies that the
-// per-request timeout is enforced and that the retry mechanism handles
-// timed-out requests correctly. synctest controls fake time so the test
-// runs instantly.
+// per-request timeout is enforced, that the retry mechanism handles timed-out
+// requests correctly, and that the backoff sleep is skipped after timeouts
+// (since the requestTimeout already provided sufficient delay).
 func TestEndpointAccessibleController_sync_requestTimeout(t *testing.T) {
+	const attemptCount = 3
+
 	tests := []struct {
 		name      string
 		hangCount int32 // requests that time out before one succeeds
@@ -232,9 +252,11 @@ func TestEndpointAccessibleController_sync_requestTimeout(t *testing.T) {
 					},
 					httpClient:     &http.Client{Transport: &hangingTransport{maxHangs: tt.hangCount}},
 					requestTimeout: defaultRequestTimeout,
-					attemptCount:   3,
+					retryInterval:  10 * time.Second, // large — would be visible if not skipped
+					attemptCount:   attemptCount,
 				}
 
+				start := time.Now()
 				done := make(chan error, 1)
 				go func() {
 					done <- c.sync(context.Background(), syncCtx)
@@ -249,6 +271,14 @@ func TestEndpointAccessibleController_sync_requestTimeout(t *testing.T) {
 				err := <-done
 				if (err != nil) != tt.wantErr {
 					t.Errorf("sync() error = %v, wantErr %v", err, tt.wantErr)
+				}
+
+				// Elapsed time should be only hangCount * requestTimeout with no
+				// retryInterval added — backoff is skipped after timeouts.
+				elapsed := time.Since(start)
+				maxExpected := time.Duration(tt.hangCount)*(c.requestTimeout+time.Millisecond) + time.Second
+				if elapsed > maxExpected {
+					t.Errorf("elapsed %v exceeds %v; backoff sleep was not skipped after timeout", elapsed, maxExpected)
 				}
 			})
 		})
@@ -266,6 +296,19 @@ func (h *hangingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if h.count.Add(1) <= h.maxHangs {
 		<-req.Context().Done()
 		return nil, req.Context().Err()
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+}
+
+// failFastTransport returns 500 for the first maxFails requests, then 200.
+type failFastTransport struct {
+	count    atomic.Int32
+	maxFails int32
+}
+
+func (f *failFastTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if f.count.Add(1) <= f.maxFails {
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
 	}
 	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }

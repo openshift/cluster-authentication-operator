@@ -3,6 +3,7 @@ package endpointaccessible
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,8 +27,8 @@ import (
 const (
 	resyncInterval = 1 * time.Minute
 
-	defaultRequestTimeout = 10 * time.Second
-	defaultRetryInterval  = 5 * time.Second
+	defaultRequestTimeout = 5 * time.Second
+	defaultRetryInterval  = 2 * time.Second
 	defaultAttemptCount   = 3
 )
 
@@ -124,7 +125,7 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	// updated between attempts.
 	var (
 		endpoints []string
-		errors    []error
+		errs      []error
 	)
 	attempts := c.attemptCount
 	if attempts <= 0 {
@@ -138,16 +139,19 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	if retryInterval <= 0 {
 		retryInterval = defaultRetryInterval
 	}
+	prevTimedOut := false
 	for i := range attempts {
 		// Sleep before the next attempt to give the Endpoints object time to
-		// be updated (e.g. during a rolling upgrade).
-		if i > 0 {
+		// be updated (e.g. during a rolling upgrade). Skip the sleep when the
+		// previous attempt timed out — we already waited requestTimeout.
+		if i > 0 && !prevTimedOut {
 			select {
 			case <-time.After(retryInterval):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 		}
+		prevTimedOut = false
 
 		var err error
 		endpoints, err = c.endpointListFn()
@@ -200,18 +204,21 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		wg.Wait()
 		close(errCh)
 
-		errors = nil
+		errs = nil
 		for err := range errCh {
-			errors = append(errors, err)
+			errs = append(errs, err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				prevTimedOut = true
+			}
 		}
 
-		if len(endpoints) > 0 && len(errors) < len(endpoints) {
+		if len(endpoints) > 0 && len(errs) < len(endpoints) {
 			break // at least one endpoint responded; no need to retry
 		}
 	}
 
 	// if at least one endpoint responded, we are available
-	if len(endpoints) > 0 && len(errors) < len(endpoints) {
+	if len(endpoints) > 0 && len(errs) < len(endpoints) {
 		status := applyoperatorv1.OperatorStatus().
 			WithConditions(applyoperatorv1.OperatorCondition().
 				WithType(c.availableConditionName).
@@ -219,26 +226,26 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 				WithReason("AsExpected"))
 		if err := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); err != nil {
 			// append the error to be degraded
-			errors = append(errors, err)
+			errs = append(errs, err)
 		}
 	} else {
 		// in case there are no endpoints returned, go available=false
 		if len(endpoints) == 0 {
-			errors = append(errors, fmt.Errorf("failed to get oauth-openshift endpoints"))
+			errs = append(errs, fmt.Errorf("failed to get oauth-openshift endpoints"))
 		}
 		status := applyoperatorv1.OperatorStatus().
 			WithConditions(applyoperatorv1.OperatorCondition().
 				WithType(c.availableConditionName).
 				WithStatus(operatorv1.ConditionFalse).
 				WithReason("EndpointUnavailable").
-				WithMessage(utilerrors.NewAggregate(errors).Error()))
+				WithMessage(utilerrors.NewAggregate(errs).Error()))
 		if err := c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status); err != nil {
 			// append the error to be degraded
-			errors = append(errors, err)
+			errs = append(errs, err)
 		}
 	}
 
-	return utilerrors.NewAggregate(errors)
+	return utilerrors.NewAggregate(errs)
 }
 
 func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
