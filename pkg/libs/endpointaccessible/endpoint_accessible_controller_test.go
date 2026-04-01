@@ -39,7 +39,6 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 		name                      string
 		endpointListFn            EndpointListFunc
 		endpointCheckDisabledFunc EndpointCheckDisabledFunc
-		httpClient                *http.Client
 		wantErr                   bool
 	}{
 		{
@@ -47,7 +46,6 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 			endpointListFn: func() ([]string, error) {
 				return []string{okServer.URL}, nil
 			},
-			httpClient: okServer.Client(),
 		},
 		{
 			name: "endpoints lister error",
@@ -61,8 +59,7 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 			endpointListFn: func() ([]string, error) {
 				return []string{failServer.URL}, nil
 			},
-			httpClient: failServer.Client(),
-			wantErr:    true,
+			wantErr: true,
 		},
 		{
 			name: "invalid url",
@@ -95,7 +92,7 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 				operatorClient:            v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
 				endpointListFn:            tt.endpointListFn,
 				endpointCheckDisabledFunc: tt.endpointCheckDisabledFunc,
-				httpClient:                tt.httpClient,
+				httpClient:                http.DefaultClient,
 				attemptCount:              1,
 			}
 			if err := c.sync(ctx, newSyncContext(t)); (err != nil) != tt.wantErr {
@@ -199,7 +196,7 @@ func TestEndpointAccessibleController_sync_retryStaleEndpoint(t *testing.T) {
 			}
 			return []string{freshServer.URL}, nil
 		},
-		httpClient:    deadServer.Client(), // plain HTTP, works for both servers
+		httpClient:    http.DefaultClient,
 		attemptCount:  3,
 		retryInterval: time.Millisecond,
 	}
