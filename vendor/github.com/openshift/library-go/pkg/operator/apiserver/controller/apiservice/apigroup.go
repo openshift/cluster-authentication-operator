@@ -2,10 +2,13 @@ package apiservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/openshift/library-go/pkg/operator/bootstrap"
 	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/retry"
 )
 
 func preconditionsForEnabledAPIServices(endpointsListerForTargetNs corev1listers.EndpointsLister, configmapListerForKubeSystemNs corev1listers.ConfigMapLister) func(apiServices []*apiregistrationv1.APIService) (bool, error) {
@@ -72,21 +76,52 @@ func checkEndpointsPresence(endpointsLister corev1listers.EndpointsLister, apiSe
 	return true, nil
 }
 
+// checkDiscoveryForByAPIServices checks the given API services one by one,
+// returning a list of relevant error messages.
+//
+// This function implements a retry mechanism to make the checks more robust
+// to account for requests routed to obsolete pods, which is a known upstream issue:
+//
+//	https://github.com/kubernetes/kubernetes/issues/116965
+//
+// Regarding downstream, this affects e.g. OCPBUGS-23746 and surfaces as APIServices_Error status condition.
+//
+// TODO: Remove retries once the upstream issue is resolved.
 func checkDiscoveryForByAPIServices(ctx context.Context, recorder events.Recorder, restclient rest.Interface, apiServices []*apiregistrationv1.APIService) []string {
+	return checkDiscoveryForByAPIServicesWithCheckFn(ctx, recorder, restclient, apiServices, checkDiscoveryForAPIService)
+}
+
+// apiServiceCheckFunc checks a single API service and returns an error if it is not available.
+type apiServiceCheckFunc func(ctx context.Context, restclient rest.Interface, apiService *apiregistrationv1.APIService, requestTimeout time.Duration) error
+
+func checkDiscoveryForByAPIServicesWithCheckFn(ctx context.Context, recorder events.Recorder, restclient rest.Interface, apiServices []*apiregistrationv1.APIService, checkFn apiServiceCheckFunc) []string {
 	missingMessages := []string{}
+	retryCount := uint64(2)
 	for _, apiService := range apiServices {
-		err := checkDiscoveryForAPIService(ctx, restclient, apiService)
+		// Do the check thrice. Each request uses a 10-second timeout and there is a 5-second backoff between attempts,
+		// but only if the check didn't fail with a timeout. In that case the next check is executed straight away.
+		skippableBoff := retry.NewSkippableBackOff(backoff.NewConstantBackOff(5 * time.Second))
+		boff := backoff.WithContext(backoff.WithMaxRetries(skippableBoff, retryCount), ctx)
+		err := backoff.Retry(func() error {
+			err := checkFn(ctx, restclient, apiService, 10*time.Second)
+			if errors.Is(err, context.DeadlineExceeded) {
+				skippableBoff.SkipNext()
+			}
+			return err
+		}, boff)
 		if err != nil {
 			groupVersionString := fmt.Sprintf("%s.%s", apiService.Spec.Group, apiService.Spec.Version)
 			recorder.Warningf("OpenShiftAPICheckFailed", fmt.Sprintf("%q failed with %v", groupVersionString, err))
 			missingMessages = append(missingMessages, fmt.Sprintf("%q is not ready: %v", groupVersionString, err))
+			// Disable retries when a check fails. The subsequent ones will possibly fail for the same reason.
+			retryCount = 0
 		}
 	}
 
 	return missingMessages
 }
 
-func checkDiscoveryForAPIService(ctx context.Context, restclient rest.Interface, apiService *apiregistrationv1.APIService) error {
+func checkDiscoveryForAPIService(ctx context.Context, restclient rest.Interface, apiService *apiregistrationv1.APIService, requestTimeout time.Duration) error {
 	type statusErrTuple struct {
 		status int
 		err    error
@@ -106,7 +141,7 @@ func checkDiscoveryForAPIService(ctx context.Context, restclient rest.Interface,
 			defer wg.Done()
 			defer utilruntime.HandleCrash()
 
-			discoveryCtx, ctxCancelFn = context.WithTimeout(ctx, 25*time.Second)
+			discoveryCtx, ctxCancelFn = context.WithTimeout(ctx, requestTimeout)
 			defer ctxCancelFn()
 
 			result := restclient.Get().AbsPath("/apis/" + apiService.Spec.Group + "/" + apiService.Spec.Version).Do(discoveryCtx).StatusCode(&statusCode)
@@ -121,7 +156,7 @@ func checkDiscoveryForAPIService(ctx context.Context, restclient rest.Interface,
 	var errs = []error{}
 	for resTuple := range resultsCh {
 		if resTuple.status != http.StatusOK {
-			errs = append(errs, fmt.Errorf("an attempt failed with statusCode = %v, err = %v", resTuple.status, resTuple.err))
+			errs = append(errs, fmt.Errorf("an attempt failed with statusCode = %v: %w", resTuple.status, resTuple.err))
 			continue
 		}
 		successfulRequests++
