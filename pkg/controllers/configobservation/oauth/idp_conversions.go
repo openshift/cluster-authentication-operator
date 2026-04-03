@@ -58,7 +58,6 @@ func convertIdentityProviders(
 	secretsLister corelistersv1.SecretLister,
 	identityProviders []configv1.IdentityProvider,
 ) ([]interface{}, *datasync.ConfigSyncData, []error) {
-
 	converted := []osinv1.IdentityProvider{}
 	syncData := datasync.NewConfigSyncData()
 	errs := []error{}
@@ -426,7 +425,8 @@ func checkOIDCPasswordGrantFlow(
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return false, fmt.Errorf("OIDC token endpoint returned server error %d (%s)", resp.StatusCode, tokenURL)
+		klog.Errorf("OIDC token endpoint returned server error %d (%s)", resp.StatusCode, tokenURL)
+		return false, nil // no error returned so that observe_idps.go does not see this and fall back to existing config - it should proceed
 	}
 
 	respJSON := json.NewDecoder(resp.Body)
