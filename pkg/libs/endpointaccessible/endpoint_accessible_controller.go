@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -18,6 +20,7 @@ import (
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/endpointcheck"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -41,14 +44,14 @@ type endpointAccessibleController struct {
 	// httpClient overrides the default TLS client when set; used in tests.
 	httpClient *http.Client
 	// requestTimeout is the per-request context timeout.
-	// Defaults to defaultRequestTimeout when unset.
+	// Defaults to defaultRequestTimeout.
 	requestTimeout time.Duration
 	// retryInterval is the sleep duration between retry attempts.
-	// Defaults to defaultRetryInterval when unset.
+	// Defaults to defaultRetryInterval.
 	retryInterval time.Duration
 	// attemptCount is the maximum number of fetch+check cycles.
-	// Defaults to defaultAttemptCount when unset.
-	attemptCount int
+	// Defaults to defaultAttemptCount.
+	attemptCount uint64
 }
 
 type EndpointListFunc func() ([]string, error)
@@ -75,6 +78,9 @@ func NewEndpointAccessibleController(
 		getTLSConfigFn:            getTLSConfigFn,
 		availableConditionName:    name + "EndpointAccessibleControllerAvailable",
 		endpointCheckDisabledFunc: endpointCheckDisabledFunc,
+		requestTimeout:            defaultRequestTimeout,
+		retryInterval:             defaultRetryInterval,
+		attemptCount:              defaultAttemptCount,
 	}
 
 	return factory.New().
@@ -92,7 +98,7 @@ func NewEndpointAccessibleController(
 func humanizeError(err error) error {
 	switch {
 	case strings.Contains(err.Error(), ":53: no such host"):
-		return fmt.Errorf("%v (this is likely result of malfunctioning DNS server)", err)
+		return fmt.Errorf("%w (this is likely result of malfunctioning DNS server)", err)
 	default:
 		return err
 	}
@@ -123,49 +129,17 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	// upgrade are replaced with fresh ones as soon as the Endpoints object is
 	// updated between attempts.
 	var (
-		endpoints []string
-		errs      []error
+		endpoints       []string
+		endpointListErr error
+		errs            []error
 	)
-	attempts := c.attemptCount
-	if attempts <= 0 {
-		attempts = defaultAttemptCount
-	}
-	requestTimeout := c.requestTimeout
-	if requestTimeout <= 0 {
-		requestTimeout = defaultRequestTimeout
-	}
-	retryInterval := c.retryInterval
-	if retryInterval <= 0 {
-		retryInterval = defaultRetryInterval
-	}
-	prevTimedOut := false
-	for i := range attempts {
-		// Sleep before the next attempt to give the Endpoints object time to
-		// be updated (e.g. during a rolling upgrade). Skip the sleep when the
-		// previous attempt timed out — we already waited requestTimeout.
-		if i > 0 && !prevTimedOut {
-			select {
-			case <-time.After(retryInterval):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		prevTimedOut = false
-
+	checkFn := func(ctx context.Context, requestTimeout time.Duration) error {
 		var err error
 		endpoints, err = c.endpointListFn()
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				status := applyoperatorv1.OperatorStatus().
-					WithConditions(applyoperatorv1.OperatorCondition().
-						WithType(c.availableConditionName).
-						WithStatus(operatorv1.ConditionFalse).
-						WithReason("ResourceNotFound").
-						WithMessage(err.Error()))
-				return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status)
-			}
-			// Do not retry on endpoint list error since these are not transient.
-			return err
+			// Errors encountered when listing endpoints are most probably not transient, so we just fail permanently.
+			endpointListErr = err
+			return backoff.Permanent(err)
 		}
 
 		// Check all the endpoints in parallel. This matters for pods.
@@ -203,14 +177,30 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		errs = nil
 		for err := range errCh {
 			errs = append(errs, err)
-			if errors.Is(err, context.DeadlineExceeded) {
-				prevTimedOut = true
-			}
 		}
 
 		if len(endpoints) > 0 && len(errs) < len(endpoints) {
-			break // at least one endpoint responded; no need to retry
+			return nil // at least one endpoint responded; no need to retry
 		}
+		if len(errs) > 0 {
+			return utilerrors.NewAggregate(errs)
+		}
+		return errors.New("no endpoints")
+	}
+
+	_ = endpointcheck.Check(ctx, c.requestTimeout, c.retryInterval, c.attemptCount, checkFn)
+
+	if err := endpointListErr; err != nil {
+		if apierrors.IsNotFound(err) {
+			status := applyoperatorv1.OperatorStatus().
+				WithConditions(applyoperatorv1.OperatorCondition().
+					WithType(c.availableConditionName).
+					WithStatus(operatorv1.ConditionFalse).
+					WithReason("ResourceNotFound").
+					WithMessage(err.Error()))
+			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, status)
+		}
+		return err
 	}
 
 	// if at least one endpoint responded, we are available
