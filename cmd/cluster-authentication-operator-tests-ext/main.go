@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	// Import init package FIRST to configure klog before ANY other non-stdlib imports.
+	// This prevents klog warnings from corrupting JSON output during test listing.
+	_ "github.com/openshift/cluster-authentication-operator/pkg/test/init"
+
 	"github.com/spf13/cobra"
 	"k8s.io/component-base/cli"
 
@@ -23,15 +27,16 @@ import (
 )
 
 func main() {
-	// Fix klog output corruption for test listing.
+	// Reconfigure klog for normal operation after init phase.
 	//
-	// Background: klog warnings were corrupting JSON output to stdout during
-	// 'openshift-tests list' commands, causing "invalid character 'W'" parsing errors
-	// in CI. This explicitly redirects all klog output to stderr, ensuring stdout
-	// contains only clean JSON for CI consumption.
+	// The init package (pkg/test/init) suppresses klog during initialization to prevent
+	// warnings from corrupting JSON output during 'openshift-tests list' commands.
+	// Now that initialization is complete, we redirect klog to stderr for proper logging
+	// while keeping stdout clean for JSON output.
 	//
-	// Root cause still under investigation - some dependency appears to redirect
-	// klog to stdout despite its default -logtostderr=true setting.
+	// This two-phase approach fixes "invalid character 'W'" parsing errors in CI:
+	// 1. init() phase: klog.SetOutput(io.Discard) - suppress warnings during init
+	// 2. main() phase: klog.SetOutput(os.Stderr) - enable logging to stderr
 	//
 	// See: https://github.com/openshift/cluster-authentication-operator/pull/857 (revert)
 	//      https://github.com/openshift/cluster-authentication-operator/pull/859 (fix)
