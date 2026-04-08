@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -95,16 +97,19 @@ func checkDiscoveryForByAPIServicesWithCheckFn(ctx context.Context, recorder eve
 	missingMessages := []string{}
 	attemptCount := uint64(3)
 	for _, apiService := range apiServices {
-		// Do the check up to attemptCount times. Each request uses a 10-second timeout and there is
-		// a 5-second backoff between attempts, but only if the check didn't fail with a timeout.
-		// In that case the next check is executed straight away.
-		err := endpointcheck.Check(ctx, 10*time.Second, 5*time.Second, attemptCount, func(ctx context.Context, requestTimeout time.Duration) error {
+		// Do the check attemptCount times. Each request uses a 10-second timeout and there is
+		// a 5-second backoff between attempts, but shortened if the check failed with a timeout
+		// (since the request already consumed wall-clock time).
+		err := endpointcheck.Check(ctx, 10*time.Second, backoff.NewConstantBackOff(5*time.Second), attemptCount, func(ctx context.Context, requestTimeout time.Duration) error {
 			return checkFn(ctx, restclient, apiService, requestTimeout)
 		})
 		if err != nil {
 			groupVersionString := fmt.Sprintf("%s.%s", apiService.Spec.Group, apiService.Spec.Version)
 			recorder.Warningf("OpenShiftAPICheckFailed", fmt.Sprintf("%q failed with %v", groupVersionString, err))
 			missingMessages = append(missingMessages, fmt.Sprintf("%q is not ready: %v", groupVersionString, err))
+			if ctx.Err() != nil {
+				break
+			}
 			// Disable retries when a check fails. The subsequent ones will possibly fail for the same reason.
 			attemptCount = 1
 		}

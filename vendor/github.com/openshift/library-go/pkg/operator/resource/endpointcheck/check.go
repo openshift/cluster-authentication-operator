@@ -14,40 +14,29 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 )
 
-const (
-	DefaultRequestTimeout = 5 * time.Second
-	DefaultRetryInterval  = 2 * time.Second
-	DefaultAttemptCount   = 3
-)
-
 // CheckFunc is called on each attempt with the parent context and the
 // per-request timeout. Return nil on success, a regular error to trigger
 // a retry, or backoff.Permanent(err) to abort immediately.
 type CheckFunc func(ctx context.Context, requestTimeout time.Duration) error
 
-// Check runs checkFn up to attemptCount times, sleeping retryInterval between
-// attempts. Zero-valued parameters fall back to their Default* constants.
-// If checkFn returns context.DeadlineExceeded the next backoff sleep is
-// skipped, since the request timeout already consumed enough wall-clock time.
-func Check(ctx context.Context, requestTimeout time.Duration, retryInterval time.Duration, attemptCount uint64, checkFn CheckFunc) error {
-	if requestTimeout == 0 {
-		requestTimeout = DefaultRequestTimeout
-	}
-	if retryInterval == 0 {
-		retryInterval = DefaultRetryInterval
-	}
-	if attemptCount == 0 {
-		attemptCount = DefaultAttemptCount
+// Check runs checkFn up to maxAttempts times, sleeping according to
+// retryBackoff between attempts. If checkFn returns context.DeadlineExceeded
+// the next backoff interval is shortened by the elapsed request time, since
+// the request timeout already consumed wall-clock time.
+//
+// When maxAttempts = 0, it's effective counted as maxAttempts = 1.
+func Check(ctx context.Context, requestTimeout time.Duration, retryBackoff backoff.BackOff, maxAttempts uint64, checkFn CheckFunc) error {
+	if maxAttempts == 0 {
+		maxAttempts = 1
 	}
 
-	// Run checkFn given number of times. Getting a timeout from checkFn causes an immediate retry,
-	// we don't wait another retryInterval before performing the next check.
-	skippableBoff := retry.NewSkippableBackOff(backoff.NewConstantBackOff(retryInterval))
-	boff := backoff.WithContext(backoff.WithMaxRetries(skippableBoff, attemptCount-1), ctx)
+	cuttableBoff := retry.NewCuttableBackOff(retryBackoff)
+	boff := backoff.WithContext(backoff.WithMaxRetries(cuttableBoff, maxAttempts-1), ctx)
 	return backoff.Retry(func() error {
+		start := time.Now()
 		err := checkFn(ctx, requestTimeout)
 		if errors.Is(err, context.DeadlineExceeded) {
-			skippableBoff.SkipNext()
+			cuttableBoff.CutNextBy(time.Since(start))
 		}
 		return err
 	}, boff)

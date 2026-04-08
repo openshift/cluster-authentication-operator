@@ -1,52 +1,51 @@
 package retry
 
 import (
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 )
 
-// SkippableBackOff wraps another BackOff and returns 0 (no delay) for the
-// next interval when SkipNext has been called. This is useful, for example,
-// when the previous operation already consumed time waiting for a timeout
-// and adding additional backoff delay would be unnecessarily slow.
+// CuttableBackOff wraps another BackOff and subtracts a previously recorded
+// duration from the next interval when CutNextBy has been called. This is
+// useful when the previous operation already consumed wall-clock time (e.g.
+// waiting for a request timeout) and adding the full backoff delay on top
+// would be unnecessarily slow. If the cut exceeds the delegate's interval
+// the result is clamped to zero.
 //
-// Note: when SkipNext is set, the delegate's NextBackOff is not called, so
-// wrappers like backoff.WithMaxRetries will not count the skipped interval.
-type SkippableBackOff struct {
+// CuttableBackOff is not thread-safe as the core backoff library also isn't.
+type CuttableBackOff struct {
 	delegate backoff.BackOff
-	skip     bool
-	mu       sync.Mutex
+	cut      time.Duration
 }
 
-// NewSkippableBackOff creates a new SkippableBackOff wrapping delegate.
-func NewSkippableBackOff(delegate backoff.BackOff) *SkippableBackOff {
-	return &SkippableBackOff{delegate: delegate}
+// NewCuttableBackOff creates a new CuttableBackOff wrapping delegate.
+func NewCuttableBackOff(delegate backoff.BackOff) *CuttableBackOff {
+	return &CuttableBackOff{delegate: delegate}
 }
 
-func (b *SkippableBackOff) NextBackOff() time.Duration {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.skip {
-		b.skip = false
-		return 0
+func (b *CuttableBackOff) NextBackOff() time.Duration {
+	next := b.delegate.NextBackOff()
+	if next == backoff.Stop {
+		return backoff.Stop
 	}
-	return b.delegate.NextBackOff()
+
+	cut := b.cut
+	b.cut = 0
+	if adjusted := next - cut; adjusted > 0 {
+		return adjusted
+	}
+	return 0
 }
 
-func (b *SkippableBackOff) Reset() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.skip = false
+func (b *CuttableBackOff) Reset() {
+	b.cut = 0
 	b.delegate.Reset()
 }
 
-// SkipNext causes the next call to NextBackOff to return 0 (no delay).
-// The flag stays set until NextBackOff consumes it, so multiple calls
-// before a single NextBackOff are safe.
-func (b *SkippableBackOff) SkipNext() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.skip = true
+// CutNextBy causes the next call to NextBackOff to subtract d from the
+// delegate's interval. The value is consumed by a single NextBackOff call;
+// multiple calls before NextBackOff overwrite the previous value.
+func (b *CuttableBackOff) CutNextBy(d time.Duration) {
+	b.cut = d
 }
