@@ -41,8 +41,8 @@ type endpointAccessibleController struct {
 	getTLSConfigFn            EndpointTLSConfigFunc
 	availableConditionName    string
 	endpointCheckDisabledFunc EndpointCheckDisabledFunc
-	// httpClient overrides the default TLS client when set; used in tests.
-	httpClient *http.Client
+	// transport overrides the default TLS transport when set; used in tests.
+	transport http.RoundTripper
 	// requestTimeout is the per-request context timeout.
 	// Defaults to defaultRequestTimeout.
 	requestTimeout time.Duration
@@ -116,13 +116,9 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		}
 	}
 
-	client := c.httpClient
-	if client == nil {
-		var err error
-		client, err = c.buildTLSClient()
-		if err != nil {
-			return err
-		}
+	client, err := c.buildHTTPClient()
+	if err != nil {
+		return err
 	}
 
 	// Retry the full fetch+check cycle so that stale pod IPs from a rolling
@@ -234,19 +230,23 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 	return utilerrors.NewAggregate(errs)
 }
 
-func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-	if c.getTLSConfigFn != nil {
-		tlsConfig, err := c.getTLSConfigFn()
-		if err != nil {
-			return nil, err
+func (c *endpointAccessibleController) buildHTTPClient() (*http.Client, error) {
+	transport := c.transport
+	if transport == nil {
+		t := &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 		}
-		transport.TLSClientConfig = tlsConfig
+		if c.getTLSConfigFn != nil {
+			tlsConfig, err := c.getTLSConfigFn()
+			if err != nil {
+				return nil, err
+			}
+			t.TLSClientConfig = tlsConfig
+		}
+		transport = t
 	}
 	return &http.Client{
 		Transport: transport,

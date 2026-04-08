@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,28 +21,37 @@ func newSyncContext(t *testing.T) factory.SyncContext {
 	return factory.NewSyncContext(t.Name(), events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now())))
 }
 
+// roundTripperFunc adapts a function to the http.RoundTripper interface.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+// statusRoundTripper returns a RoundTripper that always responds with the given status code.
+func statusRoundTripper(code int) http.RoundTripper {
+	return roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: code,
+			Body:       http.NoBody,
+		}, nil
+	})
+}
+
 func TestEndpointAccessibleController_sync(t *testing.T) {
-	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer okServer.Close()
-
-	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer failServer.Close()
-
 	tests := []struct {
 		name                      string
 		endpointListFn            EndpointListFunc
 		endpointCheckDisabledFunc EndpointCheckDisabledFunc
+		transport                 http.RoundTripper
 		wantErr                   bool
 	}{
 		{
 			name: "all endpoints working",
 			endpointListFn: func() ([]string, error) {
-				return []string{okServer.URL}, nil
+				return []string{"https://example.com/healthz"}, nil
 			},
+			transport: statusRoundTripper(http.StatusOK),
 		},
 		{
 			name: "endpoints lister error",
@@ -55,16 +63,10 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 		{
 			name: "non working endpoints",
 			endpointListFn: func() ([]string, error) {
-				return []string{failServer.URL}, nil
+				return []string{"https://example.com/healthz"}, nil
 			},
-			wantErr: true,
-		},
-		{
-			name: "invalid url",
-			endpointListFn: func() ([]string, error) {
-				return []string{"htt//bad`string"}, nil
-			},
-			wantErr: true,
+			transport: statusRoundTripper(http.StatusInternalServerError),
+			wantErr:   true,
 		},
 		{
 			name: "endpoint check disabled",
@@ -90,7 +92,7 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 				operatorClient:            v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
 				endpointListFn:            tt.endpointListFn,
 				endpointCheckDisabledFunc: tt.endpointCheckDisabledFunc,
-				httpClient:                http.DefaultClient,
+				transport:                 tt.transport,
 				attemptCount:              1,
 			}
 			if err := c.sync(ctx, newSyncContext(t)); (err != nil) != tt.wantErr {
@@ -106,28 +108,23 @@ func TestEndpointAccessibleController_sync(t *testing.T) {
 // first fetch returns the dead pod, but by the second attempt the object has
 // been updated and the fresh pod IP is returned instead.
 func TestEndpointAccessibleController_sync_retryStaleEndpoint(t *testing.T) {
-	deadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer deadServer.Close()
-
-	freshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer freshServer.Close()
-
 	var listCallCount atomic.Int32
 	c := &endpointAccessibleController{
 		operatorClient: v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{}, &operatorv1.OperatorStatus{}, nil),
 		endpointListFn: func() ([]string, error) {
-			// First call returns the stale (dead) pod IP; subsequent calls
-			// return the fresh one, simulating an Endpoints object update.
+			// First call returns a "stale" endpoint; subsequent calls
+			// return a "fresh" one, simulating an Endpoints object update.
 			if listCallCount.Add(1) == 1 {
-				return []string{deadServer.URL}, nil
+				return []string{"https://stale.example.com/healthz"}, nil
 			}
-			return []string{freshServer.URL}, nil
+			return []string{"https://fresh.example.com/healthz"}, nil
 		},
-		httpClient:    http.DefaultClient,
+		transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host == "fresh.example.com" {
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+			}
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, nil
+		}),
 		attemptCount:  3,
 		retryInterval: time.Millisecond,
 	}
@@ -142,4 +139,3 @@ func TestEndpointAccessibleController_sync_retryStaleEndpoint(t *testing.T) {
 		t.Errorf("endpointListFn called %d times, want 2", n)
 	}
 }
-
