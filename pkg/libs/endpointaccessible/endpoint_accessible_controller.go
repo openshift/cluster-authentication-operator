@@ -184,7 +184,7 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 		return errors.New("no endpoints")
 	}
 
-	_ = endpointcheck.Check(ctx, c.requestTimeout, c.retryInterval, c.attemptCount, checkFn)
+	_ = endpointcheck.Check(ctx, c.requestTimeout, backoff.NewConstantBackOff(c.retryInterval), c.attemptCount, checkFn)
 
 	if err := endpointListErr; err != nil {
 		if apierrors.IsNotFound(err) {
