@@ -1,13 +1,16 @@
 package common
 
 import (
+	"fmt"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	test "github.com/openshift/cluster-authentication-operator/test/library"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +34,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 		nodeStatuses       []operatorv1.NodeStatus
 		expectAvailable    bool
 		expectError        bool
+		featureGates       featuregates.FeatureGateAccess
 	}{
 		{
 			name:               "no node statuses observed",
@@ -40,6 +44,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			authType:           configv1.AuthenticationTypeOIDC,
 			expectAvailable:    false,
 			expectError:        true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "some node revisions are zero",
@@ -54,6 +64,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "node revisions are zero",
@@ -68,13 +84,19 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc disabled, no rollout",
 			authInformerSynced: true,
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
-			configMaps:         []*corev1.ConfigMap{cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC)},
+			configMaps:         []*corev1.ConfigMap{cm(kasNamespace, "config-10", "config.yaml", kasConfigJSONWithoutOIDC)},
 			authType:           configv1.AuthenticationTypeIntegratedOAuth,
 			nodeStatuses: []operatorv1.NodeStatus{
 				{CurrentRevision: 10},
@@ -83,6 +105,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting enabled, rollout in progress",
@@ -90,9 +118,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
+				cm(kasNamespace, "config-10", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -102,6 +130,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting enabled, rollout in progress, one node ready",
@@ -109,9 +143,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
+				cm(kasNamespace, "config-10", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -121,6 +155,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting enabled, rollout in progress, two nodes ready",
@@ -128,9 +168,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-10", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
+				cm(kasNamespace, "config-10", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -140,6 +180,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc got enabled",
@@ -147,8 +193,8 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -158,6 +204,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: true,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc enabled, rollout in progress",
@@ -165,10 +217,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -178,6 +230,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: true,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc enabled, rollout in progress, one node ready",
@@ -185,10 +243,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -198,6 +256,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: true,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc enabled, rollout in progress, two nodes ready",
@@ -205,10 +269,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -218,6 +282,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: true,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc still enabled",
@@ -225,10 +295,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeOIDC,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -238,6 +308,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: true,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting disabled, rollout in progress",
@@ -245,11 +321,11 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-13", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-13", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeIntegratedOAuth,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -259,6 +335,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting disabled, rollout in progress, one node ready",
@@ -266,11 +348,11 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-13", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-13", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeIntegratedOAuth,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -280,6 +362,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc getting disabled, rollout in progress, two nodes ready",
@@ -288,11 +376,11 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			cmInformerSynced:   true,
 			authType:           configv1.AuthenticationTypeIntegratedOAuth,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-13", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-13", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			nodeStatuses: []operatorv1.NodeStatus{
 				{CurrentRevision: 13},
@@ -301,6 +389,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "oidc got disabled",
@@ -308,11 +402,11 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			kasInformerSynced:  true,
 			cmInformerSynced:   true,
 			configMaps: []*corev1.ConfigMap{
-				cm("config-11", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-12", "config.yaml", kasConfigJSONWithOIDC),
-				cm("config-13", "config.yaml", kasConfigJSONWithoutOIDC),
-				cm("auth-config-11", "", ""),
-				cm("auth-config-12", "", ""),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-12", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "config-13", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+				cm(kasNamespace, "auth-config-12", "", ""),
 			},
 			authType: configv1.AuthenticationTypeIntegratedOAuth,
 			nodeStatuses: []operatorv1.NodeStatus{
@@ -322,6 +416,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "auth informer not synced",
@@ -331,6 +431,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			authType:           configv1.AuthenticationTypeOIDC,
 			expectAvailable:    false,
 			expectError:        true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "kas informer not synced",
@@ -345,6 +451,12 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
 		},
 		{
 			name:               "configmap informer not synced",
@@ -359,10 +471,108 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			},
 			expectAvailable: false,
 			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
+		},
+		{
+			name:               "initial feature gates not observed",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: false,
+			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccessForTesting(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				make(chan struct{}),
+				nil,
+			),
+		},
+		{
+			name:               "current feature gates not available",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			authType:           configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: false,
+			expectError:     true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccessForTesting(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				makeClosedChannel(),
+				fmt.Errorf("boom"),
+			),
+		},
+		{
+			name:               "oidc getting enabled, rollout in progress, FeatureGateExternalOIDCExternalClaimsSourcing enabled, oauth-apiserver/auth-config not exists, oidc not available",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			// Keeping existing configmap revisions shows that we ignore them
+			configMaps: []*corev1.ConfigMap{
+				cm(kasNamespace, "config-10", "config.yaml", kasConfigJSONWithoutOIDC),
+				cm(kasNamespace, "config-11", "config.yaml", kasConfigJSONWithOIDC),
+				cm(kasNamespace, "auth-config-11", "", ""),
+			},
+			authType: configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10, TargetRevision: 11},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: false,
+			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{},
+			),
+		},
+		{
+			name:               "oidc getting enabled, rollout complete, FeatureGateExternalOIDCExternalClaimsSourcing enabled, oauth-apiserver/auth-config exists, oidc available",
+			authInformerSynced: true,
+			kasInformerSynced:  true,
+			cmInformerSynced:   true,
+			configMaps: []*corev1.ConfigMap{
+				cm("openshift-oauth-apiserver", "auth-config", "", ""),
+			},
+			authType: configv1.AuthenticationTypeOIDC,
+			nodeStatuses: []operatorv1.NodeStatus{
+				{CurrentRevision: 10, TargetRevision: 11},
+				{CurrentRevision: 10},
+				{CurrentRevision: 10},
+			},
+			expectAvailable: true,
+			expectError:     false,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{},
+			),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-
 			cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			for _, cm := range tt.configMaps {
 				cmIndexer.Add(cm)
@@ -397,6 +607,8 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), tt.authInformerSynced),
 				test.NewFakeSharedIndexInformerWithSync(operatorv1listers.NewKubeAPIServerLister(kasIndexer), tt.kasInformerSynced),
 				test.NewFakeSharedIndexInformerWithSync(corelistersv1.NewConfigMapLister(cmIndexer), tt.cmInformerSynced),
+				test.NewFakeSharedIndexInformerWithSync(corelistersv1.NewConfigMapLister(cmIndexer), tt.cmInformerSynced),
+				tt.featureGates,
 			)
 
 			available, err := authConfigChecker.OIDCAvailable()
@@ -412,11 +624,13 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 	}
 }
 
-func cm(name, dataKey, dataValue string) *corev1.ConfigMap {
+const kasNamespace = "openshift-kube-apiserver"
+
+func cm(namespace, name, dataKey, dataValue string) *corev1.ConfigMap {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "openshift-kube-apiserver",
+			Namespace: namespace,
 		},
 	}
 
@@ -427,4 +641,10 @@ func cm(name, dataKey, dataValue string) *corev1.ConfigMap {
 	}
 
 	return cm
+}
+
+func makeClosedChannel() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }
