@@ -1,9 +1,9 @@
 reviewers:
-  - everettraven
+  - control-plane-approvers
   - ibihim
   - liouk
 approvers:
-  - everettraven
+  - control-plane-approvers
   - ibihim
   - liouk
 components: apiserver-auth
