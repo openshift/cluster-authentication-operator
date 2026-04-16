@@ -16,6 +16,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -218,8 +219,8 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 
 	if !preconditionsReady {
 		var message string
-		for _, err := range errs {
-			message = message + err.Error() + "\n"
+		if err := errors.Join(errs...); err != nil {
+			message = err.Error()
 		}
 		if len(message) == 0 {
 			message = "the operator didn't specify what preconditions are missing"
@@ -249,9 +250,9 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 	}
 
 	if len(errs) > 0 {
-		message := ""
-		for _, err := range errs {
-			message = message + err.Error() + "\n"
+		var message string
+		if err := errors.Join(errs...); err != nil {
+			message = err.Error()
 		}
 		workloadDegradedCondition = workloadDegradedCondition.
 			WithStatus(operatorv1.ConditionTrue).
@@ -298,10 +299,7 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 			WithReason("AsExpected")
 	}
 
-	desiredReplicas := int32(1)
-	if workload.Spec.Replicas != nil {
-		desiredReplicas = *(workload.Spec.Replicas)
-	}
+	desiredReplicas := ptr.Deref(workload.Spec.Replicas, 1)
 
 	// If the workload is up to date, then we are no longer progressing
 	workloadAtHighestGeneration := workload.ObjectMeta.Generation == workload.Status.ObservedGeneration
