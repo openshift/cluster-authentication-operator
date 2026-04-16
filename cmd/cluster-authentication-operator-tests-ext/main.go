@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	// Import init package FIRST to configure klog before ANY other non-stdlib imports.
+	// This prevents klog warnings from corrupting JSON output during test listing.
+	_ "github.com/openshift/cluster-authentication-operator/pkg/test/init"
+
 	"github.com/spf13/cobra"
 	"k8s.io/component-base/cli"
 
@@ -13,11 +17,31 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-perf"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-rotation"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-oidc"
 
 	"k8s.io/klog/v2"
 )
 
 func main() {
+	// Reconfigure klog for normal operation after init phase.
+	//
+	// The init package (pkg/test/init) suppresses klog during initialization to prevent
+	// warnings from corrupting JSON output during 'openshift-tests list' commands.
+	// Now that initialization is complete, we redirect klog to stderr for proper logging
+	// while keeping stdout clean for JSON output.
+	//
+	// This two-phase approach fixes "invalid character 'W'" parsing errors in CI:
+	// 1. init() phase: klog.SetOutput(io.Discard) - suppress warnings during init
+	// 2. main() phase: klog.SetOutput(os.Stderr) - enable logging to stderr
+	//
+	// See: https://github.com/openshift/cluster-authentication-operator/pull/857 (revert)
+	//      https://github.com/openshift/cluster-authentication-operator/pull/859 (fix)
+	klog.SetOutput(os.Stderr)
+
 	cmd, err := newOperatorTestCommand()
 	if err != nil {
 		klog.Fatal(err)
@@ -88,6 +112,46 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 			`name.contains("[Disruptive]")`,
 		},
 		ClusterStability: oteextension.ClusterStabilityDisruptive,
+	})
+
+	// The following suite runs basic encryption tests that modify cluster-wide encryption configuration.
+	// These tests must run serially as they configure encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && !name.contains("Rotation") && !name.contains("Perf") && !name.contains("KMS")`,
+		},
+	})
+
+	// The following suite runs encryption rotation tests.
+	// These tests must run serially as they configure encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-rotation/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("Rotation")`,
+		},
+	})
+
+	// The following suite runs encryption performance tests.
+	// These tests must run serially as they configure encryption settings and measure performance.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-perf/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("Perf")`,
+		},
+	})
+
+	// The following suite runs KMS encryption tests.
+	// These tests must run serially as they configure KMS encryption settings.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/operator-encryption-kms/serial",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Encryption]") && name.contains("[Serial]") && name.contains("KMS")`,
+		},
 	})
 
 	specs, err := oteginkgo.BuildExtensionTestSpecsFromOpenShiftGinkgoSuite()
