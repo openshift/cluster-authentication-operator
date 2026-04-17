@@ -3,6 +3,7 @@ module github.com/openshift/cluster-authentication-operator
 go 1.25.0
 
 require (
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/ghodss/yaml v1.0.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
@@ -11,9 +12,9 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/openshift-eng/openshift-tests-extension v0.0.0-20251205182537-ff5553e56f33
-	github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c
+	github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
 	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
-	github.com/openshift/client-go v0.0.0-20260302182750-20813ce71ca6
+	github.com/openshift/client-go v0.0.0-20260317180604-743f664b82d1
 	github.com/openshift/library-go v0.0.0-20260303171201-5d9eb6295ff6
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/spf13/cobra v1.10.0
@@ -46,7 +47,6 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
@@ -132,3 +132,6 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+// branch: apigroup-check-retry
+replace github.com/openshift/library-go => github.com/tchap/library-go v0.0.0-20260408133218-500875cc33b0
