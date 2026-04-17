@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
@@ -19,23 +21,30 @@ import (
 )
 
 type AuthConfigChecker struct {
-	authenticationsInformer        cache.SharedIndexInformer
-	kubeAPIServersInformer         cache.SharedIndexInformer
-	kasNamespaceConfigMapsInformer cache.SharedIndexInformer
+	authenticationsInformer         cache.SharedIndexInformer
+	kubeAPIServersInformer          cache.SharedIndexInformer
+	kasNamespaceConfigMapsInformer  cache.SharedIndexInformer
+	oaasNamespaceConfigMapsInformer cache.SharedIndexInformer
 
-	authLister         configv1listers.AuthenticationLister
-	kasLister          operatorv1listers.KubeAPIServerLister
-	kasConfigMapLister corelistersv1.ConfigMapLister
+	authLister          configv1listers.AuthenticationLister
+	kasLister           operatorv1listers.KubeAPIServerLister
+	kasConfigMapLister  corelistersv1.ConfigMapLister
+	oaasConfigMapLister corelistersv1.ConfigMapLister
+
+	featureGateAccessor featuregates.FeatureGateAccess
 }
 
-func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, configmaps corev1informers.ConfigMapInformer) AuthConfigChecker {
+func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, kasConfigMaps, oaasConfigMaps corev1informers.ConfigMapInformer, featureGateAccessor featuregates.FeatureGateAccess) AuthConfigChecker {
 	return AuthConfigChecker{
-		authenticationsInformer:        authentications.Informer(),
-		kubeAPIServersInformer:         kubeapiservers.Informer(),
-		kasNamespaceConfigMapsInformer: configmaps.Informer(),
-		authLister:                     authentications.Lister(),
-		kasLister:                      kubeapiservers.Lister(),
-		kasConfigMapLister:             configmaps.Lister(),
+		authenticationsInformer:         authentications.Informer(),
+		kubeAPIServersInformer:          kubeapiservers.Informer(),
+		kasNamespaceConfigMapsInformer:  kasConfigMaps.Informer(),
+		oaasNamespaceConfigMapsInformer: oaasConfigMaps.Informer(),
+		authLister:                      authentications.Lister(),
+		kasLister:                       kubeapiservers.Lister(),
+		kasConfigMapLister:              kasConfigMaps.Lister(),
+		oaasConfigMapLister:             oaasConfigMaps.Lister(),
+		featureGateAccessor:             featureGateAccessor,
 	}
 }
 
@@ -48,6 +57,7 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 		c.authenticationsInformer.(T),
 		c.kubeAPIServersInformer.(T),
 		c.kasNamespaceConfigMapsInformer.(T),
+		c.oaasNamespaceConfigMapsInformer.(T),
 	}
 }
 
@@ -65,13 +75,51 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 	}
 
 	if !c.kasNamespaceConfigMapsInformer.HasSynced() {
-		return false, fmt.Errorf("AuthConfigChecker configmaps informer has not synced yet")
+		return false, fmt.Errorf("AuthConfigChecker kube-apiserver namespace configmaps informer has not synced yet")
+	}
+
+	if !c.oaasNamespaceConfigMapsInformer.HasSynced() {
+		return false, fmt.Errorf("AuthConfigChecker oauth-apiserver namespace configmaps informer has not synced yet")
+	}
+
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, fmt.Errorf("AuthConfigChecker initial feature gates not yet observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, fmt.Errorf("AuthConfigChecker getting current feature gates: %w", err)
 	}
 
 	if auth, err := c.authLister.Get("cluster"); err != nil {
 		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
 	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		return false, nil
+	}
+
+	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled then we are attempting to use the new
+	// external oidc architecture that re-uses the oauth-apiserver as a webhook authenticator
+	// with a new mode of operation. Because of this shift back to using the oauth-apiserver, it is
+	// safe to assume that if the authentications/cluster resource has its spec.type set to OIDC
+	// that OIDC is "available" as we no longer have to actually wait for a kube-apiserver revision rollout
+	// to have completed prior to switching to the external OIDC operational mode.
+	// The only thing we need to ensure is that there is _some_ configuration that has been successfully
+	// synced to the openshift-oauth-apiserver namespace before attempting to rollout any new configurations.
+	// Doing so ensures that any errors encountered during the generation of the authentication configuration
+	// file doesn't cause the entirety of our authentication stack from falling over.
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		cm, err := c.oaasConfigMapLister.ConfigMaps("openshift-oauth-apiserver").Get("auth-config")
+		if errors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, fmt.Errorf("getting configmap openshift-oauth-apiserver/auth-config: %w", err)
+		}
+
+		if _, ok := cm.Data["auth-config.json"]; !ok {
+			return false, fmt.Errorf("configmap openshift-oauth-apiserver/auth-config does not contain auth-config.json key")
+		}
+
+		return true, nil
 	}
 
 	kas, err := c.kasLister.Get("cluster")

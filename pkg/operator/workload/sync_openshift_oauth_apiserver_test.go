@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -63,10 +65,13 @@ var unsupportedConfigOverridesAPIServerArgsJSON = `
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
-		name            string
-		goldenFile      string
-		operator        *operatorv1.Authentication
-		expectedActions []string
+		name               string
+		goldenFile         string
+		operator           *operatorv1.Authentication
+		expectedActions    []string
+		featureGates       featuregates.FeatureGateAccess
+		authenticationType configv1.AuthenticationType
+		authConfigChecker  authConfigChecker
 	}{
 		// scenario 1
 		{
@@ -87,6 +92,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateKMSEncryption,
+				},
+			),
 		},
 
 		// scenario 2
@@ -110,6 +122,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateKMSEncryption,
+				},
+			),
 		},
 
 		// scenario 3
@@ -134,6 +153,198 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				"get:deployments:openshift-oauth-apiserver:apiserver",
 				"create:deployments:openshift-oauth-apiserver:apiserver",
 			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateKMSEncryption,
+				},
+			),
+		},
+		{
+			name:       "happy path: a deployment with default values is created with ExternalOIDCExternalClaimsSourcing gate enabled but OIDC not configured",
+			goldenFile: "./testdata/sync_ds_scenario_1.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: false,
+			},
+		},
+		{
+			name:       "a deployment with custom flags (for oauthapi server) is created with ExternalOIDCExternalClaimsSourcing gate enabled but OIDC not configured",
+			goldenFile: "./testdata/sync_ds_scenario_2.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: false,
+			},
+		},
+
+		{
+			name:       "a deployment with custom flags (for oauthapi server) is created with UnsupportedConfigOverrides with ExternalOIDCExternalClaimsSourcing gate enabled but OIDC not configured",
+			goldenFile: "./testdata/sync_ds_scenario_3.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
+				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: false,
+			},
+		},
+		{
+			name:       "happy path: a default deployment configuring the new oauth-apiserver external OIDC mode is created",
+			goldenFile: "./testdata/sync_ds_scenario_4.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: true,
+			},
+		},
+		{
+			name:       "a deployment with custom flags (for oauthapi server) for the external OIDC mode is created",
+			goldenFile: "./testdata/sync_ds_scenario_5.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: true,
+			},
+		},
+		{
+			name:       "a deployment with custom flags (for oauthapi server) and external OIDC mode is created with UnsupportedConfigOverrides",
+			goldenFile: "./testdata/sync_ds_scenario_6.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
+					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
+					UnsupportedConfigOverrides: runtime.RawExtension{Raw: []byte(unsupportedConfigOverridesAPIServerArgsJSON)},
+				}},
+				Status: operatorv1.AuthenticationStatus{
+					OperatorStatus: operatorv1.OperatorStatus{
+						LatestAvailableRevision: 1,
+					},
+				},
+			},
+			expectedActions: []string{
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateKMSEncryption,
+				},
+			),
+			authConfigChecker: &mockAuthConfigChecker{
+				oidcAvailable: true,
+			},
 		},
 	}
 
@@ -146,7 +357,8 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
-				featureGateAccessor:       featuregates.NewHardcodedFeatureGateAccessForTesting(nil, nil, make(chan struct{}), nil),
+				featureGateAccessor:       scenario.featureGates,
+				authConfigChecker:         scenario.authConfigChecker,
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
@@ -339,4 +551,18 @@ func readBytesFromFile(t *testing.T, filename string) []byte {
 	}
 
 	return data
+}
+
+type mockAuthConfigChecker struct {
+	authentication *configv1.Authentication
+	err            error
+	oidcAvailable  bool
+}
+
+func (macc *mockAuthConfigChecker) AuthConfig() (*configv1.Authentication, error) {
+	return macc.authentication, macc.err
+}
+
+func (macc *mockAuthConfigChecker) OIDCAvailable() (bool, error) {
+	return macc.oidcAvailable, macc.err
 }

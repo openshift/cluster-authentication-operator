@@ -18,6 +18,8 @@ import (
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/klog/v2"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -43,6 +45,11 @@ type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
 // one pod of a given replicaset from landing on a node.
 type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
 
+type authConfigChecker interface {
+	OIDCAvailable() (bool, error)
+	AuthConfig() (*configv1.Authentication, error)
+}
+
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
 	operatorClient v1helpers.OperatorClient
@@ -57,7 +64,7 @@ type OAuthAPIServerWorkload struct {
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
 	deploymentsLister         appsv1listers.DeploymentLister
-	authConfigChecker         common.AuthConfigChecker
+	authConfigChecker         authConfigChecker
 	featureGateAccessor       featuregates.FeatureGateAccess
 }
 
@@ -71,7 +78,7 @@ func NewOAuthAPIServerWorkload(
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
 	deploymentsLister appsv1listers.DeploymentLister,
-	authConfigChecker common.AuthConfigChecker,
+	authConfigChecker authConfigChecker,
 	featureGateAccessor featuregates.FeatureGateAccess,
 	versionRecorder status.VersionGetter,
 ) *OAuthAPIServerWorkload {
@@ -98,6 +105,21 @@ func (c *OAuthAPIServerWorkload) WorkloadDeleted(ctx context.Context) (bool, str
 	}
 
 	// OIDC has been configured and rolled out; delete deployment if it exists
+
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, "", fmt.Errorf("initial feature gates not yet observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, "", fmt.Errorf("getting current feature gates: %w", err)
+	}
+
+	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled, we are attempting
+	// to use our new external OIDC architecture that always deploys the oauth-apiserver.
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		return false, "", nil
+	}
 
 	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-apiserver/deploy.yaml"))
 	if _, err := c.deploymentsLister.Deployments(deployment.Namespace).Get(deployment.Name); errors.IsNotFound(err) {
@@ -176,6 +198,30 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		return nil, fmt.Errorf(".status.latestAvailableRevision is not yet available")
 	}
 
+	if !c.featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return nil, fmt.Errorf("initial feature gates not yet observed")
+	}
+
+	featureGates, err := c.featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return nil, fmt.Errorf("getting current feature gates: %w", err)
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
+		if err != nil {
+			return nil, fmt.Errorf("checking if OIDC configuration is available: %w", err)
+		}
+
+		if oidcAvailable {
+			return c.syncExternalOIDCDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+		}
+	}
+
+	return c.syncStandardDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+}
+
+func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
 	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
@@ -272,6 +318,97 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	if err := encryptionkms.AddKMSPluginVolumeAndMountToPodSpec(&required.Spec.Template.Spec, "oauth-apiserver", c.featureGateAccessor); err != nil {
 		return nil, fmt.Errorf("failed to add KMS encryption volumes: %w", err)
 	}
+
+	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
+	return deployment, err
+}
+
+func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+	tmpl, err := bindata.Asset("oauth-apiserver/externaloidc-deploy.yaml")
+	if err != nil {
+		return nil, err
+	}
+
+	argsRaw, err := GetAPIServerArgumentsRaw(*operatorSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	args, err := arguments.Parse(argsRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	// log level verbosity is taken from the spec always
+	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+
+	// use string replacer for simple things
+	r := strings.NewReplacer(
+		"${IMAGE}", c.targetImagePullSpec,
+		"${REVISION}", strconv.Itoa(int(operatorStatus.LatestAvailableRevision)),
+	)
+
+	excludedReferences := sets.NewString("${FLAGS}")
+	tmpl = []byte(r.Replace(string(tmpl)))
+	re := regexp.MustCompile(`\$\{[^}]*}`)
+	if match := re.Find(tmpl); len(match) > 0 && !excludedReferences.Has(string(match)) {
+		return nil, fmt.Errorf("invalid template reference %q", string(match))
+	}
+
+	required := resourceread.ReadDeploymentV1OrDie(tmpl)
+
+	// use the following routine for things that would require special formatting/padding (yaml)
+	encodedArgs := arguments.EncodeWithDelimiter(args, " \\\n  ")
+	r = strings.NewReplacer(
+		"${FLAGS}", encodedArgs,
+	)
+	for containerIndex, container := range required.Spec.Template.Spec.Containers {
+		for argIndex, arg := range container.Args {
+			required.Spec.Template.Spec.Containers[containerIndex].Args[argIndex] = r.Replace(arg)
+		}
+	}
+
+	// we set this so that when the requested image pull spec changes, we always have a diff.  Remember that we don't directly
+	// diff any fields on the deployment because they can be rewritten by admission and we don't want to constantly be fighting
+	// against admission or defaults.  That was a problem with original versions of apply.
+	if required.Annotations == nil {
+		required.Annotations = map[string]string{}
+	}
+	required.Annotations["openshiftapiservers.operator.openshift.io/operator-pull-spec"] = c.operatorImagePullSpec
+
+	required.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
+	required.Spec.Template.Labels["revision"] = strconv.Itoa(int(operatorStatus.LatestAvailableRevision))
+
+	// we watch some resources so that our deployment will redeploy without explicitly and carefully ordered resource creation
+	inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferences(
+		ctx,
+		c.kubeClient,
+		resourcehash.NewObjectRef().ForConfigMap().InNamespace(c.targetNamespace).Named("trusted-ca-bundle"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid dependency reference: %q", err)
+	}
+
+	for k, v := range inputHashes {
+		annotationKey := fmt.Sprintf("operator.openshift.io/dep-%s", k)
+		required.Annotations[annotationKey] = v
+		if required.Spec.Template.Annotations == nil {
+			required.Spec.Template.Annotations = map[string]string{}
+		}
+		required.Spec.Template.Annotations[annotationKey] = v
+	}
+
+	err = c.ensureAtMostOnePodPerNode(&required.Spec, "oauth-apiserver")
+	if err != nil {
+		return nil, fmt.Errorf("unable to ensure at most one pod per node: %v", err)
+	}
+
+	// Set the replica count to the number of master nodes.
+	masterNodeCount, err := c.countNodes(required.Spec.Template.Spec.NodeSelector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine number of master nodes: %v", err)
+	}
+	required.Spec.Replicas = masterNodeCount
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
