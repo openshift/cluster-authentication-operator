@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: k8s-mock-kms-plugin
+  name: k8s-mock-kms-plugin-{{ .Index }}
   namespace: {{ .Namespace }}
 spec:
   selector:
     matchLabels:
-      app: k8s-mock-kms-plugin
+      app: k8s-mock-kms-plugin-{{ .Index }}
   template:
     metadata:
       labels:
-        app: k8s-mock-kms-plugin
+        app: k8s-mock-kms-plugin-{{ .Index }}
     spec:
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
