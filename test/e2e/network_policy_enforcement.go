@@ -312,8 +312,9 @@ func netexecPod(name, namespace string, labels map[string]string, port int32) *c
 			},
 			Containers: []corev1.Container{
 				{
-					Name:  "netexec",
-					Image: agnhostImage,
+					Name:                     "netexec",
+					Image:                    agnhostImage,
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					SecurityContext: &corev1.SecurityContext{
 						AllowPrivilegeEscalation: boolptr(false),
 						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
@@ -532,8 +533,9 @@ func createConnectivityClientPod(ctx context.Context, kubeClient kubernetes.Inte
 			},
 			Containers: []corev1.Container{
 				{
-					Name:  "connect",
-					Image: agnhostImage,
+					Name:                     "connect",
+					Image:                    agnhostImage,
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					SecurityContext: &corev1.SecurityContext{
 						AllowPrivilegeEscalation: boolptr(false),
 						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
