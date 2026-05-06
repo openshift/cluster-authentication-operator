@@ -16,6 +16,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -218,8 +219,8 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 
 	if !preconditionsReady {
 		var message string
-		for _, err := range errs {
-			message = message + err.Error() + "\n"
+		if err := errors.Join(errs...); err != nil {
+			message = err.Error()
 		}
 		if len(message) == 0 {
 			message = "the operator didn't specify what preconditions are missing"
@@ -249,9 +250,9 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 	}
 
 	if len(errs) > 0 {
-		message := ""
-		for _, err := range errs {
-			message = message + err.Error() + "\n"
+		var message string
+		if err := errors.Join(errs...); err != nil {
+			message = err.Error()
 		}
 		workloadDegradedCondition = workloadDegradedCondition.
 			WithStatus(operatorv1.ConditionTrue).
@@ -298,39 +299,18 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 			WithReason("AsExpected")
 	}
 
-	desiredReplicas := int32(1)
-	if workload.Spec.Replicas != nil {
-		desiredReplicas = *(workload.Spec.Replicas)
-	}
+	desiredReplicas := ptr.Deref(workload.Spec.Replicas, 1)
 
-	// If the workload is up to date, then we are no longer progressing
-	workloadAtHighestGeneration := workload.ObjectMeta.Generation == workload.Status.ObservedGeneration
-	// Update is done when all pods have been updated to the latest revision
-	// and the deployment controller has reported NewReplicaSetAvailable
-	workloadIsBeingUpdated := !workloadAtHighestGeneration || !hasDeploymentProgressed(workload.Status)
-	workloadIsBeingUpdatedTooLong := v1helpers.IsUpdatingTooLong(previousStatus, *deploymentProgressingCondition.Type)
-	if !workloadAtHighestGeneration {
-		deploymentProgressingCondition = deploymentProgressingCondition.
-			WithStatus(operatorv1.ConditionTrue).
-			WithReason("NewGeneration").
-			WithMessage(fmt.Sprintf("deployment/%s.%s: observed generation is %d, desired generation is %d.", workload.Name, c.targetNamespace, workload.Status.ObservedGeneration, workload.ObjectMeta.Generation))
-	} else if workloadIsBeingUpdated {
-		deploymentProgressingCondition = deploymentProgressingCondition.
-			WithStatus(operatorv1.ConditionTrue).
-			WithReason("PodsUpdating").
-			WithMessage(fmt.Sprintf("deployment/%s.%s: %d/%d pods have been updated to the latest generation and %d/%d pods are available", workload.Name, c.targetNamespace, workload.Status.UpdatedReplicas, desiredReplicas, workload.Status.AvailableReplicas, desiredReplicas))
-	} else {
-		// Terminating pods don't account for any of the other status fields but
-		// still can exist in a state when they are accepting connections and would
-		// contribute to unexpected behavior when we report Progressing=False.
-		// The case of too many pods might occur for example if `TerminationGracePeriodSeconds` is set
-		//
-		// The workload should ensure this does not happen by using for example EnsureAtMostOnePodPerNode
-		// so that the old pods terminate before the new ones are started.
-		deploymentProgressingCondition = deploymentProgressingCondition.
-			WithStatus(operatorv1.ConditionFalse).
-			WithReason("AsExpected")
-	}
+	// Update is done when the deployment controller has reported NewReplicaSetAvailable.
+	// Checking the current vs. observed generation here is not possible since we don't want to be Progressing on scaling.
+	progressingCond := deployment.DeploymentProgressingCondition(workload)
+	_, workloadIsBeingUpdatedTooLong := deployment.HasDeploymentTimedOutProgressing(workload.Status)
+	workloadIsBeingUpdated := !deployment.HasDeploymentProgressed(workload.Status) && !workloadIsBeingUpdatedTooLong
+
+	deploymentProgressingCondition = deploymentProgressingCondition.
+		WithStatus(progressingCond.Status).
+		WithReason(progressingCond.Reason).
+		WithMessage(progressingCond.Message)
 
 	// During a rollout the default maxSurge (25%) will allow the available
 	// replicas to temporarily exceed the desired replica count. If this were
@@ -356,6 +336,7 @@ func (c *Controller) updateOperatorStatus(ctx context.Context, previousStatus *o
 	// if the deployment is all available and at the expected generation, then update the version to the latest
 	// when we update, the image pull spec should immediately be different, which should immediately cause a deployment rollout
 	// which should immediately result in a deployment generation diff, which should cause this block to be skipped until it is ready.
+	workloadAtHighestGeneration := workload.ObjectMeta.Generation == workload.Status.ObservedGeneration
 	workloadHasAllPodsUpdated := workload.Status.UpdatedReplicas == desiredReplicas
 	if workloadAtHighestGeneration && workloadHasAllPodsAvailable && workloadHasAllPodsUpdated && operatorConfigAtHighestGeneration {
 		c.versionRecorder.SetVersion(c.constructOperandNameFor(workload.Name), c.targetOperandVersion)
@@ -373,17 +354,6 @@ func (c *Controller) constructOperandNameFor(name string) string {
 	}
 
 	return name
-}
-
-// hasDeploymentProgressed returns true if the deployment reports NewReplicaSetAvailable
-// via the DeploymentProgressing condition
-func hasDeploymentProgressed(status appsv1.DeploymentStatus) bool {
-	for _, cond := range status.Conditions {
-		if cond.Type == appsv1.DeploymentProgressing {
-			return cond.Status == corev1.ConditionTrue && cond.Reason == "NewReplicaSetAvailable"
-		}
-	}
-	return false
 }
 
 // EnsureAtMostOnePodPerNode updates the deployment spec to prevent more than
