@@ -9,8 +9,8 @@ status:
     status: "False"
     type: OAuthServerDeploymentAvailable
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster: authentication.config.openshift.io "cluster" not found
+    message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
     reason: PreconditionNotFulfilled
     status: "True"
     type: OAuthServerDeploymentDegraded
@@ -19,8 +19,8 @@ status:
     status: "False"
     type: OAuthServerDeploymentProgressing
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster: authentication.config.openshift.io "cluster" not found
+    message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
     reason: PreconditionNotFulfilled
     status: "True"
     type: OAuthServerWorkloadDegraded

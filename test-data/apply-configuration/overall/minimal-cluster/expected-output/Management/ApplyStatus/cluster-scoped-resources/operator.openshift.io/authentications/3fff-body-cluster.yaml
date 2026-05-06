@@ -9,8 +9,7 @@ status:
     status: "False"
     type: APIServerDeploymentAvailable
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for .status.latestAvailableRevision to be available
+    message: waiting for .status.latestAvailableRevision to be available
     reason: PreconditionNotFulfilled
     status: "True"
     type: APIServerDeploymentDegraded
@@ -19,8 +18,7 @@ status:
     status: "False"
     type: APIServerDeploymentProgressing
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for .status.latestAvailableRevision to be available
+    message: waiting for .status.latestAvailableRevision to be available
     reason: PreconditionNotFulfilled
     status: "True"
     type: APIServerWorkloadDegraded
