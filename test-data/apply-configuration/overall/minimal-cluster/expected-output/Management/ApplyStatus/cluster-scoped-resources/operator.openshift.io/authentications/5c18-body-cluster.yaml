@@ -7,20 +7,20 @@ status:
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: PreconditionNotFulfilled
     status: "False"
-    type: APIServerDeploymentAvailable
+    type: OAuthServerDeploymentAvailable
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for .status.latestAvailableRevision to be available
+    message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
     reason: PreconditionNotFulfilled
     status: "True"
-    type: APIServerDeploymentDegraded
+    type: OAuthServerDeploymentDegraded
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     reason: PreconditionNotFulfilled
     status: "False"
-    type: APIServerDeploymentProgressing
+    type: OAuthServerDeploymentProgressing
   - lastTransitionTime: "2024-10-14T22:38:20Z"
-    message: |
-      waiting for .status.latestAvailableRevision to be available
+    message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+      authentication.config.openshift.io "cluster" not found'
     reason: PreconditionNotFulfilled
     status: "True"
-    type: APIServerWorkloadDegraded
+    type: OAuthServerWorkloadDegraded
