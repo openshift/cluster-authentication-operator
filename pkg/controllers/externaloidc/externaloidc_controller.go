@@ -54,6 +54,8 @@ func NewExternalOIDCController(
 ) factory.Controller {
 	var authCfgGenerator authConfigGenerator
 
+	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
+
 	c := &externalOIDCController{
 		name:      "ExternalOIDCController",
 		eventName: "external-oidc-controller",
