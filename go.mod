@@ -10,12 +10,13 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/openshift-eng/openshift-tests-extension v0.0.0-20251205182537-ff5553e56f33
+	github.com/openshift-eng/openshift-tests-extension v0.0.0-20260408205138-ec501c2bf4a5
 	github.com/openshift/api v0.0.0-20260511191110-9b69e5fa27e9
-	github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
+	github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af
 	github.com/openshift/client-go v0.0.0-20260512113608-deb4dc54551a
 	github.com/openshift/library-go v0.0.0-20260515094948-509d00758cf2
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
+	github.com/openshift/oauth-apiserver v0.0.0-20260430140618-160ac7fb4ea6
 	github.com/spf13/cobra v1.10.0
 	github.com/spf13/pflag v1.0.9
 	github.com/stretchr/testify v1.11.1

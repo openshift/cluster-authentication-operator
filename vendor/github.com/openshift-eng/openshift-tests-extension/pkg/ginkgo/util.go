@@ -143,10 +143,13 @@ func BuildExtensionTestSpecsFromOpenShiftGinkgoSuite(selectFns ...ext.SelectFunc
 
 				return result
 			},
-			RunParallel: func(ctx context.Context) *ext.ExtensionTestResult {
-				// TODO pass through timeout and determine Lifecycle
-				return SpawnProcessToRunTest(ctx, name, 90*time.Minute)
-			},
+		}
+		testCase.RunParallel = func(ctx context.Context) *ext.ExtensionTestResult {
+			timeout := 90 * time.Minute
+			if testCase.Timeout > 0 {
+				timeout = testCase.Timeout
+			}
+			return SpawnProcessToRunTest(ctx, name, timeout)
 		}
 		specs = append(specs, testCase)
 	})

@@ -127,6 +127,7 @@ github.com/google/gnostic-models/openapiv3
 # github.com/google/go-cmp v0.7.0
 ## explicit; go 1.21
 github.com/google/go-cmp/cmp
+github.com/google/go-cmp/cmp/cmpopts
 github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
@@ -210,7 +211,7 @@ github.com/onsi/gomega/matchers/support/goraph/edge
 github.com/onsi/gomega/matchers/support/goraph/node
 github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
-# github.com/openshift-eng/openshift-tests-extension v0.0.0-20251205182537-ff5553e56f33
+# github.com/openshift-eng/openshift-tests-extension v0.0.0-20260408205138-ec501c2bf4a5
 ## explicit; go 1.23.0
 github.com/openshift-eng/openshift-tests-extension/pkg/cmd
 github.com/openshift-eng/openshift-tests-extension/pkg/cmd/cmdimages
@@ -306,7 +307,7 @@ github.com/openshift/api/template
 github.com/openshift/api/template/v1
 github.com/openshift/api/user
 github.com/openshift/api/user/v1
-# github.com/openshift/build-machinery-go v0.0.0-20250530140348-dc5b2804eeee
+# github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af
 ## explicit; go 1.22.0
 github.com/openshift/build-machinery-go
 github.com/openshift/build-machinery-go/make
@@ -465,6 +466,10 @@ github.com/openshift/multi-operator-manager/pkg/flagtypes
 github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration
 github.com/openshift/multi-operator-manager/pkg/library/libraryinputresources
 github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources
+# github.com/openshift/oauth-apiserver v0.0.0-20260430140618-160ac7fb4ea6
+## explicit; go 1.24.0
+github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication
+github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
