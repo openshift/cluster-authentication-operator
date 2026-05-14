@@ -62,6 +62,15 @@ type JWTAuthenticator struct {
 	// The validation rules are logically ANDed together and must all return true for the validation to pass.
 	// +optional
 	UserValidationRules []UserValidationRule `json:"userValidationRules,omitempty"`
+
+	// externalClaimSources is an optional field that can be used to configure
+	// sources, external to the token provided in a request, in which claims
+	// should be fetched from and made available to the claim mapping process
+	// that is used to build the identity of a token holder.
+	// For example, fetching additional user metadata from an OIDC provider's UserInfo endpoint.
+	// externalClaimSources must not exceed 5 entries.
+	// +optional
+	ExternalClaimsSources []ExternalClaimsSource `json:"externalClaimsSources,omitempty"`
 }
 
 // Issuer provides the configuration for an external provider's specific settings.
@@ -336,4 +345,208 @@ type UserValidationRule struct {
 	// message is a literal string.
 	// +optional
 	Message string `json:"message,omitempty"`
+}
+
+// ExternalClaimsSource provides the configuration for a single external claim source.
+type ExternalClaimsSource struct {
+	// authentication is an optional field that configures how the apiserver authenticates with an external claims source.
+	// When not specified, anonymous authentication is used.
+	// +optional
+	Authentication *Authentication `json:"authentication,omitempty"`
+	// tls is an optional field that configures the http client TLS
+	// settings when fetching external claims from this source.
+	// At least one subfield must be set when this field is specified.
+	// +optional
+	TLS *TLS `json:"tls,omitempty"`
+	// url is a required configuration of the URL
+	// for which the external claims are located.
+	// +required
+	URL *SourceURL `json:"url,omitempty"`
+	// mappings is a required list of the claim
+	// and response handling expression pairs
+	// that produces the claims from the external source.
+	//
+	// mappings must have at least 1 entry and must not exceed 16 entries.
+	// Entries must have a unique name across all external claim sources.
+	//
+	// WARNING: claims sourced using these mappings will override any claims
+	// that exist within the token during the claim-to-identity mapping
+	// process. Use caution when sourcing external claims to avoid unintentionally
+	// overriding token claims. To help guard against this, sourcing
+	// external claims can have guard conditions defined in the 'conditions'
+	// field.
+	//
+	// +required
+	Mappings []SourcedClaimMapping `json:"mappings,omitempty"`
+	// conditions is an optional list of conditions in
+	// which claims should attempt to be fetched from this
+	// external source.
+	// When omitted or empty, claims are always attempted to be fetched
+	// from this external source.
+	// When specified, all conditions must evaluate to 'true'
+	// before claims are attempted to be fetched from this external source.
+	// conditions must not exceed 16 entries.
+	// Entries must have unique expressions.
+	// +optional
+	Conditions []ExternalSourceCondition `json:"conditions,omitempty"`
+}
+
+// TLS configures the TLS options that the apiserver uses as a client
+// when making a request to the external claim source.
+// At least one field must be set when specified.
+type TLS struct {
+	// certificateAuthority is an optional field that configures the certificate authority
+	// used to validate TLS connections with the external claims source.
+	// Must not be empty and must be a valid PEM-encoded certificate.
+	// +optional
+	CertificateAuthority *string `json:"certificateAuthority,omitempty"`
+}
+
+// Authentication configures how the apiserver should attempt to authenticate
+// with an external claims source.
+type Authentication struct {
+	// type is a required field that sets the type of
+	// authentication method used by the authenticator
+	// when fetching external claims.
+	//
+	// Allowed values are 'RequestProvidedToken' and 'ClientCredential'.
+	//
+	// When set to 'RequestProvidedToken', the authenticator will
+	// use the token provided to the kube-apiserver as part of the
+	// request to authenticate with the external claims source.
+	//
+	// When set to 'ClientCredential', the authenticator will
+	// use the configured client-id, client-secret, and token endpoint
+	// to fetch an access token using the OAuth2 client credentials grant
+	// flow. The fetched access token will then be used to authenticate
+	// with the external claims source.
+	// +required
+	Type *AuthenticationType `json:"type,omitempty"`
+
+	// clientCredential configures the client credentials
+	// and token endpoint to use to get an access token.
+	// This field must be set when type is ClientCredential.
+	// This field must not be set when type is not ClientCredential.
+	// +optional
+	ClientCredential *ClientCredentialConfig `json:"clientCredential,omitempty"`
+}
+
+// AuthenticationType is the type of authentication that should be used
+// when fetching claims from an external source.
+type AuthenticationType string
+
+const (
+	// AuthenticationTypeRequestProvidedToken is an AuthenticationType
+	// that represents that the token being evaluated for authentication
+	// should be used for authenticating with the external claims source.
+	// This is useful for scenarios where a token has multiple audiences
+	// and scopes so that it can be used to access both the cluster and
+	// the UserInfo endpoint that contains additional information about the
+	// user not present in the token.
+	AuthenticationTypeRequestProvidedToken AuthenticationType = "RequestProvidedToken"
+
+	// AuthenticationTypeClientCredential is an AuthenticationType
+	// that represents that the authenticator should use the OAuth2
+	// client credentials grant flow to obtain an access token for
+	// authenticating with the external claims source.
+	// This is useful for scenarios such as fetching user information
+	// from Microsoft's Graph API where a separate client credential
+	// is needed to access the API.
+	AuthenticationTypeClientCredential AuthenticationType = "ClientCredential"
+)
+
+// ClientCredentialConfig configures the client credentials and token endpoint
+// to use to get an access token via the OAuth2 client credentials grant flow.
+type ClientCredentialConfig struct {
+	// clientID is the client identifier to use during the OAuth2 client credentials flow.
+	// clientID must not be an empty string ("").
+	// clientID must only contain printable ASCII characters.
+	// +required
+	ClientID string `json:"clientID,omitempty"`
+
+	// clientSecret is the client secret to use during the OAuth2 client credentials flow.
+	// clientSecret is the literal string value of the client secret.
+	// clientSecret must not be an empty string ("").
+	// clientSecret must only contain printable ASCII characters.
+	// +required
+	ClientSecret string `json:"clientSecret,omitempty"`
+
+	// tokenEndpoint is a required URL to query for an access token using
+	// the client credential OAuth2 flow.
+	// tokenEndpoint must not be an empty string ("").
+	// tokenEndpoint must be a valid HTTPS URL.
+	// tokenEndpoint must have a host and a path.
+	// tokenEndpoint must not contain query parameters, fragments,
+	// or user information (e.g., "user:password@host").
+	// +required
+	TokenEndpoint string `json:"tokenEndpoint,omitempty"`
+
+	// scopes is an optional list of OAuth2 scopes to request when obtaining
+	// an access token. If not specified, the token endpoint's default scopes
+	// will be used. Each scope must not be an empty string ("").
+	// +optional
+	Scopes []string `json:"scopes,omitempty"`
+
+	// tls is an optional field that configures the http client TLS
+	// settings when fetching an access token for this source.
+	// At least one subfield must be set when this field is specified.
+	// +optional
+	TLS *TLS `json:"tls,omitempty"`
+}
+
+// SourceURL configures the options used to build the URL that is queried for external claims.
+type SourceURL struct {
+	// hostname is a required hostname for which the external claims are located.
+	// It must be a valid DNS subdomain name as per RFC1123.
+	// This means that it must start and end with a lowercase alphanumeric character,
+	// must only consist of lowercase alphanumeric characters, '-', and '.'.
+	// hostname must not be an empty string ("") and must not exceed 253 characters in length.
+	// hostname may optionally specify a port in the format ':{port}'.
+	// +required
+	Hostname *string `json:"hostname,omitempty"`
+	// pathExpression is a required CEL expression that returns a list
+	// of string values used to construct the URL path.
+	// Claims from the token used for the request to the kube-apiserver
+	// are made available via the `claims` variable.
+	// expression must not be an empty string ("").
+	// +required
+	PathExpression *string `json:"pathExpression,omitempty"`
+}
+
+// SourcedClaimMapping configures the mapping behavior for a single external claim
+// from the response the apiserver received from the external claim source.
+type SourcedClaimMapping struct {
+	// name is a required name of the claim that
+	// will be produced and made available during
+	// the claim-to-identity mapping process.
+	// name must consist of only lowercase alpha characters and underscores ('_').
+	// name must not be an empty string ("") and must not exceed 256 characters in length.
+	// +required
+	Name *string `json:"name,omitempty"`
+
+	// expression is a required CEL expression that
+	// will produce a value to be assigned to the claim.
+	// The full response body from the request to the
+	// external claim source is provided via the
+	// `response` variable.
+	// expression must not be an empty string ("").
+	// +required
+	Expression *string `json:"expression,omitempty"`
+}
+
+// ExternalSourceCondition configures a singular condition
+// that must return true before the external source is queried
+// to retrieve external claims.
+type ExternalSourceCondition struct {
+	// expression is a required CEL expression that
+	// is used to determine whether or not an external
+	// source should be used to fetch external claims.
+	// The expression must return a boolean value,
+	// where true means that the source should be consulted
+	// and false means that it should not.
+	// Claims from the token used for the request to the kube-apiserver
+	// are made available via the `claims` variable.
+	// expression must not be an empty string ("").
+	// +required
+	Expression *string `json:"expression,omitempty"`
 }

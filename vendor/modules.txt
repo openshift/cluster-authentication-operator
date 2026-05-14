@@ -227,7 +227,7 @@ github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo
 github.com/openshift-eng/openshift-tests-extension/pkg/junit
 github.com/openshift-eng/openshift-tests-extension/pkg/util/sets
 github.com/openshift-eng/openshift-tests-extension/pkg/version
-# github.com/openshift/api v0.0.0-20260511191110-9b69e5fa27e9
+# github.com/openshift/api v0.0.0-20260511191110-9b69e5fa27e9 => github.com/everettraven/openshift-api v0.0.0-20260507192020-4affa2ac4dea
 ## explicit; go 1.25.0
 github.com/openshift/api
 github.com/openshift/api/annotations
@@ -466,7 +466,7 @@ github.com/openshift/multi-operator-manager/pkg/flagtypes
 github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration
 github.com/openshift/multi-operator-manager/pkg/library/libraryinputresources
 github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources
-# github.com/openshift/oauth-apiserver v0.0.0-20260430140618-160ac7fb4ea6
+# github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412
 ## explicit; go 1.24.0
 github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication
 github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1
@@ -1651,3 +1651,4 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 # github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+# github.com/openshift/api => github.com/everettraven/openshift-api v0.0.0-20260507192020-4affa2ac4dea
