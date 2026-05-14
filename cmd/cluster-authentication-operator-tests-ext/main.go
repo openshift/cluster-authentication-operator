@@ -13,6 +13,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
 
 	"k8s.io/klog/v2"
 )
@@ -89,6 +90,15 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 			`name.contains("[Disruptive]")`,
 		},
 		ClusterStability: oteextension.ClusterStabilityDisruptive,
+	})
+
+	// The following suite runs KMS encryption tests.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/encryption-kms",
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("KMSEncryption")`,
+		},
 	})
 
 	specs, err := oteginkgo.BuildExtensionTestSpecsFromOpenShiftGinkgoSuite()
