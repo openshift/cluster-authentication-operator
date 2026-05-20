@@ -67,7 +67,9 @@ func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 		DBLoaderWorkers: 3,
 		DBLoaderFunc: library.DBLoaderRepeat(1, false,
 			library.DBLoaderRepeatParallel(5010, 50, false, createAccessTokenWrapper(ctx, clientSet.TokenClient), reportSecret)),
-		EncryptionProvider: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
+		EncryptionProvider: library.EncryptionProvider{
+			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
+		},
 	})
 }
 

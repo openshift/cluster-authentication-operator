@@ -54,6 +54,8 @@ func TestEncryptionTurnOnAndOff(t *testing.T) {
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
-		EncryptionProvider:             configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
+		EncryptionProvider: library.EncryptionProvider{
+			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
+		},
 	})
 }
