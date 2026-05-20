@@ -12,5 +12,3 @@ data:
   operator-config.yaml: |
     apiVersion: operator.openshift.io/v1alpha1
     kind: GenericOperatorConfig
-    servingInfo:
-      bindNetwork: "tcp"
