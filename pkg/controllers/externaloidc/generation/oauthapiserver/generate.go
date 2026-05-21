@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/cert"
@@ -126,6 +128,15 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating userValidationRules for provider %q: %v", provider.Name, err)
 		}
 		out.UserValidationRules = userValidationRules
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		externalClaimsSources, err := generateExternalClaimsSources(configMapLister, secretLister, provider.ExternalClaimsSources...)
+		if err != nil {
+			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating externalClaimsSources for provider %q: %v", provider.Name, err)
+		}
+
+		out.ExternalClaimsSources = externalClaimsSources
 	}
 
 	out.Issuer = &issuer
@@ -752,3 +763,298 @@ func isConstField(exp *exprpb.Expr, field string) bool {
 	c := exp.GetConstExpr()
 	return c != nil && c.GetStringValue() == field
 }
+
+func generateExternalClaimsSources(cmLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, sources ...configv1.ExternalClaimsSource) ([]authenticationv1alpha1.ExternalClaimsSource, error) {
+	out := []authenticationv1alpha1.ExternalClaimsSource{}
+	seenClaimNames := sets.New[string]()
+	for _, source := range sources {
+		source, err := generateExternalClaimsSource(source, cmLister, secretLister, seenClaimNames)
+		if err != nil {
+			return nil, err
+		}
+
+		if source != nil {
+			out = append(out, *source)
+		}
+	}
+
+	return out, nil
+}
+
+func generateExternalClaimsSource(source configv1.ExternalClaimsSource, cmLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, seenClaimNames sets.Set[string]) (*authenticationv1alpha1.ExternalClaimsSource, error) {
+	authentication, err := generateExternalClaimsSourceAuthentication(source.Authentication, secretLister, cmLister)
+	if err != nil {
+		return nil, err
+	}
+
+	tls, err := generateExternalClaimsSourceTLS(source.TLS, cmLister)
+	if err != nil {
+		return nil, err
+	}
+
+	url, err := generateExternalClaimsSourceURL(source.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	mappings, err := generateExternalClaimsSourceMappings(seenClaimNames, source.Mappings...)
+	if err != nil {
+		return nil, err
+	}
+
+	conditions, err := generateExternalClaimsSourceConditions(source.Predicates...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &authenticationv1alpha1.ExternalClaimsSource{
+		Authentication: authentication,
+		TLS:            tls,
+		URL:            url,
+		Mappings:       mappings,
+		Conditions:     conditions,
+	}, nil
+}
+
+func generateExternalClaimsSourceAuthentication(externalSourceAuthentication configv1.ExternalSourceAuthentication, secretLister corev1listers.SecretLister, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.Authentication, error) {
+	switch externalSourceAuthentication.Type {
+	case "": // signals the omitted case which is valid and means to use anonymous auth. This means we should omit it as well so anonymous auth takes place.
+		return nil, nil
+	case configv1.ExternalSourceAuthenticationTypeRequestProvidedToken:
+		return &authenticationv1alpha1.Authentication{
+			Type: ptr.To(authenticationv1alpha1.AuthenticationTypeRequestProvidedToken),
+		}, nil
+	case configv1.ExternalSourceAuthenticationTypeClientCredential:
+		cc, err := generateExternalClaimsSourceAuthenticationClientCredential(externalSourceAuthentication.ClientCredential, secretLister, cmLister)
+		if err != nil {
+			return nil, fmt.Errorf("generating client credentials configuration: %w", err)
+		}
+
+		return &authenticationv1alpha1.Authentication{
+			Type:             ptr.To(authenticationv1alpha1.AuthenticationTypeClientCredential),
+			ClientCredential: cc,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown external source authentication type %q", externalSourceAuthentication.Type)
+	}
+}
+
+var printableASCIIRegexp = regexp.MustCompile(`^[[:print:]]+$`)
+
+func generateExternalClaimsSourceAuthenticationClientCredential(clientCredentialConfig configv1.ClientCredentialConfig, secretLister corev1listers.SecretLister, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.ClientCredentialConfig, error) {
+	// TODO: enable validation when it is possible to do so. Currently blocked
+	// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+	// not existing in the 1.35 branch.
+	// The following jira tickets track the work necessary to eventually enable this validation:
+	// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+	// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+	// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+	/*
+		if err := validation.ValidateClientCredentialConfigClientID(clientCredentialConfig.ClientID, field.NewPath("")); err != nil {
+			return nil, fmt.Errorf("validating client id: %w", kubeErrorListToGoError(err))
+		}
+
+		if err := validation.ValidateTokenEndpoint(clientCredentialConfig.TokenEndpoint, field.NewPath("")); err != nil {
+			return nil, fmt.Errorf("validating token endpoint: %w", kubeErrorListToGoError(err))
+		}
+	*/
+
+	clientSecret, err := getClientSecretFromSecret(clientCredentialConfig.ClientSecret.Name, secretLister)
+	if err != nil {
+		return nil, fmt.Errorf("getting client secret: %w", err)
+	}
+
+	// TODO: enable validation when it is possible to do so. Currently blocked
+	// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+	// not existing in the 1.35 branch.
+	// The following jira tickets track the work necessary to eventually enable this validation:
+	// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+	// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+	// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+	/*
+		if err := validation.ValidateClientCredentialConfigClientSecret(clientSecret, field.NewPath("")); err != nil {
+			return nil, fmt.Errorf("validating client secret: %w", kubeErrorListToGoError(err))
+		}
+	*/
+
+	scopes, err := generateClientCredentialScopes(clientCredentialConfig.Scopes...)
+	if err != nil {
+		return nil, fmt.Errorf("generating scopes: %w", err)
+	}
+
+	var certificateAuthority *string = nil
+	if len(clientCredentialConfig.TLS.CertificateAuthority.Name) > 0 {
+		ca, err := getCertificateAuthorityFromConfigMap(clientCredentialConfig.TLS.CertificateAuthority.Name, cmLister)
+		if err != nil {
+			return nil, fmt.Errorf("getting certificate authority: %w", err)
+		}
+
+		certificateAuthority = &ca
+	}
+
+	return &authenticationv1alpha1.ClientCredentialConfig{
+		ClientID:      clientCredentialConfig.ClientID,
+		ClientSecret:  clientSecret,
+		TokenEndpoint: clientCredentialConfig.TokenEndpoint,
+		Scopes:        scopes,
+		TLS: &authenticationv1alpha1.TLS{
+			CertificateAuthority: certificateAuthority,
+		},
+	}, nil
+}
+
+func generateClientCredentialScopes(scopes ...configv1.OAuth2Scope) ([]string, error) {
+	out := make([]string, 0, len(scopes))
+	errs := []error{}
+	for _, scope := range scopes {
+		// TODO: enable validation when it is possible to do so. Currently blocked
+		// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+		// not existing in the 1.35 branch.
+		// The following jira tickets track the work necessary to eventually enable this validation:
+		// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+		// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+		// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+		/*
+			err := validation.ValidateClientCredentialConfigScope(string(scope), field.NewPath(""))
+			if err != nil {
+				errs = append(errs, fmt.Errorf("validating scopes[%s]: %w", i, kubeErrorListToGoError(err)))
+				continue
+			}
+		*/
+
+		out = append(out, string(scope))
+	}
+
+	return out, errors.Join(errs...)
+}
+
+func getClientSecretFromSecret(name string, secretLister corev1listers.SecretLister) (string, error) {
+	secret, err := secretLister.Secrets(configNamespace).Get(name)
+	if err != nil {
+		return "", fmt.Errorf("could not retrieve auth secret %s/%s to get client secret: %v", configNamespace, name, err)
+	}
+
+	clientSecret, ok := secret.Data["client-secret"]
+	if !ok || len(clientSecret) == 0 {
+		return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", configNamespace, name)
+	}
+
+	return string(clientSecret), nil
+}
+
+func generateExternalClaimsSourceTLS(externalSourceTLS configv1.ExternalSourceTLS, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.TLS, error) {
+	caData, err := getCertificateAuthorityFromConfigMap(externalSourceTLS.CertificateAuthority.Name, cmLister)
+	if err != nil {
+		return nil, fmt.Errorf("getting certificate authority for external source: %w", err)
+	}
+
+	return &authenticationv1alpha1.TLS{
+		CertificateAuthority: &caData,
+	}, nil
+}
+
+func generateExternalClaimsSourceURL(sourceURL configv1.SourceURL) (*authenticationv1alpha1.SourceURL, error) {
+	// TODO: enable validation when it is possible to do so. Currently blocked
+	// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+	// not existing in the 1.35 branch.
+	// The following jira tickets track the work necessary to eventually enable this validation:
+	// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+	// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+	// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+	/*
+		if err := validation.ValidateExternalClaimsSourceURLHostname(&sourceURL.Hostname, field.NewPath("")); err != nil {
+			return nil, fmt.Errorf("validating hostname: %w", kubeErrorListToGoError(err))
+		}
+
+		if err := validation.ValidateExternalClaimsSourceURLPathExpression(externaloidccel.NewCompiler(), &sourceURL.PathExpression, field.NewPath("")); err != nil {
+			return nil, fmt.Errorf("validating path expression: %w", kubeErrorListToGoError(err))
+		}
+	*/
+
+	return &authenticationv1alpha1.SourceURL{
+		Hostname:       &sourceURL.Hostname,
+		PathExpression: &sourceURL.PathExpression,
+	}, nil
+}
+
+func generateExternalClaimsSourceMappings(seenClaimNames sets.Set[string], sourcedClaimMappings ...configv1.SourcedClaimMapping) ([]authenticationv1alpha1.SourcedClaimMapping, error) {
+	out := make([]authenticationv1alpha1.SourcedClaimMapping, 0, len(sourcedClaimMappings))
+
+	errs := []error{}
+	for _, sourcedClaimMapping := range sourcedClaimMappings {
+		// TODO: enable validation when it is possible to do so. Currently blocked
+		// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+		// not existing in the 1.35 branch.
+		// The following jira tickets track the work necessary to eventually enable this validation:
+		// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+		// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+		// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+		/*
+			if err := validation.ValidateExternalClaimsSourceMappingName(&sourcedClaimMapping.Name, seenClaimNames, field.NewPath("")); err != nil {
+				errs = append(errs, fmt.Errorf("validating mappings[%d]: validating name %q: %w", i, sourcedClaimMapping.Name, kubeErrorListToGoError(err)))
+				continue
+			}
+
+			if err := validation.ValidateExternalClaimsSourceMappingExpression(externaloidccel.NewCompiler(), &sourcedClaimMapping.Expression, field.NewPath("")); err != nil {
+				errs = append(errs, fmt.Errorf("validating mappings[%d]: validating expression %q: %w", i, sourcedClaimMapping.Expression, kubeErrorListToGoError(err)))
+				continue
+			}
+		*/
+
+		out = append(out, authenticationv1alpha1.SourcedClaimMapping{
+			Name:       &sourcedClaimMapping.Name,
+			Expression: &sourcedClaimMapping.Expression,
+		})
+	}
+
+	return out, errors.Join(errs...)
+}
+
+func generateExternalClaimsSourceConditions(externalSourcePredicates ...configv1.ExternalSourcePredicate) ([]authenticationv1alpha1.ExternalSourceCondition, error) {
+	out := make([]authenticationv1alpha1.ExternalSourceCondition, 0, len(externalSourcePredicates))
+
+	errs := []error{}
+	// seenConditions := sets.New[string]()
+	for _, predicate := range externalSourcePredicates {
+		// TODO: enable validation when it is possible to do so. Currently blocked
+		// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+		// not existing in the 1.35 branch.
+		// The following jira tickets track the work necessary to eventually enable this validation:
+		// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+		// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+		// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+		/*
+			cond := authentication.ExternalSourceCondition{
+				Expression: &predicate.Expression,
+			}
+
+			if err := validation.ValidateExternalSourceCondition(externaloidccel.NewCompiler(), cond, seenConditions, field.NewPath("")); err != nil {
+				errs = append(errs, fmt.Errorf("validating predicates[%d]: validating expression %q: %w", i, predicate.Expression, kubeErrorListToGoError(err)))
+			}
+		*/
+
+		out = append(out, authenticationv1alpha1.ExternalSourceCondition{
+			Expression: &predicate.Expression,
+		})
+	}
+
+	return out, errors.Join(errs...)
+}
+
+// TODO: enable validation when it is possible to do so. Currently blocked
+// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
+// not existing in the 1.35 branch.
+// The following jira tickets track the work necessary to eventually enable this validation:
+// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+/*
+func kubeErrorListToGoError(list field.ErrorList) error {
+	errs := make([]error, 0, len(list))
+	for _, err := range list {
+		errs = append(errs, errors.New(fmt.Sprintf("%s: %s", err.Type.String(), err.Detail)))
+	}
+
+	return errors.Join(errs...)
+}
+*/

@@ -16,7 +16,7 @@ require (
 	github.com/openshift/client-go v0.0.0-20260512113608-deb4dc54551a
 	github.com/openshift/library-go v0.0.0-20260520123929-8dbb42ebf1e9
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
-	github.com/openshift/oauth-apiserver v0.0.0-20260430140618-160ac7fb4ea6
+	github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412
 	github.com/spf13/cobra v1.10.0
 	github.com/spf13/pflag v1.0.9
 	github.com/stretchr/testify v1.11.1
@@ -133,3 +133,5 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+replace github.com/openshift/api => github.com/everettraven/openshift-api v0.0.0-20260507192020-4affa2ac4dea

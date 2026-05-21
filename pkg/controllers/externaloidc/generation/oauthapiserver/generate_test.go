@@ -1233,6 +1233,570 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			),
 		},
+		{
+			name:              "valid auth config with external claims source using request provided token auth and conditions, success",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			configMapIndexer: func() cache.Indexer {
+				idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				idx.Add(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ext-source-ca-bundle",
+						Namespace: configNamespace,
+					},
+					Data: map[string]string{
+						"ca-bundle.crt": testCertData,
+					},
+				})
+				return idx
+			}(),
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationTypeRequestProvidedToken,
+								},
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "ext-source-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+								Predicates: []configv1.ExternalSourcePredicate{
+									{
+										Expression: "has(claims.sub)",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].Issuer.URL = "https://example.com"
+						authConfig.JWT[i].ExternalClaimsSources = []authenticationv1alpha1.ExternalClaimsSource{
+							{
+								Authentication: &authenticationv1alpha1.Authentication{
+									Type: ptr.To(authenticationv1alpha1.AuthenticationTypeRequestProvidedToken),
+								},
+								TLS: &authenticationv1alpha1.TLS{
+									CertificateAuthority: ptr.To(testCertData),
+								},
+								URL: &authenticationv1alpha1.SourceURL{
+									Hostname:       ptr.To("claims.example.com"),
+									PathExpression: ptr.To("claims.sub"),
+								},
+								Mappings: []authenticationv1alpha1.SourcedClaimMapping{
+									{
+										Name:       ptr.To("custom_claim"),
+										Expression: ptr.To("response.custom_claim"),
+									},
+								},
+								Conditions: []authenticationv1alpha1.ExternalSourceCondition{
+									{
+										Expression: ptr.To("has(claims.sub)"),
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name:              "valid auth config with external claims source using anonymous auth, success",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			configMapIndexer: func() cache.Indexer {
+				idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				idx.Add(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ext-source-ca-bundle",
+						Namespace: configNamespace,
+					},
+					Data: map[string]string{
+						"ca-bundle.crt": testCertData,
+					},
+				})
+				return idx
+			}(),
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "ext-source-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].Issuer.URL = "https://example.com"
+						authConfig.JWT[i].ExternalClaimsSources = []authenticationv1alpha1.ExternalClaimsSource{
+							{
+								TLS: &authenticationv1alpha1.TLS{
+									CertificateAuthority: ptr.To(testCertData),
+								},
+								URL: &authenticationv1alpha1.SourceURL{
+									Hostname:       ptr.To("claims.example.com"),
+									PathExpression: ptr.To("claims.sub"),
+								},
+								Mappings: []authenticationv1alpha1.SourcedClaimMapping{
+									{
+										Name:       ptr.To("custom_claim"),
+										Expression: ptr.To("response.custom_claim"),
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name:              "valid auth config with external claims source using client credential auth",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			configMapIndexer: func() cache.Indexer {
+				idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				idx.Add(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ext-source-ca-bundle",
+						Namespace: configNamespace,
+					},
+					Data: map[string]string{
+						"ca-bundle.crt": testCertData,
+					},
+				})
+				idx.Add(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cc-tls-ca-bundle",
+						Namespace: configNamespace,
+					},
+					Data: map[string]string{
+						"ca-bundle.crt": testCertData,
+					},
+				})
+				return idx
+			}(),
+			secretIndexer: func() cache.Indexer {
+				idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				idx.Add(&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "client-secret-ref",
+						Namespace: configNamespace,
+					},
+					Data: map[string][]byte{
+						"client-secret": []byte("my-secret-value"),
+					},
+				})
+				return idx
+			}(),
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationTypeClientCredential,
+									ClientCredential: configv1.ClientCredentialConfig{
+										ClientID: "my-client-id",
+										ClientSecret: configv1.ClientSecretSecretReference{
+											Name: "client-secret-ref",
+										},
+										TokenEndpoint: "https://idp.example.com/oauth2/token",
+										Scopes:        []configv1.OAuth2Scope{"openid", "profile"},
+										TLS: configv1.ExternalSourceTLS{
+											CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+												Name: "cc-tls-ca-bundle",
+											},
+										},
+									},
+								},
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "ext-source-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].Issuer.URL = "https://example.com"
+						authConfig.JWT[i].ExternalClaimsSources = []authenticationv1alpha1.ExternalClaimsSource{
+							{
+								Authentication: &authenticationv1alpha1.Authentication{
+									Type: ptr.To(authenticationv1alpha1.AuthenticationTypeClientCredential),
+									ClientCredential: &authenticationv1alpha1.ClientCredentialConfig{
+										ClientID:      "my-client-id",
+										ClientSecret:  "my-secret-value",
+										TokenEndpoint: "https://idp.example.com/oauth2/token",
+										Scopes:        []string{"openid", "profile"},
+										TLS: &authenticationv1alpha1.TLS{
+											CertificateAuthority: ptr.To(testCertData),
+										},
+									},
+								},
+								TLS: &authenticationv1alpha1.TLS{
+									CertificateAuthority: ptr.To(testCertData),
+								},
+								URL: &authenticationv1alpha1.SourceURL{
+									Hostname:       ptr.To("claims.example.com"),
+									PathExpression: ptr.To("claims.sub"),
+								},
+								Mappings: []authenticationv1alpha1.SourcedClaimMapping{
+									{
+										Name:       ptr.To("custom_claim"),
+										Expression: ptr.To("response.custom_claim"),
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name:              "auth config with external claims source with unknown auth type, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationType("UnknownType"),
+								},
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "ext-source-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name:              "auth config with external claims source with missing TLS CA configmap, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationTypeRequestProvidedToken,
+								},
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "nonexistent-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+		{
+			name:              "auth config with external claims source with client secret key missing in secret, error",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			secretIndexer: func() cache.Indexer {
+				idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				idx.Add(&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "client-secret-ref",
+						Namespace: configNamespace,
+					},
+					Data: map[string][]byte{
+						"wrong-key": []byte("my-secret-value"),
+					},
+				})
+				return idx
+			}(),
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationTypeClientCredential,
+									ClientCredential: configv1.ClientCredentialConfig{
+										ClientID: "my-client-id",
+										ClientSecret: configv1.ClientSecretSecretReference{
+											Name: "client-secret-ref",
+										},
+										TokenEndpoint: "https://idp.example.com/oauth2/token",
+									},
+								},
+								TLS: configv1.ExternalSourceTLS{
+									CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+										Name: "ext-source-ca-bundle",
+									},
+								},
+								URL: configv1.SourceURL{
+									Hostname:       "claims.example.com",
+									PathExpression: "claims.sub",
+								},
+								Mappings: []configv1.SourcedClaimMapping{
+									{
+										Name:       "custom_claim",
+										Expression: "response.custom_claim",
+									},
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectError: true,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+				},
+			),
+		},
+
+		{
+			name:              "auth config with external claims source configured but feature gate disabled",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+						auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+							{
+								Authentication: configv1.ExternalSourceAuthentication{
+									Type: configv1.ExternalSourceAuthenticationTypeRequestProvidedToken,
+								},
+							},
+						}
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					for i := range authConfig.JWT {
+						authConfig.JWT[i].Issuer.URL = "https://example.com"
+					}
+				},
+			}),
+			expectError: false,
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
+		},
+		// TODO: Add tests for validating currently unvalidated fields due to dependency issues (CEL expression validation)
+		// The following jira tickets track the work necessary to eventually enable this validation:
+		// 1. https://redhat.atlassian.net/browse/CNTRLPLANE-3491
+		// 2. https://redhat.atlassian.net/browse/CNTRLPLANE-3492
+		// 3. https://redhat.atlassian.net/browse/CNTRLPLANE-3493
+		/*
+			{
+				name:              "auth config with duplicate mapping names across external claims sources",
+				caBundleConfigMap: &baseCABundleConfigMap,
+				configMapIndexer: func() cache.Indexer {
+					idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+					idx.Add(&corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "ext-source-ca-bundle",
+							Namespace: configNamespace,
+						},
+						Data: map[string]string{
+							"ca-bundle.crt": testCertData,
+						},
+					})
+					return idx
+				}(),
+				auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+					func(auth *configv1.Authentication) {
+						for i := range auth.Spec.OIDCProviders {
+							auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+							auth.Spec.OIDCProviders[i].ExternalClaimsSources = []configv1.ExternalClaimsSource{
+								{
+									Authentication: configv1.ExternalSourceAuthentication{
+										Type: configv1.ExternalSourceAuthenticationTypeRequestProvidedToken,
+									},
+									TLS: configv1.ExternalSourceTLS{
+										CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+											Name: "ext-source-ca-bundle",
+										},
+									},
+									URL: configv1.SourceURL{
+										Hostname:       "source-one.example.com",
+										PathExpression: "claims.sub",
+									},
+									Mappings: []configv1.SourcedClaimMapping{
+										{
+											Name:       "custom_claim",
+											Expression: "response.custom_claim",
+										},
+									},
+								},
+								{
+									Authentication: configv1.ExternalSourceAuthentication{
+										Type: configv1.ExternalSourceAuthenticationTypeRequestProvidedToken,
+									},
+									TLS: configv1.ExternalSourceTLS{
+										CertificateAuthority: configv1.ExternalSourceCertificateAuthorityConfigMapReference{
+											Name: "ext-source-ca-bundle",
+										},
+									},
+									URL: configv1.SourceURL{
+										Hostname:       "source-two.example.com",
+										PathExpression: "claims.sub",
+									},
+									Mappings: []configv1.SourcedClaimMapping{
+										{
+											Name:       "custom_claim",
+											Expression: "response.other_claim",
+										},
+									},
+								},
+							}
+						}
+					},
+				}),
+				expectError: true,
+				featureGates: featuregates.NewFeatureGate(
+					[]configv1.FeatureGateName{
+						features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					},
+					[]configv1.FeatureGateName{
+						features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+						features.FeatureGateExternalOIDCWithUpstreamParity,
+					},
+				),
+			},
+		*/
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.configMapIndexer == nil {
