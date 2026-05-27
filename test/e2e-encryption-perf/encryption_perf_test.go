@@ -28,7 +28,7 @@ const (
 func TestPerfEncryptionTypeAESCBC(tt *testing.T) {
 	ctx := context.TODO()
 	clientSet := getPerfClients(tt)
-	library.TestPerfEncryption(tt, library.PerfScenario{
+	library.TestPerfEncryption(tt.Context(), tt, library.PerfScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",

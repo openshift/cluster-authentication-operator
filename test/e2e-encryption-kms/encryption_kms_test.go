@@ -10,7 +10,7 @@ import (
 // This situation is temporary until we test the new e2e-gcp-operator-encryption-kms-ote job.
 // Eventually all tests will be run only as part of the OTE framework.
 func TestKMSEncryptionOnOff(t *testing.T) {
-	testKMSEncryptionOnOff(t)
+	testKMSEncryptionOnOff(t.Context(), t)
 }
 
 // This test calls the shared test function which
@@ -19,5 +19,5 @@ func TestKMSEncryptionOnOff(t *testing.T) {
 // This situation is temporary until we test the new e2e-gcp-operator-encryption-kms-ote job.
 // Eventually all tests will be run only as part of the OTE framework.
 func TestKMSEncryptionProvidersMigration(t *testing.T) {
-	testKMSEncryptionProvidersMigration(t)
+	testKMSEncryptionProvidersMigration(t.Context(), t)
 }

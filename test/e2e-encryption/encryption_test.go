@@ -13,7 +13,7 @@ import (
 )
 
 func TestEncryptionTypeIdentity(t *testing.T) {
-	library.TestEncryptionTypeIdentity(t, library.BasicScenario{
+	library.TestEncryptionTypeIdentity(t.Context(), t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
@@ -25,7 +25,7 @@ func TestEncryptionTypeIdentity(t *testing.T) {
 }
 
 func TestEncryptionTypeUnset(t *testing.T) {
-	library.TestEncryptionTypeUnset(t, library.BasicScenario{
+	library.TestEncryptionTypeUnset(t.Context(), t, library.BasicScenario{
 		Namespace:                       "openshift-config-managed",
 		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
 		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
@@ -37,7 +37,7 @@ func TestEncryptionTypeUnset(t *testing.T) {
 }
 
 func TestEncryptionTurnOnAndOff(t *testing.T) {
-	library.TestEncryptionTurnOnAndOff(t, library.OnOffScenario{
+	library.TestEncryptionTurnOnAndOff(t.Context(), t, library.OnOffScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",

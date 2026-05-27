@@ -8,19 +8,18 @@ import (
 	g "github.com/onsi/ginkgo/v2"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	configv1 "github.com/openshift/api/config/v1"
 	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
 	library "github.com/openshift/library-go/test/library/encryption"
 	librarykms "github.com/openshift/library-go/test/library/encryption/kms"
 )
 
 var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
-	g.It("TestKMSEncryptionOnOff [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func() {
-		testKMSEncryptionOnOff(g.GinkgoTB())
+	g.It("TestKMSEncryptionOnOff [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+		testKMSEncryptionOnOff(ctx, g.GinkgoTB())
 	})
 
-	g.It("TestKMSEncryptionProvidersMigration [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func() {
-		testKMSEncryptionProvidersMigration(g.GinkgoTB())
+	g.It("TestKMSEncryptionProvidersMigration [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+		testKMSEncryptionProvidersMigration(ctx, g.GinkgoTB())
 	})
 })
 
@@ -35,9 +34,9 @@ var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
 // 8. Verifies token is encrypted again
 // 9. Disables encryption (Identity) again
 // 10. Verifies token is NOT encrypted again
-func testKMSEncryptionOnOff(t testing.TB) {
-	librarykms.DeployUpstreamMockKMSPlugin(context.Background(), t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
-	library.TestEncryptionTurnOnAndOff(t, library.OnOffScenario{
+func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
+	librarykms.DeployUpstreamMockKMSPlugin(ctx, t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
+	library.TestEncryptionTurnOnAndOff(ctx, t, library.OnOffScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
@@ -54,12 +53,7 @@ func testKMSEncryptionOnOff(t testing.TB) {
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
-		EncryptionProvider: library.EncryptionProvider{
-			APIServerEncryption: configv1.APIServerEncryption{
-				Type: configv1.EncryptionTypeKMS,
-				KMS:  librarykms.DefaultFakeKMSPluginConfig,
-			},
-		},
+		EncryptionProvider:             librarykms.DefaultFakeVaultEncryptionProvider,
 	})
 }
 
@@ -71,9 +65,9 @@ func testKMSEncryptionOnOff(t testing.TB) {
 // 4. Shuffles the selected AES provider with KMS to create a randomized migration order
 // 5. Migrates between the providers in the shuffled order
 // 6. Verifies token is correctly encrypted after each migration
-func testKMSEncryptionProvidersMigration(t testing.TB) {
-	librarykms.DeployUpstreamMockKMSPlugin(context.Background(), t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
-	library.TestEncryptionProvidersMigration(t, library.ProvidersMigrationScenario{
+func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
+	librarykms.DeployUpstreamMockKMSPlugin(ctx, t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
+	library.TestEncryptionProvidersMigration(ctx, t, library.ProvidersMigrationScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
@@ -91,10 +85,7 @@ func testKMSEncryptionProvidersMigration(t testing.TB) {
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
 		EncryptionProviders: library.ShuffleEncryptionProviders([]library.EncryptionProvider{
-			{APIServerEncryption: configv1.APIServerEncryption{
-				Type: configv1.EncryptionTypeKMS,
-				KMS:  librarykms.DefaultFakeKMSPluginConfig,
-			}},
+			librarykms.DefaultFakeVaultEncryptionProvider,
 			library.SupportedStaticEncryptionProviders[rand.IntN(len(library.SupportedStaticEncryptionProviders))],
 		}),
 	})
