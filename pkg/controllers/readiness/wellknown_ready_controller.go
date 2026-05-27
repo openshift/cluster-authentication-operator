@@ -3,6 +3,7 @@ package readiness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -28,7 +29,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -73,7 +73,6 @@ func NewWellKnownReadyController(
 	authConfigChecker common.AuthConfigChecker,
 	recorder events.Recorder,
 ) factory.Controller {
-
 	nsOpenshiftConfigManagedInformers := kubeInformers.InformersFor("openshift-config-managed")
 	nsDefaultInformers := kubeInformers.InformersFor("default")
 
@@ -170,11 +169,17 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 		return err
 	}
 
-	if err := c.isWellknownEndpointsReady(ctx, operatorSpec, operatorStatus, authConfig, infraConfig); err != nil {
-		available = available.
-			WithStatus(operatorv1.ConditionFalse).
-			WithReason("NotReady").
-			WithMessage(fmt.Sprintf("The well-known endpoint is not yet available: %s", err.Error()))
+	if avail, err := c.isWellknownEndpointsReady(ctx, operatorSpec, authConfig, infraConfig); err != nil {
+		if avail {
+			available = available.
+				WithStatus(operatorv1.ConditionTrue).
+				WithReason("AtLeastOneWellKnownEndpointAvailable")
+		} else {
+			available = available.
+				WithStatus(operatorv1.ConditionFalse).
+				WithReason("NotReady").
+				WithMessage(fmt.Sprintf("No well-known endpoints are available: %s", err.Error()))
+		}
 		degradationObserved = degradationObserved.
 			WithStatus(operatorv1.ConditionTrue)
 		if degradationErr, ok := err.(*ControllerDegradationObservedError); ok {
@@ -197,56 +202,69 @@ func (c *wellKnownReadyController) sync(ctx context.Context, controllerContext f
 	return nil
 }
 
-func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context, spec *operatorv1.OperatorSpec, status *operatorv1.OperatorStatus, authConfig *configv1.Authentication, infraConfig *configv1.Infrastructure) error {
+func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context, spec *operatorv1.OperatorSpec, authConfig *configv1.Authentication, infraConfig *configv1.Infrastructure) (bool, error) {
 	// don't perform this check when OAuthMetadata reference is set up
 	// leave those cases to KAS-o which handles these cases
 	// the operator manages the metadata if specifically requested and by default
 	isOperatorManagedMetadata := authConfig.Spec.Type == configv1.AuthenticationTypeIntegratedOAuth || len(authConfig.Spec.Type) == 0
 	if userMetadataConfig := authConfig.Spec.OAuthMetadata.Name; !isOperatorManagedMetadata || len(userMetadataConfig) != 0 {
-		return nil
+		return true, nil
 	}
 
 	caData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	if err != nil {
-		return fmt.Errorf("failed to read SA ca.crt: %v", err)
+		return false, fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
 
 	// pass the KAS service name for SNI
 	rt, err := transport.TransportFor("kubernetes.default.svc", caData, nil, nil)
 	if err != nil {
-		return fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
+		return false, fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
 	ips, err := c.getAPIServerIPs()
 	if err != nil {
-		return fmt.Errorf("failed to get API server IPs: %v (check kube-apiserver that it deploys correctly)", err)
+		return false, fmt.Errorf("failed to get API server IPs: %v (check kube-apiserver that it deploys correctly)", err)
 	}
 
+	errs := []error{}
 	for _, ip := range ips {
 		err := c.checkWellknownEndpointReady(ctx, ip, rt)
 		if err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
+	// at least one well-known endpoint readiness check did not return an error
+	// so therefore we are _technically_ available but have observed a degraded state.
+	if len(errs) > 0 && len(errs) < len(ips) {
+		return true, NewControllerDegradationObservedError("AtLeastOneWellKnownEndpointUnavailable", errors.Join(errs...), 5*time.Minute)
+	}
+
+	if len(errs) > 0 {
+		return false, errors.Join(errs...)
+	}
+
+	// TODO(everettraven): verify that this is no longer necessary.
+	// ---
 	// if we don't have the min number of masters, this is actually ok, however Clayton has draw a hardline on starting tests as soon as all operators are Available=true
 	// while ignoring progressing=false.  This means that even though no external observer will see a invalid .well-known information,
 	// the tests end up failing when their long lived connections are terminated.  Killing long lived connections is normal and
 	// acceptable for the kube-apiserver to do during a rollout.  However, because we are not allowed to merge code that ensures
 	// a stable kube-apiserver and because rewriting client tests like e2e-cmd is impractical, we are left trying to enforce
 	// this by delaying our availability because it's a backdoor into slowing down the test suite start time to gain stability.
-	alreadyTrueOnce := v1helpers.IsOperatorConditionTrue(status.Conditions, "WellKnownAvailable")
-	if alreadyTrueOnce {
-		// if we've already been true once, then we have confirmed matching well-known metadata, so CI no longer needs this protection.
-		// this also prevents flapping after one success when the kube-apiserver rolls out again
-		return nil
-	}
+	// alreadyTrueOnce := v1helpers.IsOperatorConditionTrue(status.Conditions, "WellKnownAvailable")
+	// if alreadyTrueOnce {
+	// if we've already been true once, then we have confirmed matching well-known metadata, so CI no longer needs this protection.
+	// this also prevents flapping after one success when the kube-apiserver rolls out again
+	//  return nil
+	// }
 
-	if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec, infraConfig.Status.ControlPlaneTopology); len(ips) < expectedMinNumber {
-		return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
-	}
+	// if expectedMinNumber := getExpectedMinimumNumberOfMasters(spec, infraConfig.Status.ControlPlaneTopology); len(ips) < expectedMinNumber {
+	//  return fmt.Errorf("need at least %d kube-apiservers, got %d", expectedMinNumber, len(ips))
+	// }
 
-	return nil
+	return true, nil
 }
 
 func (c *wellKnownReadyController) checkWellknownEndpointReady(ctx context.Context, apiIP string, rt http.RoundTripper) error {
@@ -316,7 +334,7 @@ func wellKnownRoundtripErrorHint(err error) string {
 		return " (check node networking, the SDN might have stale routing information for pod IPs on that node)"
 	case netutil.IsConnectionReset(err), netutil.IsProbableEOF(err), netutil.IsConnectionReset(err):
 		return " (check cluster networking, it might be temporarily unstable)"
-	case errors.IsServerTimeout(err), errors.IsTooManyRequests(err):
+	case apierrors.IsServerTimeout(err), apierrors.IsTooManyRequests(err):
 		return " (check kube-apiserver on that node, it might be under too heavy load)"
 	case strings.Contains(err.Error(), ":53"):
 		return " (check DNS on that node)"
