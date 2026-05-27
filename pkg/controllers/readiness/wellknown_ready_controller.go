@@ -59,10 +59,19 @@ type wellKnownReadyController struct {
 	configMapLister        corev1lister.ConfigMapLister
 	routeLister            routev1lister.RouteLister
 	infrastructureLister   configv1lister.InfrastructureLister
-	authConfigChecker      common.AuthConfigChecker
+	authConfigChecker      oidcAvailabler
+	caDataGetter           caDataGetter
 }
 
 const controllerName = "WellKnownReadyController"
+
+type oidcAvailabler interface {
+	OIDCAvailable() (bool, error)
+}
+
+type caDataGetter interface {
+	GetCAData() ([]byte, error)
+}
 
 func NewWellKnownReadyController(
 	instanceName string,
@@ -85,7 +94,8 @@ func NewWellKnownReadyController(
 		configMapLister:        nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
 		routeLister:            routeInformer.Lister(),
 		operatorClient:         operatorClient,
-		authConfigChecker:      authConfigChecker,
+		authConfigChecker:      &authConfigChecker,
+		caDataGetter:           defaultCADataGetter(),
 	}
 
 	return factory.New().WithInformers(
@@ -211,7 +221,7 @@ func (c *wellKnownReadyController) isWellknownEndpointsReady(ctx context.Context
 		return true, nil
 	}
 
-	caData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caData, err := c.caDataGetter.GetCAData()
 	if err != nil {
 		return false, fmt.Errorf("failed to read SA ca.crt: %v", err)
 	}
@@ -417,4 +427,14 @@ func (c *wellKnownReadyController) getAPIServerIPs() ([]string, error) {
 	}
 
 	return nil, fmt.Errorf("unable to find kube api server endpointLister port: %#v", kasEndpoint)
+}
+
+type defaultCADataGetterImpl struct{}
+
+func (cdg *defaultCADataGetterImpl) GetCAData() ([]byte, error) {
+	return os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+}
+
+func defaultCADataGetter() *defaultCADataGetterImpl {
+	return &defaultCADataGetterImpl{}
 }
