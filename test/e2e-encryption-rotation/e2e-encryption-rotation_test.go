@@ -20,7 +20,7 @@ import (
 // then it forces a key rotation by setting the "encyrption.Reason" in the operator's configuration file
 func TestEncryptionRotation(t *testing.T) {
 	ctx := context.TODO()
-	library.TestEncryptionRotation(t, library.RotationScenario{
+	library.TestEncryptionRotation(ctx, t, library.RotationScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
 			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
