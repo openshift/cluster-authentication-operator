@@ -52,10 +52,8 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: kubecmdapi.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
-	if err == nil {
-		fmt.Printf("Found configuration for host %v.\n", config.Host)
-	}
 	require.NoError(t, err)
+	t.Logf("Found configuration for host %v", config.Host)
 	return config
 }
 

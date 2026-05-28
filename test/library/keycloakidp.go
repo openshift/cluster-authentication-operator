@@ -390,6 +390,89 @@ func (kc *KeycloakClient) CreateGroup(groupName string) error {
 	return nil
 }
 
+func (kc *KeycloakClient) ListGroups() ([]map[string]interface{}, error) {
+	allGroups := []map[string]interface{}{}
+	first := 0
+	max := 100 // Keycloak default page size
+
+	for {
+		groupsURL := *kc.keycloakAdminURL
+		groupsURL.Path += "/groups"
+		q := groupsURL.Query()
+		q.Set("first", fmt.Sprintf("%d", first))
+		q.Set("max", fmt.Sprintf("%d", max))
+		groupsURL.RawQuery = q.Encode()
+
+		resp, err := kc.do(http.MethodGet, groupsURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		respBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("listing groups failed: %s: %s", resp.Status, respBytes)
+		}
+
+		groups := []map[string]interface{}{}
+		if err := json.Unmarshal(respBytes, &groups); err != nil {
+			return nil, err
+		}
+
+		if len(groups) == 0 {
+			break
+		}
+
+		allGroups = append(allGroups, groups...)
+		first += len(groups)
+	}
+
+	return allGroups, nil
+}
+
+func (kc *KeycloakClient) DeleteGroup(groupName string) error {
+	// First, find the group by name to get its ID
+	groups, err := kc.ListGroups()
+	if err != nil {
+		return fmt.Errorf("failed to list groups: %w", err)
+	}
+
+	var groupID string
+	for _, group := range groups {
+		if name, ok := group["name"].(string); ok && name == groupName {
+			if id, ok := group["id"].(string); ok {
+				groupID = id
+				break
+			}
+		}
+	}
+
+	if groupID == "" {
+		// Group not found - not an error, it may have already been deleted
+		return nil
+	}
+
+	groupsURL := *kc.keycloakAdminURL
+	groupsURL.Path += "/groups/" + groupID
+
+	resp, err := kc.do(http.MethodDelete, groupsURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed deleting group %q (ID: %s): %s %s", groupName, groupID, resp.Status, respBytes)
+	}
+
+	return nil
+}
+
 func (kc *KeycloakClient) CreateUser(username, email, password string, groups []string, extraFields map[string]string) error {
 	usersURL := *kc.keycloakAdminURL
 	usersURL.Path += "/users"
@@ -437,31 +520,87 @@ func (kc *KeycloakClient) CreateUser(username, email, password string, groups []
 	return nil
 }
 
-func (kc *KeycloakClient) ListUsers() ([]map[string]interface{}, error) {
-	usersURL := *kc.keycloakAdminURL
-	usersURL.Path += "/users"
-
-	resp, err := kc.do(http.MethodGet, usersURL.String(), nil)
+func (kc *KeycloakClient) DeleteUser(username string) error {
+	// First, find the user by username to get its ID
+	users, err := kc.ListUsers()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to list users: %w", err)
+	}
+
+	var userID string
+	for _, user := range users {
+		if name, ok := user["username"].(string); ok && name == username {
+			if id, ok := user["id"].(string); ok {
+				userID = id
+				break
+			}
+		}
+	}
+
+	if userID == "" {
+		// User not found - not an error, it may have already been deleted
+		return nil
+	}
+
+	usersURL := *kc.keycloakAdminURL
+	usersURL.Path += "/users/" + userID
+
+	resp, err := kc.do(http.MethodDelete, usersURL.String(), nil)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed deleting user %q (ID: %s): %s %s", username, userID, resp.Status, respBytes)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("listing users failed: %s: %s", resp.Status, respBytes)
+	return nil
+}
+
+func (kc *KeycloakClient) ListUsers() ([]map[string]interface{}, error) {
+	allUsers := []map[string]interface{}{}
+	first := 0
+	max := 100 // Keycloak default page size
+
+	for {
+		usersURL := *kc.keycloakAdminURL
+		usersURL.Path += "/users"
+		q := usersURL.Query()
+		q.Set("first", fmt.Sprintf("%d", first))
+		q.Set("max", fmt.Sprintf("%d", max))
+		usersURL.RawQuery = q.Encode()
+
+		resp, err := kc.do(http.MethodGet, usersURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		respBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("listing users failed: %s: %s", resp.Status, respBytes)
+		}
+
+		users := []map[string]interface{}{}
+		if err := json.Unmarshal(respBytes, &users); err != nil {
+			return nil, err
+		}
+
+		if len(users) == 0 {
+			break
+		}
+
+		allUsers = append(allUsers, users...)
+		first += len(users)
 	}
 
-	users := []map[string]interface{}{}
-	if err := json.Unmarshal(respBytes, &users); err != nil {
-		return nil, err
-	}
-
-	return users, nil
+	return allUsers, nil
 }
 
 func (kc *KeycloakClient) UpdateUser(id string, changes map[string]interface{}) error {
