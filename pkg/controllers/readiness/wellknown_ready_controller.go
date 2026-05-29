@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -321,7 +321,7 @@ func (c *wellKnownReadyController) checkWellknownEndpointReady(ctx context.Conte
 	}
 
 	var receivedValues map[string]interface{}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read %s body: %v (check kube-apiserver logs if this error persists)", wellKnown, err)
 	}
