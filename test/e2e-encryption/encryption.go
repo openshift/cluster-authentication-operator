@@ -3,6 +3,7 @@ package e2eencryption
 import (
 	"context"
 	"testing"
+	"time"
 
 	g "github.com/onsi/ginkgo/v2"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,7 +64,9 @@ func testEncryptionTurnOnAndOff(t testing.TB) {
 			AssertFunc:                      operatorencryption.AssertTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			t.Cleanup(cancel)
+			return operatorencryption.CreateAndStoreTokenOfLife(ctx, t, operatorencryption.GetClients(t))
 		},
 		AssertResourceEncryptedFunc:    operatorencryption.AssertTokenOfLifeEncrypted,
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,

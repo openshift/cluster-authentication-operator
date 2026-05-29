@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	g "github.com/onsi/ginkgo/v2"
 
@@ -28,7 +29,8 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 // testEncryptionRotation first encrypts data with aescbc key
 // then it forces a key rotation by setting the "encryption.Reason" in the operator's configuration file
 func testEncryptionRotation(t testing.TB) {
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Hour)
+	t.Cleanup(cancel)
 	testlibrary.TestEncryptionRotation(t, library.RotationScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",

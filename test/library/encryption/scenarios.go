@@ -190,6 +190,10 @@ func TestPerfEncryption(tb testing.TB, scenario library.PerfScenario) {
 
 	migrationStartedCh := make(chan time.Time, 1)
 
+	// Create a cancelable context for the watcher goroutine to ensure it stops when the test finishes
+	watcherCtx, cancel := context.WithCancel(context.Background())
+	tb.Cleanup(cancel)
+
 	// Step 1: Populate the database with test data
 	tb.Logf("Step 1/3: Populating database with test data using %d workers", scenario.DBLoaderWorkers)
 	populateDatabase(tb, scenario.DBLoaderWorkers, scenario.DBLoaderFunc, scenario.AssertDBPopulatedFunc)
@@ -198,7 +202,7 @@ func TestPerfEncryption(tb testing.TB, scenario library.PerfScenario) {
 	// Capture test start time to validate fresh condition transitions
 	testStartTime := time.Now()
 	tb.Logf("Step 2/3: Starting migration progress monitor (test start time: %v)", testStartTime)
-	watchForMigrationControllerProgressingConditionAsync(tb, scenario.GetOperatorConditionsFunc, migrationStartedCh, testStartTime)
+	watchForMigrationControllerProgressingConditionAsync(watcherCtx, tb, scenario.GetOperatorConditionsFunc, migrationStartedCh, testStartTime)
 
 	// Step 3: Run encryption test and measure time
 	tb.Logf("Step 3/3: Enabling encryption and measuring migration time")

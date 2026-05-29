@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -308,7 +309,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 
 		testClient.validateOAuthState(t, testCtx, true)
 
-		testClient.testOIDCAuthentication(t, testCtx, kcClient, tt.claim, tt.expectedPrefix, true)
+		testClient.testOIDCAuthentication(t, testCtx, kcClient, caBundleName, tt.claim, tt.expectedPrefix, true)
 	}
 
 	// Test: auth-config cm must exist and gets overwritten by the CAO if manually modified when type OIDC
@@ -357,7 +358,7 @@ func testExternalOIDCWithKeycloak(t testing.TB) {
 
 	testClient.validateOAuthState(t, testCtx, true)
 
-	testClient.testOIDCAuthentication(t, testCtx, kcClient, "", "", false)
+	testClient.testOIDCAuthentication(t, testCtx, kcClient, caBundleName, "", "", false)
 }
 
 type expectedClaims struct {
@@ -381,13 +382,21 @@ type jwks struct {
 	} `json:"keys"`
 }
 
-func fetchIssuerJWKS(ctx context.Context, issuerURL string) (*jwks, error) {
+func fetchIssuerJWKS(ctx context.Context, issuerURL string, caCertPEM []byte) (*jwks, error) {
+	// Create a cert pool and add the CA certificate
+	caCertPool := x509.NewCertPool()
+	if len(caCertPEM) > 0 {
+		if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+			return nil, fmt.Errorf("failed to append CA certificate to pool")
+		}
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-				MinVersion:         tls.VersionTLS12,
+				RootCAs:    caCertPool,
+				MinVersion: tls.VersionTLS12,
 			},
 		},
 	}
@@ -939,7 +948,7 @@ func validateOAuthRelatedObjects(ctx context.Context, configClient *configclient
 	return errs
 }
 
-func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, kcClient *test.KeycloakClient, usernameClaim, usernamePrefix string, expectAuthSuccess bool) {
+func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, kcClient *test.KeycloakClient, caBundleName, usernameClaim, usernamePrefix string, expectAuthSuccess bool) {
 	// re-authenticate to ensure we always have a fresh token
 	var err error
 	waitErr := wait.PollUntilContextTimeout(ctx, 5*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
@@ -950,10 +959,10 @@ func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, 
 	require.NoError(t, waitErr, "failed to wait for keycloak authentication: %v", waitErr)
 
 	group := names.SimpleNameGenerator.GenerateName("e2e-keycloak-group-")
-	err = kcClient.CreateGroup(group)
+	err = kcClient.CreateGroup(ctx, group)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := kcClient.DeleteGroup(group); err != nil {
+		if err := kcClient.DeleteGroup(context.Background(), group); err != nil {
 			t.Logf("WARNING: failed to delete Keycloak group %q: %v", group, err)
 		}
 	})
@@ -964,6 +973,7 @@ func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, 
 	firstName := "Homer"
 	lastName := "Simpson"
 	err = kcClient.CreateUser(
+		ctx,
 		user,
 		email,
 		password,
@@ -975,7 +985,7 @@ func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, 
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := kcClient.DeleteUser(user); err != nil {
+		if err := kcClient.DeleteUser(context.Background(), user); err != nil {
 			t.Logf("WARNING: failed to delete Keycloak user %q: %v", user, err)
 		}
 	})
@@ -990,8 +1000,16 @@ func (tc *testClient) testOIDCAuthentication(t testing.TB, ctx context.Context, 
 	require.NotEmpty(t, accessTokenStr, "access token must not be empty")
 	require.NotEmpty(t, idTokenStr, "id token must not be empty")
 
+	// fetch CA bundle for TLS verification
+	var caCertPEM []byte
+	if len(caBundleName) > 0 {
+		cm, err := tc.kubeClient.CoreV1().ConfigMaps("openshift-config").Get(ctx, caBundleName, metav1.GetOptions{})
+		require.NoError(t, err, "failed to get CA bundle configmap")
+		caCertPEM = []byte(cm.Data["ca-bundle.crt"])
+	}
+
 	// fetch issuer's JWKS and use it to parse JWT tokens
-	issuerJWKS, err := fetchIssuerJWKS(ctx, kcClient.IssuerURL())
+	issuerJWKS, err := fetchIssuerJWKS(ctx, kcClient.IssuerURL(), caCertPEM)
 	require.NoError(t, err)
 	require.NotNil(t, issuerJWKS)
 	keyfunc := extractRSAPubKeyFunc(issuerJWKS)

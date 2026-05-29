@@ -53,7 +53,7 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: kubecmdapi.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
 	require.NoError(t, err)
-	t.Logf("Found configuration for host %v", config.Host)
+	t.Logf("Found configuration for API server")
 	return config
 }
 

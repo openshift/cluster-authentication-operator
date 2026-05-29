@@ -33,7 +33,8 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 })
 
 func testPerfEncryptionTypeAESCBC(tt testing.TB) {
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	tt.Cleanup(cancel)
 	clientSet := getPerfClients(tt)
 	operatorlibrary.TestPerfEncryption(tt, library.PerfScenario{
 		BasicScenario: library.BasicScenario{

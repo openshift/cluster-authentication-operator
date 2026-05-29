@@ -22,19 +22,18 @@ const (
 
 // watchForMigrationControllerProgressingConditionAsync starts watching for the migration
 // controller progressing condition in a background goroutine.
-func watchForMigrationControllerProgressingConditionAsync(t testing.TB, getOperatorCondFn library.GetOperatorConditionsFuncType, migrationStartedCh chan time.Time, testStartTime time.Time) {
+func watchForMigrationControllerProgressingConditionAsync(ctx context.Context, t testing.TB, getOperatorCondFn library.GetOperatorConditionsFuncType, migrationStartedCh chan time.Time, testStartTime time.Time) {
 	t.Helper()
-	go watchForMigrationControllerProgressingCondition(t, getOperatorCondFn, migrationStartedCh, testStartTime)
+	go watchForMigrationControllerProgressingCondition(ctx, t, getOperatorCondFn, migrationStartedCh, testStartTime)
 }
 
 // watchForMigrationControllerProgressingCondition waits for the EncryptionMigrationControllerProgressing
 // condition to be set to true with reason "Migrating" and a fresh transition timestamp.
 // It validates that the condition transition occurred after the test start time to avoid accepting stale conditions.
-func watchForMigrationControllerProgressingCondition(t testing.TB, getOperatorConditionsFn library.GetOperatorConditionsFuncType, migrationStartedCh chan time.Time, testStartTime time.Time) {
+func watchForMigrationControllerProgressingCondition(ctx context.Context, t testing.TB, getOperatorConditionsFn library.GetOperatorConditionsFuncType, migrationStartedCh chan time.Time, testStartTime time.Time) {
 	t.Helper()
 
 	t.Logf("Waiting up to %s for the condition %q with the reason %q to be set to true (after %v)", waitPollTimeout.String(), "EncryptionMigrationControllerProgressing", "Migrating", testStartTime)
-	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, waitPollInterval, waitPollTimeout, true, func(ctx context.Context) (bool, error) {
 		conditions, err := getOperatorConditionsFn(t)
 		if err != nil {
