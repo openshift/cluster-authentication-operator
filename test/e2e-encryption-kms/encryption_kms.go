@@ -52,7 +52,7 @@ func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
 		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
-		EncryptionProvider:             librarykms.DefaultFakeVaultEncryptionProvider,
+		EncryptionProvider:             librarykms.DefaultVaultEncryptionProvider,
 	})
 }
 
@@ -83,7 +83,7 @@ func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
 		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
 		ResourceName:                   "TokenOfLife",
 		EncryptionProviders: library.ShuffleEncryptionProviders([]library.EncryptionProvider{
-			librarykms.DefaultFakeVaultEncryptionProvider,
+			librarykms.DefaultVaultEncryptionProvider,
 			library.SupportedStaticEncryptionProviders[rand.IntN(len(library.SupportedStaticEncryptionProviders))],
 		}),
 	})
