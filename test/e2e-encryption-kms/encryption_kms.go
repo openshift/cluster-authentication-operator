@@ -35,7 +35,6 @@ var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
 // 9. Disables encryption (Identity) again
 // 10. Verifies token is NOT encrypted again
 func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
-	librarykms.DeployUpstreamMockKMSPlugin(ctx, t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
 	library.TestEncryptionTurnOnAndOff(ctx, t, library.OnOffScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
@@ -66,7 +65,6 @@ func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
 // 5. Migrates between the providers in the shuffled order
 // 6. Verifies token is correctly encrypted after each migration
 func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
-	librarykms.DeployUpstreamMockKMSPlugin(ctx, t, library.GetClients(t).Kube, librarykms.WellKnownUpstreamMockKMSPluginNamespace, librarykms.WellKnownUpstreamMockKMSPluginImage, librarykms.DefaultKMSPluginCount)
 	library.TestEncryptionProvidersMigration(ctx, t, library.ProvidersMigrationScenario{
 		BasicScenario: library.BasicScenario{
 			Namespace:                       "openshift-config-managed",
