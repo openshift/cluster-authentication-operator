@@ -37,10 +37,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var kasServicePort int
+var (
+	kasServicePort     int
+	kasServicePortOnce sync.Once
+)
 
-func init() {
-	(&sync.Once{}).Do(func() {
+func getKASServicePort() int {
+	kasServicePortOnce.Do(func() {
 		var err error
 		kasServicePort, err = strconv.Atoi(os.Getenv("KUBERNETES_SERVICE_PORT_HTTPS"))
 		if err != nil {
@@ -48,6 +51,7 @@ func init() {
 			kasServicePort = 443
 		}
 	})
+	return kasServicePort
 }
 
 type wellKnownReadyController struct {
@@ -350,7 +354,7 @@ func (c *wellKnownReadyController) getOAuthMetadata() (map[string]interface{}, e
 
 func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
 	for _, port := range service.Spec.Ports {
-		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == kasServicePort {
+		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == getKASServicePort() {
 			return targetPort, true
 		}
 	}
