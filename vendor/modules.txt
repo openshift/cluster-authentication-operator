@@ -428,6 +428,7 @@ github.com/openshift/library-go/pkg/operator/encryption/crypto
 github.com/openshift/library-go/pkg/operator/encryption/deployer
 github.com/openshift/library-go/pkg/operator/encryption/encoding
 github.com/openshift/library-go/pkg/operator/encryption/encryptiondata
+github.com/openshift/library-go/pkg/operator/encryption/encryptionstatus
 github.com/openshift/library-go/pkg/operator/encryption/kms/pluginlifecycle
 github.com/openshift/library-go/pkg/operator/encryption/observer
 github.com/openshift/library-go/pkg/operator/encryption/secrets
@@ -1651,3 +1652,4 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 # github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+# github.com/openshift/library-go => github.com/tjungblu/library-go v0.0.0-20260608092146-53a048269fb0

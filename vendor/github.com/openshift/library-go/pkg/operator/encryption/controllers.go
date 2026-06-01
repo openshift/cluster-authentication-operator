@@ -125,6 +125,19 @@ func NewControllers(
 			encryptionSecretSelector,
 			eventRecorder,
 		),
+		controllers.NewEncryptionRotationController(
+			component,
+			provider,
+			deployer,
+			encryptionEnabledChecker.PreconditionFulfilled,
+			migrator,
+			operatorClient,
+			apiServerInformer,
+			kubeInformersForNamespaces,
+			secretsClient,
+			encryptionSecretSelector,
+			eventRecorder,
+		),
 	}, nil
 }
 
