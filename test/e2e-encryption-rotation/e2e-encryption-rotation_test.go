@@ -36,7 +36,10 @@ func TestEncryptionRotation(t *testing.T) {
 		GetRawResourceFunc: func(t testing.TB, clientSet library.ClientSet, _ string) string {
 			return operatorencryption.GetRawTokenOfLife(t, clientSet)
 		},
-		UnsupportedConfigFunc: func(rawUnsupportedEncryptionCfg []byte) error {
+		EncryptionProvider: library.EncryptionProvider{
+			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
+		},
+		ForceRotationFunc: library.StaticEncryptionForceRotation(func(rawUnsupportedEncryptionCfg []byte) error {
 			cs := operatorencryption.GetClients(t)
 			authOperator, err := cs.OperatorClient.Get(ctx, "cluster", metav1.GetOptions{})
 			if err != nil {
@@ -64,9 +67,7 @@ func TestEncryptionRotation(t *testing.T) {
 
 			_, err = cs.OperatorClient.Update(ctx, authOperator, metav1.UpdateOptions{})
 			return err
-		},
-		EncryptionProvider: library.EncryptionProvider{
-			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
-		},
+		}),
+		WaitForRotationCompleteFunc: library.WaitForNextEncryptionKeyRotation(),
 	})
 }
