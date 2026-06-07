@@ -1,4 +1,4 @@
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.25-openshift-4.22 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-5.0 AS builder
 # This pattern is documented in https://github.com/openshift/enhancements/pull/1672. Use ARG to build images based on platform.
 ARG TAGS=ocp
 WORKDIR /go/src/github.com/openshift/cluster-authentication-operator
@@ -8,7 +8,7 @@ RUN go build -ldflags "-X $GO_PACKAGE/pkg/version.versionFromGit=$(git describe 
 RUN GO_BUILD_PACKAGES=./cmd/cluster-authentication-operator-tests-ext make build --warn-undefined-variables \
     && gzip cluster-authentication-operator-tests-ext
 
-FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+FROM registry.ci.openshift.org/ocp/5.0:base-rhel9
 COPY --from=builder /go/src/github.com/openshift/cluster-authentication-operator/authentication-operator /usr/bin/
 COPY --from=builder /go/src/github.com/openshift/cluster-authentication-operator/cluster-authentication-operator-tests-ext.gz /usr/bin/
 COPY manifests /manifests
