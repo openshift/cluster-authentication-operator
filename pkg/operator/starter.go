@@ -689,6 +689,7 @@ func prepareOauthAPIServerOperator(
 		deployer,
 		migrator,
 		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.configClient.ConfigV1().APIServers(),
 		informerFactories.operatorConfigInformer.Config().V1().APIServers(),
 		informerFactories.kubeInformersForNamespaces,
