@@ -1,4 +1,4 @@
-package common
+package readiness
 
 import (
 	"fmt"
@@ -9,9 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const controllerName = "TestController"
-
-func TestControllerProgressingErrorIsDegraded(t *testing.T) {
+func TestControllerDegradationObservedErrorIsDegraded(t *testing.T) {
 	tests := []struct {
 		name               string
 		reason             string
@@ -28,13 +26,13 @@ func TestControllerProgressingErrorIsDegraded(t *testing.T) {
 			previousConditions: []operatorv1.OperatorCondition{},
 		},
 		{
-			name:   "different previous progressing condition",
+			name:   "different previous degradation observed condition",
 			reason: "TestReason",
 			err:    fmt.Errorf("working on this"),
 			maxAge: 5 * time.Minute,
 			previousConditions: []operatorv1.OperatorCondition{
 				{
-					Type:               "SomethingElseIsProgressing",
+					Type:               "SomethingElseDegradationObserved",
 					Status:             operatorv1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-6 * time.Minute)),
 					Message:            "things are happening",
@@ -48,7 +46,7 @@ func TestControllerProgressingErrorIsDegraded(t *testing.T) {
 			maxAge: 5 * time.Minute,
 			previousConditions: []operatorv1.OperatorCondition{
 				{
-					Type:               ControllerProgressingConditionName(controllerName),
+					Type:               ControllerDegradationObservedConditionName(controllerName),
 					Status:             operatorv1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-4 * time.Minute)),
 					Reason:             "TestReason",
@@ -63,7 +61,7 @@ func TestControllerProgressingErrorIsDegraded(t *testing.T) {
 			maxAge: 5 * time.Minute,
 			previousConditions: []operatorv1.OperatorCondition{
 				{
-					Type:               ControllerProgressingConditionName(controllerName),
+					Type:               ControllerDegradationObservedConditionName(controllerName),
 					Status:             operatorv1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-6 * time.Minute)),
 					Reason:             "TestReason",
@@ -79,7 +77,7 @@ func TestControllerProgressingErrorIsDegraded(t *testing.T) {
 			maxAge: 5 * time.Minute,
 			previousConditions: []operatorv1.OperatorCondition{
 				{
-					Type:               ControllerProgressingConditionName(controllerName),
+					Type:               ControllerDegradationObservedConditionName(controllerName),
 					Status:             operatorv1.ConditionTrue,
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-6 * time.Minute)),
 					Reason:             "TestReason",
@@ -90,13 +88,13 @@ func TestControllerProgressingErrorIsDegraded(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &ControllerProgressingError{
+			e := &ControllerDegradationObservedError{
 				reason: tt.reason,
 				err:    tt.err,
 				maxAge: tt.maxAge,
 			}
 			if got := e.IsDegraded(controllerName, &operatorv1.OperatorStatus{Conditions: tt.previousConditions}); got != tt.expectedDegraded {
-				t.Errorf("ControllerProgressingError.IsDegraded() = %v, expectedDegraded %v", got, tt.expectedDegraded)
+				t.Errorf("ControllerDegradationObservedError.IsDegraded() = %v, expectedDegraded %v", got, tt.expectedDegraded)
 			}
 		})
 	}

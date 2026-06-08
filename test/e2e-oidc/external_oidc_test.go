@@ -867,7 +867,7 @@ func validateOAuthControllerConditions(operatorClient v1helpers.OperatorClient, 
 		"SystemServiceCAConfigDegraded",
 		// wellKnownReadyController
 		"WellKnownAvailable",
-		"WellKnownReadyControllerProgressing",
+		"WellKnownReadyControllerDegradationObserved",
 	)
 
 	if !newExternalOIDCArchitectureEnabled {
