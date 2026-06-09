@@ -35,11 +35,8 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
-	if err == nil {
-		fmt.Printf("Found configuration for host %v.\n", config.Host)
-	}
-
 	require.NoError(t, err)
+	t.Logf("Found configuration for API server")
 	return config
 }
 
@@ -119,12 +116,14 @@ func GenerateOAuthTokenPair() (privToken, pubToken string) {
 	return sha256Prefix + string(randomToken), sha256Prefix + base64.RawURLEncoding.EncodeToString(hashed[:])
 }
 
-type testNamespaceBuilder struct {
+// TestNamespaceBuilder provides a fluent interface for building test namespaces with Pod Security Admission configuration.
+type TestNamespaceBuilder struct {
 	ns *corev1.Namespace
 }
 
-func NewTestNamespaceBuilder(namePrefix string) *testNamespaceBuilder {
-	return &testNamespaceBuilder{
+// NewTestNamespaceBuilder creates a new builder for test namespaces with the given name prefix.
+func NewTestNamespaceBuilder(namePrefix string) *TestNamespaceBuilder {
+	return &TestNamespaceBuilder{
 		ns: &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: namePrefix,
@@ -137,31 +136,41 @@ func NewTestNamespaceBuilder(namePrefix string) *testNamespaceBuilder {
 	}
 }
 
-func (b *testNamespaceBuilder) WithLabels(labels map[string]string) *testNamespaceBuilder {
+// WithLabels adds the specified labels to the namespace.
+func (b *TestNamespaceBuilder) WithLabels(labels map[string]string) *TestNamespaceBuilder {
 	for k, v := range labels {
 		b.ns.Labels[k] = v
 	}
 	return b
 }
 
-func (b *testNamespaceBuilder) WithPSaEnforcement(level psapi.Level) *testNamespaceBuilder {
+// WithPSaEnforcement sets the Pod Security Admission enforcement level for the namespace.
+// This sets all three PSA labels (enforce, audit, warn) to ensure consistent behavior
+// and prevent audit log violations when using privileged mode.
+func (b *TestNamespaceBuilder) WithPSaEnforcement(level psapi.Level) *TestNamespaceBuilder {
 	b.ns.Labels[psapi.EnforceLevelLabel] = string(level)
+	b.ns.Labels[psapi.AuditLevelLabel] = string(level)
+	b.ns.Labels[psapi.WarnLevelLabel] = string(level)
 	return b
 }
 
-func (b *testNamespaceBuilder) WithRestrictedPSaEnforcement() *testNamespaceBuilder {
+// WithRestrictedPSaEnforcement sets the namespace to use restricted Pod Security Admission enforcement.
+func (b *TestNamespaceBuilder) WithRestrictedPSaEnforcement() *TestNamespaceBuilder {
 	return b.WithPSaEnforcement(psapi.LevelRestricted)
 }
 
-func (b *testNamespaceBuilder) WithBaselinePSaEnforcement() *testNamespaceBuilder {
+// WithBaselinePSaEnforcement sets the namespace to use baseline Pod Security Admission enforcement.
+func (b *TestNamespaceBuilder) WithBaselinePSaEnforcement() *TestNamespaceBuilder {
 	return b.WithPSaEnforcement(psapi.LevelBaseline)
 }
 
-func (b *testNamespaceBuilder) WithPrivilegedPSaEnforcement() *testNamespaceBuilder {
+// WithPrivilegedPSaEnforcement sets the namespace to use privileged Pod Security Admission enforcement.
+func (b *TestNamespaceBuilder) WithPrivilegedPSaEnforcement() *TestNamespaceBuilder {
 	return b.WithPSaEnforcement(psapi.LevelPrivileged)
 }
 
-func (b *testNamespaceBuilder) Create(t testing.TB, kubeClient corev1client.NamespaceInterface) string {
+// Create creates the namespace in the cluster and returns its name.
+func (b *TestNamespaceBuilder) Create(t testing.TB, kubeClient corev1client.NamespaceInterface) string {
 	ns, err := kubeClient.Create(context.Background(), b.ns, metav1.CreateOptions{})
 	require.NoError(t, err)
 
