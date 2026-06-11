@@ -60,6 +60,16 @@ func ToKeyState(s *corev1.Secret) (state.KeyState, error) {
 		key.ExternalReason = v
 	}
 
+	kekMigration := KekMigrationFromSecret(s)
+	if kekMigration.TargetKekID != "" || kekMigration.MigratedKekID != "" || kekMigration.KekConvergedID != "" || !kekMigration.KekConvergedAt.IsZero() {
+		key.KekMigration = &state.KekMigrationState{
+			TargetKekID:    kekMigration.TargetKekID,
+			MigratedKekID:  kekMigration.MigratedKekID,
+			KekConvergedAt: kekMigration.KekConvergedAt,
+			KekConvergedID: kekMigration.KekConvergedID,
+		}
+	}
+
 	keyMode := state.Mode(s.Annotations[encryptionSecretMode])
 	switch keyMode {
 	case state.AESCBC, state.AESGCM, state.SecretBox, state.Identity:
@@ -201,17 +211,6 @@ func (m *MigratedGroupResources) HasResource(resource schema.GroupResource) bool
 		}
 	}
 	return false
-}
-
-// FindKeySecret returns the encryption key secret for keyID from a ListKeySecrets result.
-func FindKeySecret(encryptionSecrets []*corev1.Secret, component, keyID string) *corev1.Secret {
-	name := fmt.Sprintf("encryption-key-%s-%s", component, keyID)
-	for _, secret := range encryptionSecrets {
-		if secret.Namespace == "openshift-config-managed" && secret.Name == name {
-			return secret
-		}
-	}
-	return nil
 }
 
 // ListKeySecrets returns the current key secrets from openshift-config-managed.

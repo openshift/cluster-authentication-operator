@@ -19,6 +19,7 @@ import (
 	operatorv1helpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers"
+	kmshealth "github.com/openshift/library-go/pkg/operator/encryption/kms/health"
 	"github.com/openshift/library-go/pkg/operator/encryption/secrets"
 	"github.com/openshift/library-go/pkg/operator/encryption/statemachine"
 )
@@ -48,6 +49,11 @@ func NewControllers(
 	if err != nil {
 		return nil, err
 	}
+
+	convergedKEKReporter := kmshealth.NewMOCK_ConfigMapConvergedKEKReporter(
+		kubeInformersForNamespaces.ConfigMapLister(),
+		"",
+	)
 
 	// for testing resourceSyncer might be nil
 	if resourceSyncer != nil {
@@ -125,12 +131,12 @@ func NewControllers(
 			encryptionSecretSelector,
 			eventRecorder,
 		),
-		controllers.NewEncryptionRotationController(
+		controllers.NewKMSRotationController(
 			component,
 			provider,
 			deployer,
 			encryptionEnabledChecker.PreconditionFulfilled,
-			migrator,
+			convergedKEKReporter,
 			operatorClient,
 			apiServerInformer,
 			kubeInformersForNamespaces,
