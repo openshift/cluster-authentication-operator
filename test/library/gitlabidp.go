@@ -37,6 +37,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 	configclients, err := configv1client.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
+	// GitLab requires privileged mode to manage system services (PostgreSQL, Redis, nginx, Sidekiq).
 	nsName, gitlabHost, cleanup := deployPod(t, kubeClients, routeClient,
 		"gitlab",
 		"docker.io/gitlab/gitlab-ce:13.8.4-ce.0",
@@ -85,6 +86,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 		nil,
 		nil,
 		false,
+		true, // GitLab requires privileged mode
 	)
 	cleanups = []func(){cleanup}
 

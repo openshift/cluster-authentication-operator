@@ -1,4 +1,4 @@
-package e2eencryption
+package e2e_encryption
 
 import (
 	"math/rand"

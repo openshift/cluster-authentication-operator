@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -22,7 +23,6 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
-	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
 )
@@ -31,6 +31,26 @@ const servingSecretName = "serving-secret"
 
 func boolptr(b bool) *bool {
 	return &b
+}
+
+func createContainerSecurityContext(usePrivileged bool) *corev1.SecurityContext {
+	if usePrivileged {
+		return &corev1.SecurityContext{
+			Privileged: boolptr(true),
+		}
+	}
+
+	// Restricted security context compliant with PodSecurity restricted:latest policy
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: boolptr(false),
+		RunAsNonRoot:             boolptr(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
 }
 
 func deployPod(
@@ -46,6 +66,7 @@ func deployPod(
 	readinessProbe *corev1.Probe,
 	livenessProbe *corev1.Probe,
 	useTLS bool,
+	usePrivilegedSecurity bool,
 	command ...string,
 ) (namespace, host string, cleanup func()) {
 	testContext := context.TODO()
@@ -53,10 +74,17 @@ func deployPod(
 	var err error
 	cleanup = func() {}
 
-	namespace = NewTestNamespaceBuilder("e2e-test-authentication-operator-").
-		WithPrivilegedPSaEnforcement().
-		WithLabels(CAOE2ETestLabels()).
-		Create(t, clients.CoreV1().Namespaces())
+	// Configure PSA enforcement: privileged for GitLab (requires root), restricted for Keycloak.
+	nsBuilder := NewTestNamespaceBuilder("e2e-test-authentication-operator-").
+		WithLabels(CAOE2ETestLabels())
+
+	if usePrivilegedSecurity {
+		nsBuilder = nsBuilder.WithPrivilegedPSaEnforcement()
+	} else {
+		nsBuilder = nsBuilder.WithRestrictedPSaEnforcement()
+	}
+
+	namespace = nsBuilder.Create(t, clients.CoreV1().Namespaces())
 
 	cleanup = func() {
 		// remove the NS, it will take away all the resources create here along with it
@@ -82,7 +110,7 @@ func deployPod(
 	)
 
 	saName := name
-	pod := podTemplate(name, image, httpPort, httpsPort, command...)
+	pod := podTemplate(name, image, httpPort, httpsPort, usePrivilegedSecurity, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
@@ -94,6 +122,29 @@ func deployPod(
 		pod.Spec.Containers[0].LivenessProbe = livenessProbe
 	}
 	pod.Spec.ServiceAccountName = saName
+
+	// Grant privileged SCC when required (e.g., GitLab needs root access).
+	if usePrivilegedSecurity {
+		roleBinding := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "privileged-scc-to-default-sa",
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     "system:openshift:scc:privileged",
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind: "ServiceAccount",
+					Name: saName,
+				},
+			},
+		}
+
+		_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -109,26 +160,6 @@ func deployPod(
 			},
 		},
 	}
-
-	roleBinding := &v1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "privileged-scc-to-default-sa",
-		},
-		RoleRef: v1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
-			Name:     "system:openshift:scc:privileged",
-		},
-		Subjects: []v1.Subject{
-			{
-				Kind: "ServiceAccount",
-				Name: saName,
-			},
-		},
-	}
-
-	_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
-	require.NoError(t, err)
 
 	_, err = clients.AppsV1().Deployments(namespace).Create(testContext, deployment, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -159,8 +190,8 @@ func deployPod(
 	return
 }
 
-func podTemplate(name, image string, httpPort, httpsPort int32, command ...string) *corev1.Pod {
-	return &corev1.Pod{
+func podTemplate(name, image string, httpPort, httpsPort int32, usePrivilegedSecurity bool, command ...string) *corev1.Pod {
+	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
@@ -170,11 +201,9 @@ func podTemplate(name, image string, httpPort, httpsPort int32, command ...strin
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:  "payload",
-					Image: image,
-					SecurityContext: &corev1.SecurityContext{
-						Privileged: boolptr(true),
-					},
+					Name:            "payload",
+					Image:           image,
+					SecurityContext: createContainerSecurityContext(usePrivilegedSecurity),
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: httpsPort,
@@ -188,6 +217,8 @@ func podTemplate(name, image string, httpPort, httpsPort int32, command ...strin
 			},
 		},
 	}
+
+	return pod
 }
 
 func svcTemplate(httpPort, httpsPort int32) *corev1.Service {
@@ -247,6 +278,7 @@ func routeTemplate(useTLS bool) *routev1.Route {
 	return r
 }
 
+// CleanIDPConfigByName removes the identity provider with the given name from the OAuth cluster configuration.
 func CleanIDPConfigByName(t testing.TB, configClient configv1client.OAuthInterface, idpName string) {
 	config, err := configClient.Get(context.TODO(), "cluster", metav1.GetOptions{})
 	if err != nil {
@@ -279,6 +311,7 @@ func CleanIDPConfigByName(t testing.TB, configClient configv1client.OAuthInterfa
 	}
 }
 
+// IDPCleanupWrapper wraps a cleanup function and skips cleanup if OPENSHIFT_KEEP_IDP environment variable is set.
 func IDPCleanupWrapper(cleanup func()) func() {
 	return func() {
 		// allow keeping the IdP for manual testing
@@ -290,8 +323,7 @@ func IDPCleanupWrapper(cleanup func()) func() {
 	}
 }
 
-// labels for listing/deleting stuff by hand, e.g. NS or simple openshift-config
-// NS CMs and Secrets cleanup
+// CAOE2ETestLabels returns labels used for listing/deleting test resources such as namespaces, ConfigMaps, and Secrets.
 func CAOE2ETestLabels() map[string]string {
 	return map[string]string{
 		"e2e-test": "openshift-authentication-operator",

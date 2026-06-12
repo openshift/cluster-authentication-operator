@@ -22,11 +22,13 @@ import (
 	library "github.com/openshift/library-go/test/library/encryption"
 )
 
+// ClientSet holds the clients needed for encryption tests.
 type ClientSet struct {
 	OperatorClient operatorv1client.AuthenticationInterface
 	TokenClient    oauthclient.OAuthAccessTokensGetter
 }
 
+// GetClientsFor returns a ClientSet configured with the given kubeConfig for encryption tests.
 func GetClientsFor(t testing.TB, kubeConfig *rest.Config) ClientSet {
 	t.Helper()
 
@@ -39,6 +41,7 @@ func GetClientsFor(t testing.TB, kubeConfig *rest.Config) ClientSet {
 	return ClientSet{OperatorClient: operatorClient.Authentications(), TokenClient: oc}
 }
 
+// GetClients returns a ClientSet configured with the default test kubeConfig.
 func GetClients(t testing.TB) ClientSet {
 	t.Helper()
 
@@ -52,13 +55,12 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: kubecmdapi.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()
-	if err == nil {
-		fmt.Printf("Found configuration for host %v.\n", config.Host)
-	}
 	require.NoError(t, err)
+	t.Logf("Found configuration for API server")
 	return config
 }
 
+// CreateAndStoreTokenOfLife creates a test OAuth access token and stores it in the cluster.
 func CreateAndStoreTokenOfLife(ctx context.Context, t testing.TB, cs ClientSet) runtime.Object {
 	t.Helper()
 	{
@@ -81,6 +83,7 @@ func CreateAndStoreTokenOfLife(ctx context.Context, t testing.TB, cs ClientSet) 
 	return tokenOfLife
 }
 
+// GetRawTokenOfLife retrieves the raw token value from etcd for the test OAuth access token.
 func GetRawTokenOfLife(t testing.TB, clientSet library.ClientSet) string {
 	t.Helper()
 	timeout, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -97,6 +100,7 @@ func GetRawTokenOfLife(t testing.TB, clientSet library.ClientSet) string {
 	return string(resp.Kvs[0].Value)
 }
 
+// TokenOfLife returns a test OAuth access token object for encryption testing.
 func TokenOfLife(t testing.TB) runtime.Object {
 	t.Helper()
 	return &oauthapiv1.OAuthAccessToken{

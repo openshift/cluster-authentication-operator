@@ -104,13 +104,13 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 	require.NoError(t, err)
 
 	kcClient := test.KeycloakClientFor(t, transport, configIDP.OpenID.Issuer, "master")
-	err = kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+	err = kcClient.AuthenticatePassword(testContext, "admin-cli", "", "admin", "password")
 	require.NoError(t, err)
 
-	client, err := kcClient.GetClientByClientID(configIDP.OpenID.ClientID)
+	client, err := kcClient.GetClientByClientID(testContext, configIDP.OpenID.ClientID)
 	require.NoError(t, err)
 
-	err = kcClient.UpdateClientDirectAccessGrantsEnabled(client["id"].(string), true)
+	err = kcClient.UpdateClientDirectAccessGrantsEnabled(testContext, client["id"].(string), true)
 	require.NoError(t, err)
 
 	// ===================================================================
@@ -124,7 +124,7 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 
 	err = wait.PollImmediate(5*time.Second, 5*time.Minute, func() (bool, error) {
 		// Re-authenticate to verify admin API is still responsive
-		err := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+		err := kcClient.AuthenticatePassword(testContext, "admin-cli", "", "admin", "password")
 		if err != nil {
 			t.Logf("Keycloak authentication not ready: %v", err)
 			return false, nil
@@ -216,12 +216,13 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 	// Test groups are synced from OIDC
 	// ================================
 	groups := []string{"group1", "group2", "group3"}
-	require.NoError(t, kcClient.CreateGroup("group1"))
-	require.NoError(t, kcClient.CreateGroup("group2"))
-	require.NoError(t, kcClient.CreateGroup("group3"))
+	require.NoError(t, kcClient.CreateGroup(testContext, "group1"))
+	require.NoError(t, kcClient.CreateGroup(testContext, "group2"))
+	require.NoError(t, kcClient.CreateGroup(testContext, "group3"))
 
 	username := "douglasnoeladams"
 	require.NoError(t, kcClient.CreateUser(
+		testContext,
 		username, "", "password42",
 		groups,
 		nil,
@@ -260,18 +261,18 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 	// ==================================================================================
 	// Test groups get removed if the user is the last and they were synced from the OIDC
 	// ==================================================================================
-	users, err := kcClient.ListUsers()
+	users, err := kcClient.ListUsers(testContext)
 	require.NoError(t, err)
-	var userId string
+	var userID string
 	for _, u := range users {
 		if u["username"] == username {
-			userId = u["id"].(string)
+			userID = u["id"].(string)
 			break
 		}
 	}
-	require.NotEmpty(t, userId, "failed to find user id for %q", username)
+	require.NotEmpty(t, userID, "failed to find user id for %q", username)
 
-	userGroups, err := kcClient.ListUserGroups(userId)
+	userGroups, err := kcClient.ListUserGroups(testContext, userID)
 	require.NoError(t, err)
 
 	userGroupsIDMap := make(map[string]string, len(userGroups))
@@ -279,7 +280,7 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 		userGroupsIDMap[g["name"].(string)] = g["id"].(string)
 
 	}
-	require.NoError(t, kcClient.DeleteUserFromGroups(userId, userGroupsIDMap["group2"], userGroupsIDMap["group3"]))
+	require.NoError(t, kcClient.DeleteUserFromGroups(testContext, userID, userGroupsIDMap["group2"], userGroupsIDMap["group3"]))
 	removedGroups := sets.New[string]("group2", "group3")
 
 	_, err = tokenrequest.RequestTokenWithChallengeHandlers(kubeConfig, createChallengeHandler(username, "password42"))

@@ -1,61 +1,32 @@
-package e2eencryption
+package e2e_encryption
 
 import (
-	"context"
-	"fmt"
 	"testing"
-
-	"k8s.io/apimachinery/pkg/runtime"
-
-	configv1 "github.com/openshift/api/config/v1"
-	operatorencryption "github.com/openshift/cluster-authentication-operator/test/library/encryption"
-	library "github.com/openshift/library-go/test/library/encryption"
 )
 
+// This test calls the shared test function which
+// can be called from both standard Go tests and Ginkgo tests.
+//
+// This situation is temporary until we verify the new e2e-aws-operator-encryption-serial-ote job.
+// Eventually all tests will be run only as part of the OTE framework.
 func TestEncryptionTypeIdentity(t *testing.T) {
-	library.TestEncryptionTypeIdentity(t.Context(), t, library.BasicScenario{
-		Namespace:                       "openshift-config-managed",
-		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
-		EncryptionConfigSecretNamespace: "openshift-config-managed",
-		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       operatorencryption.DefaultTargetGRs,
-		AssertFunc:                      operatorencryption.AssertTokens,
-	})
+	testEncryptionTypeIdentity(t)
 }
 
+// This test calls the shared test function which
+// can be called from both standard Go tests and Ginkgo tests.
+//
+// This situation is temporary until we verify the new e2e-aws-operator-encryption-serial-ote job.
+// Eventually all tests will be run only as part of the OTE framework.
 func TestEncryptionTypeUnset(t *testing.T) {
-	library.TestEncryptionTypeUnset(t.Context(), t, library.BasicScenario{
-		Namespace:                       "openshift-config-managed",
-		LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-		EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
-		EncryptionConfigSecretNamespace: "openshift-config-managed",
-		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       operatorencryption.DefaultTargetGRs,
-		AssertFunc:                      operatorencryption.AssertTokens,
-	})
+	testEncryptionTypeUnset(t)
 }
 
+// This test calls the shared test function which
+// can be called from both standard Go tests and Ginkgo tests.
+//
+// This situation is temporary until we verify the new e2e-aws-operator-encryption-serial-ote job.
+// Eventually all tests will be run only as part of the OTE framework.
 func TestEncryptionTurnOnAndOff(t *testing.T) {
-	library.TestEncryptionTurnOnAndOff(t.Context(), t, library.OnOffScenario{
-		BasicScenario: library.BasicScenario{
-			Namespace:                       "openshift-config-managed",
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-			EncryptionConfigSecretName:      fmt.Sprintf("encryption-config-openshift-oauth-apiserver"),
-			EncryptionConfigSecretNamespace: "openshift-config-managed",
-			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       operatorencryption.DefaultTargetGRs,
-			AssertFunc:                      operatorencryption.AssertTokens,
-		},
-		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
-		},
-		AssertResourceEncryptedFunc:    operatorencryption.AssertTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
-		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
-		ResourceName:                   "TokenOfLife",
-		EncryptionProvider: library.EncryptionProvider{
-			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
-		},
-	})
+	testEncryptionTurnOnAndOff(t)
 }
