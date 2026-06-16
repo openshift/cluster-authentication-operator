@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -240,9 +241,17 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
 
+	imageToUse := c.targetImagePullSpec
+	if upstreamImage := os.Getenv("UPSTREAM_OIDC_COMPONENT_IMAGE"); upstreamImage != "" {
+		imageToUse = upstreamImage
+
+		// configure the API endpoint on the upstream component
+		args["authenticate-path"] = []string{"/apis/oauth.openshift.io/v1/tokenreviews"}
+	}
+
 	// use string replacer for simple things
 	r := strings.NewReplacer(
-		"${IMAGE}", c.targetImagePullSpec,
+		"${IMAGE}", imageToUse,
 		"${REVISION}", strconv.Itoa(int(operatorStatus.LatestAvailableRevision)),
 	)
 
