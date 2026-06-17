@@ -38,7 +38,7 @@ spec:
       - name: oauth-apiserver
         terminationMessagePolicy: FallbackToLogsOnError
         image: ${IMAGE}
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         command: ["/bin/bash", "-ec"]
         args:
           - |
@@ -46,7 +46,7 @@ spec:
               echo "Copying system trust bundle"
               cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
             fi
-            exec oauth-apiserver external-oidc \
+            exec padlok run \
               --secure-port=8443 \
               --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
               --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
