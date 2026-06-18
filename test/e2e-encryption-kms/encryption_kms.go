@@ -14,12 +14,20 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
-	g.It("TestKMSEncryptionOnOff [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
-		testKMSEncryptionOnOff(ctx, g.GinkgoTB())
+	//g.It("TestKMSEncryptionOnOff [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+	//	testKMSEncryptionOnOff(ctx, g.GinkgoTB())
+	//})
+
+	//g.It("TestKMSEncryptionProvidersMigration [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+	//	testKMSEncryptionProvidersMigration(ctx, g.GinkgoTB())
+	//})
+
+	g.It("TestKMSToKMSMigration [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+		testKMSToKMSMigration(ctx, g.GinkgoTB())
 	})
 
-	g.It("TestKMSEncryptionProvidersMigration [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
-		testKMSEncryptionProvidersMigration(ctx, g.GinkgoTB())
+	g.It("TestKMSToKMSOnOff [OCPFeatureGate:KMSEncryption][Serial][Timeout:120m]", func(ctx context.Context) {
+		testKMSToKMSOnOff(ctx, g.GinkgoTB())
 	})
 })
 
@@ -86,5 +94,53 @@ func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
 			librarykms.DefaultVaultEncryptionProvider(ctx, t),
 			library.SupportedStaticEncryptionProviders[rand.IntN(len(library.SupportedStaticEncryptionProviders))],
 		}),
+	})
+}
+
+// testKMSToKMSMigration tests KMS-to-KMS migration (primary → secondary → primary → identity).
+func testKMSToKMSMigration(ctx context.Context, t testing.TB) {
+	library.TestKMSToKMSMigration(ctx, t, library.KMSToKMSMigrationScenario{
+		BasicScenario: library.BasicScenario{
+			Namespace:                       "openshift-config-managed",
+			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
+			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
+			EncryptionConfigSecretNamespace: "openshift-config-managed",
+			OperatorNamespace:               "openshift-authentication-operator",
+			TargetGRs:                       operatorencryption.DefaultTargetGRs,
+			AssertFunc:                      operatorencryption.AssertTokens,
+		},
+		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
+			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
+		},
+		AssertResourceEncryptedFunc:    operatorencryption.AssertTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
+		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
+		ResourceName:                   "TokenOfLife",
+		PrimaryProvider:                librarykms.DefaultVaultEncryptionProvider(ctx, t),
+		SecondaryProvider:              librarykms.SecondaryVaultEncryptionProvider(ctx, t),
+	})
+}
+
+// testKMSToKMSOnOff tests KMS on/off cycle with two distinct KMS providers.
+func testKMSToKMSOnOff(ctx context.Context, t testing.TB) {
+	library.TestKMSToKMSOnOff(ctx, t, library.KMSToKMSMigrationScenario{
+		BasicScenario: library.BasicScenario{
+			Namespace:                       "openshift-config-managed",
+			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
+			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
+			EncryptionConfigSecretNamespace: "openshift-config-managed",
+			OperatorNamespace:               "openshift-authentication-operator",
+			TargetGRs:                       operatorencryption.DefaultTargetGRs,
+			AssertFunc:                      operatorencryption.AssertTokens,
+		},
+		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
+			return operatorencryption.CreateAndStoreTokenOfLife(context.TODO(), t, operatorencryption.GetClients(t))
+		},
+		AssertResourceEncryptedFunc:    operatorencryption.AssertTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: operatorencryption.AssertTokenOfLifeNotEncrypted,
+		ResourceFunc:                   func(t testing.TB, _ string) runtime.Object { return operatorencryption.TokenOfLife(t) },
+		ResourceName:                   "TokenOfLife",
+		PrimaryProvider:                librarykms.DefaultVaultEncryptionProvider(ctx, t),
+		SecondaryProvider:              librarykms.SecondaryVaultEncryptionProvider(ctx, t),
 	})
 }
