@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -23,34 +22,6 @@ import (
 	library "github.com/openshift/library-go/test/library/encryption"
 )
 
-// resolveVaultKMSPluginImage determines the vault-kube-kms plugin image to use.
-// It checks SHARED_DIR because the openshift-e2e-test step ref is a widely-used
-// shared ref that does not declare VAULT_KMS_PLUGIN_IMAGE in its env list.
-// The vault-install step writes the image reference to a file in SHARED_DIR,
-// allowing subsequent steps to pick it up without modifying the shared ref.
-func resolveVaultKMSPluginImage(t testing.TB) string {
-	t.Helper()
-	if img := os.Getenv("VAULT_KMS_PLUGIN_IMAGE"); img != "" {
-		t.Logf("Using vault KMS plugin image from VAULT_KMS_PLUGIN_IMAGE env: %s", img)
-		return img
-	}
-	sharedDir := os.Getenv("SHARED_DIR")
-	if sharedDir == "" {
-		t.Fatal("SHARED_DIR environment variable is not set; cannot resolve vault KMS plugin image")
-	}
-	imagePath := sharedDir + "/vault-kms-plugin-image"
-	data, err := os.ReadFile(imagePath)
-	if err != nil {
-		t.Fatalf("failed to read vault KMS plugin image from %s: %v", imagePath, err)
-	}
-	img := strings.TrimSpace(string(data))
-	if img == "" {
-		t.Fatalf("vault KMS plugin image file %s is empty", imagePath)
-	}
-	t.Logf("Resolved vault KMS plugin image from %s: %s", imagePath, img)
-	return img
-}
-
 const (
 	defaultVaultNamespace          = "vault-kms"
 	defaultVaultServiceName        = "vault"
@@ -59,6 +30,7 @@ const (
 	defaultVaultAppRoleSecretName  = "vault-approle-secret"
 	defaultVaultConfigMapName      = "vault-ca-bundle"
 	defaultFAKEVaultKMSPluginImage = "quay.io/openshifttest/mock-kms-plugin@sha256:958a2f8276037468aa47dc2137d3c30dfcd96489455eddb2fe655f8168a57622"
+	defaultVaultKMSPluginImage     = "registry.ci.openshift.org/control-plane-custom-builds/vault-kube-kms@sha256:33599dd6eee61dcf9a60138759fafda3d88593a3c2072585156882c6b5bd3fa5"
 	defaultVaultAddress            = "https://vault.vault-kms.svc:8200"
 	defaultVaultEnterpriseNS       = "admin"
 	defaultVaultTransitMount       = "transit"
@@ -81,7 +53,6 @@ const (
 // and bundles the AppRole secret setup.
 func DefaultVaultEncryptionProvider(ctx context.Context, t testing.TB) library.EncryptionProvider {
 	cfg := DefaultVaultKMSPluginConfig
-	cfg.KMS.Vault.KMSPluginImage = resolveVaultKMSPluginImage(t)
 	// Use the Service ClusterIP instead of DNS name because kube-apiserver pods
 	// cannot resolve cluster-local Service names (they use host network DNS).
 	cfg.KMS.Vault.VaultAddress = getVaultServiceAddress(ctx, t, defaultVaultNamespace, defaultVaultServiceName)
@@ -103,6 +74,7 @@ var DefaultVaultKMSPluginConfig = configv1.APIServerEncryption{
 	KMS: configv1.KMSPluginConfig{
 		Type: configv1.VaultKMSProvider,
 		Vault: configv1.VaultKMSPluginConfig{
+			KMSPluginImage: defaultVaultKMSPluginImage,
 			VaultAddress:   defaultVaultAddress,
 			VaultNamespace: defaultVaultEnterpriseNS,
 			TransitMount:   defaultVaultTransitMount,
@@ -153,6 +125,7 @@ var SecondaryVaultKMSPluginConfig = configv1.APIServerEncryption{
 	KMS: configv1.KMSPluginConfig{
 		Type: configv1.VaultKMSProvider,
 		Vault: configv1.VaultKMSPluginConfig{
+			KMSPluginImage: defaultVaultKMSPluginImage,
 			VaultAddress:   secondaryVaultAddress,
 			VaultNamespace: defaultVaultEnterpriseNS,
 			TransitMount:   defaultVaultTransitMount,
@@ -177,7 +150,6 @@ var SecondaryVaultKMSPluginConfig = configv1.APIServerEncryption{
 // for the secondary Vault instance, used in KMS-to-KMS migration e2e tests.
 func SecondaryVaultEncryptionProvider(ctx context.Context, t testing.TB) library.EncryptionProvider {
 	cfg := SecondaryVaultKMSPluginConfig
-	cfg.KMS.Vault.KMSPluginImage = resolveVaultKMSPluginImage(t)
 	cfg.KMS.Vault.VaultAddress = getVaultServiceAddress(ctx, t, secondaryVaultNamespace, secondaryVaultServiceName)
 	return library.EncryptionProvider{
 		APIServerEncryption: cfg,
