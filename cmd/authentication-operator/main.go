@@ -4,17 +4,16 @@ import (
 	"context"
 	"os"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/cmd/kmshealthwriter"
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/mom"
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/operator"
 	"github.com/openshift/cluster-authentication-operator/pkg/cmd/render"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
-	"k8s.io/client-go/rest"
 	"k8s.io/component-base/cli"
 
 	kmshealth "github.com/openshift/library-go/pkg/operator/encryption/kms/health"
 	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
-	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 func main() {
@@ -42,11 +41,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd.AddCommand(mom.NewInputResourcesCommand(ioStreams))
 	cmd.AddCommand(mom.NewOutputResourcesCommand(ioStreams))
 	cmd.AddCommand(render.NewRender())
-	cmd.AddCommand(kmshealth.NewCommand(context.Background(), func(config *rest.Config) (v1helpers.OperatorClient, error) {
-		// TODO: replace with a real operator client once the health reporter's condition writer
-		// is implemented in library-go.
-		return nil, nil
-	}))
+	cmd.AddCommand(kmshealth.NewCommand(context.Background(), kmshealthwriter.NewEncryptionStatusWriter))
 	cmd.AddCommand(kmspreflight.NewCommand(context.Background()))
 
 	return cmd
