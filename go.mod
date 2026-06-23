@@ -11,9 +11,9 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/openshift-eng/openshift-tests-extension v0.0.0-20260408205138-ec501c2bf4a5
-	github.com/openshift/api v0.0.0-20260615110019-261e3a0546f3
+	github.com/openshift/api v0.0.0-20260618083218-a3c8dea7f8bc
 	github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af
-	github.com/openshift/client-go v0.0.0-20260512113608-deb4dc54551a
+	github.com/openshift/client-go v0.0.0-20260618131434-17fd91ed6167
 	github.com/openshift/library-go v0.0.0-20260618132022-b0f5231f2ed6
 	github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d
 	github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412
@@ -133,3 +133,5 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+replace github.com/openshift/library-go => /home/ibihim/go/src/github.com/openshift/library-go-worktrees/CNTRLPLANE-3234-health-reporter-writer
