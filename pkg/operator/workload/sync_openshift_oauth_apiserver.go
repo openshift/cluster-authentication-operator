@@ -321,6 +321,8 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 		"oauth-apiserver",
 		c.targetNamespace,
 		fmt.Sprintf("encryption-config-%d", operatorStatus.LatestAvailableRevision),
+		"",
+		c.operatorImagePullSpec,
 		c.kubeClient.CoreV1(),
 		c.featureGateAccessor); err != nil {
 		return nil, fmt.Errorf("failed to add KMS plugin to pod spec: %w", err)
