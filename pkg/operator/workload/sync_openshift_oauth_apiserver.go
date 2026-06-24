@@ -321,7 +321,7 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 		"oauth-apiserver",
 		c.targetNamespace,
 		fmt.Sprintf("encryption-config-%d", operatorStatus.LatestAvailableRevision),
-		"",
+		"authentication-operator",
 		c.operatorImagePullSpec,
 		c.kubeClient.CoreV1(),
 		c.featureGateAccessor); err != nil {
