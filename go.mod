@@ -142,3 +142,7 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+// TEMPORARY: pin library-go to the fork head of openshift/library-go#2318 (health reporter writer).
+// Drop this replace and bump the require above once #2318 merges to master.
+replace github.com/openshift/library-go => github.com/ibihim/library-go v0.0.0-20260626140759-4f827b89b547
