@@ -29,6 +29,10 @@ spec:
       command: [{{.Command}}]
       args:
         - --kms-call-timeout={{.KMSCallTimeout}}
+        - --config-hash=$(CONFIG_HASH)
+        - --pod-name=$(POD_NAME)
+        - --pod-namespace=$(POD_NAMESPACE){{if .Kubeconfig}}
+        - --kubeconfig={{.Kubeconfig}}{{end}}
       env:
       - name: POD_NAME
         valueFrom: { fieldRef: { fieldPath: metadata.name } }
@@ -41,9 +45,3 @@ spec:
         requests:
           memory: 50Mi
           cpu: 5m
-      volumeMounts:
-        - name: kms-plugin-socket
-          mountPath: /var/run/kmsplugin
-  volumes:
-    - name: kms-plugin-socket
-      emptyDir: {}

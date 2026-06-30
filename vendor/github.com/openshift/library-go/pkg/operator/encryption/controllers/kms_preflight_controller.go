@@ -25,6 +25,23 @@ import (
 	operatorv1helpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
+// Pod readiness gate condition types set by the preflight checker running inside
+// the pod. The checker PATCHes its own pod status with these conditions.
+const (
+	// PodConditionKMSPreflightConfigHash carries the config hash the pod was
+	// deployed for. The controller compares this against the required hash to
+	// detect stale pods from a previous config.
+	PodConditionKMSPreflightConfigHash corev1.PodConditionType = "KMSPreflightConfigHash"
+
+	// PodConditionKMSPreflightResult carries the outcome of the preflight check.
+	// Status True means the check passed; False means it failed, with details
+	// in the condition message.
+	PodConditionKMSPreflightResult corev1.PodConditionType = "KMSPreflightResult"
+
+	// PodConditionKMSPreflightKeyID reports the KMS plugin key ID in Message.
+	PodConditionKMSPreflightKeyID corev1.PodConditionType = "KMSPreflightKeyID"
+)
+
 type kmsConfigHasher struct {
 	provider   kmsProviderConfig
 	coreClient corev1client.CoreV1Interface
