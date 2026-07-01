@@ -23,8 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +32,8 @@ import (
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/utils/ptr"
 )
+
+const configNamespace = "openshift-config"
 
 var (
 	testCertData = "fake-ca-cert"
@@ -171,51 +171,32 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 		secretIndexer     cache.Indexer
 		configValidator   validationFunc
 
-		expectedAuthConfig *authenticationv1alpha1.AuthenticationConfiguration
-		expectError        bool
-		featureGates       featuregates.FeatureGate
+		expectedAuthConfig      *authenticationv1alpha1.AuthenticationConfiguration
+		expectError             bool
+		withUpstreamParity          bool
+		withAdditionalClaimMappings bool
+		withExternalClaimsSourcing  bool
 	}{
 		{
 			name:             "ca bundle configmap lister error",
 			auth:             baseAuthResource,
 			configMapIndexer: cache.Indexer(&everFailingIndexer{}),
 			expectError:      true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "ca bundle configmap without required key",
 			auth:              baseAuthResource,
 			caBundleConfigMap: &caBundleConfigMapInvalidKey,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "ca bundle configmap with no data",
 			auth:              baseAuthResource,
 			caBundleConfigMap: &caBundleConfigMapNoData,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config nil prefix when required",
@@ -232,14 +213,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config invalid prefix policy",
@@ -255,14 +229,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with nil claim in validation rule",
@@ -284,14 +251,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "valid auth config",
@@ -309,14 +269,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "valid auth config during generation, validator fails",
@@ -329,14 +282,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 			configValidator: func(_ *authenticationv1alpha1.AuthenticationConfiguration) error {
 				return errors.New("boom")
 			},
@@ -358,14 +304,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with default prefix policy",
@@ -393,14 +332,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with default prefix policy and username claim email",
@@ -428,14 +360,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with no prefix policy",
@@ -463,14 +388,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with username claim prefix",
@@ -501,14 +419,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with empty string for username claim",
@@ -523,14 +434,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		{
 			name:              "auth config with no uid claim or expression",
@@ -544,14 +448,9 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
+			withExternalClaimsSourcing:  true,
 		},
 		{
 			name:              "auth config with uid claim and expression",
@@ -567,15 +466,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with uid expression",
@@ -599,15 +491,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with extra missing key",
@@ -624,15 +509,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with extra missing valueExpression",
@@ -649,15 +527,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with valid extra mappings",
@@ -688,15 +559,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name: "invalid discovery URL (http instead of https)",
@@ -707,12 +571,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap, // ensure CA bundle exists
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (identical to issuer URL)",
@@ -724,12 +583,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (identical to issuer URL except trailing slash)",
@@ -741,12 +595,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (missing host)",
@@ -758,12 +607,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (contains user info)",
@@ -775,12 +619,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (contains query string)",
@@ -792,12 +631,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (contains fragment)",
@@ -809,12 +643,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "invalid discovery URL (parse error)",
@@ -826,12 +655,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			}),
 			caBundleConfigMap: &baseCABundleConfigMap,
 			expectError:       true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name: "user validation rule invalid  expression",
@@ -846,12 +670,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCWithUpstreamParity},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity: true,
 		},
 		{
 			name:              "auth config with invalid username expression, error",
@@ -866,15 +685,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with invalid groups expression, error",
@@ -891,15 +703,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression mapping",
@@ -926,15 +731,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with groups expression mapping",
@@ -963,15 +761,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username claim and expression both set, error",
@@ -987,15 +778,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with groups claim and expression both set, error",
@@ -1013,15 +797,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression and prefix set, error",
@@ -1040,15 +817,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with groups expression and prefix set, error",
@@ -1066,15 +836,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression using claims.email without claims.email_verified, error",
@@ -1089,15 +852,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression using claims.email with claims.email_verified in claimValidationRule, success",
@@ -1139,15 +895,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression using both claims.email and claims.email_verified, success",
@@ -1174,15 +923,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "auth config with username expression using claims.email with claims.email_verified in extra, success",
@@ -1223,15 +965,8 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+			withUpstreamParity:          true,
+			withAdditionalClaimMappings: true,
 		},
 		{
 			name:              "valid auth config with external claims source using request provided token auth and conditions, success",
@@ -1316,15 +1051,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "valid auth config with external claims source using request provided token auth and conditions, no ca bundle specified, success",
@@ -1390,15 +1117,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "valid auth config with external claims source using anonymous auth, success",
@@ -1467,15 +1186,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "valid auth config with external claims source using client credential auth",
@@ -1594,15 +1305,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "auth config with external claims source with unknown auth type, error",
@@ -1637,15 +1340,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "auth config with external claims source with missing TLS CA configmap, error",
@@ -1680,15 +1375,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 		{
 			name:              "auth config with external claims source with client secret key missing in secret, error",
@@ -1743,15 +1430,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: true,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-				},
-			),
+			withExternalClaimsSourcing: true,
 		},
 
 		{
@@ -1779,14 +1458,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				},
 			}),
 			expectError: false,
-			featureGates: featuregates.NewFeatureGate(
-				[]configv1.FeatureGateName{},
-				[]configv1.FeatureGateName{
-					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-					features.FeatureGateExternalOIDCWithUpstreamParity,
-					features.FeatureGateExternalOIDCExternalClaimsSourcing,
-				},
-			),
+
 		},
 		// TODO: Add tests for validating currently unvalidated fields due to dependency issues (CEL expression validation)
 		// The following jira tickets track the work necessary to eventually enable this validation:
@@ -1860,15 +1532,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 					},
 				}),
 				expectError: true,
-				featureGates: featuregates.NewFeatureGate(
-					[]configv1.FeatureGateName{
-						features.FeatureGateExternalOIDCExternalClaimsSourcing,
-					},
-					[]configv1.FeatureGateName{
-						features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
-						features.FeatureGateExternalOIDCWithUpstreamParity,
-					},
-				),
+			withExternalClaimsSourcing: true,
 			},
 		*/
 	} {
@@ -1881,10 +1545,22 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				tt.configMapIndexer.Add(tt.caBundleConfigMap)
 			}
 
-			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), corev1listers.NewSecretLister(tt.secretIndexer), tt.featureGates)
+			c := NewAuthenticationConfigurationGenerator(
+				newTestCABundleResolver(corev1listers.NewConfigMapLister(tt.configMapIndexer)),
+				newTestClientSecretResolver(corev1listers.NewSecretLister(tt.secretIndexer)),
+			)
+			if tt.withUpstreamParity {
+				c.WithUpstreamParity()
+			}
+			if tt.withAdditionalClaimMappings {
+				c.WithAdditionalClaimMappings()
+			}
+			if tt.withExternalClaimsSourcing {
+				c.WithExternalClaimsSourcing()
+			}
 			c.validationFn = tt.configValidator
 
-			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth)
+			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth.Spec)
 			if tt.expectError && err == nil {
 				t.Fatalf("expected error but didn't get any")
 			}
@@ -2221,4 +1897,32 @@ func generateServingCert(caCert *x509.Certificate, caPrivateKey crypto.Signer) (
 	}
 
 	return &serverCert, nil
+}
+
+func newTestCABundleResolver(cmLister corev1listers.ConfigMapLister) ResolverFunc {
+	return func(name string) (string, error) {
+		cm, err := cmLister.ConfigMaps(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve configmap %s/%s: %v", configNamespace, name, err)
+		}
+		caData, ok := cm.Data["ca-bundle.crt"]
+		if !ok || len(caData) == 0 {
+			return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, name)
+		}
+		return caData, nil
+	}
+}
+
+func newTestClientSecretResolver(secretLister corev1listers.SecretLister) ResolverFunc {
+	return func(name string) (string, error) {
+		secret, err := secretLister.Secrets(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve secret %s/%s: %v", configNamespace, name, err)
+		}
+		clientSecret, ok := secret.Data["client-secret"]
+		if !ok || len(clientSecret) == 0 {
+			return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", configNamespace, name)
+		}
+		return string(clientSecret), nil
+	}
 }

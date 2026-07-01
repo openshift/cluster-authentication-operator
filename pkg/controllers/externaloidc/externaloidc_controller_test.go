@@ -636,6 +636,6 @@ type mockAuthConfigGenerator[T runtime.Object] struct {
 	err error
 }
 
-func (macg *mockAuthConfigGenerator[T]) GenerateAuthenticationConfiguration(_ *configv1.Authentication) (runtime.Object, error) {
+func (macg *mockAuthConfigGenerator[T]) GenerateAuthenticationConfiguration(_ *configv1.AuthenticationSpec) (runtime.Object, error) {
 	return macg.cfg, macg.err
 }

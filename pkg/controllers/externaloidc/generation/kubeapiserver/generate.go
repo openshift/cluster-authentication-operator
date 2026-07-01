@@ -62,7 +62,7 @@ func NewAuthenticationConfigurationGenerator(cmlister corev1listers.ConfigMapLis
 
 // GenerateAuthenticationConfiguration creates a structured JWT AuthenticationConfiguration for OIDC
 // in the kube-apiserver from the configuration found in the authentication/cluster resource.
-func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfiguration(auth *configv1.Authentication) (runtime.Object, error) {
+func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfiguration(authSpec *configv1.AuthenticationSpec) (runtime.Object, error) {
 	authConfig := &apiserverv1beta1.AuthenticationConfiguration{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       kindAuthenticationConfiguration,
@@ -71,8 +71,8 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 	}
 
 	errs := []error{}
-	for _, provider := range auth.Spec.OIDCProviders {
-		jwt, err := generateJWTForProvider(provider, acg.configMapLister, acg.featureGates, auth.Spec.ServiceAccountIssuer)
+	for _, provider := range authSpec.OIDCProviders {
+		jwt, err := generateJWTForProvider(provider, acg.configMapLister, acg.featureGates, authSpec.ServiceAccountIssuer)
 		if err != nil {
 			errs = append(errs, err)
 			continue
