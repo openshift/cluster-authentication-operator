@@ -143,6 +143,12 @@ func prepareOauthOperator(
 		featureGateAccessor,
 	)
 
+	proxyResolver := common.NewAuthProxyResolver(
+		informerFactories.operatorInformer.Operator().V1().Authentications(),
+		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
+		featureGateAccessor,
+	)
+
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
 		"OpenshiftAuthenticationStaticResources",
 		bindata.Asset,
@@ -189,6 +195,7 @@ func prepareOauthOperator(
 		resourceSyncController,
 		enabledClusterCapabilities,
 		authOperatorInput.eventRecorder,
+		&proxyResolver,
 	)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
@@ -281,7 +288,9 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 		versionRecorder,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
+		resourceSyncController,
 		authConfigChecker,
+		&proxyResolver,
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
@@ -302,8 +311,10 @@ func prepareOauthOperator(
 		authOperatorInput.authenticationOperatorClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config-managed"),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config"),
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		informerFactories.operatorConfigInformer.Config().V1().Ingresses(),
+		&proxyResolver,
 		authConfigChecker,
 		systemCABundle,
 		authOperatorInput.eventRecorder,
@@ -335,6 +346,8 @@ func prepareOauthOperator(
 		},
 		authOperatorInput.eventRecorder,
 		authOperatorInput.authenticationOperatorClient,
+		informerFactories.operatorConfigInformer.Config().V1().OAuths().Lister(),
+		&proxyResolver,
 	)
 
 	customRouteController := componentroutesecretsync.NewCustomRouteController(
@@ -347,6 +360,7 @@ func prepareOauthOperator(
 		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
 		authOperatorInput.routeClient.RouteV1().Routes("openshift-authentication"),
 		informerFactories.kubeInformersForNamespaces,
+		&proxyResolver,
 		authOperatorInput.authenticationOperatorClient,
 		authConfigChecker,
 		authOperatorInput.eventRecorder,

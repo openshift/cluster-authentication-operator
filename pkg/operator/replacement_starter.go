@@ -143,7 +143,10 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		apiextensionClient:           apiextensionClient,
 		eventRecorder:                eventRecorder,
 		clock:                        momInput.Clock,
-		featureGateAccessor:          staticFeatureGateAccessor([]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC}, []ocpconfigv1.FeatureGateName{features.FeatureGateKMSEncryption, features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+		featureGateAccessor: staticFeatureGateAccessor(
+			[]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC},
+			[]ocpconfigv1.FeatureGateName{features.FeatureGateKMSEncryption, features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateAuthenticationComponentProxy},
+		),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
 		},

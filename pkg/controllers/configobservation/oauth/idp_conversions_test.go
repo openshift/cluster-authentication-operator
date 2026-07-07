@@ -21,9 +21,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	osinv1 "github.com/openshift/api/osin/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 	"github.com/openshift/library-go/pkg/crypto"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeinformer"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
 func Test_convertProviderConfigToIDPData(t *testing.T) {
@@ -210,7 +215,8 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 				tt.providerConfig.OpenID.Issuer = server.URL
 			}
 
-			got, err := convertProviderConfigToIDPData(cmLister, secretLister, tt.providerConfig, syncData, 0)
+			proxyResolver := common.NewAuthProxyResolver(&fakeinformer.Authentication{}, cmLister, noProxyFeatureGate)
+			got, err := convertProviderConfigToIDPData(secretLister, &proxyResolver, tt.providerConfig, syncData, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertProviderConfigToIDPData() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -241,6 +247,11 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 		})
 	}
 }
+
+var noProxyFeatureGate = featuregates.NewHardcodedFeatureGateAccess(
+	nil,
+	[]configv1.FeatureGateName{features.FeatureGateAuthenticationComponentProxy},
+)
 
 func newTestHTTPSServer(certPEM, keyPEM []byte, content string) (*httptest.Server, error) {
 	// use a byte slice reference to replace with a valid content with replaced
@@ -304,12 +315,13 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 	require.NoError(t, indexer.Add(secret))
 	cmLister := corelistersv1.NewConfigMapLister(indexer)
 	secretLister := corelistersv1.NewSecretLister(indexer)
+	proxyResolver := common.NewAuthProxyResolver(&fakeinformer.Authentication{}, cmLister, noProxyFeatureGate)
 
 	t.Run("5xx responses are not cached", func(t *testing.T) {
 		shouldError = true
 		result, err := checkOIDCPasswordGrantFlow(
-			cmLister,
 			secretLister,
+			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
 			configv1.ConfigMapNameReference{Name: ""},
@@ -325,8 +337,8 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		responseContent = `{"error": "invalid_grant"}`
 		shouldError = false
 		result, err := checkOIDCPasswordGrantFlow(
-			cmLister,
 			secretLister,
+			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
 			configv1.ConfigMapNameReference{Name: ""},
@@ -344,8 +356,8 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 
 		shouldError = true
 		res1, err := checkOIDCPasswordGrantFlow(
-			cmLister,
 			secretLister,
+			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
 			configv1.ConfigMapNameReference{Name: ""},
@@ -359,8 +371,8 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		responseContent = `{"error": "invalid_grant"}`
 		shouldError = false
 		res2, err := checkOIDCPasswordGrantFlow(
-			cmLister,
 			secretLister,
+			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
 			configv1.ConfigMapNameReference{Name: ""},

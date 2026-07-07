@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -15,16 +16,20 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
 type endpointAccessibleController struct {
-	controllerInstanceName    string
-	operatorClient            v1helpers.OperatorClient
-	endpointListFn            EndpointListFunc
-	getTLSConfigFn            EndpointTLSConfigFunc
+	controllerInstanceName string
+	operatorClient         v1helpers.OperatorClient
+	endpointListFn         EndpointListFunc
+	getTLSConfigFn         EndpointTLSConfigFunc
+	// Only a proxy function is needed, not the full proxy config with trusted
+	// CA, because this controller skips TLS verification (InsecureSkipVerify).
+	getProxyFn                transport.ProxyFunc
 	availableConditionName    string
 	endpointCheckDisabledFunc EndpointCheckDisabledFunc
 }
@@ -44,6 +49,34 @@ func NewEndpointAccessibleController(
 	triggers []factory.Informer,
 	recorder events.Recorder,
 ) factory.Controller {
+	return newEndpointAccessibleController(name, operatorClient, endpointListFn, getTLSConfigFn, nil, endpointCheckDisabledFunc, triggers, recorder)
+}
+
+// NewEndpointAccessibleControllerWithProxy is like NewEndpointAccessibleController
+// but accepts a proxy function that overrides http.ProxyFromEnvironment.
+func NewEndpointAccessibleControllerWithProxy(
+	name string,
+	operatorClient v1helpers.OperatorClient,
+	endpointListFn EndpointListFunc,
+	getTLSConfigFn EndpointTLSConfigFunc,
+	getProxyFn transport.ProxyFunc,
+	endpointCheckDisabledFunc EndpointCheckDisabledFunc,
+	triggers []factory.Informer,
+	recorder events.Recorder,
+) factory.Controller {
+	return newEndpointAccessibleController(name, operatorClient, endpointListFn, getTLSConfigFn, getProxyFn, endpointCheckDisabledFunc, triggers, recorder)
+}
+
+func newEndpointAccessibleController(
+	name string,
+	operatorClient v1helpers.OperatorClient,
+	endpointListFn EndpointListFunc,
+	getTLSConfigFn EndpointTLSConfigFunc,
+	getProxyFn transport.ProxyFunc,
+	endpointCheckDisabledFunc EndpointCheckDisabledFunc,
+	triggers []factory.Informer,
+	recorder events.Recorder,
+) factory.Controller {
 	controllerName := name + "EndpointAccessibleController"
 
 	c := &endpointAccessibleController{
@@ -51,6 +84,7 @@ func NewEndpointAccessibleController(
 		operatorClient:            operatorClient,
 		endpointListFn:            endpointListFn,
 		getTLSConfigFn:            getTLSConfigFn,
+		getProxyFn:                getProxyFn,
 		availableConditionName:    name + "EndpointAccessibleControllerAvailable",
 		endpointCheckDisabledFunc: endpointCheckDisabledFunc,
 	}
@@ -175,8 +209,13 @@ func (c *endpointAccessibleController) sync(ctx context.Context, syncCtx factory
 }
 
 func (c *endpointAccessibleController) buildTLSClient() (*http.Client, error) {
+	proxyFn := http.ProxyFromEnvironment
+	if c.getProxyFn != nil {
+		proxyFn = func(req *http.Request) (*url.URL, error) { return c.getProxyFn(req.URL) }
+	}
+
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: proxyFn,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},

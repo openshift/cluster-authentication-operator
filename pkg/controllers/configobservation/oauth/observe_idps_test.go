@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/net/http/httpproxy"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -19,6 +20,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 
@@ -195,6 +198,7 @@ func TestObserveIdentityProviders(t *testing.T) {
 			}
 
 			syncerData := tt.previousSyncerData
+			proxyResolver := &fake.ProxyResolver{Proxy: &common.ResolvedProxy{Config: &httpproxy.Config{}}}
 			listers := configobservation.Listers{
 				ConfigMapLister: corelistersv1.NewConfigMapLister(indexer),
 				SecretsLister:   corelistersv1.NewSecretLister(indexer),
@@ -203,7 +207,7 @@ func TestObserveIdentityProviders(t *testing.T) {
 			}
 			eventsRecorder := events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now()))
 
-			got, errs := ObserveIdentityProviders(listers, eventsRecorder, tt.previouslyObservedConfig)
+			got, errs := NewObserveIdentityProviders(proxyResolver)(listers, eventsRecorder, tt.previouslyObservedConfig)
 
 			if len(errs) > 0 {
 				t.Errorf("Expected 0 errors, got %v.", errs)

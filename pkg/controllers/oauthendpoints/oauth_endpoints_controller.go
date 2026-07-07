@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/libs/endpointaccessible"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // NewOAuthRouteCheckController returns a controller that checks the health of authentication route.
@@ -32,14 +34,17 @@ func NewOAuthRouteCheckController(
 	operatorClient v1helpers.OperatorClient,
 	kubeInformersForTargetNS informers.SharedInformerFactory,
 	kubeInformersForConfigManagedNS informers.SharedInformerFactory,
+	kubeInformersForConfigNS informers.SharedInformerFactory,
 	routeInformerNamespaces routev1informers.RouteInformer,
 	ingressInformerAllNamespaces configv1informers.IngressInformer,
+	proxyResolver *common.AuthProxyResolver,
 	authConfigChecker common.AuthConfigChecker,
 	systemCABundle []byte,
 	recorder events.Recorder,
 ) factory.Controller {
 	cmLister := kubeInformersForConfigManagedNS.Core().V1().ConfigMaps().Lister()
 	cmInformer := kubeInformersForConfigManagedNS.Core().V1().ConfigMaps().Informer()
+	configNSCMLister := kubeInformersForConfigNS.Core().V1().ConfigMaps().Lister()
 
 	secretLister := kubeInformersForTargetNS.Core().V1().Secrets().Lister()
 	secretInformer := kubeInformersForTargetNS.Core().V1().Secrets().Informer()
@@ -53,8 +58,20 @@ func NewOAuthRouteCheckController(
 	}
 
 	getTLSConfigFunc := func() (*tls.Config, error) {
-		return getOAuthRouteTLSConfig(cmLister, secretLister, ingressLister, systemCABundle)
+		proxy, err := proxyResolver.ResolveProxy()
+		if err != nil {
+			return nil, err
+		}
+		return getOAuthRouteTLSConfig(cmLister, configNSCMLister, secretLister, ingressLister, systemCABundle, proxy.TrustedCAName)
 	}
+
+	getProxyFn := transport.ProxyFunc(func(reqURL *url.URL) (*url.URL, error) {
+		proxy, err := proxyResolver.ResolveProxy()
+		if err != nil {
+			return nil, err
+		}
+		return proxy.ProxyFunc()(reqURL)
+	})
 
 	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
 
@@ -63,13 +80,14 @@ func NewOAuthRouteCheckController(
 		secretInformer,
 		routeInformer,
 		ingressInformer,
+		proxyResolver.Informer(),
 	}
 	informers = append(informers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
 
-	return endpointaccessible.NewEndpointAccessibleController(
+	return endpointaccessible.NewEndpointAccessibleControllerWithProxy(
 		"OAuthServerRoute",
 		operatorClient,
-		endpointListFunc, getTLSConfigFunc, endpointCheckDisabledFunc,
+		endpointListFunc, getTLSConfigFunc, getProxyFn, endpointCheckDisabledFunc,
 		informers,
 		recorder)
 }
@@ -221,7 +239,7 @@ func listOAuthRoutes(ingressConfigLister configv1lister.IngressLister, routeList
 	return toHealthzURL(results), nil
 }
 
-func getOAuthRouteTLSConfig(cmLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, ingressLister configv1lister.IngressLister, systemCABundle []byte) (*tls.Config, error) {
+func getOAuthRouteTLSConfig(cmLister, configNSCMLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, ingressLister configv1lister.IngressLister, systemCABundle []byte, trustedCAName string) (*tls.Config, error) {
 	// get default router CA cert cm
 	defaultIngressCertCM, err := cmLister.ConfigMaps("openshift-config-managed").Get("default-ingress-cert")
 	if err != nil {
@@ -265,6 +283,16 @@ func getOAuthRouteTLSConfig(cmLister corev1listers.ConfigMapLister, secretLister
 		if ok := rootCAs.AppendCertsFromPEM(systemCABundle); !ok {
 			klog.V(5).Infof("the system CA bundle did not contain any PEM certificates")
 			return nil, nil
+		}
+	}
+
+	if len(trustedCAName) > 0 {
+		caData, err := transport.LoadCAData(configNSCMLister, trustedCAName, "ca-bundle.crt")
+		if err != nil {
+			return nil, fmt.Errorf("failed to load proxy trustedCA from \"openshift-config/%s\": %w", trustedCAName, err)
+		}
+		if ok := rootCAs.AppendCertsFromPEM(caData); !ok {
+			klog.V(5).Infof("the proxy trustedCA bundle from \"openshift-config/%s\" did not contain any PEM certificates", trustedCAName)
 		}
 	}
 

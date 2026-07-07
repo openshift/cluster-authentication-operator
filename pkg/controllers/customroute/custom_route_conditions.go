@@ -2,7 +2,6 @@ package customroute
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -10,13 +9,15 @@ import (
 	"reflect"
 	"time"
 
-	configv1 "github.com/openshift/api/config/v1"
-	routev1 "github.com/openshift/api/route/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+
+	configv1 "github.com/openshift/api/config/v1"
+	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 var (
@@ -115,8 +116,8 @@ func degradeIfTimeElapsed(conditions []metav1.Condition, condition *v1.Condition
 	}
 }
 
-func checkRouteAvailablity(secretLister corev1listers.SecretLister, ingressConfig *configv1.Ingress, route *routev1.Route) []*v1.ConditionApplyConfiguration {
-	if err := routeAvailablity(secretLister, route.Spec.Host, ingressConfig); err != nil {
+func checkRouteAvailability(secretLister corev1listers.SecretLister, proxyResolver common.ProxyResolver, ingressConfig *configv1.Ingress, route *routev1.Route) []*v1.ConditionApplyConfiguration {
+	if err := routeAvailability(secretLister, proxyResolver, route.Spec.Host, ingressConfig); err != nil {
 		now := metav1.Now()
 		reason := "ErrorReachingOutToService"
 		message := fmt.Sprintf("unexpected error at %s: %v", route.Spec.Host, err)
@@ -137,13 +138,13 @@ func checkRouteAvailablity(secretLister corev1listers.SecretLister, ingressConfi
 	return nil
 }
 
-func routeAvailablity(secretLister corev1listers.SecretLister, host string, ingress *configv1.Ingress) error {
-	url := "https://" + host + "/healthz"
+func routeAvailability(secretLister corev1listers.SecretLister, proxyResolver common.ProxyResolver, host string, ingress *configv1.Ingress) error {
+	healthzURL := "https://" + host + "/healthz"
 
 	reqCtx, cancel := context.WithTimeout(context.TODO(), 10*time.Second) // avoid waiting forever
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, healthzURL, nil)
 	if err != nil {
 		return err
 	}
@@ -153,19 +154,14 @@ func routeAvailablity(secretLister corev1listers.SecretLister, host string, ingr
 		return err
 	}
 
-	rootCAs := x509.NewCertPool()
-	if ok := rootCAs.AppendCertsFromPEM([]byte(certBytes)); !ok {
+	tr, err := proxyResolver.NewTransport(common.WithCA("router-certs", []byte(certBytes)))
+	if err != nil {
 		return err
 	}
 
 	httpClient := http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{
-				RootCAs: rootCAs,
-			},
-		},
+		Timeout:   5 * time.Second,
+		Transport: tr,
 	}
 
 	// Make a request to the endpoint, expect a 403
@@ -176,11 +172,11 @@ func routeAvailablity(secretLister corev1listers.SecretLister, host string, ingr
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("request against %s returned %d instead of 200", url, resp.StatusCode)
+		return fmt.Errorf("request against %s returned %d instead of 200", healthzURL, resp.StatusCode)
 	}
 
 	if resp.TLS == nil {
-		return fmt.Errorf("unable to retrieve TLS information from %s", url)
+		return fmt.Errorf("unable to retrieve TLS information from %s", healthzURL)
 	}
 
 	// Compare the certificates served against those defined in the secret

@@ -20,9 +20,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
-	configv1 "github.com/openshift/api/config/v1"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
-	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	routeinformers "github.com/openshift/client-go/route/informers/externalversions"
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
@@ -34,9 +32,15 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
+)
+
+const (
+	componentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
+	componentProxyCAMountPath     = "/var/config/system/configmaps/" + componentProxyCAConfigMapName
 )
 
 var _ workload.Delegate = &oauthServerDeploymentSyncer{}
@@ -49,6 +53,7 @@ type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
 type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
 
 type oauthServerDeploymentSyncer struct {
+	name           string
 	operatorClient v1helpers.OperatorClient
 
 	// countNodes a function to return count of nodes on which the workload will be installed
@@ -63,8 +68,10 @@ type oauthServerDeploymentSyncer struct {
 	configMapLister corev1listers.ConfigMapLister
 	secretLister    corev1listers.SecretLister
 	podsLister      corev1listers.PodLister
-	proxyLister     configv1listers.ProxyLister
 	routeLister     routev1listers.RouteLister
+
+	resourceSyncer resourcesynccontroller.ResourceSyncer
+	proxyResolver  common.ProxyResolver
 
 	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
@@ -83,11 +90,14 @@ func NewOAuthServerWorkloadController(
 	eventsRecorder events.Recorder,
 	versionRecorder status.VersionGetter,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
+	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	authConfigChecker common.AuthConfigChecker,
+	proxyResolver *common.AuthProxyResolver,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
 	oauthDeploymentSyncer := &oauthServerDeploymentSyncer{
+		name:           "OAuthServerDeploymentController",
 		operatorClient: operatorClient,
 
 		countNodes:                countNodes,
@@ -99,8 +109,10 @@ func NewOAuthServerWorkloadController(
 		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
 		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		proxyLister:     configInformers.Config().V1().Proxies().Lister(),
 		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
+
+		resourceSyncer: resourceSyncer,
+		proxyResolver:  proxyResolver,
 
 		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
@@ -115,8 +127,8 @@ func NewOAuthServerWorkloadController(
 
 	clusterScopedInformers := []factory.Informer{
 		configInformers.Config().V1().Ingresses().Informer(),
-		configInformers.Config().V1().Proxies().Informer(),
 		nodeInformer.Informer(),
+		proxyResolver.Informer(),
 	}
 	clusterScopedInformers = append(clusterScopedInformers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
 
@@ -196,7 +208,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		return nil, false, append(errs, err)
 	}
 
-	proxyConfig, err := c.getProxyConfig()
+	proxy, err := c.proxyResolver.ResolveProxy()
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
@@ -209,9 +221,8 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	// TODO move this hash from deployment meta to operatorConfig.status.generations.[...].hash
 	resourceVersions := []string{}
 
-	if len(proxyConfig.Name) > 0 {
-		resourceVersions = append(resourceVersions, "proxy:"+proxyConfig.Name+":"+proxyConfig.ResourceVersion)
-	}
+	resourceVersions = append(resourceVersions,
+		fmt.Sprintf("proxy:%s:%s:%s", proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy))
 
 	configResourceVersions, err := c.getConfigResourceVersions()
 	if err != nil {
@@ -231,7 +242,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxyConfig, c.bootstrapUserChangeRollOut, resourceVersions...)
+	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy, c.bootstrapUserChangeRollOut, resourceVersions...)
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
@@ -250,6 +261,10 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 			ReadOnly:  true,
 			MountPath: "/var/config/system/secrets/v4-0-config-system-custom-router-certs",
 		})
+	}
+
+	if err := c.syncComponentProxyCA(proxy.TrustedCAName, expectedDeployment); err != nil {
+		return nil, false, append(errs, fmt.Errorf("syncing component proxy CA: %w", err))
 	}
 
 	err = c.ensureAtMostOnePodPerNode(&expectedDeployment.Spec, "oauth-openshift")
@@ -281,18 +296,6 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	return deployment, true, errs
 }
 
-func (c *oauthServerDeploymentSyncer) getProxyConfig() (*configv1.Proxy, error) {
-	proxyConfig, err := c.proxyLister.Get("cluster")
-	if err != nil {
-		if errors.IsNotFound(err) {
-			klog.V(4).Infof("No proxy configuration found, defaulting to empty")
-			return &configv1.Proxy{}, nil
-		}
-		return nil, fmt.Errorf("unable to get cluster proxy configuration: %v", err)
-	}
-	return proxyConfig, nil
-}
-
 func (c *oauthServerDeploymentSyncer) getConfigResourceVersions() ([]string, error) {
 	var configRVs []string
 
@@ -301,8 +304,9 @@ func (c *oauthServerDeploymentSyncer) getConfigResourceVersions() ([]string, err
 		return nil, fmt.Errorf("unable to list configmaps in %q namespace: %v", "openshift-authentication", err)
 	}
 	for _, cm := range configMaps {
-		if strings.HasPrefix(cm.Name, "v4-0-config-") {
-			// prefix the RV to make it clear where it came from since each resource can be from different etcd
+		// Exclude the proxy CA configmap: its content is hot-reloaded by the
+		// OAuth server, so CA updates must not trigger a rollout.
+		if strings.HasPrefix(cm.Name, "v4-0-config-") && cm.Name != componentProxyCAConfigMapName {
 			configRVs = append(configRVs, "configmaps:"+cm.Name+":"+cm.ResourceVersion)
 		}
 	}
@@ -330,4 +334,55 @@ func setRollingUpdateParameters(controlPlaneCount int32, deployment *appsv1.Depl
 	maxSurge := intstr.FromInt32(controlPlaneCount)
 	deployment.Spec.Strategy.RollingUpdate.MaxUnavailable = &maxUnavailable
 	deployment.Spec.Strategy.RollingUpdate.MaxSurge = &maxSurge
+}
+
+// syncComponentProxyCA registers a ResourceSyncController rule to keep the
+// component-scoped proxy CA ConfigMap in sync from openshift-config to
+// openshift-authentication, then wires volume/mount into the deployment once
+// the CM has been synced. The OAuth Server hot-reloads the CA file on change,
+// so no redeployment is needed for CA content updates.
+func (c *oauthServerDeploymentSyncer) syncComponentProxyCA(trustedCAName string, deployment *appsv1.Deployment) error {
+	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: componentProxyCAConfigMapName}
+
+	if len(trustedCAName) == 0 {
+		// RSC will delete the destination CM when it next reconciles.
+		return c.resourceSyncer.SyncConfigMap(dest, resourcesynccontroller.ResourceLocation{})
+	}
+
+	src := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: trustedCAName}
+	if err := c.resourceSyncer.SyncConfigMap(dest, src); err != nil {
+		return fmt.Errorf("failed to configure proxy CA configmap sync: %w", err)
+	}
+
+	// RSC syncs asynchronously; only add the volume/mount once the destination
+	// CM actually exists. Return an error to requeue — the degraded condition
+	// has a 2-minute inertia so brief races don't surface to the user.
+	// RSC creating the CM will also fire a ConfigMap informer event that
+	// triggers an additional re-sync.
+	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get(componentProxyCAConfigMapName); err != nil {
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("proxy CA configmap %q not yet synced by RSC", componentProxyCAConfigMapName)
+		}
+		return fmt.Errorf("failed to get proxy trustedCA configmap \"openshift-authentication/%s\": %w", componentProxyCAConfigMapName, err)
+	}
+
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: componentProxyCAConfigMapName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: componentProxyCAConfigMapName,
+				},
+			},
+		},
+	})
+	deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+		deployment.Spec.Template.Spec.Containers[0].VolumeMounts,
+		corev1.VolumeMount{
+			Name:      componentProxyCAConfigMapName,
+			ReadOnly:  true,
+			MountPath: componentProxyCAMountPath,
+		},
+	)
+	return nil
 }
