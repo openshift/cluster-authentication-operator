@@ -120,7 +120,17 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 		Name:        "openshift/cluster-authentication-operator/encryption-kms",
 		Parallelism: 1,
 		Qualifiers: []string{
-			`name.contains("KMSEncryption")`,
+			`name.contains("KMSEncryption") && !name.contains("[Suite:encryption-kms-2]")`,
+		},
+	})
+
+	// The following suite runs the KMS-to-KMS migration test with the KMS parent suite.
+	extension.AddSuite(oteextension.Suite{
+		Name:        "openshift/cluster-authentication-operator/encryption-kms-2",
+		Parents:     []string{"openshift/kms"},
+		Parallelism: 1,
+		Qualifiers: []string{
+			`name.contains("[Suite:encryption-kms-2]")`,
 		},
 	})
 
