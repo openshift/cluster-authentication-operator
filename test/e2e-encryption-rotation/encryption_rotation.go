@@ -36,14 +36,14 @@ func testEncryptionRotation(ctx context.Context, tt testing.TB) {
 			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.AuthTargetGRs,
-			AssertFunc:                      library.AssertTokens,
+			TargetGRs:                       library.WellKnownAuthTargetGRs,
+			AssertFunc:                      library.AssertWellKnownTokens,
 		},
 		CreateResourceFunc: func(tt testing.TB, _ library.ClientSet, _ string) runtime.Object {
-			return library.CreateAndStoreTokenOfLife(ctx, tt, library.GetClients(tt))
+			return library.CreateAndStoreWellKnownTokenOfLife(ctx, tt, library.GetClients(tt))
 		},
 		GetRawResourceFunc: func(tt testing.TB, clientSet library.ClientSet, _ string) string {
-			return library.GetRawTokenOfLife(tt, clientSet)
+			return library.GetRawWellKnownTokenOfLife(tt, clientSet)
 		},
 		EncryptionProvider: library.EncryptionProvider{
 			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},
