@@ -33,8 +33,8 @@ func testEncryptionTypeIdentity(ctx context.Context, tt testing.TB) {
 		EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       library.AuthTargetGRs,
-		AssertFunc:                      library.AssertTokens,
+		TargetGRs:                       library.WellKnownAuthTargetGRs,
+		AssertFunc:                      library.AssertWellKnownTokens,
 	})
 }
 
@@ -45,8 +45,8 @@ func testEncryptionTypeUnset(ctx context.Context, tt testing.TB) {
 		EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 		EncryptionConfigSecretNamespace: "openshift-config-managed",
 		OperatorNamespace:               "openshift-authentication-operator",
-		TargetGRs:                       library.AuthTargetGRs,
-		AssertFunc:                      library.AssertTokens,
+		TargetGRs:                       library.WellKnownAuthTargetGRs,
+		AssertFunc:                      library.AssertWellKnownTokens,
 	})
 }
 
@@ -58,17 +58,17 @@ func testEncryptionTurnOnAndOff(ctx context.Context, tt testing.TB) {
 			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.AuthTargetGRs,
-			AssertFunc:                      library.AssertTokens,
+			TargetGRs:                       library.WellKnownAuthTargetGRs,
+			AssertFunc:                      library.AssertWellKnownTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, _ string) runtime.Object {
 			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			t.Cleanup(cancel)
-			return library.CreateAndStoreTokenOfLife(ctx, t, library.GetClients(t))
+			return library.CreateAndStoreWellKnownTokenOfLife(ctx, t, library.GetClients(t))
 		},
-		AssertResourceEncryptedFunc:    library.AssertTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: library.AssertTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.TokenOfLife,
+		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
+		ResourceFunc:                   library.WellKnownTokenOfLife,
 		ResourceName:                   "TokenOfLife",
 		EncryptionProvider: library.EncryptionProvider{
 			APIServerEncryption: configv1.APIServerEncryption{Type: configv1.EncryptionType("aescbc")},

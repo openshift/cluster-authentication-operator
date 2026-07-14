@@ -42,15 +42,15 @@ func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
 			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.AuthTargetGRs,
-			AssertFunc:                      library.AssertTokens,
+			TargetGRs:                       library.WellKnownAuthTargetGRs,
+			AssertFunc:                      library.AssertWellKnownTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return library.CreateAndStoreTokenOfLife(context.TODO(), t, library.GetClients(t))
+			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
 		},
-		AssertResourceEncryptedFunc:    library.AssertTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: library.AssertTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.TokenOfLife,
+		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
+		ResourceFunc:                   library.WellKnownTokenOfLife,
 		ResourceName:                   "TokenOfLife",
 		EncryptionProvider:             librarykms.DefaultVaultEncryptionProvider(ctx, t),
 	})
@@ -71,15 +71,15 @@ func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
 			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
 			EncryptionConfigSecretNamespace: "openshift-config-managed",
 			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.AuthTargetGRs,
-			AssertFunc:                      library.AssertTokens,
+			TargetGRs:                       library.WellKnownAuthTargetGRs,
+			AssertFunc:                      library.AssertWellKnownTokens,
 		},
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return library.CreateAndStoreTokenOfLife(context.TODO(), t, library.GetClients(t))
+			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
 		},
-		AssertResourceEncryptedFunc:    library.AssertTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: library.AssertTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.TokenOfLife,
+		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
+		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
+		ResourceFunc:                   library.WellKnownTokenOfLife,
 		ResourceName:                   "TokenOfLife",
 		EncryptionProviders: library.ShuffleEncryptionProviders([]library.EncryptionProvider{
 			librarykms.DefaultVaultEncryptionProvider(ctx, t),
