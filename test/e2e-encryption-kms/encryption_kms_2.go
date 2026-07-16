@@ -38,7 +38,9 @@ func testKMSEncryptionKMSToKMSMigration(ctx context.Context, t testing.TB) {
 		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
 			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
 		},
-		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
+		AssertResourceEncryptedFunc: func(t testing.TB, clientSet library.ClientSet, resource runtime.Object) {
+			library.AssertWellKnownTokenOfLifeEncryptedWithKMS(t, clientSet, "openshift-config-managed", "encryption.apiserver.operator.openshift.io/component=openshift-oauth-apiserver", resource)
+		},
 		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
 		ResourceFunc:                   library.WellKnownTokenOfLife,
 		ResourceName:                   "TokenOfLife",

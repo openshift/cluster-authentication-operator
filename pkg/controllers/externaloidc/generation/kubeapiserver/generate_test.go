@@ -1300,6 +1300,12 @@ func (s *everFailingIndexer) Resync() error {
 	return fmt.Errorf("Resync method not implemented")
 }
 
+func (s *everFailingIndexer) Bookmark(rv string) {}
+
+func (s *everFailingIndexer) LastStoreSyncResourceVersion() string {
+	return ""
+}
+
 var (
 	baseCACert, baseCAPrivateKey, validateTestCertData = func() (*x509.Certificate, crypto.Signer, string) {
 		cert, key, err := generateCAKeyPair()
