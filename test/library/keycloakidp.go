@@ -27,18 +27,26 @@ import (
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 )
 
-func AddKeycloakIDP(
-	t testing.TB,
-	kubeconfig *rest.Config,
-	directOIDC bool,
-) (kcClient *KeycloakClient, idpName string, cleanups []func()) {
+// KeycloakSetup holds the results of deploying Keycloak, before the IdP is
+// registered in OpenShift. Use AddKeycloakOIDCIdP to register the IdP.
+type KeycloakSetup struct {
+	Client       *KeycloakClient
+	IDPName      string
+	Namespace    string
+	ClientID     string
+	ClientSecret string
+	IssuerURL    string
+	Cleanups     []func()
+}
+
+// DeployKeycloak deploys Keycloak in a test namespace, configures a client and
+// group mapper, and returns a KeycloakSetup. The IdP is NOT registered in
+// OpenShift — call AddKeycloakOIDCIdP separately when ready.
+func DeployKeycloak(t testing.TB, kubeconfig *rest.Config) *KeycloakSetup {
 	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
 	routeClient, err := routev1client.NewForConfig(kubeconfig)
-	require.NoError(t, err)
-
-	configClient, err := configv1client.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
 	readinessProbe := corev1.Probe{
@@ -66,7 +74,6 @@ func AddKeycloakIDP(
 		"keycloak",
 		"quay.io/keycloak/keycloak:25.0",
 		[]corev1.EnvVar{
-			// configure password for Keycloak root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
 			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
 			{Name: "KC_HEALTH_ENABLED", Value: "true"},
@@ -105,10 +112,15 @@ func AddKeycloakIDP(
 		true,
 		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
-	cleanups = []func(){cleanup}
+
+	setup := &KeycloakSetup{
+		IDPName:   fmt.Sprintf("keycloak-test-%s", nsName),
+		Namespace: nsName,
+		Cleanups:  []func(){cleanup},
+	}
 	defer func() {
 		if err != nil {
-			for _, c := range cleanups {
+			for _, c := range setup.Cleanups {
 				c()
 			}
 		}
@@ -119,19 +131,13 @@ func AddKeycloakIDP(
 	transport, err := rest.TransportFor(kubeconfig)
 	require.NoError(t, err)
 
-	openshiftIDPName := fmt.Sprintf("keycloak-test-%s", nsName)
-
 	keycloakURL := keycloakBaseURL + "/realms/master"
+	setup.IssuerURL = keycloakURL
 
-	// create a keycloak REST client and authenticate to the API
-	kcClient = KeycloakClientFor(t, transport, keycloakURL, "master")
+	setup.Client = KeycloakClientFor(t, transport, keycloakURL, "master")
 
-	// even though configured via env vars and even though we checked Keycloak reports
-	// ready on /health/ready, it still appears that we may need some time to log in properly
-	// In resource-constrained CI environments with parallel test execution, Keycloak can take
-	// 40-60+ seconds to fully initialize its admin API even after passing readiness probes
 	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		err := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+		err := setup.Client.AuthenticatePassword("admin-cli", "", "admin", "password")
 		if err != nil {
 			t.Logf("failed to authenticate to Keycloak: %v", err)
 			return false, nil
@@ -140,17 +146,16 @@ func AddKeycloakIDP(
 	})
 	require.NoError(t, err)
 
-	clientList, err := kcClient.ListClients()
+	clientList, err := setup.Client.ListClients()
 	require.NoError(t, err)
 
-	var adminClientId, passwdClientId, passwdClientClientId string
+	var adminClientId, passwdClientId string
 	for _, c := range clientList {
 		if clientID := c["clientId"].(string); clientID == "admin-cli" {
 			adminClientId = c["id"].(string)
 		} else if len(c["redirectUris"].([]interface{})) > 0 {
-			// just reuse one other client that's already there
 			passwdClientId = c["id"].(string)
-			passwdClientClientId = clientID
+			setup.ClientID = clientID
 		}
 
 		if len(passwdClientId) > 0 && len(adminClientId) > 0 {
@@ -158,14 +163,11 @@ func AddKeycloakIDP(
 		}
 	}
 
-	// change the client's access token timeout just in case we need it for the test
-	// Wrap in retry logic as Keycloak may still be unstable after initial authentication
 	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		err := kcClient.UpdateClientAccessTokenTimeout(adminClientId, 60*30)
+		err := setup.Client.UpdateClientAccessTokenTimeout(adminClientId, 60*30)
 		if err != nil {
 			t.Logf("failed to update client access token timeout: %v, retrying", err)
-			// Re-authenticate in case the connection was dropped
-			if authErr := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
+			if authErr := setup.Client.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
 				t.Logf("failed to re-authenticate: %v", authErr)
 			}
 			return false, nil
@@ -174,19 +176,15 @@ func AddKeycloakIDP(
 	})
 	require.NoError(t, err)
 
-	// reauthenticate for a new, longer-lived token
-	err = kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
+	err = setup.Client.AuthenticatePassword("admin-cli", "", "admin", "password")
 	require.NoError(t, err)
 
-	// Regenerate client secret with retry logic for Keycloak stability
-	var clientSecret string
 	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var err error
-		clientSecret, err = kcClient.RegenerateClientSecret(passwdClientId)
+		setup.ClientSecret, err = setup.Client.RegenerateClientSecret(passwdClientId)
 		if err != nil {
 			t.Logf("failed to regenerate client secret: %v, retrying", err)
-			// Re-authenticate in case the connection was dropped
-			if authErr := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
+			if authErr := setup.Client.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
 				t.Logf("failed to re-authenticate: %v", authErr)
 			}
 			return false, nil
@@ -195,38 +193,64 @@ func AddKeycloakIDP(
 	})
 	require.NoError(t, err)
 
-	// Create client group mapper with retry logic
 	const groupsClaimName = "groups"
 	err = wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		err := kcClient.CreateClientGroupMapper(passwdClientId, "test-groups-mapper", groupsClaimName)
+		err := setup.Client.CreateClientGroupMapper(passwdClientId, "test-groups-mapper", groupsClaimName)
 		if err != nil {
 			t.Logf("failed to create client group mapper: %v, retrying", err)
-			// Re-authenticate in case the connection was dropped
-			if authErr := kcClient.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
+			if authErr := setup.Client.AuthenticatePassword("admin-cli", "", "admin", "password"); authErr != nil {
 				t.Logf("failed to re-authenticate: %v", authErr)
 			}
 			return false, nil
 		}
 		return true, nil
 	})
+	require.NoError(t, err)
+
+	return setup
+}
+
+// AddKeycloakOIDCIdP registers the Keycloak instance from a KeycloakSetup as an
+// OIDC identity provider in OpenShift. When directOIDC is true, secrets and CA
+// are created but the IdP is not added to the OAuth config.
+func AddKeycloakOIDCIdP(t testing.TB, kubeconfig *rest.Config, setup *KeycloakSetup, directOIDC bool) []func() {
+	kubeClients, err := kubernetes.NewForConfig(kubeconfig)
+	require.NoError(t, err)
+
+	configClient, err := configv1client.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
 	idpCleans, err := addOIDCIDentityProvider(t,
 		kubeClients,
 		configClient,
-		passwdClientClientId, clientSecret,
-		openshiftIDPName,
-		keycloakURL,
+		setup.ClientID, setup.ClientSecret,
+		setup.IDPName,
+		setup.IssuerURL,
 		configv1.OpenIDClaims{
 			PreferredUsername: []string{"preferred_username"},
-			Groups:            []configv1.OpenIDClaim{groupsClaimName},
+			Groups:            []configv1.OpenIDClaim{"groups"},
 		},
 		directOIDC,
 	)
-	cleanups = append(cleanups, idpCleans...)
 	require.NoError(t, err, "failed to configure the identity provider")
 
-	return kcClient, openshiftIDPName, cleanups
+	return idpCleans
+}
+
+// AddKeycloakIDP deploys Keycloak and registers it as an OIDC IdP in one call.
+// This is a convenience wrapper around DeployKeycloak + AddKeycloakOIDCIdP.
+func AddKeycloakIDP(
+	t testing.TB,
+	kubeconfig *rest.Config,
+	directOIDC bool,
+) (kcClient *KeycloakClient, idpName string, cleanups []func()) {
+	setup := DeployKeycloak(t, kubeconfig)
+	cleanups = setup.Cleanups
+
+	idpCleans := AddKeycloakOIDCIdP(t, kubeconfig, setup, directOIDC)
+	cleanups = append(cleanups, idpCleans...)
+
+	return setup.Client, setup.IDPName, cleanups
 }
 
 type KeycloakClient struct {

@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -91,7 +90,7 @@ func TestObserveComponentProxyTrustedCA(t *testing.T) {
 			existingConfig: map[string]interface{}{
 				"oauthConfig": "not-a-map",
 			},
-			expected:            map[string]interface{}{"oauthConfig": "not-a-map"},
+			expected:            map[string]interface{}{},
 			expectErrorContains: "accessor error",
 		},
 	}
@@ -113,9 +112,7 @@ func TestObserveComponentProxyTrustedCA(t *testing.T) {
 				require.Empty(t, errs)
 			}
 
-			observedValue, _, _ := unstructured.NestedString(observed, "oauthConfig", "proxyTrustedCA")
-			expectedValue, _, _ := unstructured.NestedString(tt.expected, "oauthConfig", "proxyTrustedCA")
-			require.Equal(t, expectedValue, observedValue)
+			require.Equal(t, tt.expected, observed)
 
 			recordedEvents := recorder.Events()
 			if tt.expectEvent {
