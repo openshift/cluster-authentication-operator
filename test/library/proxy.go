@@ -1,13 +1,53 @@
 package library
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
+	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
+
+// SaveAndRestoreProxyConfig snapshots the current spec.proxy on the operator
+// Authentication CR and returns a cleanup function that restores it and waits
+// for the operator to reconcile.
+func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clientset, configClient *configclient.Clientset) (operatorAuth *operatorv1.Authentication, cleanup func()) {
+	ctx := context.TODO()
+
+	auth, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get operator authentication CR: %v", err)
+	}
+	originalProxy := auth.Spec.Proxy.DeepCopy()
+
+	return auth, func() {
+		t.Log("cleaning up: restoring original proxy config")
+		fresh, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			t.Logf("cleanup: failed to get operator auth: %v", err)
+			return
+		}
+		if originalProxy != nil {
+			fresh.Spec.Proxy = *originalProxy
+		} else {
+			fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
+		}
+		if _, err := operatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
+			t.Logf("cleanup: failed to restore proxy: %v", err)
+			return
+		}
+		t.Log("cleanup: waiting for operator to pick up changes and stabilize")
+		if err := WaitForOperatorToPickUpChanges(t, configClient.ConfigV1(), "authentication"); err != nil {
+			t.Logf("cleanup: operator did not recover: %v", err)
+		}
+	}
+}
 
 // DeploySquidProxy deploys a Squid forward proxy in a new namespace.
 // Returns the in-cluster proxy URL, namespace name, and cleanup function.

@@ -21,6 +21,9 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
+	g.It("[Serial][Operator][ComponentProxy] should validate OIDC IdP through component proxy", func() {
+		testOIDCIdPThroughComponentProxy()
+	})
 	g.It("[Serial][Operator][ComponentProxy] should set Degraded when spec.proxy points to an unreachable proxy", func() {
 		testDegradedOnBadProxyURL()
 	})
@@ -29,6 +32,69 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 	})
 })
 
+func testOIDCIdPThroughComponentProxy() {
+	ctx := context.Background()
+	t := g.GinkgoTB()
+	kubeConfig := test.NewClientConfigForTest(t)
+
+	g.By("Creating test clients")
+	clients := test.NewTestClients(t)
+
+	test.CheckFeatureGateEnabledOrSkip(t, clients.ConfigClient, features.FeatureGateAuthenticationComponentProxy)
+
+	g.By("Waiting for authentication operator to be stable before test")
+	err := test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Deploying Squid forward proxy")
+	proxyURL, proxyNamespace, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	g.DeferCleanup(func() {
+		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
+		proxyCleanup()
+	})
+	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
+
+	g.By("Saving original proxy config and setting component-scoped proxy")
+	operatorAuth, proxyCleanup := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
+	g.DeferCleanup(proxyCleanup)
+
+	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
+		HTTPSProxy: proxyURL,
+	}
+	_, err = clients.OperatorClient.OperatorV1().Authentications().Update(ctx, operatorAuth, metav1.UpdateOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Deploying Keycloak and adding OIDC IdP (operator uses proxy for discovery)")
+	kcClient, idpName, keycloakCleanups := test.AddKeycloakIDP(t, kubeConfig, false)
+	g.DeferCleanup(test.IDPCleanupWrapper(func() {
+		g.GinkgoWriter.Println("cleaning up: removing Keycloak and IdP")
+		for _, cleanup := range keycloakCleanups {
+			cleanup()
+		}
+	}))
+	g.GinkgoWriter.Printf("Keycloak issuer URL: %s\n", kcClient.IssuerURL())
+	g.GinkgoWriter.Printf("IdP name: %s\n", idpName)
+
+	g.By("Deploying NetworkPolicy to restrict Keycloak ingress to proxy namespace only")
+	keycloakNamespace := extractNamespaceFromIDPName(idpName)
+	networkPolicyCleanup := test.DeployProxyNetworkPolicies(t, clients.KubeClient, proxyNamespace, keycloakNamespace)
+	g.DeferCleanup(func() {
+		g.GinkgoWriter.Println("cleaning up: removing proxy NetworkPolicies")
+		networkPolicyCleanup()
+	})
+
+	g.By("Verifying operator is Available and not Degraded")
+	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Verifying OAuth server deployment has proxy env vars")
+	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, proxyURL, "")
+
+	g.By("Verifying traffic went through the Squid proxy")
+	err = test.WaitForSquidProxyTraffic(t, clients.KubeClient, proxyNamespace, 5*time.Minute)
+	o.Expect(err).NotTo(o.HaveOccurred())
+}
+
 func testDegradedOnBadProxyURL() {
 	ctx := context.Background()
 	t := g.GinkgoTB()
@@ -36,39 +102,15 @@ func testDegradedOnBadProxyURL() {
 	g.By("Creating test clients")
 	clients := test.NewTestClients(t)
 
-	checkFeatureGateOrSkip(ctx, clients)
+	test.CheckFeatureGateEnabledOrSkip(t, clients.ConfigClient, features.FeatureGateAuthenticationComponentProxy)
 
 	g.By("Waiting for authentication operator to be stable before test")
 	err := test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Saving original proxy config for cleanup")
-	operatorAuth, err := clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-	o.Expect(err).NotTo(o.HaveOccurred())
-	originalProxy := operatorAuth.Spec.Proxy.DeepCopy()
-
-	g.DeferCleanup(func() {
-		g.GinkgoWriter.Println("cleaning up: restoring original proxy config")
-		fresh, err := clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			g.GinkgoWriter.Printf("cleanup: failed to get operator auth: %v\n", err)
-			return
-		}
-		if originalProxy != nil {
-			fresh.Spec.Proxy = *originalProxy
-		} else {
-			fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
-		}
-		if _, err := clients.OperatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
-			g.GinkgoWriter.Printf("cleanup: failed to restore proxy: %v\n", err)
-			return
-		}
-
-		g.GinkgoWriter.Println("cleanup: waiting for operator to pick up changes and stabilize")
-		if err := test.WaitForOperatorToPickUpChanges(t, clients.ConfigClient.ConfigV1(), "authentication"); err != nil {
-			g.GinkgoWriter.Printf("cleanup: operator did not recover: %v\n", err)
-		}
-	})
+	operatorAuth, proxyCleanup := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
+	g.DeferCleanup(proxyCleanup)
 
 	g.By("Setting spec.proxy.httpsProxy to an unreachable host")
 	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
@@ -89,7 +131,6 @@ func testDegradedOnBadProxyURL() {
 		return lastCondition != nil && lastCondition.Status == operatorv1.ConditionTrue, nil
 	})
 	o.Expect(err).NotTo(o.HaveOccurred(), "ProxyConfigControllerDegraded never became True")
-	o.Expect(lastCondition).NotTo(o.BeNil())
 	g.GinkgoWriter.Printf("ProxyConfigControllerDegraded: status=%s reason=%s message=%s\n", lastCondition.Status, lastCondition.Reason, lastCondition.Message)
 
 	g.By("Verifying ClusterOperator authentication is Degraded")
@@ -104,7 +145,7 @@ func testWarningOnUnreachableIdP() {
 	g.By("Creating test clients")
 	clients := test.NewTestClients(t)
 
-	checkFeatureGateOrSkip(ctx, clients)
+	test.CheckFeatureGateEnabledOrSkip(t, clients.ConfigClient, features.FeatureGateAuthenticationComponentProxy)
 
 	g.By("Waiting for authentication operator to be stable before test")
 	err := test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
@@ -119,9 +160,7 @@ func testWarningOnUnreachableIdP() {
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Saving original proxy config for cleanup")
-	operatorAuth, err := clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-	o.Expect(err).NotTo(o.HaveOccurred())
-	originalProxy := operatorAuth.Spec.Proxy.DeepCopy()
+	operatorAuth, proxyCleanup := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
 
 	const (
 		fakeIDPName       = "e2e-unreachable-idp"
@@ -135,26 +174,7 @@ func testWarningOnUnreachableIdP() {
 		g.GinkgoWriter.Println("cleaning up: deleting fake IdP secret")
 		_ = clients.KubeClient.CoreV1().Secrets("openshift-config").Delete(ctx, fakeIDPSecretName, metav1.DeleteOptions{})
 
-		g.GinkgoWriter.Println("cleaning up: restoring original proxy config")
-		fresh, err := clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
-		if err != nil {
-			g.GinkgoWriter.Printf("cleanup: failed to get operator auth: %v\n", err)
-			return
-		}
-		if originalProxy != nil {
-			fresh.Spec.Proxy = *originalProxy
-		} else {
-			fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
-		}
-		if _, err := clients.OperatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
-			g.GinkgoWriter.Printf("cleanup: failed to restore proxy: %v\n", err)
-			return
-		}
-
-		g.GinkgoWriter.Println("cleanup: waiting for operator to pick up changes and stabilize")
-		if err := test.WaitForOperatorToPickUpChanges(t, clients.ConfigClient.ConfigV1(), "authentication"); err != nil {
-			g.GinkgoWriter.Printf("cleanup: operator did not recover: %v\n", err)
-		}
+		proxyCleanup()
 	})
 
 	g.By("Creating fake IdP client secret in openshift-config")
@@ -232,19 +252,12 @@ func testWarningOnUnreachableIdP() {
 	o.Expect(ok).To(o.BeTrue(), fmt.Sprintf("operator should NOT be degraded, conditions: %v", conditions))
 }
 
-func checkFeatureGateOrSkip(ctx context.Context, clients *test.TestClients) {
-	featureGates, err := clients.ConfigClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
-	o.Expect(err).NotTo(o.HaveOccurred())
-
-	if len(featureGates.Status.FeatureGates) != 1 {
-		g.Fail("multiple feature gate versions detected")
+func extractNamespaceFromIDPName(idpName string) string {
+	// AddKeycloakIDP generates idpName as "keycloak-test-<namespace>"
+	// where namespace is the test namespace created by deployPod
+	const prefix = "keycloak-test-"
+	if len(idpName) > len(prefix) {
+		return idpName[len(prefix):]
 	}
-
-	for _, gate := range featureGates.Status.FeatureGates[0].Enabled {
-		if gate.Name == features.FeatureGateAuthenticationComponentProxy {
-			return
-		}
-	}
-
-	g.Skip("feature gate " + string(features.FeatureGateAuthenticationComponentProxy) + " is not enabled")
+	return idpName
 }
