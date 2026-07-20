@@ -631,6 +631,12 @@ func (s *everFailingIndexer) Resync() error {
 	return fmt.Errorf("Resync method not implemented")
 }
 
+func (s *everFailingIndexer) Bookmark(rv string) {}
+
+func (s *everFailingIndexer) LastStoreSyncResourceVersion() string {
+	return ""
+}
+
 type mockAuthConfigGenerator[T runtime.Object] struct {
 	cfg T
 	err error
