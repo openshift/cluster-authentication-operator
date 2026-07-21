@@ -12,8 +12,9 @@ import (
 	"k8s.io/component-base/cli"
 
 	kmshealth "github.com/openshift/library-go/pkg/operator/encryption/kms/health"
-	kmswriters "github.com/openshift/library-go/pkg/operator/encryption/kms/health/writers"
 	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionstatusprovider"
 )
 
 func main() {
@@ -41,7 +42,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd.AddCommand(mom.NewInputResourcesCommand(ioStreams))
 	cmd.AddCommand(mom.NewOutputResourcesCommand(ioStreams))
 	cmd.AddCommand(render.NewRender())
-	cmd.AddCommand(kmshealth.NewCommand(context.Background(), kmswriters.NewAuthenticationWriter))
+	cmd.AddCommand(kmshealth.NewCommand(context.Background(), encryptionstatusprovider.NewAuthenticationEncryptionStatusProviderFromConfig))
 	cmd.AddCommand(kmspreflight.NewCommand(context.Background()))
 
 	return cmd
