@@ -289,7 +289,7 @@ func testWarningOnUnreachableIdP() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyHostPort, _, _, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	proxyHostPort, _, proxyNamespace, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		squidCleanup()
@@ -381,6 +381,10 @@ func testWarningOnUnreachableIdP() {
 		return false, nil
 	})
 	o.Expect(err).NotTo(o.HaveOccurred(), "IdPEndpointUnreachable warning event was not emitted")
+
+	g.By("Verifying the request went through the Squid proxy")
+	err = test.WaitForSquidProxyTraffic(t, clients.KubeClient, proxyNamespace, 2*time.Minute)
+	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Verifying operator is NOT Degraded")
 	ok, conditions, checkErr := test.CheckClusterOperatorStatus(t, ctx, clients.ConfigClient.ConfigV1(), "authentication",
