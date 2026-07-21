@@ -163,20 +163,38 @@ func testFallbackOnProxyRemoval() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyHostPort, _, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	proxyHostPort, caCertPEM, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		proxyCleanup()
 	})
-	proxyURL := "http://" + proxyHostPort
+	proxyURL := "https://" + proxyHostPort
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
-	g.By("Saving original proxy config and setting component-scoped proxy")
+	g.By("Creating trustedCA ConfigMap in openshift-config")
+	const trustedCAConfigMapName = "e2e-proxy-ca"
+	_, err = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   trustedCAConfigMapName,
+			Labels: test.CAOE2ETestLabels(),
+		},
+		Data: map[string]string{
+			"ca-bundle.crt": string(caCertPEM),
+		},
+	}, metav1.CreateOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
+	g.DeferCleanup(func() {
+		g.GinkgoWriter.Println("cleaning up: removing trustedCA ConfigMap")
+		_ = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Delete(ctx, trustedCAConfigMapName, metav1.DeleteOptions{})
+	})
+
+	g.By("Saving original proxy config and setting component-scoped proxy with trustedCA")
 	operatorAuth, proxyRestore := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
 	g.DeferCleanup(proxyRestore)
 
 	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
 		HTTPSProxy: proxyURL,
+		TrustedCA:  operatorv1.AuthenticationConfigMapReference{Name: trustedCAConfigMapName},
 	}
 	_, err = clients.OperatorClient.OperatorV1().Authentications().Update(ctx, operatorAuth, metav1.UpdateOptions{})
 	o.Expect(err).NotTo(o.HaveOccurred())
@@ -190,7 +208,7 @@ func testFallbackOnProxyRemoval() {
 		}
 	}))
 
-	g.By("Verifying operator is stable with proxy configured")
+	g.By("Verifying operator is stable with proxy and trustedCA configured")
 	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
@@ -209,6 +227,9 @@ func testFallbackOnProxyRemoval() {
 	envVars := test.GetOAuthServerProxyEnvVars(t, clients.KubeClient)
 	o.Expect(envVars).NotTo(o.HaveKey("HTTPS_PROXY"),
 		fmt.Sprintf("HTTPS_PROXY should not be set after proxy removal, got env vars: %v", envVars))
+
+	g.By("Verifying trustedCA volume is no longer mounted on OAuth server deployment")
+	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", "")
 }
 
 func testDegradedOnBadProxyURL() {
