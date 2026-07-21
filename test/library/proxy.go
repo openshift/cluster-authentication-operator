@@ -49,9 +49,12 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 	}
 }
 
-// DeploySquidProxy deploys a Squid forward proxy in a new namespace.
-// Returns the in-cluster proxy URL, namespace name, and cleanup function.
-func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyURL string, namespace string, cleanup func()) {
+// DeploySquidProxy deploys a Squid forward proxy with TLS enabled. It
+// generates a self-signed CA and serving certificate internally. When
+// namespace is empty, a new namespace is created. Returns the HTTPS proxy
+// URL, the PEM-encoded CA certificate (for use in trustedCA ConfigMaps),
+// the namespace name, and a cleanup function.
+func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyURL string, caCertPEM []byte, namespace string, cleanup func()) {
 	panic("not implemented")
 }
 
