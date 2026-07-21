@@ -53,15 +53,17 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyURL, caCertPEM, proxyNamespace, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	proxyHostPort, caCertPEM, proxyNamespace, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		proxyCleanup()
 	})
-	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
+	var proxyURL string
 	const trustedCAConfigMapName = "e2e-proxy-ca"
 	if withTrustedCA {
+		proxyURL = "https://" + proxyHostPort
+
 		g.By("Creating trustedCA ConfigMap in openshift-config")
 		_, err = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -77,7 +79,10 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 			g.GinkgoWriter.Println("cleaning up: removing trustedCA ConfigMap")
 			_ = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Delete(ctx, trustedCAConfigMapName, metav1.DeleteOptions{})
 		})
+	} else {
+		proxyURL = "http://" + proxyHostPort
 	}
+	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Deploying Keycloak (without registering IdP yet)")
 	kcSetup := test.DeployKeycloak(t, kubeConfig)
@@ -158,11 +163,12 @@ func testFallbackOnProxyRemoval() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyURL, _, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	proxyHostPort, _, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		proxyCleanup()
 	})
+	proxyURL := "http://" + proxyHostPort
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Saving original proxy config and setting component-scoped proxy")
@@ -219,8 +225,8 @@ func testDegradedOnBadProxyURL() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Saving original proxy config for cleanup")
-	operatorAuth, proxyCleanup := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
-	g.DeferCleanup(proxyCleanup)
+	operatorAuth, proxyRestore := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
+	g.DeferCleanup(proxyRestore)
 
 	g.By("Setting spec.proxy.httpsProxy to an unreachable host")
 	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
@@ -262,15 +268,16 @@ func testWarningOnUnreachableIdP() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyURL, _, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	proxyHostPort, _, _, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
-		proxyCleanup()
+		squidCleanup()
 	})
+	proxyURL := "http://" + proxyHostPort
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Saving original proxy config for cleanup")
-	operatorAuth, proxyCleanup := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
+	operatorAuth, proxyRestore := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
 
 	const (
 		fakeIDPName       = "e2e-unreachable-idp"
@@ -284,7 +291,7 @@ func testWarningOnUnreachableIdP() {
 		g.GinkgoWriter.Println("cleaning up: deleting fake IdP secret")
 		_ = clients.KubeClient.CoreV1().Secrets("openshift-config").Delete(ctx, fakeIDPSecretName, metav1.DeleteOptions{})
 
-		proxyCleanup()
+		proxyRestore()
 	})
 
 	g.By("Creating fake IdP client secret in openshift-config")

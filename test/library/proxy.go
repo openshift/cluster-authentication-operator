@@ -49,12 +49,12 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 	}
 }
 
-// DeploySquidProxy deploys a Squid forward proxy with TLS enabled. It
-// generates a self-signed CA and serving certificate internally. When
-// namespace is empty, a new namespace is created. Returns the HTTPS proxy
-// URL, the PEM-encoded CA certificate (for use in trustedCA ConfigMaps),
-// the namespace name, and a cleanup function.
-func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyURL string, caCertPEM []byte, namespace string, cleanup func()) {
+// DeploySquidProxy deploys a Squid forward proxy that listens on both plain
+// HTTP and HTTPS. It generates a self-signed CA and serving certificate
+// internally. Returns the proxy host:port (callers prepend http:// or
+// https:// as needed), the PEM-encoded CA certificate (for trustedCA
+// ConfigMaps when using https), the namespace name, and a cleanup function.
+func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyHostPort string, caCertPEM []byte, namespace string, cleanup func()) {
 	panic("not implemented")
 }
 
