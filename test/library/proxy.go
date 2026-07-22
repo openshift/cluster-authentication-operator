@@ -75,11 +75,10 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 
 // DeploySquidProxy deploys a Squid forward proxy that listens on both plain
 // HTTP (port 3128) and HTTPS (port 3129). It generates a self-signed CA and
-// serving certificate internally. Returns the proxy host:port (callers prepend
-// http:// or https:// as needed), the PEM-encoded CA certificate (for
-// trustedCA ConfigMaps when using https), the namespace name, and a cleanup
-// function.
-func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyHostPort string, caCertPEM []byte, namespace string, cleanup func()) {
+// serving certificate internally. Returns the HTTP and HTTPS proxy URLs,
+// the PEM-encoded CA certificate (for trustedCA ConfigMaps when using https),
+// the namespace name, and a cleanup function.
+func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (httpProxyURL, httpsProxyURL string, caCertPEM []byte, namespace string, cleanup func()) {
 	ctx := context.TODO()
 
 	namespace = NewTestNamespaceBuilder("e2e-proxy-").
@@ -93,8 +92,9 @@ func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyHostP
 		}
 	})
 
+	success := false
 	defer func() {
-		if t.Failed() {
+		if !success {
 			cleanup()
 		}
 	}()
@@ -113,7 +113,8 @@ func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (proxyHostP
 	serverKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: serverKeyDER})
 
 	squidConfig := fmt.Sprintf(`http_port %d
-https_port %d cert=/etc/squid/tls/tls.crt key=/etc/squid/tls/tls.key
+https_port %d tls-cert=/etc/squid/tls/tls.crt tls-key=/etc/squid/tls/tls.key
+pid_filename /tmp/squid.pid
 acl all src all
 http_access allow all
 access_log stdio:/dev/stdout
@@ -262,9 +263,14 @@ buffered_logs off
 		t.Fatalf("squid proxy deployment did not become ready: %v", err)
 	}
 
-	proxyHostPort = fmt.Sprintf("%s.%s.svc.cluster.local:%d", squidServiceName, namespace, squidHTTPPort)
-	t.Logf("squid proxy deployed, host:port = %s", proxyHostPort)
-	return proxyHostPort, caCertPEM, namespace, cleanup
+	success = true
+
+	serviceHost := fmt.Sprintf("%s.%s.svc.cluster.local", squidServiceName, namespace)
+	httpProxyURL = fmt.Sprintf("http://%s:%d", serviceHost, squidHTTPPort)
+	httpsProxyURL = fmt.Sprintf("https://%s:%d", serviceHost, squidHTTPSPort)
+	success = true
+	t.Logf("squid proxy deployed: http=%s https=%s", httpProxyURL, httpsProxyURL)
+	return httpProxyURL, httpsProxyURL, caCertPEM, namespace, cleanup
 }
 
 // DeployProxyNetworkPolicies creates a NetworkPolicy on the Keycloak namespace

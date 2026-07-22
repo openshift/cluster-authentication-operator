@@ -3,7 +3,6 @@ package component_proxy
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	g "github.com/onsi/ginkgo/v2"
@@ -54,7 +53,7 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyHostPort, caCertPEM, proxyNamespace, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	httpProxyURL, httpsProxyURL, caCertPEM, proxyNamespace, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		proxyCleanup()
@@ -63,7 +62,7 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 	var proxyURL string
 	const trustedCAConfigMapName = "e2e-proxy-ca"
 	if withTrustedCA {
-		proxyURL = "https://" + proxyHostPort
+		proxyURL = httpsProxyURL
 
 		g.By("Creating trustedCA ConfigMap in openshift-config")
 		_, err = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Create(ctx, &corev1.ConfigMap{
@@ -81,7 +80,7 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 			_ = clients.KubeClient.CoreV1().ConfigMaps("openshift-config").Delete(ctx, trustedCAConfigMapName, metav1.DeleteOptions{})
 		})
 	} else {
-		proxyURL = "http://" + proxyHostPort
+		proxyURL = httpProxyURL
 	}
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
@@ -160,12 +159,12 @@ func testFallbackOnProxyRemoval() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyHostPort, caCertPEM, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	_, httpsProxyURL, caCertPEM, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		proxyCleanup()
 	})
-	proxyURL := "https://" + proxyHostPort
+	proxyURL := httpsProxyURL
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Creating trustedCA ConfigMap in openshift-config")
@@ -281,12 +280,12 @@ func testWarningOnUnreachableIdP() {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Deploying Squid forward proxy")
-	proxyHostPort, _, proxyNamespace, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	httpProxyURL, _, _, proxyNamespace, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
 	g.DeferCleanup(func() {
 		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		squidCleanup()
 	})
-	proxyURL := "http://" + proxyHostPort
+	proxyURL := httpProxyURL
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
 	g.By("Saving original proxy config for cleanup")
