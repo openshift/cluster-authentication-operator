@@ -3,6 +3,7 @@ package component_proxy
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	g "github.com/onsi/ginkgo/v2"
@@ -219,12 +220,7 @@ func testFallbackOnProxyRemoval() {
 	err = test.WaitForOperatorToPickUpChanges(t, clients.ConfigClient.ConfigV1(), "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
-	g.By("Verifying proxy env vars are no longer set on OAuth server deployment")
-	envVars := test.GetOAuthServerProxyEnvVars(t, clients.KubeClient)
-	o.Expect(envVars).NotTo(o.HaveKey("HTTPS_PROXY"),
-		fmt.Sprintf("HTTPS_PROXY should not be set after proxy removal, got env vars: %v", envVars))
-
-	g.By("Verifying trustedCA volume is no longer mounted on OAuth server deployment")
+	g.By("Verifying proxy env vars and trustedCA volume are no longer set on OAuth server deployment")
 	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", "", "", false)
 }
 
