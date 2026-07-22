@@ -128,12 +128,8 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
-	g.By("Verifying OAuth server deployment state")
-	trustedCAName := ""
-	if withTrustedCA {
-		trustedCAName = trustedCAConfigMapName
-	}
-	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, proxyURL, trustedCAName)
+	g.By("Verifying OAuth server deployment has proxy env vars and trustedCA volume/mount")
+	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", proxyURL, "", withTrustedCA)
 
 	if withTrustedCA {
 		g.By("Verifying trustedCA ConfigMap was synced to openshift-authentication")
@@ -229,7 +225,7 @@ func testFallbackOnProxyRemoval() {
 		fmt.Sprintf("HTTPS_PROXY should not be set after proxy removal, got env vars: %v", envVars))
 
 	g.By("Verifying trustedCA volume is no longer mounted on OAuth server deployment")
-	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", "")
+	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", "", "", false)
 }
 
 func testDegradedOnBadProxyURL() {

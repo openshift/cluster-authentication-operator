@@ -80,8 +80,12 @@ func WaitForSquidProxyTraffic(t testing.TB, kubeClient kubernetes.Interface, nam
 	panic("not implemented")
 }
 
-// VerifyOAuthServerDeploymentProxyConfig asserts env vars + volumes/mounts on the OAuth server Deployment.
-func VerifyOAuthServerDeploymentProxyConfig(t testing.TB, kubeClient kubernetes.Interface, expectedProxyURL, trustedCAConfigMap string) {
+// VerifyOAuthServerDeploymentProxyConfig asserts that the OAuth server
+// deployment has the expected proxy env vars and trustedCA volume/mount.
+// Empty expected values assert the corresponding env var is absent.
+// When expectTrustedCAVolume is true, the v4-0-config-system-auth-proxy-ca
+// volume and mount must exist; when false, they must be absent.
+func VerifyOAuthServerDeploymentProxyConfig(t testing.TB, kubeClient kubernetes.Interface, expectedHTTPProxy, expectedHTTPSProxy, expectedNoProxy string, expectTrustedCAVolume bool) {
 	panic("not implemented")
 }
 
