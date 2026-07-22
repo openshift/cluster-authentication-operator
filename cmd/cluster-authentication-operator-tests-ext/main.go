@@ -86,11 +86,12 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 		},
 	})
 
-	// The following suite runs component-proxy tests that require the
-	// AuthenticationComponentProxy feature gate (TechPreviewNoUpgrade).
+	// ClusterStability set to Disruptive: component-proxy tests intentionally
+	// degrade the authentication operator to validate error handling.
 	extension.AddSuite(oteextension.Suite{
-		Name:        "openshift/cluster-authentication-operator/component-proxy/serial",
-		Parallelism: 1,
+		Name:             "openshift/cluster-authentication-operator/component-proxy/disruptive",
+		Parallelism:      1,
+		ClusterStability: oteextension.ClusterStabilityDisruptive,
 		Qualifiers: []string{
 			`name.contains("[ComponentProxy]")`,
 		},

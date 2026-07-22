@@ -228,7 +228,7 @@ func AddKeycloakOIDCIdP(t testing.TB, kubeconfig *rest.Config, setup *KeycloakSe
 		setup.IssuerURL,
 		configv1.OpenIDClaims{
 			PreferredUsername: []string{"preferred_username"},
-			Groups:           []configv1.OpenIDClaim{"groups"},
+			Groups:            []configv1.OpenIDClaim{"groups"},
 		},
 		directOIDC,
 	)
