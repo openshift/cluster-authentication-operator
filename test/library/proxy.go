@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -427,9 +428,14 @@ func VerifyOAuthServerDeploymentProxyConfig(t testing.TB, kubeClient kubernetes.
 			}
 		}
 
-		if envVars["HTTP_PROXY"] != expectedHTTPProxy ||
-			envVars["HTTPS_PROXY"] != expectedHTTPSProxy ||
-			envVars["NO_PROXY"] != expectedNoProxy {
+		if envVars["HTTP_PROXY"] != expectedHTTPProxy || envVars["HTTPS_PROXY"] != expectedHTTPSProxy {
+			return false, nil
+		}
+		// Use superset check: the operator may add extra entries to NO_PROXY beyond
+		// what the caller specifies (e.g. the kubernetes service IP for KUBERNETES_SERVICE_HOST).
+		actualNoProxy := sets.New[string](strings.Split(envVars["NO_PROXY"], ",")...)
+		expectedNoProxyEntries := sets.New[string](strings.Split(expectedNoProxy, ",")...)
+		if !actualNoProxy.IsSuperset(expectedNoProxyEntries) {
 			return false, nil
 		}
 
