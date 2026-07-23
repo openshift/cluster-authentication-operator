@@ -52,3 +52,13 @@ func (p *authenticationEncryptionStatusProvider) ApplyKMSEncryptionStatus(ctx co
 	)
 	return err
 }
+
+func (p *authenticationEncryptionStatusProvider) UpdateKMSEncryptionStatus(ctx context.Context, mutateFn func(*operatorv1.KMSEncryptionStatus)) error {
+	obj, err := p.client.Get(ctx, "cluster", metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	mutateFn(&obj.Status.OAuthAPIServer.EncryptionStatus)
+	_, err = p.client.UpdateStatus(ctx, obj, metav1.UpdateOptions{})
+	return err
+}
