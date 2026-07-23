@@ -40,6 +40,10 @@ func NewClientConfigForTest(t testing.TB) *rest.Config {
 	}
 
 	require.NoError(t, err)
+
+	config.QPS = 40
+	config.Burst = 60
+
 	return config
 }
 

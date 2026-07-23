@@ -52,18 +52,25 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 
 	return auth, func() {
 		t.Log("cleaning up: restoring original proxy config")
-		fresh, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+		err := wait.PollUntilContextTimeout(ctx, 1*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+			fresh, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+			if err != nil {
+				t.Logf("cleanup: failed to get operator auth: %v", err)
+				return false, nil
+			}
+			if originalProxy != nil {
+				fresh.Spec.Proxy = *originalProxy
+			} else {
+				fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
+			}
+			if _, err := operatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
+				t.Logf("cleanup: failed to update operator auth (will retry): %v", err)
+				return false, nil
+			}
+			return true, nil
+		})
 		if err != nil {
-			t.Logf("cleanup: failed to get operator auth: %v", err)
-			return
-		}
-		if originalProxy != nil {
-			fresh.Spec.Proxy = *originalProxy
-		} else {
-			fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
-		}
-		if _, err := operatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
-			t.Logf("cleanup: failed to restore proxy: %v", err)
+			t.Logf("cleanup: failed to restore proxy config: %v", err)
 			return
 		}
 		t.Log("cleanup: waiting for operator to pick up changes and stabilize")
@@ -117,8 +124,8 @@ https_port %d tls-cert=/etc/squid/tls/tls.crt tls-key=/etc/squid/tls/tls.key
 pid_filename /tmp/squid.pid
 acl all src all
 http_access allow all
-access_log stdio:/dev/stdout
-cache_log stdio:/dev/stderr
+access_log /tmp/squid/access.log
+cache_log /tmp/squid/cache.log
 cache deny all
 buffered_logs off
 `, squidHTTPPort, squidHTTPSPort)
@@ -176,6 +183,10 @@ buffered_logs off
 									MountPath: "/etc/squid/tls",
 									ReadOnly:  true,
 								},
+								{
+									Name:      "squid-logs",
+									MountPath: "/tmp/squid",
+								},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
@@ -185,6 +196,17 @@ buffered_logs off
 								},
 								InitialDelaySeconds: 5,
 								PeriodSeconds:       5,
+							},
+						},
+						{
+							Name:    "log",
+							Image:   squidImage,
+							Command: []string{"tail", "-F", "/tmp/squid/access.log"},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "squid-logs",
+									MountPath: "/tmp/squid",
+								},
 							},
 						},
 					},
@@ -205,6 +227,12 @@ buffered_logs off
 								Secret: &corev1.SecretVolumeSource{
 									SecretName: "squid-tls",
 								},
+							},
+						},
+						{
+							Name: "squid-logs",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						},
 					},
@@ -302,6 +330,13 @@ func DeployProxyNetworkPolicies(t testing.TB, kubeClient kubernetes.Interface, p
 								},
 							},
 						},
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"policy-group.network.openshift.io/ingress": "",
+								},
+							},
+						},
 					},
 				},
 			},
@@ -321,26 +356,30 @@ func DeployProxyNetworkPolicies(t testing.TB, kubeClient kubernetes.Interface, p
 	}
 }
 
-// GetSquidProxyLogs reads the logs from the Squid proxy pod in the given namespace.
-func GetSquidProxyLogs(t testing.TB, kubeClient kubernetes.Interface, namespace string) string {
+// GetSquidProxyLogs reads the Squid access log from the proxy pod via
+// the log sidecar container that tails the access log file.
+func GetSquidProxyLogs(kubeClient kubernetes.Interface, namespace string) (string, error) {
 	ctx := context.TODO()
 
 	pods, err := kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=%s", squidServiceName),
 	})
 	if err != nil {
-		t.Fatalf("failed to list squid pods in %s: %v", namespace, err)
+		return "", fmt.Errorf("failed to list squid pods in %s: %w", namespace, err)
 	}
 	if len(pods.Items) == 0 {
-		t.Fatalf("no squid proxy pods found in namespace %s", namespace)
+		return "", fmt.Errorf("no squid proxy pods found in namespace %s", namespace)
 	}
 
-	logBytes, err := kubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{}).DoRaw(ctx)
+	container := "log"
+	logBytes, err := kubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
+		Container: container,
+	}).DoRaw(ctx)
 	if err != nil {
-		t.Fatalf("failed to get squid pod logs: %v", err)
+		return "", fmt.Errorf("failed to get logs from container %s: %w", container, err)
 	}
 
-	return string(logBytes)
+	return string(logBytes), nil
 }
 
 // WaitForSquidProxyTraffic polls the Squid proxy logs until it sees CONNECT or
@@ -348,7 +387,11 @@ func GetSquidProxyLogs(t testing.TB, kubeClient kubernetes.Interface, namespace 
 func WaitForSquidProxyTraffic(t testing.TB, kubeClient kubernetes.Interface, namespace string, timeout time.Duration) error {
 	t.Logf("waiting up to %s for traffic in squid proxy logs", timeout)
 	return wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		logs := GetSquidProxyLogs(t, kubeClient, namespace)
+		logs, err := GetSquidProxyLogs(kubeClient, namespace)
+		if err != nil {
+			t.Logf("failed to read squid logs: %v", err)
+			return false, nil
+		}
 		if strings.Contains(logs, "CONNECT") || strings.Contains(logs, "TCP_") {
 			t.Logf("detected proxy traffic in squid logs")
 			return true, nil

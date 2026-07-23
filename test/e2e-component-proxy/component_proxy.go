@@ -129,7 +129,7 @@ func testOIDCIdPThroughComponentProxy(withTrustedCA bool) {
 	o.Expect(err).NotTo(o.HaveOccurred())
 
 	g.By("Verifying OAuth server deployment has proxy env vars and trustedCA volume/mount")
-	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", proxyURL, "", withTrustedCA)
+	test.VerifyOAuthServerDeploymentProxyConfig(t, clients.KubeClient, "", proxyURL, ".cluster.local,.svc,127.0.0.1,localhost", withTrustedCA)
 
 	if withTrustedCA {
 		g.By("Verifying trustedCA ConfigMap was synced to openshift-authentication")
