@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -14,10 +15,13 @@ import (
 type ControllerWithSwitch struct {
 	delegateName      string
 	delegateFactoryFn DelegateFactoryFunc
+	operatorClient    v1helpers.OperatorClient
 
 	switchConditionFn   DelegateSwitchCondition
 	switchContext       context.Context
 	switchContextCancel context.CancelFunc
+
+	clearDelegateSyncErrorDegradedCondition bool
 
 	mutex sync.Mutex
 }
@@ -48,8 +52,8 @@ func NewControllerWithSwitch(
 	informers []factory.Informer,
 	resyncInterval time.Duration,
 	eventRecorder events.Recorder,
+	clearDelegateSyncErrorDegradedCondition bool,
 ) factory.Controller {
-
 	if delegateFactoryFn == nil {
 		panic(fmt.Errorf("no delegate factory function defined for '%s'", delegateName))
 	}
@@ -59,9 +63,11 @@ func NewControllerWithSwitch(
 	}
 
 	c := &ControllerWithSwitch{
-		delegateName:      delegateName,
-		delegateFactoryFn: delegateFactoryFn,
-		switchConditionFn: switchConditionFn,
+		delegateName:                            delegateName,
+		delegateFactoryFn:                       delegateFactoryFn,
+		operatorClient:                          operatorClient,
+		switchConditionFn:                       switchConditionFn,
+		clearDelegateSyncErrorDegradedCondition: clearDelegateSyncErrorDegradedCondition,
 	}
 
 	return factory.New().
@@ -103,6 +109,18 @@ func (c *ControllerWithSwitch) sync(ctx context.Context, syncCtx factory.SyncCon
 		c.mutex.Lock()
 		c.switchContextCancel()
 		c.switchContext = nil
+
+		if c.clearDelegateSyncErrorDegradedCondition {
+			// Server-Side-Apply with an empty operator status for the delegate's field manager
+			// will remove any conditions owned by it since the list type in the API definition
+			// is 'map'. This prevents stale degraded conditions from persisting after the
+			// delegate is cancelled.
+			fieldManager := factory.ControllerFieldManager(c.delegateName, "reportDegraded")
+			if err := c.operatorClient.ApplyOperatorStatus(ctx, fieldManager, applyoperatorv1.OperatorStatus()); err != nil {
+				return fmt.Errorf("clearing delegate %q conditions: %v", c.delegateName, err)
+			}
+		}
+
 		c.mutex.Unlock()
 
 	default:

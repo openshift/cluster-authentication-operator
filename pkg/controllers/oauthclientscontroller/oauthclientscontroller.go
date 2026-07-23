@@ -96,6 +96,7 @@ func NewOAuthClientsSwitchedController(
 		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker),
 		wait.Jitter(time.Minute, 1.0),
 		eventRecorder,
+		true,
 	)
 }
 
