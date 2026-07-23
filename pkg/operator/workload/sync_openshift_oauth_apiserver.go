@@ -315,7 +315,7 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 	}
 	required.Spec.Replicas = masterNodeCount
 
-	if err := kmspluginlifecycle.AddKMSPluginSidecarToPodSpec(
+	if err := kmspluginlifecycle.EnsureKMSPluginSidecarInPodSpec(
 		ctx,
 		&required.Spec.Template.Spec,
 		"oauth-apiserver",
