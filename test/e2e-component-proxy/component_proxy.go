@@ -24,7 +24,7 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 	g.It("[Serial][Operator][ComponentProxy] should validate OIDC IdP through component proxy", func() {
 		testOIDCIdPThroughComponentProxy(false)
 	})
-	g.It("[Serial][Operator][ComponentProxy] should validate OIDC IdP through component proxy with trustedCAs", func() {
+	g.It("[Serial][Operator][ComponentProxy] should validate OIDC IdP through component proxy with trustedCA", func() {
 		testOIDCIdPThroughComponentProxy(true)
 	})
 	g.It("[Serial][Operator][ComponentProxy] should fall back on spec.proxy removal", func() {
