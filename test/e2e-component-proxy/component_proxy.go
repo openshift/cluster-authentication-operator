@@ -343,6 +343,8 @@ func testWarningOnUnreachableIdP() {
 
 	g.By("Setting component-scoped proxy pointing to the Squid instance")
 	startTime := time.Now()
+	operatorAuth, err = clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
 	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
 		HTTPSProxy: proxyURL,
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -55,25 +56,34 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 
 	return auth, sync.OnceFunc(func() {
 		t.Log("cleaning up: restoring original proxy config")
+		var changed bool
 		err := wait.PollUntilContextTimeout(ctx, 1*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
 			fresh, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
 			if err != nil {
 				t.Logf("cleanup: failed to get operator auth: %v", err)
 				return false, nil
 			}
+			target := operatorv1.AuthenticationProxyConfig{}
 			if originalProxy != nil {
-				fresh.Spec.Proxy = *originalProxy
-			} else {
-				fresh.Spec.Proxy = operatorv1.AuthenticationProxyConfig{}
+				target = *originalProxy
 			}
+			if reflect.DeepEqual(fresh.Spec.Proxy, target) {
+				t.Log("cleanup: proxy config already matches original, no update needed")
+				return true, nil
+			}
+			fresh.Spec.Proxy = target
 			if _, err := operatorClient.OperatorV1().Authentications().Update(ctx, fresh, metav1.UpdateOptions{}); err != nil {
 				t.Logf("cleanup: failed to update operator auth (will retry): %v", err)
 				return false, nil
 			}
+			changed = true
 			return true, nil
 		})
 		if err != nil {
 			t.Logf("cleanup: failed to restore proxy config: %v", err)
+			return
+		}
+		if !changed {
 			return
 		}
 		t.Log("cleanup: waiting for operator to pick up changes and stabilize")
