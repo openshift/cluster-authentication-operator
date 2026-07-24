@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	g "github.com/onsi/ginkgo/v2"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -51,7 +53,7 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 	}
 	originalProxy := auth.Spec.Proxy.DeepCopy()
 
-	return auth, func() {
+	return auth, sync.OnceFunc(func() {
 		t.Log("cleaning up: restoring original proxy config")
 		err := wait.PollUntilContextTimeout(ctx, 1*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
 			fresh, err := operatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
@@ -78,7 +80,7 @@ func SaveAndRestoreProxyConfig(t testing.TB, operatorClient *operatorclient.Clie
 		if err := WaitForOperatorToPickUpChanges(t, configClient.ConfigV1(), "authentication"); err != nil {
 			t.Logf("cleanup: operator did not recover: %v", err)
 		}
-	}
+	})
 }
 
 // DeploySquidProxy deploys a Squid forward proxy that listens on both plain
@@ -95,6 +97,7 @@ func DeploySquidProxy(t testing.TB, kubeClient kubernetes.Interface) (httpProxyU
 		Create(t, kubeClient.CoreV1().Namespaces())
 
 	cleanup = sync.OnceFunc(func() {
+		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
 		if err := kubeClient.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{}); err != nil {
 			t.Logf("error cleaning up proxy namespace %q: %v", namespace, err)
 		}
