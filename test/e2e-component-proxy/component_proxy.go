@@ -202,6 +202,7 @@ func testFallbackOnProxyRemoval() {
 func testDegradedOnBadProxyURL() {
 	ctx := context.Background()
 	t := g.GinkgoTB()
+	kubeConfig := test.NewClientConfigForTest(t)
 
 	g.By("Creating test clients")
 	clients := test.NewTestClients(t)
@@ -212,11 +213,36 @@ func testDegradedOnBadProxyURL() {
 	err := test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
 	o.Expect(err).NotTo(o.HaveOccurred())
 
-	g.By("Saving original proxy config for cleanup")
+	g.By("Deploying Squid forward proxy")
+	httpProxyURL, _, _, _, proxyCleanup := test.DeploySquidProxy(t, clients.KubeClient)
+	g.DeferCleanup(proxyCleanup)
+
+	g.By("Saving original proxy config and setting a working proxy")
 	operatorAuth, proxyRestore := test.SaveAndRestoreProxyConfig(t, clients.OperatorClient, clients.ConfigClient)
 	g.DeferCleanup(proxyRestore)
 
+	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
+		HTTPSProxy: httpProxyURL,
+	}
+	_, err = clients.OperatorClient.OperatorV1().Authentications().Update(ctx, operatorAuth, metav1.UpdateOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
+
+	g.By("Deploying Keycloak and adding OIDC IdP")
+	_, _, keycloakCleanups := test.AddKeycloakIDP(t, kubeConfig, false)
+	g.DeferCleanup(test.IDPCleanupWrapper(func() {
+		g.GinkgoWriter.Println("cleaning up: removing Keycloak and IdP")
+		for _, cleanup := range keycloakCleanups {
+			cleanup()
+		}
+	}))
+
+	g.By("Verifying operator is stable with working proxy")
+	err = test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(t, clients.ConfigClient.ConfigV1(), "authentication")
+	o.Expect(err).NotTo(o.HaveOccurred())
+
 	g.By("Setting spec.proxy.httpsProxy to an unreachable host")
+	operatorAuth, err = clients.OperatorClient.OperatorV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
+	o.Expect(err).NotTo(o.HaveOccurred())
 	operatorAuth.Spec.Proxy = operatorv1.AuthenticationProxyConfig{
 		HTTPSProxy: "http://does-not-exist.invalid:3128",
 	}
@@ -257,10 +283,7 @@ func testWarningOnUnreachableIdP() {
 
 	g.By("Deploying Squid forward proxy")
 	httpProxyURL, _, _, proxyNamespace, squidCleanup := test.DeploySquidProxy(t, clients.KubeClient)
-	g.DeferCleanup(func() {
-		g.GinkgoWriter.Println("cleaning up: removing Squid proxy")
-		squidCleanup()
-	})
+	g.DeferCleanup(squidCleanup)
 	proxyURL := httpProxyURL
 	g.GinkgoWriter.Printf("Squid proxy URL: %s\n", proxyURL)
 
