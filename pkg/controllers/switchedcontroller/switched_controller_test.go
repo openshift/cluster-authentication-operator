@@ -2,12 +2,15 @@ package switchedcontroller
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	clocktesting "k8s.io/utils/clock/testing"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -43,6 +46,7 @@ func TestSwitchedControllerSwitchedOnWithNoExistingContext(t *testing.T) {
 		nil,
 		time.Hour,
 		recorder,
+		false,
 	)
 
 	err := switched.Sync(t.Context(), factory.NewSyncContext("test-sync", recorder))
@@ -94,6 +98,7 @@ func TestSwitchedControllerSwitchedOnWithExistingCanceledContext(t *testing.T) {
 		nil,
 		time.Hour,
 		recorder,
+		false,
 	)
 
 	// First, start a delegate controller so we can cancel its context and trigger another sync
@@ -171,6 +176,7 @@ func TestSwitchedControllerSwitchedOnWithExistingContext(t *testing.T) {
 		nil,
 		time.Hour,
 		recorder,
+		false,
 	)
 
 	// Start a delegate controller on the first sync
@@ -239,6 +245,7 @@ func TestSwitchedControllerSwitchedOffWithExistingCanceledContext(t *testing.T) 
 		nil,
 		time.Hour,
 		recorder,
+		false,
 	)
 
 	// First, start a delegate controller so we can cancel its context and trigger another sync
@@ -331,6 +338,7 @@ func TestSwitchedControllerSwitchedOffWithExistingContext(t *testing.T) {
 		nil,
 		time.Hour,
 		recorder,
+		false,
 	)
 
 	// First, start a delegate controller so we can we tell the switched controller we should shut the delegate controller off.
@@ -384,5 +392,126 @@ func TestSwitchedControllerSwitchedOffWithExistingContext(t *testing.T) {
 				return
 			}
 		}
+	}
+}
+
+type applyStatusCall struct {
+	fieldManager       string
+	applyConfiguration *applyoperatorv1.OperatorStatusApplyConfiguration
+}
+
+// synchronizedOperatorClient serializes access to a non-thread-safe OperatorClient
+// (e.g. fakeOperatorClient) so it can be used safely from multiple goroutines.
+type synchronizedOperatorClient struct {
+	v1helpers.OperatorClient
+	mu            sync.Mutex
+	statusApplied chan struct{}
+}
+
+func (c *synchronizedOperatorClient) ApplyOperatorStatus(ctx context.Context, fieldManager string, applyConfiguration *applyoperatorv1.OperatorStatusApplyConfiguration) error {
+	c.mu.Lock()
+	err := c.OperatorClient.ApplyOperatorStatus(ctx, fieldManager, applyConfiguration)
+	c.mu.Unlock()
+	if c.statusApplied != nil {
+		select {
+		case c.statusApplied <- struct{}{}:
+		default:
+		}
+	}
+	return err
+}
+
+type recordingOperatorClient struct {
+	v1helpers.OperatorClient
+	applyStatusCalls []applyStatusCall
+}
+
+func (r *recordingOperatorClient) ApplyOperatorStatus(ctx context.Context, fieldManager string, applyConfiguration *applyoperatorv1.OperatorStatusApplyConfiguration) error {
+	r.applyStatusCalls = append(r.applyStatusCalls, applyStatusCall{fieldManager: fieldManager, applyConfiguration: applyConfiguration})
+	return r.OperatorClient.ApplyOperatorStatus(ctx, fieldManager, applyConfiguration)
+}
+
+func TestSwitchedControllerClearsDelegateConditionsOnSwitchOff(t *testing.T) {
+	recorder := events.NewInMemoryRecorder("switchedcontroller_test", clocktesting.NewFakePassiveClock(time.Now()))
+	fakeClient := v1helpers.NewFakeOperatorClient(&operatorv1.OperatorSpec{ManagementState: operatorv1.Managed}, &operatorv1.OperatorStatus{}, nil)
+	syncClient := &synchronizedOperatorClient{
+		OperatorClient: fakeClient,
+		statusApplied:  make(chan struct{}, 1),
+	}
+	operatorClient := &recordingOperatorClient{OperatorClient: syncClient}
+
+	delegateFn := func(_ context.Context) *factory.Factory {
+		var enqueueSyncHook factory.PostStartHook = func(ctx context.Context, syncContext factory.SyncContext) error {
+			syncContext.Queue().Add("key")
+			return nil
+		}
+		return factory.New().
+			WithSync(func(ctx context.Context, controllerContext factory.SyncContext) error {
+				return fmt.Errorf("route.route.openshift.io \"oauth-openshift\" not found")
+			}).
+			WithSyncDegradedOnError(syncClient).
+			WithPostStartHooks(enqueueSyncHook)
+	}
+
+	switchOn := true
+	switchFn := func() (bool, error) {
+		return switchOn, nil
+	}
+
+	switched := NewControllerWithSwitch(
+		operatorClient,
+		"test-controller",
+		delegateFn,
+		switchFn,
+		nil,
+		time.Hour,
+		recorder,
+		true,
+	)
+
+	// Start the delegate
+	err := switched.Sync(t.Context(), factory.NewSyncContext("test-sync", recorder))
+	if err != nil {
+		t.Fatalf("unexpected error when syncing: %v", err)
+	}
+
+	// Wait for the delegate's reportDegraded to call ApplyOperatorStatus.
+	// This signal fires after reportDegraded completes (not just after sync returns),
+	// which avoids a data race on the non-thread-safe fakeOperatorClient.
+	syncTimeoutCtx, syncTimeoutCancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer syncTimeoutCancel()
+
+	select {
+	case <-syncTimeoutCtx.Done():
+		t.Fatal("timed out waiting for delegate controller to report degraded status")
+	case <-syncClient.statusApplied:
+	}
+
+	// Switch off and sync the wrapper — this should clear delegate conditions
+	switchOn = false
+	err = switched.Sync(t.Context(), factory.NewSyncContext("test-sync", recorder))
+	if err != nil {
+		t.Fatalf("unexpected error when syncing after switch off: %v", err)
+	}
+
+	// Verify that ApplyOperatorStatus was called with the delegate's field manager
+	// and an empty OperatorStatus to clear its conditions.
+	// This is the most appropriate way to verify the behavior is working as expected because
+	// fake clients do not implement the server-side apply logic for field management, meaning the
+	// condition would still be in place.
+	expectedFieldManager := factory.ControllerFieldManager("test-controller", "reportDegraded")
+
+	if len(operatorClient.applyStatusCalls) != 1 {
+		t.Fatalf("expected a single apply status call to clear degraded conditions from delegate controller syncing but got %d calls", len(operatorClient.applyStatusCalls))
+	}
+
+	call := operatorClient.applyStatusCalls[0]
+
+	if call.fieldManager != expectedFieldManager {
+		t.Errorf("expected field manager %q but got %q instead", expectedFieldManager, call.fieldManager)
+	}
+
+	if len(call.applyConfiguration.Conditions) > 0 {
+		t.Errorf("expected empty conditions to be applied but got conditions %v", call.applyConfiguration.Conditions)
 	}
 }
