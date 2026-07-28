@@ -42,7 +42,7 @@ func NewAuthenticationOperatorCommand() *cobra.Command {
 	cmd.AddCommand(mom.NewInputResourcesCommand(ioStreams))
 	cmd.AddCommand(mom.NewOutputResourcesCommand(ioStreams))
 	cmd.AddCommand(render.NewRender())
-	cmd.AddCommand(kmshealth.NewCommand(context.Background(), encryptionstatusprovider.NewAuthenticationEncryptionStatusProviderFromConfig))
+	cmd.AddCommand(kmshealth.NewCommand(context.Background(), encryptionstatusprovider.NewAuthenticationEncryptionStatusProvider))
 	cmd.AddCommand(kmspreflight.NewCommand(context.Background()))
 
 	return cmd
