@@ -349,9 +349,14 @@ func DeployProxyNetworkPolicies(t testing.TB, kubeClient kubernetes.Interface, p
 	}
 }
 
-// GetSquidProxyLogs reads the Squid access log from the proxy pod via
-// the log sidecar container that tails the access log file.
+// GetSquidProxyLogs reads all Squid access log entries from the proxy pod.
 func GetSquidProxyLogs(kubeClient kubernetes.Interface, namespace string) (string, error) {
+	return GetSquidProxyLogsSince(kubeClient, namespace, time.Time{})
+}
+
+// GetSquidProxyLogsSince reads the Squid access log from the proxy pod,
+// returning only lines with a timestamp not before since.
+func GetSquidProxyLogsSince(kubeClient kubernetes.Interface, namespace string, since time.Time) (string, error) {
 	ctx := context.TODO()
 
 	pods, err := kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
@@ -364,12 +369,14 @@ func GetSquidProxyLogs(kubeClient kubernetes.Interface, namespace string) (strin
 		return "", fmt.Errorf("no squid proxy pods found in namespace %s", namespace)
 	}
 
-	container := "squid"
-	logBytes, err := kubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
-		Container: container,
-	}).DoRaw(ctx)
+	logOpts := &corev1.PodLogOptions{Container: "squid"}
+	if !since.IsZero() {
+		t := metav1.NewTime(since)
+		logOpts.SinceTime = &t
+	}
+	logBytes, err := kubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, logOpts).DoRaw(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get logs from container %s: %w", container, err)
+		return "", fmt.Errorf("failed to get logs from squid container: %w", err)
 	}
 
 	return string(logBytes), nil
