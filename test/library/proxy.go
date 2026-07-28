@@ -34,7 +34,6 @@ import (
 )
 
 const (
-	squidImage       = "registry.redhat.io/rhel10/squid:10.2-1784702318"
 	squidHTTPPort    = int32(3128)
 	squidHTTPSPort   = int32(3129)
 	squidServiceName = "squid-proxy"

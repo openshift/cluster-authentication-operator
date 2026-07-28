@@ -72,7 +72,7 @@ func DeployKeycloak(t testing.TB, kubeconfig *rest.Config) *KeycloakSetup {
 
 	nsName, keycloakHost, cleanup := deployPod(t, kubeClients, routeClient,
 		"keycloak",
-		"quay.io/keycloak/keycloak:25.0",
+		keycloakImage,
 		[]corev1.EnvVar{
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
 			{Name: "KEYCLOAK_ADMIN_PASSWORD", Value: "password"},
