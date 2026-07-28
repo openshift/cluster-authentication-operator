@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	squidImage       = "docker.io/ubuntu/squid:7.2-26.04_edge"
+	squidImage       = "registry.redhat.io/rhel10/squid:10.2-1784702318"
 	squidHTTPPort    = int32(3128)
 	squidHTTPSPort   = int32(3129)
 	squidServiceName = "squid-proxy"
@@ -138,8 +138,8 @@ https_port %d tls-cert=/etc/squid/tls/tls.crt tls-key=/etc/squid/tls/tls.key
 pid_filename /tmp/squid.pid
 acl all src all
 http_access allow all
-access_log /tmp/squid/access.log
-cache_log /tmp/squid/cache.log
+access_log stdio:/dev/stdout
+cache_log stdio:/dev/stderr
 cache deny all
 buffered_logs off
 `, squidHTTPPort, squidHTTPSPort)
@@ -197,10 +197,6 @@ buffered_logs off
 									MountPath: "/etc/squid/tls",
 									ReadOnly:  true,
 								},
-								{
-									Name:      "squid-logs",
-									MountPath: "/tmp/squid",
-								},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
@@ -210,17 +206,6 @@ buffered_logs off
 								},
 								InitialDelaySeconds: 5,
 								PeriodSeconds:       5,
-							},
-						},
-						{
-							Name:    "log",
-							Image:   squidImage,
-							Command: []string{"tail", "-F", "/tmp/squid/access.log"},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "squid-logs",
-									MountPath: "/tmp/squid",
-								},
 							},
 						},
 					},
@@ -241,12 +226,6 @@ buffered_logs off
 								Secret: &corev1.SecretVolumeSource{
 									SecretName: "squid-tls",
 								},
-							},
-						},
-						{
-							Name: "squid-logs",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						},
 					},
@@ -385,7 +364,7 @@ func GetSquidProxyLogs(kubeClient kubernetes.Interface, namespace string) (strin
 		return "", fmt.Errorf("no squid proxy pods found in namespace %s", namespace)
 	}
 
-	container := "log"
+	container := "squid"
 	logBytes, err := kubeClient.CoreV1().Pods(namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{
 		Container: container,
 	}).DoRaw(ctx)
