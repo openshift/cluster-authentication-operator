@@ -134,6 +134,7 @@ func (p *proxyConfigChecker) validateIdPConnectivity(ctx context.Context, record
 
 	idpURLs := extractIdPURLs(oauthConfig)
 	if len(idpURLs) == 0 {
+		p.lastIdPValidationHash = ""
 		return
 	}
 
