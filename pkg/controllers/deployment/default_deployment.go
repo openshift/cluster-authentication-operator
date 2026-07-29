@@ -14,7 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
-	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 
@@ -28,7 +27,7 @@ import (
 
 func getOAuthServerDeployment(
 	operatorSpec *operatorv1.OperatorSpec,
-	proxyConfig *configv1.Proxy,
+	httpProxy, httpsProxy, noProxy string,
 	bootstrapUserExists bool,
 	resourceVersions ...string,
 ) (*appsv1.Deployment, error) {
@@ -67,7 +66,7 @@ func getOAuthServerDeployment(
 	}
 
 	// set proxy env vars
-	container.Env = append(container.Env, proxyConfigToEnvVars(proxyConfig)...)
+	container.Env = append(container.Env, proxyEnvVars(httpProxy, httpsProxy, noProxy)...)
 
 	// set log level
 	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorSpec.LogLevel)), -1)
@@ -142,12 +141,11 @@ func getLogLevel(logLevel operatorv1.LogLevel) int {
 	}
 }
 
-// TODO: move to library-go:w
-func proxyConfigToEnvVars(proxy *configv1.Proxy) []corev1.EnvVar {
+func proxyEnvVars(httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	envVars = appendEnvVar(envVars, "NO_PROXY", proxy.Status.NoProxy)
-	envVars = appendEnvVar(envVars, "HTTP_PROXY", proxy.Status.HTTPProxy)
-	envVars = appendEnvVar(envVars, "HTTPS_PROXY", proxy.Status.HTTPSProxy)
+	envVars = appendEnvVar(envVars, "NO_PROXY", noProxy)
+	envVars = appendEnvVar(envVars, "HTTP_PROXY", httpProxy)
+	envVars = appendEnvVar(envVars, "HTTPS_PROXY", httpsProxy)
 	return envVars
 }
 

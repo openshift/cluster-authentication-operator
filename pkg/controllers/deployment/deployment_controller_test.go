@@ -1,11 +1,20 @@
 package deployment
 
 import (
+	stderrors "errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
+
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
 func TestSetRollingUpdateParameters(t *testing.T) {
@@ -98,4 +107,122 @@ func TestSetRollingUpdateParameters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSyncComponentProxyCA(t *testing.T) {
+	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: componentProxyCAConfigMapName}
+	destCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: componentProxyCAConfigMapName, Namespace: "openshift-authentication"},
+	}
+
+	t.Run("trustedCA set and dest CM synced: adds volume and mount", func(t *testing.T) {
+		indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		require.NoError(t, indexer.Add(destCM))
+
+		rs := &fakeResourceSyncer{}
+		syncer := &oauthServerDeploymentSyncer{
+			resourceSyncer:  rs,
+			configMapLister: corev1listers.NewConfigMapLister(indexer),
+		}
+
+		dep := testDeployment()
+		require.NoError(t, syncer.syncComponentProxyCA("my-proxy-ca", dep))
+
+		wantSrc := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "my-proxy-ca"}
+		require.Equal(t, []configMapSyncCall{{src: wantSrc, dst: dest}}, rs.syncedConfigMaps)
+
+		wantVolumes := []corev1.Volume{{
+			Name: componentProxyCAConfigMapName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: componentProxyCAConfigMapName},
+				},
+			},
+		}}
+		if diff := cmp.Diff(wantVolumes, dep.Spec.Template.Spec.Volumes); diff != "" {
+			t.Errorf("volumes mismatch (-want +got):\n%s", diff)
+		}
+
+		wantMounts := []corev1.VolumeMount{{
+			Name:      componentProxyCAConfigMapName,
+			ReadOnly:  true,
+			MountPath: componentProxyCAMountPath,
+		}}
+		if diff := cmp.Diff(wantMounts, dep.Spec.Template.Spec.Containers[0].VolumeMounts); diff != "" {
+			t.Errorf("volume mounts mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("trustedCA set but dest CM not yet synced: returns error", func(t *testing.T) {
+		indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+
+		rs := &fakeResourceSyncer{}
+		syncer := &oauthServerDeploymentSyncer{
+			resourceSyncer:  rs,
+			configMapLister: corev1listers.NewConfigMapLister(indexer),
+		}
+
+		dep := testDeployment()
+		err := syncer.syncComponentProxyCA("my-proxy-ca", dep)
+		require.ErrorContains(t, err, "not yet synced")
+		require.Empty(t, dep.Spec.Template.Spec.Volumes)
+	})
+
+	t.Run("trustedCA empty: configures RSC to delete dest CM", func(t *testing.T) {
+		rs := &fakeResourceSyncer{}
+		syncer := &oauthServerDeploymentSyncer{
+			resourceSyncer: rs,
+		}
+
+		dep := testDeployment()
+		require.NoError(t, syncer.syncComponentProxyCA("", dep))
+
+		require.Equal(t, []configMapSyncCall{{src: resourcesynccontroller.ResourceLocation{}, dst: dest}}, rs.syncedConfigMaps)
+		require.Empty(t, dep.Spec.Template.Spec.Volumes)
+	})
+
+	t.Run("SyncConfigMap error propagates", func(t *testing.T) {
+		rs := &fakeResourceSyncer{err: stderrors.New("sync failed")}
+		syncer := &oauthServerDeploymentSyncer{
+			resourceSyncer: rs,
+		}
+
+		dep := testDeployment()
+		err := syncer.syncComponentProxyCA("my-proxy-ca", dep)
+		require.ErrorContains(t, err, "sync failed")
+	})
+}
+
+func testDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "oauth-server"}},
+				},
+			},
+		},
+	}
+}
+
+type configMapSyncCall struct {
+	src resourcesynccontroller.ResourceLocation
+	dst resourcesynccontroller.ResourceLocation
+}
+
+type fakeResourceSyncer struct {
+	syncedConfigMaps []configMapSyncCall
+	err              error
+}
+
+func (f *fakeResourceSyncer) SyncConfigMap(dest, src resourcesynccontroller.ResourceLocation) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.syncedConfigMaps = append(f.syncedConfigMaps, configMapSyncCall{src: src, dst: dest})
+	return nil
+}
+
+func (f *fakeResourceSyncer) SyncSecret(_, _ resourcesynccontroller.ResourceLocation) error {
+	return nil
 }

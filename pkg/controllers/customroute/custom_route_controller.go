@@ -52,6 +52,7 @@ type customRouteController struct {
 	resourceSyncer    resourcesynccontroller.ResourceSyncer
 	operatorClient    v1helpers.OperatorClient
 	authConfigChecker common.AuthConfigChecker
+	proxyResolver     common.ProxyResolver
 }
 
 func NewCustomRouteController(
@@ -64,6 +65,7 @@ func NewCustomRouteController(
 	routeInformer routeinformer.RouteInformer,
 	routeClient routeclient.RouteInterface,
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
+	proxyResolver *common.AuthProxyResolver,
 	operatorClient v1helpers.OperatorClient,
 	authConfigChecker common.AuthConfigChecker,
 	eventRecorder events.Recorder,
@@ -86,6 +88,7 @@ func NewCustomRouteController(
 		operatorClient:    operatorClient,
 		resourceSyncer:    resourceSyncer,
 		authConfigChecker: authConfigChecker,
+		proxyResolver:     proxyResolver,
 	}
 
 	return factory.New().
@@ -94,6 +97,7 @@ func NewCustomRouteController(
 			routeInformer.Informer(),
 			kubeInformersForNamespaces.InformersFor("openshift-config").Core().V1().Secrets().Informer(),
 			kubeInformersForNamespaces.InformersFor("openshift-authentication").Core().V1().Secrets().Informer(),
+			proxyResolver.Informer(),
 		).
 		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSyncDegradedOnError(operatorClient).
@@ -253,7 +257,7 @@ func (c *customRouteController) updateIngressConfigStatus(ctx context.Context, i
 	if newConditions == nil {
 		newConditions = checkIngressURI(ingressConfig, route)
 		if newConditions == nil {
-			newConditions = checkRouteAvailablity(c.secretLister, ingressConfig, route)
+			newConditions = checkRouteAvailability(c.secretLister, c.proxyResolver, ingressConfig, route)
 		}
 	}
 	newConditions = ensureDefaultConditions(newConditions)

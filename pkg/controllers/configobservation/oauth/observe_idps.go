@@ -10,13 +10,24 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/events"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
 var identityProvidersMounts = []string{"volumesToMount", "identityProviders"}
 
-func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, errs []error) {
+type identityProviderObserver struct {
+	proxyResolver common.ProxyResolver
+}
+
+func NewObserveIdentityProviders(proxyResolver common.ProxyResolver) configobserver.ObserveConfigFunc {
+	return (&identityProviderObserver{
+		proxyResolver: proxyResolver,
+	}).ObserveIdentityProviders
+}
+
+func (o *identityProviderObserver) ObserveIdentityProviders(genericlisters configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (ret map[string]interface{}, errs []error) {
 	identityProvidersPath := []string{"oauthConfig", "identityProviders"}
 	defer func() {
 		ret = configobserver.Pruned(ret, identityProvidersPath, identityProvidersMounts)
@@ -52,7 +63,7 @@ func ObserveIdentityProviders(genericlisters configobserver.Listers, recorder ev
 
 	// convert identity providers from config to oauth-configuration API and
 	// extract the CMs and Secrets that need to be synchronized to the target NS
-	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(listers.ConfigMapLister, listers.SecretsLister, oauthConfig.Spec.IdentityProviders)
+	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(listers.SecretsLister, o.proxyResolver, oauthConfig.Spec.IdentityProviders)
 	if len(idpErrs) > 0 {
 		return existingConfig, append(errs, idpErrs...)
 	}

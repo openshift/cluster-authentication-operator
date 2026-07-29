@@ -2,8 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   annotations:
-    operator.openshift.io/rvs-hash: f4V-TOKKLhC7zxXahsybviIQ6XFZf_Ua2SFe2jckw9gL4UuCiEXYmFPtjUvFGC13xB72tEYqR0N1somiZq0-JQ
-    operator.openshift.io/spec-hash: 0a0b624d81acaa84b703ae631aa8552ec31f538924445ffe696cf9a6c39d7dac
+    operator.openshift.io/rvs-hash: Yj6uU3fZPpZ50nwdBul3p49-JwgX5Sns2Ui5BAoiC-VwIumwdefgcFdMwEya9wke3gaB2ZRCP990BhbUBThRIw
+    operator.openshift.io/spec-hash: 51680330e02df4ec8b4c856301ac4881110b29e76b501b75050a79bd3ebb73ef
   labels:
     app: oauth-openshift
   name: oauth-openshift
@@ -22,7 +22,7 @@ spec:
     metadata:
       annotations:
         openshift.io/required-scc: privileged
-        operator.openshift.io/rvs-hash: f4V-TOKKLhC7zxXahsybviIQ6XFZf_Ua2SFe2jckw9gL4UuCiEXYmFPtjUvFGC13xB72tEYqR0N1somiZq0-JQ
+        operator.openshift.io/rvs-hash: Yj6uU3fZPpZ50nwdBul3p49-JwgX5Sns2Ui5BAoiC-VwIumwdefgcFdMwEya9wke3gaB2ZRCP990BhbUBThRIw
         target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
       labels:
         app: oauth-openshift

@@ -13,6 +13,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/console"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/infrastructure"
@@ -27,6 +28,7 @@ func NewConfigObserver(
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	enabledClusterCapabilities sets.String,
 	eventRecorder events.Recorder,
+	proxyResolver *common.AuthProxyResolver,
 ) factory.Controller {
 	interestingNamespaces := []string{
 		"openshift-authentication",
@@ -69,16 +71,20 @@ func NewConfigObserver(
 		apiserver.ObserveAdditionalCORSAllowedOrigins,
 		apiserver.ObserveTLSSecurityProfile,
 		infrastructure.ObserveAPIServerURL,
-		oauth.ObserveIdentityProviders,
+		oauth.NewObserveIdentityProviders(proxyResolver),
 		oauth.ObserveTemplates,
 		oauth.ObserveTokenConfig,
 		oauth.ObserveAudit,
+		oauth.NewObserveComponentProxyTrustedCA(proxyResolver),
 		configobserveroauth.ObserveAccessTokenInactivityTimeout,
 		routersecret.ObserveRouterSecret,
 	} {
 		oauthServerObservers = append(oauthServerObservers,
 			configobserver.WithPrefix(o, configobservation.OAuthServerConfigPrefix))
 	}
+
+	preRunCacheSynced = append(preRunCacheSynced, proxyResolver.Informer().HasSynced)
+	informers = append(informers, proxyResolver.Informer())
 
 	listers := configobservation.Listers{
 		ConfigMapLister: kubeInformersForNamespaces.ConfigMapLister(),
