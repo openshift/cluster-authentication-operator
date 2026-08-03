@@ -28,7 +28,11 @@ type transportConfig struct {
 
 func (c *transportConfig) appendToPool(data []byte) error {
 	if c.pool == nil {
-		c.pool = x509.NewCertPool()
+		var err error
+		c.pool, err = x509.SystemCertPool()
+		if err != nil {
+			return fmt.Errorf("error loading system cert pool: %w", err)
+		}
 	}
 	ok, err := transport.AppendPEMCerts(c.pool, data)
 	if err != nil {
