@@ -13,6 +13,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/version"
 
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-component-proxy"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-perf"
@@ -82,6 +83,17 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 		Parallelism: 1,
 		Qualifiers: []string{
 			`name.contains("[Serial]") && (name.contains("[Operator]") || name.contains("[OIDC]") || name.contains("[Templates]") || name.contains("[Tokens]"))`,
+		},
+	})
+
+	// ClusterStability set to Disruptive: component-proxy tests intentionally
+	// degrade the authentication operator to validate error handling.
+	extension.AddSuite(oteextension.Suite{
+		Name:             "openshift/cluster-authentication-operator/component-proxy/disruptive",
+		Parallelism:      1,
+		ClusterStability: oteextension.ClusterStabilityDisruptive,
+		Qualifiers: []string{
+			`name.contains("[ComponentProxy]")`,
 		},
 	})
 

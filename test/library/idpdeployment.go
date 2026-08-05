@@ -307,6 +307,15 @@ func addOIDCIDentityProvider(
 	directExternalOIDC bool) ([]func(), error) {
 	var cleanups []func()
 
+	success := false
+	defer func() {
+		if !success {
+			for _, c := range cleanups {
+				c()
+			}
+		}
+	}()
+
 	secretName := idpName + "-secret"
 	_, err := kubeClients.CoreV1().Secrets("openshift-config").Create(context.TODO(),
 		&corev1.Secret{
@@ -321,7 +330,7 @@ func addOIDCIDentityProvider(
 		metav1.CreateOptions{},
 	)
 	if err != nil {
-		return cleanups, fmt.Errorf("failed to create keycloak client secret: %v", err)
+		return nil, fmt.Errorf("failed to create keycloak client secret: %v", err)
 	}
 	cleanups = append(cleanups, func() {
 		if err := kubeClients.CoreV1().Secrets("openshift-config").Delete(context.TODO(), secretName, metav1.DeleteOptions{}); err != nil {
@@ -330,7 +339,6 @@ func addOIDCIDentityProvider(
 	})
 
 	caCMName := idpName + "-ca"
-	// configure the default ingress CA as the CA for the IdP in the openshift-config NS
 	cleanups = append(cleanups, SyncDefaultIngressCAToConfig(t, kubeClients.CoreV1(), caCMName))
 
 	if !directExternalOIDC {
@@ -354,14 +362,14 @@ func addOIDCIDentityProvider(
 					},
 				},
 			})
-		if err != nil {
-			return cleanups, fmt.Errorf("failed to add identity provider to oauth server: %v", err)
-		}
-
 		cleanups = append(cleanups, idpClean...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add identity provider to oauth server: %v", err)
+		}
 	}
 
-	return cleanups, err
+	success = true
+	return cleanups, nil
 }
 
 func addIdentityProvider(t testing.TB, configClient *configv1client.ConfigV1Client, idp *configv1.IdentityProvider) ([]func(), error) {
