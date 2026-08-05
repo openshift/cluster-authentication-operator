@@ -17,6 +17,7 @@ import (
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-kms"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-perf"
 	_ "github.com/openshift/cluster-authentication-operator/test/e2e-encryption-rotation"
+	_ "github.com/openshift/cluster-authentication-operator/test/e2e-oidc"
 
 	"k8s.io/klog/v2"
 )
@@ -63,25 +64,36 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 	registry := oteextension.NewRegistry()
 	extension := oteextension.NewExtension("openshift", "payload", "cluster-authentication-operator")
 
-	// The following suite runs tests that verify the operator's behaviour.
-	// This suite is executed only on pull requests targeting this repository.
-	// Tests that are not tagged with [Serial] and have any of [Operator], [Templates], [Tokens] are included in this suite.
+	// The following suite runs tests that verify the operator's behaviour in parallel.
+	// Includes: [Certs], [Routes], [Templates], [Tokens] tests
+	// These tests can run concurrently without conflicts.
 	extension.AddSuite(oteextension.Suite{
 		Name:        "openshift/cluster-authentication-operator/operator/parallel",
 		Parallelism: 4,
 		Qualifiers: []string{
-			`!name.contains("[Serial]") && (name.contains("[Operator]") || name.contains("[Templates]") || name.contains("[Tokens]"))`,
+			`name.contains("[Parallel]") && !name.contains("[Disruptive]") && !name.contains("[ExternalOIDC]") && !name.contains("KMS")`,
 		},
 	})
 
-	// The following suite runs tests that must execute serially (one at a time)
-	// because they modify cluster-wide resources like OAuth configuration.
-	// Tests tagged with [Serial] and any of [Operator], [OIDC], [Templates], [Tokens] are included in this suite.
+	// The following suite runs serial IDP tests (Keycloak, GitLab) that modify
+	// cluster-wide resources like OAuth configuration. Encryption, Disruptive,
+	// ExternalOIDC and KMS tests are excluded as they run in their own suites.
 	extension.AddSuite(oteextension.Suite{
 		Name:        "openshift/cluster-authentication-operator/operator/serial",
 		Parallelism: 1,
 		Qualifiers: []string{
-			`name.contains("[Serial]") && (name.contains("[Operator]") || name.contains("[OIDC]") || name.contains("[Templates]") || name.contains("[Tokens]"))`,
+			`name.contains("[Serial]") && !name.contains("[Encryption]") && !name.contains("[Disruptive]") && !name.contains("[ExternalOIDC]") && !name.contains("KMS")`,
+		},
+	})
+
+	// The following suite runs external OIDC tests that authenticate directly via external OIDC
+	// (bypassing OpenShift's IntegratedOAuth). These are long-running tests in their own suite.
+	extension.AddSuite(oteextension.Suite{
+		Name:             "openshift/cluster-authentication-operator/operator-external-oidc/serial",
+		Parallelism:      1,
+		ClusterStability: oteextension.ClusterStabilityDisruptive,
+		Qualifiers: []string{
+			`name.contains("[ExternalOIDC]")`,
 		},
 	})
 

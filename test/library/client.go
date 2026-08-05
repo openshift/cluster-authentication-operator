@@ -144,8 +144,13 @@ func (b *testNamespaceBuilder) WithLabels(labels map[string]string) *testNamespa
 	return b
 }
 
+// WithPSaEnforcement sets the Pod Security Admission enforcement level for the namespace.
+// This sets all three PSA labels (enforce, audit, warn) to ensure consistent behavior
+// and prevent audit log violations when using privileged mode.
 func (b *testNamespaceBuilder) WithPSaEnforcement(level psapi.Level) *testNamespaceBuilder {
 	b.ns.Labels[psapi.EnforceLevelLabel] = string(level)
+	b.ns.Labels[psapi.AuditLevelLabel] = string(level)
+	b.ns.Labels[psapi.WarnLevelLabel] = string(level)
 	return b
 }
 
