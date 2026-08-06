@@ -24,7 +24,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Certs] TestRouterCerts", func() {
+	g.It("[Parallel][Certs] TestRouterCerts", func() {
 		testRouterCerts(g.GinkgoTB())
 	})
 })
