@@ -34,6 +34,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/trustdistribution"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/webhookauthenticator"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/operator/encryptionstatusprovider"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/workload"
 	"github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
@@ -46,6 +47,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/encryption"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
+	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -468,6 +470,11 @@ func prepareOauthAPIServerOperator(
 	}
 	migrator := migrators.NewKubeStorageVersionMigrator(authOperatorInput.migrationClient, informerFactories.migrationInformer.Migration().V1alpha1(), authOperatorInput.kubeClient.Discovery())
 
+	authEncryptionStatusProvider, err := encryptionstatusprovider.NewAuthenticationEncryptionStatusProvider(authOperatorInput.operatorClient)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
 		return nil, nil, err
@@ -709,6 +716,8 @@ func prepareOauthAPIServerOperator(
 		informerFactories.operatorConfigInformer.Config().V1().APIServers(),
 		informerFactories.kubeInformersForNamespaces,
 		resourceSyncController,
+		authEncryptionStatusProvider,
+		kmspreflight.NewAlwaysSucceedKMSPreflightDeployer(),
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
