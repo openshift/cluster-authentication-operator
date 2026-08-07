@@ -791,7 +791,7 @@ func prepareOauthAPIServerOperator(
 			Subject:    &pkix.Name{CommonName: "system:serviceaccount:openshift-oauth-apiserver:openshift-authenticator"},
 			SignerName: certapiv1.KubeAPIServerClientSignerName,
 		},
-		informerFactories.kubeInformers.Certificates().V1().CertificateSigningRequests(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("").Certificates().V1().CertificateSigningRequests(),
 		authOperatorInput.kubeClient.CertificatesV1().CertificateSigningRequests(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets(),
 		authOperatorInput.kubeClient.CoreV1(),
@@ -812,7 +812,7 @@ func prepareOauthAPIServerOperator(
 		"OpenShiftAuthenticator",
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.kubeClient.CertificatesV1().CertificateSigningRequests(),
-		informerFactories.kubeInformers.Certificates().V1().CertificateSigningRequests(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("").Certificates().V1().CertificateSigningRequests(),
 		csr.NewLabelFilter(labelSelector),
 		csr.NewServiceAccountApprover(
 			"openshift-authentication-operator",
