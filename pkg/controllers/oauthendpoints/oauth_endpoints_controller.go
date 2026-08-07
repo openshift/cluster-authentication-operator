@@ -45,6 +45,7 @@ func NewOAuthRouteCheckController(
 	cmLister := kubeInformersForConfigManagedNS.Core().V1().ConfigMaps().Lister()
 	cmInformer := kubeInformersForConfigManagedNS.Core().V1().ConfigMaps().Informer()
 	configNSCMLister := kubeInformersForConfigNS.Core().V1().ConfigMaps().Lister()
+	configNSCMInformer := kubeInformersForConfigNS.Core().V1().ConfigMaps().Informer()
 
 	secretLister := kubeInformersForTargetNS.Core().V1().Secrets().Lister()
 	secretInformer := kubeInformersForTargetNS.Core().V1().Secrets().Informer()
@@ -77,6 +78,7 @@ func NewOAuthRouteCheckController(
 
 	informers := []factory.Informer{
 		cmInformer,
+		configNSCMInformer,
 		secretInformer,
 		routeInformer,
 		ingressInformer,
