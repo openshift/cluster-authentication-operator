@@ -21,7 +21,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Templates] TestTemplatesConfig", func() {
+	g.It("[Parallel][Templates] TestTemplatesConfig", func() {
 		testTemplatesConfig(g.GinkgoTB())
 	})
 })

@@ -62,9 +62,18 @@ func AddKeycloakIDP(
 		InitialDelaySeconds: 10,
 	}
 
-	nsName, keycloakHost, cleanup := deployPod(t, kubeClients, routeClient,
+	// Deploy Keycloak with ImageStream import for known-image-checker compliance
+	// Keycloak uses restricted security context (runs as non-root)
+	nsName, keycloakHost, cleanup := deployPodWithImageStream(
+		t,
+		kubeconfig,
+		kubeClients,
+		routeClient,
 		"keycloak",
-		"quay.io/keycloak/keycloak:25.0",
+		"quay.io",           // registry
+		"keycloak/keycloak", // image name
+		"25.0",              // version
+		"keycloak",          // imagestream name
 		[]corev1.EnvVar{
 			// configure password for Keycloak root user
 			{Name: "KEYCLOAK_ADMIN", Value: "admin"},
@@ -103,6 +112,7 @@ func AddKeycloakIDP(
 		&readinessProbe,
 		&livenessProbe,
 		true,
+		false, // usePrivilegedSecurity = false (Keycloak runs with restricted PSA)
 		"/opt/keycloak/bin/kc.sh", "start-dev",
 	)
 	cleanups = []func(){cleanup}
@@ -249,6 +259,7 @@ func KeycloakClientFor(t testing.TB, transport http.RoundTripper, keycloakURL, k
 
 	client := &http.Client{
 		Transport: transport,
+		Timeout:   10 * time.Second,
 	}
 
 	c := &KeycloakClient{
@@ -273,7 +284,9 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 		data.Add("client_secret", clientSecret)
 	}
 
-	authReq, err := http.NewRequest(http.MethodPost, kc.TokenURL(), bytes.NewBufferString(data.Encode()))
+	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	authReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, kc.TokenURL(), bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -314,7 +327,7 @@ func (kc *KeycloakClient) AuthenticatePassword(clientID, clientSecret, name, pas
 
 	idToken, err := retrieveValue("id_token", authResp)
 	if err != nil {
-		return nil
+		return err
 	}
 	kc.idToken = idToken
 

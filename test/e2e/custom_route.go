@@ -29,7 +29,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Operator][Routes] TestCustomRouterCerts", func() {
+	g.It("[Parallel][Routes] TestCustomRouterCerts", func() {
 		testCustomRouterCerts(g.GinkgoTB())
 	})
 })
