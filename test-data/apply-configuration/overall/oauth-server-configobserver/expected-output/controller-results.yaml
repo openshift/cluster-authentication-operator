@@ -71,6 +71,8 @@ controllerResults:
   status: Skipped
 - controllerName: openshift-oauth-apiserver-EncryptionCondition
   status: Skipped
+- controllerName: openshift-oauth-apiserver-EncryptionKMSPreflight
+  status: Skipped
 - controllerName: openshift-oauth-apiserver-EncryptionKey
   status: Skipped
 - controllerName: openshift-oauth-apiserver-EncryptionMigration

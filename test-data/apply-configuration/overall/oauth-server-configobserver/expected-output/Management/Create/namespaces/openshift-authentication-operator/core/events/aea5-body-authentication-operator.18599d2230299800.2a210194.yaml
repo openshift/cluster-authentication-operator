@@ -8,9 +8,9 @@ involvedObject:
   namespace: openshift-authentication-operator
 kind: Event
 lastTimestamp: "2025-08-07T22:38:20Z"
-message: accessTokenMaxAgeSeconds changed from %!d(float64=0) to %!d(float64=86400)
+message: accessTokenMaxAgeSeconds changed from 0 to 86400
 metadata:
-  name: authentication-operator.18599d2230299800.2df24af9
+  name: authentication-operator.18599d2230299800.2a210194
   namespace: openshift-authentication-operator
 reason: ObserveTokenConfig
 reportingComponent: ""

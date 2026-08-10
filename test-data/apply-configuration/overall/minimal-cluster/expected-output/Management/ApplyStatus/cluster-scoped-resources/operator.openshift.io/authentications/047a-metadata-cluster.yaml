@@ -1,0 +1,9 @@
+action: ApplyStatus
+controllerInstanceName: openshift-oauth-apiserver-EncryptionKMSPreflight
+fieldManager: openshift-oauth-apiserver-EncryptionKMSPreflight
+generateName: ""
+name: cluster
+resourceType:
+  Group: operator.openshift.io
+  Resource: authentications
+  Version: v1
