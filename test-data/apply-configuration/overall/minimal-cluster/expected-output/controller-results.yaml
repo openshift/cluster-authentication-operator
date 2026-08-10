@@ -139,6 +139,8 @@ controllerResults:
   status: Failed
 - controllerName: openshift-oauth-apiserver-EncryptionCondition
   status: Succeeded
+- controllerName: openshift-oauth-apiserver-EncryptionKMSPreflight
+  status: Succeeded
 - controllerName: openshift-oauth-apiserver-EncryptionKey
   status: Succeeded
 - controllerName: openshift-oauth-apiserver-EncryptionMigration
