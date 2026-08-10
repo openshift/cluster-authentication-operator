@@ -37,9 +37,18 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 	configclients, err := configv1client.NewForConfig(kubeconfig)
 	require.NoError(t, err)
 
-	nsName, gitlabHost, cleanup := deployPod(t, kubeClients, routeClient,
+	// Deploy GitLab with ImageStream import for known-image-checker compliance
+	// GitLab requires privileged mode to manage system services (PostgreSQL, Redis, nginx, Sidekiq)
+	nsName, gitlabHost, cleanup := deployPodWithImageStream(
+		t,
+		kubeconfig,
+		kubeClients,
+		routeClient,
 		"gitlab",
-		"docker.io/gitlab/gitlab-ce:13.8.4-ce.0",
+		"docker.io",        // registry
+		"gitlab/gitlab-ce", // image name
+		"13.8.4-ce.0",      // version
+		"gitlab",           // imagestream name
 		[]corev1.EnvVar{
 			// configure password for GitLab root user
 			{Name: "GITLAB_OMNIBUS_CONFIG", Value: "gitlab_rails['initial_root_password']='password';"},
@@ -85,6 +94,7 @@ func AddGitlabIDP( // TODO: possibly make this be a wrapper to a function to sim
 		nil,
 		nil,
 		false,
+		true, // usePrivilegedSecurity = true (GitLab needs privileged for system services)
 	)
 	cleanups = []func(){cleanup}
 

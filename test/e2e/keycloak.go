@@ -26,7 +26,7 @@ import (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[OIDC][Serial] TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync", func() {
+	g.It("[Serial] TestKeycloakAsOIDCPasswordGrantCheckAndGroupSync", func() {
 		testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(g.GinkgoTB())
 	})
 })
@@ -38,7 +38,7 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 	clients := test.NewTestClients(t)
 	kubeConfig := test.NewClientConfigForTest(t)
 
-	_, idpName, cleanups := test.AddKeycloakIDP(t, kubeConfig, false)
+	kcClient, idpName, cleanups := test.AddKeycloakIDP(t, kubeConfig, false)
 	defer test.IDPCleanupWrapper(func() {
 		for _, c := range cleanups {
 			c()
@@ -99,12 +99,9 @@ func testKeycloakAsOIDCPasswordGrantCheckAndGroupSync(t testing.TB) {
 	})
 	require.NoError(t, err, "IDP %q did not appear in OAuth config with valid OpenID configuration", idpName)
 
-	// Get a keycloak client for the external KC URL
+	// Use the kcClient from AddKeycloakIDP which has extended token lifetime configured
+	// We need transport for HTTP client used later in token endpoint testing
 	transport, err := rest.TransportFor(kubeConfig)
-	require.NoError(t, err)
-
-	kcClient := test.KeycloakClientFor(t, transport, configIDP.OpenID.Issuer, "master")
-	err = kcClient.AuthenticatePassword("admin-cli", "", "admin", "password")
 	require.NoError(t, err)
 
 	client, err := kcClient.GetClientByClientID(configIDP.OpenID.ClientID)

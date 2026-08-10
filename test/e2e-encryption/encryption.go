@@ -17,7 +17,7 @@ var _ = g.Describe("[sig-auth] authentication operator", func() {
 		testEncryptionTypeIdentity(ctx, g.GinkgoTB())
 	})
 
-	g.It("[Encryption][Serial] TestEncryptionTypeUnset", func(ctx context.Context) {
+	g.It("[Encryption][Serial] TestEncryptionTypeUnset [Timeout:90m]", func(ctx context.Context) {
 		testEncryptionTypeUnset(ctx, g.GinkgoTB())
 	})
 
