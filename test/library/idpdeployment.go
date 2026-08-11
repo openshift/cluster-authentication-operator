@@ -11,20 +11,21 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	watchtools "k8s.io/client-go/tools/watch"
 	"k8s.io/utils/ptr"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	routev1client "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
-	v1 "k8s.io/api/rbac/v1"
-	"k8s.io/client-go/tools/cache"
-	watchtools "k8s.io/client-go/tools/watch"
 )
 
 const servingSecretName = "serving-secret"
@@ -33,10 +34,121 @@ func boolptr(b bool) *bool {
 	return &b
 }
 
-func deployPod(
+// createContainerSecurityContext creates a security context based on whether privileged mode is needed.
+// For privileged mode (GitLab): returns privileged security context
+// For restricted mode (Keycloak): returns PodSecurity restricted:latest compliant security context
+func createContainerSecurityContext(usePrivileged bool) *corev1.SecurityContext {
+	if usePrivileged {
+		return &corev1.SecurityContext{
+			Privileged: boolptr(true),
+		}
+	}
+
+	// Restricted security context compliant with PodSecurity restricted:latest policy
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: boolptr(false),
+		RunAsNonRoot:             boolptr(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+}
+
+// deployPodWithImageStream wraps deployPod to import external images via ImageStream first.
+// This ensures pods pull from the internal registry, which is allowed by the known-image-checker monitor test.
+// The function creates a namespace, imports the image FIRST, then deploys the pod using the internal registry reference.
+func deployPodWithImageStream(
+	t testing.TB,
+	kubeconfig *rest.Config,
+	clients *kubernetes.Clientset,
+	routeClient routev1client.RouteV1Interface,
+	name string,
+	registry string,
+	imageName string,
+	imageVersion string,
+	imageStreamName string,
+	env []corev1.EnvVar,
+	httpPort, httpsPort int32,
+	volumes []corev1.Volume,
+	volumeMounts []corev1.VolumeMount,
+	resources corev1.ResourceRequirements,
+	readinessProbe *corev1.Probe,
+	livenessProbe *corev1.Probe,
+	useTLS bool,
+	usePrivilegedSecurity bool,
+	command ...string,
+) (namespace, host string, cleanup func()) {
+	// Step 1: Create the namespace FIRST (before importing image or deploying pod)
+	nsBuilder := NewTestNamespaceBuilder("e2e-test-authentication-operator-").
+		WithLabels(CAOE2ETestLabels())
+
+	if usePrivilegedSecurity {
+		nsBuilder = nsBuilder.WithPrivilegedPSaEnforcement()
+	} else {
+		nsBuilder = nsBuilder.WithRestrictedPSaEnforcement()
+	}
+
+	namespace = nsBuilder.Create(t, clients.CoreV1().Namespaces())
+
+	nsCleanup := func() {
+		// remove the NS, it will take away all the resources created here along with it
+		if err := clients.CoreV1().Namespaces().Delete(context.TODO(), namespace, metav1.DeleteOptions{}); err != nil {
+			t.Logf("failed to remove namespace %q: %v", namespace, err)
+		}
+	}
+
+	// Step 2: Import the image into an ImageStream BEFORE deploying the pod
+	t.Logf("Importing %s image into ImageStream for known-image-checker compliance", name)
+	internalImage, isCleanup, err := ImportImageToImageStream(
+		t,
+		kubeconfig,
+		namespace,
+		registry,
+		imageName,
+		imageVersion,
+		imageStreamName,
+	)
+	if err != nil {
+		// If ImageStream import fails, clean up the namespace and fail
+		nsCleanup()
+		t.Fatalf("failed to import %s image to ImageStream: %v", name, err)
+	}
+
+	// Step 3: Deploy the pod using the INTERNAL image from the beginning
+	// This ensures the pod never pulls from external registry
+	host, podCleanup := deployPodInNamespace(
+		t, clients, routeClient,
+		namespace,           // Use the namespace we created
+		name, internalImage, // Use internal image from the start!
+		env, httpPort, httpsPort,
+		volumes, volumeMounts, resources,
+		readinessProbe, livenessProbe,
+		useTLS, usePrivilegedSecurity,
+		command...,
+	)
+
+	t.Logf("Successfully deployed %s using internal registry image: %s", name, internalImage)
+
+	// Return combined cleanup function
+	cleanup = func() {
+		isCleanup()
+		podCleanup()
+		nsCleanup()
+	}
+
+	return namespace, host, cleanup
+}
+
+// deployPodInNamespace deploys a pod in an existing namespace.
+// This is used by deployPodWithImageStream after namespace and ImageStream creation.
+func deployPodInNamespace(
 	t testing.TB,
 	clients *kubernetes.Clientset,
 	routeClient routev1client.RouteV1Interface,
+	namespace string, // Existing namespace
 	name, image string,
 	env []corev1.EnvVar,
 	httpPort, httpsPort int32,
@@ -46,31 +158,15 @@ func deployPod(
 	readinessProbe *corev1.Probe,
 	livenessProbe *corev1.Probe,
 	useTLS bool,
+	usePrivilegedSecurity bool,
 	command ...string,
-) (namespace, host string, cleanup func()) {
+) (host string, cleanup func()) {
 	testContext := context.TODO()
 
 	var err error
 	cleanup = func() {}
 
-	namespace = NewTestNamespaceBuilder("e2e-test-authentication-operator-").
-		WithPrivilegedPSaEnforcement().
-		WithLabels(CAOE2ETestLabels()).
-		Create(t, clients.CoreV1().Namespaces())
-
-	cleanup = func() {
-		// remove the NS, it will take away all the resources create here along with it
-		if err := clients.CoreV1().Namespaces().Delete(testContext, namespace, metav1.DeleteOptions{}); err != nil {
-			t.Logf("error cleaning up a resource: %v", err)
-		}
-	}
-
-	defer func() {
-		if err != nil {
-			cleanup()
-		}
-	}()
-
+	// Create service account
 	_, err = clients.CoreV1().ServiceAccounts(namespace).Create(
 		testContext,
 		&corev1.ServiceAccount{
@@ -80,9 +176,10 @@ func deployPod(
 		},
 		metav1.CreateOptions{},
 	)
+	require.NoError(t, err)
 
 	saName := name
-	pod := podTemplate(name, image, httpPort, httpsPort, command...)
+	pod := podTemplate(name, image, httpPort, httpsPort, usePrivilegedSecurity, command...)
 	pod.Spec.Volumes = volumes
 	pod.Spec.Containers[0].VolumeMounts = volumeMounts
 	pod.Spec.Containers[0].Env = env
@@ -94,6 +191,29 @@ func deployPod(
 		pod.Spec.Containers[0].LivenessProbe = livenessProbe
 	}
 	pod.Spec.ServiceAccountName = saName
+
+	// Grant privileged SCC when required (e.g., GitLab needs root access).
+	if usePrivilegedSecurity {
+		roleBinding := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "privileged-scc-to-default-sa",
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     "system:openshift:scc:privileged",
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind: "ServiceAccount",
+					Name: saName,
+				},
+			},
+		}
+
+		_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -109,26 +229,6 @@ func deployPod(
 			},
 		},
 	}
-
-	roleBinding := &v1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "privileged-scc-to-default-sa",
-		},
-		RoleRef: v1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
-			Name:     "system:openshift:scc:privileged",
-		},
-		Subjects: []v1.Subject{
-			{
-				Kind: "ServiceAccount",
-				Name: saName,
-			},
-		},
-	}
-
-	_, err = clients.RbacV1().RoleBindings(namespace).Create(testContext, roleBinding, metav1.CreateOptions{})
-	require.NoError(t, err)
 
 	_, err = clients.AppsV1().Deployments(namespace).Create(testContext, deployment, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -156,10 +256,16 @@ func deployPod(
 	host, err = WaitForRouteAdmitted(t, routeClient, route.Name, route.Namespace)
 	require.NoError(t, err)
 
-	return
+	// Cleanup function only cleans up resources within the namespace, not the namespace itself
+	cleanup = func() {
+		// The namespace will be cleaned up by the caller
+		// We don't need to clean up individual resources here since they'll be deleted with the namespace
+	}
+
+	return host, cleanup
 }
 
-func podTemplate(name, image string, httpPort, httpsPort int32, command ...string) *corev1.Pod {
+func podTemplate(name, image string, httpPort, httpsPort int32, usePrivilegedSecurity bool, command ...string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -170,11 +276,9 @@ func podTemplate(name, image string, httpPort, httpsPort int32, command ...strin
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:  "payload",
-					Image: image,
-					SecurityContext: &corev1.SecurityContext{
-						Privileged: boolptr(true),
-					},
+					Name:            "payload",
+					Image:           image,
+					SecurityContext: createContainerSecurityContext(usePrivilegedSecurity),
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: httpsPort,

@@ -26,7 +26,7 @@ const (
 )
 
 var _ = g.Describe("[sig-auth] authentication operator", func() {
-	g.It("[Encryption][Serial] TestPerfEncryptionTypeAESCBC", func(ctx context.Context) {
+	g.It("[Encryption][Serial] TestPerfEncryptionTypeAESCBC [Timeout:30m]", func(ctx context.Context) {
 		testPerfEncryptionTypeAESCBC(ctx, g.GinkgoTB())
 	})
 })

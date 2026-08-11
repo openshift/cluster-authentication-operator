@@ -28,6 +28,7 @@ import (
 
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/encryption/crypto"
+	"github.com/openshift/library-go/pkg/operator/encryption/kms"
 	"github.com/openshift/library-go/pkg/operator/encryption/secrets"
 	"github.com/openshift/library-go/pkg/operator/encryption/state"
 	"github.com/openshift/library-go/pkg/operator/encryption/statemachine"
@@ -79,6 +80,9 @@ type keyController struct {
 	provider                 Provider
 	preconditionsFulfilledFn preconditionsFulfilled
 
+	// encryptionStatusProvider gates KMS key creation on a preflight check.
+	encryptionStatusProvider kms.EncryptionStatusProvider
+
 	unsupportedConfigPrefix []string
 }
 
@@ -96,6 +100,8 @@ func NewKeyController(
 	configMapClient corev1client.ConfigMapsGetter,
 	encryptionSecretSelector metav1.ListOptions,
 	eventRecorder events.Recorder,
+	// encryptionStatusProvider is required for KMS operators; it gates key creation on a preflight check.
+	encryptionStatusProvider kms.EncryptionStatusProvider,
 ) factory.Controller {
 	c := &keyController{
 		operatorClient:  operatorClient,
@@ -111,17 +117,26 @@ func NewKeyController(
 		preconditionsFulfilledFn: preconditionsFulfilledFn,
 		secretClient:             secretClient,
 		configMapClient:          configMapClient,
+
+		encryptionStatusProvider: encryptionStatusProvider,
 	}
 
 	return factory.New().
 		WithSync(c.sync).
 		WithControllerInstanceName(c.controllerInstanceName).
+		// Keep the resync interval short: openshift-config secrets/configmaps are not
+		// watched directly, so credential and CA bundle rotations are only detected on
+		// resync. Increasing this significantly delays in-place config propagation.
 		ResyncEvery(time.Minute).
 		WithInformers(
 			apiServerInformer.Informer(),
 			operatorClient.Informer(),
 			kubeInformersForNamespaces.InformersFor("openshift-config-managed").Core().V1().Secrets().Informer(),
-			// TODO: add informers for openshift-config namespace to watch referenced Secrets and ConfigMaps for KMS plugin data changes
+			// openshift-config secrets/configmaps are not watched directly. While we could
+			// build a mechanism to watch only the referenced resources, creating and
+			// maintaining it is not free, and watching all resources in the namespace
+			// would create excessive API server load. Instead, changes are picked up
+			// on the next periodic resync.
 			deployer,
 		).ToController(
 		c.controllerInstanceName,
@@ -234,15 +249,20 @@ func (c *keyController) checkAndCreateKeys(ctx context.Context, syncContext fact
 	if !newKeyRequired {
 		return nil
 	}
+
 	if commonReason != nil && len(*commonReason) > 0 && len(reasons) > 1 {
 		reasons = []string{*commonReason} // don't repeat reasons
 	}
 
 	sort.Sort(sort.StringSlice(reasons))
 	internalReason := strings.Join(reasons, ", ")
-	keySecret, err := c.generateKeySecret(ctx, newKeyID, currentMode, apiEncryptionConfiguration, desiredProviderCfg, internalReason, externalReason)
+	keySecret, preconditionMet, err := c.generateKeySecret(ctx, newKeyID, currentMode, apiEncryptionConfiguration, desiredProviderCfg, internalReason, externalReason)
 	if err != nil {
 		return fmt.Errorf("failed to create key: %v", err)
+	}
+	if !preconditionMet {
+		syncContext.Queue().AddAfter(syncContext.QueueKey(), 30*time.Second)
+		return nil
 	}
 	_, createErr := c.secretClient.Secrets("openshift-config-managed").Create(ctx, keySecret, metav1.CreateOptions{})
 	if errors.IsAlreadyExists(createErr) {
@@ -277,7 +297,16 @@ func (c *keyController) validateExistingSecret(ctx context.Context, keySecret *c
 	return nil // we made this key earlier
 }
 
-func (c *keyController) generateKeySecret(ctx context.Context, keyID uint64, currentMode state.Mode, apiServerEncryption configv1.APIServerEncryption, desiredProviderCfg kmsProviderConfig, internalReason, externalReason string) (*corev1.Secret, error) {
+// generateKeySecret builds the key secret for the given key ID and mode.
+//
+// For KMS mode it also computes the config hash (from the referenced Secret and
+// ConfigMap it already reads) and gates on the KMS preflight check. The boolean
+// return value signals the outcome:
+//
+//   - (secret, true,  nil) — preflight passed; caller should persist the key.
+//   - (nil,   false, nil) — preflight still in progress; caller should back off.
+//   - (nil,   false, err) — preflight failed or transient error; caller should surface it.
+func (c *keyController) generateKeySecret(ctx context.Context, keyID uint64, currentMode state.Mode, apiServerEncryption configv1.APIServerEncryption, desiredProviderCfg kmsProviderConfig, internalReason, externalReason string) (*corev1.Secret, bool, error) {
 	bs := crypto.ModeToNewKeyFunc[currentMode]()
 	ks := state.KeyState{
 		Key: apiserverv1.Key{
@@ -299,43 +328,70 @@ func (c *keyController) generateKeySecret(ctx context.Context, keyID uint64, cur
 			Plugin: apiServerEncryption.KMS,
 		}
 
+		// Fetch the referenced Secret and ConfigMap, copying their data into the
+		// key state. The fetched objects are reused by prefetchedKMSConfigHasherResourceProvider
+		// to compute the config hash without a second API round-trip.
+		var refSecret *corev1.Secret
 		if secretName, expectedKeys, err := desiredProviderCfg.referencedSecretName(); err != nil {
-			return nil, err
+			return nil, false, err
 		} else if len(secretName) > 0 {
-			refSecret, err := c.secretClient.Secrets(openshiftConfigNS).Get(ctx, secretName, metav1.GetOptions{})
+			refSecret, err = c.secretClient.Secrets(openshiftConfigNS).Get(ctx, secretName, metav1.GetOptions{})
 			if err != nil {
-				return nil, fmt.Errorf("failed to get secret %s in %s: %w", secretName, openshiftConfigNS, err)
+				return nil, false, fmt.Errorf("failed to get secret %s in %s: %w", secretName, openshiftConfigNS, err)
 			}
 			for _, key := range expectedKeys {
 				v, ok := refSecret.Data[key]
 				if !ok {
-					return nil, fmt.Errorf("secret %s in %s is missing required key %q", secretName, openshiftConfigNS, key)
+					return nil, false, fmt.Errorf("secret %s in %s is missing required key %q", secretName, openshiftConfigNS, key)
 				}
 				if err := ks.KMS.PluginSecretData.Set(secretName, key, v); err != nil {
-					return nil, err
+					return nil, false, err
 				}
 			}
 		}
 
+		var refCM *corev1.ConfigMap
 		if cmName, expectedKeys, err := desiredProviderCfg.referencedConfigMapName(); err != nil {
-			return nil, err
+			return nil, false, err
 		} else if len(cmName) > 0 {
-			refCM, err := c.configMapClient.ConfigMaps(openshiftConfigNS).Get(ctx, cmName, metav1.GetOptions{})
+			refCM, err = c.configMapClient.ConfigMaps(openshiftConfigNS).Get(ctx, cmName, metav1.GetOptions{})
 			if err != nil {
-				return nil, fmt.Errorf("failed to get configmap %s in %s: %w", cmName, openshiftConfigNS, err)
+				return nil, false, fmt.Errorf("failed to get configmap %s in %s: %w", cmName, openshiftConfigNS, err)
 			}
 			for _, key := range expectedKeys {
 				v, ok := refCM.Data[key]
 				if !ok {
-					return nil, fmt.Errorf("configmap %s in %s is missing required key %q", cmName, openshiftConfigNS, key)
+					return nil, false, fmt.Errorf("configmap %s in %s is missing required key %q", cmName, openshiftConfigNS, key)
 				}
 				if err := ks.KMS.PluginConfigMapData.Set(cmName, key, []byte(v)); err != nil {
-					return nil, err
+					return nil, false, err
 				}
 			}
 		}
+
+		resources := &prefetchedKMSConfigHasherResourceProvider{secret: refSecret, configMap: refCM}
+		hasher, err := newKMSConfigHasher(desiredProviderCfg, resources, openshiftConfigNS)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to create KMS config hasher: %w", err)
+		}
+		configHash, err := hasher.hash(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to compute KMS config hash: %w", err)
+		}
+		preflightPassed, err := c.ensureKMSPreflightPassed(ctx, configHash)
+		if err != nil {
+			return nil, false, err
+		}
+		if !preflightPassed {
+			return nil, false, nil
+		}
 	}
-	return secrets.FromKeyState(c.instanceName, ks)
+
+	secret, err := secrets.FromKeyState(c.instanceName, ks)
+	if err != nil {
+		return nil, false, err
+	}
+	return secret, true, nil
 }
 
 func (c *keyController) getCurrentModeReasonAndEncryptionConfig(ctx context.Context) (state.Mode, string, configv1.APIServerEncryption, error) {
@@ -366,6 +422,78 @@ func (c *keyController) getCurrentModeReasonAndEncryptionConfig(ctx context.Cont
 	default:
 		return "", "", configv1.APIServerEncryption{}, fmt.Errorf("unknown encryption mode configured: %s", currentMode)
 	}
+}
+
+var _ kmsConfigHasherResourceProvider = &prefetchedKMSConfigHasherResourceProvider{}
+
+// prefetchedKMSConfigHasherResourceProvider implements kmsConfigHasherResourceProvider using Secret and
+// ConfigMap objects already fetched by the key controller while building the key
+// secret, avoiding a second API round-trip for hash computation.
+type prefetchedKMSConfigHasherResourceProvider struct {
+	secret    *corev1.Secret
+	configMap *corev1.ConfigMap
+}
+
+func (p *prefetchedKMSConfigHasherResourceProvider) getSecret(_ context.Context, namespace, name string) (*corev1.Secret, error) {
+	if p.secret == nil || p.secret.Namespace != namespace || p.secret.Name != name {
+		return nil, fmt.Errorf("prefetched secret does not match requested %s/%s", namespace, name)
+	}
+	return p.secret, nil
+}
+
+func (p *prefetchedKMSConfigHasherResourceProvider) getConfigMap(_ context.Context, namespace, name string) (*corev1.ConfigMap, error) {
+	if p.configMap == nil || p.configMap.Namespace != namespace || p.configMap.Name != name {
+		return nil, fmt.Errorf("prefetched configmap does not match requested %s/%s", namespace, name)
+	}
+	return p.configMap, nil
+}
+
+// ensureKMSPreflightPassed checks whether the KMS preflight has passed for the
+// given config hash. It writes ObservedConfigHash when not yet set (which triggers
+// the preflight controller to run the check), then inspects the Result.
+//
+// Scenarios:
+//
+//  1. ObservedConfigHash does not match configHash — write it and back off.
+//     The preflight controller will pick up the new hash and start the check.
+//
+//  2. ObservedConfigHash matches, Result.Status is Succeeded — proceed.
+//
+//  3. ObservedConfigHash matches, Result.Status is Failed — surface the error.
+//     The admin must fix the KMS configuration (which produces a new hash)
+//     before the key controller can proceed.
+//
+//  4. ObservedConfigHash matches, no result yet — preflight still in progress,
+//     back off.
+//
+// Callers are responsible for requeuing when this returns (false, nil).
+func (c *keyController) ensureKMSPreflightPassed(ctx context.Context, configHash string) (bool, error) {
+	encryptionStatus, err := c.encryptionStatusProvider.GetKMSEncryptionStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get KMS encryption status: %w", err)
+	}
+
+	// Scenario 1: ObservedConfigHash outdated — schedule the preflight check.
+	if encryptionStatus.Preflight.ObservedConfigHash != configHash {
+		if err := c.encryptionStatusProvider.UpdateKMSEncryptionStatus(ctx, func(s *operatorv1.KMSEncryptionStatus) {
+			s.Preflight.ObservedConfigHash = configHash
+		}); err != nil {
+			return false, fmt.Errorf("failed to write preflight observed config hash: %w", err)
+		}
+		// Scenario 1: back off: wait for the preflight controller to pick up the new hash.
+		return false, nil
+	}
+
+	// Scenario 2: preflight passed — proceed.
+	if encryptionStatus.Preflight.Result.ConfigHash == configHash && isPreflightResultSucceeded(&encryptionStatus.Preflight.Result) {
+		return true, nil
+	}
+	// Scenario 3: preflight failed — surface the error.
+	if encryptionStatus.Preflight.Result.ConfigHash == configHash && isPreflightResultFailed(&encryptionStatus.Preflight.Result) {
+		return false, fmt.Errorf("KMS preflight check failed for config hash %s; fix the KMS configuration to proceed", configHash)
+	}
+	// Scenario 4: back off: preflight check is still in progress.
+	return false, nil
 }
 
 // needsNewKey checks whether a new key must be created for the given resource. If true, it also returns the latest

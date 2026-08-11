@@ -350,6 +350,41 @@ func Test_validateIdPConnectivity_hashDedup(t *testing.T) {
 		}
 	})
 
+	t.Run("removing all IdPs clears hash so re-adding triggers validation", func(t *testing.T) {
+		recorder := events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now()))
+		p := &proxyConfigChecker{
+			oauthLister: configv1listers.NewOAuthLister(indexer),
+		}
+
+		reachable := &http.Client{Transport: &workingHTTPRoundTripper{}}
+		p.validateIdPConnectivity(context.Background(), recorder, reachable, "http://proxy:3128", "", "")
+		if p.lastIdPValidationHash == "" {
+			t.Fatal("hash should be set after successful validation")
+		}
+
+		noIdPConfig := &configv1.OAuth{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       configv1.OAuthSpec{},
+		}
+		noIdPIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		if err := noIdPIndexer.Add(noIdPConfig); err != nil {
+			t.Fatal(err)
+		}
+		p.oauthLister = configv1listers.NewOAuthLister(noIdPIndexer)
+		p.validateIdPConnectivity(context.Background(), recorder, reachable, "http://proxy:3128", "", "")
+		if p.lastIdPValidationHash != "" {
+			t.Fatal("hash should be cleared when no IdPs are configured")
+		}
+
+		p.oauthLister = configv1listers.NewOAuthLister(indexer)
+		unreachable := &http.Client{Transport: &faultyHTTPRoundTripper{}}
+		followupRecorder := events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now()))
+		p.validateIdPConnectivity(context.Background(), followupRecorder, unreachable, "http://proxy:3128", "", "")
+		if len(followupRecorder.Events()) != 1 {
+			t.Fatalf("expected validation to run after IdPs re-added, got %d events", len(followupRecorder.Events()))
+		}
+	})
+
 	t.Run("hash not saved on failure allows retry", func(t *testing.T) {
 		recorder := events.NewInMemoryRecorder(t.Name(), clocktesting.NewFakePassiveClock(time.Now()))
 		p := &proxyConfigChecker{
