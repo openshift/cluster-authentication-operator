@@ -887,14 +887,13 @@ func generateExternalClaimsSourceAuthenticationClientCredential(clientCredential
 		return nil, fmt.Errorf("generating scopes: %w", err)
 	}
 
-	var certificateAuthority *string
-	if len(clientCredentialConfig.TLS.CertificateAuthority.Name) > 0 {
-		ca, err := getCertificateAuthorityFromConfigMap(clientCredentialConfig.TLS.CertificateAuthority.Name, cmLister)
+	zeroValueExternalSourceTLS := configv1.ExternalSourceTLS{}
+	var tls *authenticationv1alpha1.TLS
+	if clientCredentialConfig.TLS != zeroValueExternalSourceTLS {
+		tls, err = generateExternalClaimsSourceTLS(clientCredentialConfig.TLS, cmLister)
 		if err != nil {
-			return nil, fmt.Errorf("getting certificate authority: %w", err)
+			return nil, err
 		}
-
-		certificateAuthority = &ca
 	}
 
 	return &authenticationv1alpha1.ClientCredentialConfig{
@@ -902,9 +901,7 @@ func generateExternalClaimsSourceAuthenticationClientCredential(clientCredential
 		ClientSecret:  clientSecret,
 		TokenEndpoint: clientCredentialConfig.TokenEndpoint,
 		Scopes:        scopes,
-		TLS: &authenticationv1alpha1.TLS{
-			CertificateAuthority: certificateAuthority,
-		},
+		TLS:           tls,
 	}, nil
 }
 
