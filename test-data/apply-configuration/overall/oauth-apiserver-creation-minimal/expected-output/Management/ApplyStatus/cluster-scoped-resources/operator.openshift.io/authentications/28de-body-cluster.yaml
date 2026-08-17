@@ -15,7 +15,7 @@ status:
     type: APIServerDeploymentDegraded
   - lastTransitionTime: "2024-10-14T22:38:20Z"
     message: 'deployment/apiserver.openshift-oauth-apiserver: 0/1 pods have been updated
-      to the latest generation and 0/1 pods are available'
+      to the latest revision and 0/1 pods are available'
     reason: PodsUpdating
     status: "True"
     type: APIServerDeploymentProgressing
