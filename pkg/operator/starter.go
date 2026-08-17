@@ -45,6 +45,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
+	encryptioncontrollers "github.com/openshift/library-go/pkg/operator/encryption/controllers"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
 	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
@@ -718,6 +719,7 @@ func prepareOauthAPIServerOperator(
 		resourceSyncController,
 		authEncryptionStatusProvider,
 		kmspreflight.NewAlwaysSucceedKMSPreflightDeployer(),
+		encryptioncontrollers.NoopEncryptionConfigurationComputer{},
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
