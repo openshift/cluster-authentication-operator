@@ -2,11 +2,9 @@ package e2e_encryption_kms
 
 import (
 	"context"
-	"math/rand/v2"
 	"testing"
 
 	g "github.com/onsi/ginkgo/v2"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	library "github.com/openshift/library-go/test/library/encryption"
 	librarykms "github.com/openshift/library-go/test/library/encryption/kms"
@@ -35,25 +33,7 @@ var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
 // 9. Disables encryption (Identity) again
 // 10. Verifies token is NOT encrypted again
 func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
-	library.TestEncryptionTurnOnAndOff(ctx, t, library.OnOffScenario{
-		BasicScenario: library.BasicScenario{
-			Namespace:                       "openshift-config-managed",
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
-			EncryptionConfigSecretNamespace: "openshift-config-managed",
-			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.WellKnownAuthTargetGRs,
-			AssertFunc:                      library.AssertWellKnownTokens,
-		},
-		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
-		},
-		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.WellKnownTokenOfLife,
-		ResourceName:                   "TokenOfLife",
-		EncryptionProvider:             librarykms.DefaultVaultEncryptionProvider(ctx, t),
-	})
+	library.TestEncryptionTurnOnAndOff(ctx, t, librarykms.EncryptionTurnOnAndOffScenarios(ctx, t)...)
 }
 
 // testKMSEncryptionProvidersMigration tests migration between KMS and AES encryption providers.
@@ -64,26 +44,5 @@ func testKMSEncryptionOnOff(ctx context.Context, t testing.TB) {
 // 4. Migrates between the providers in the shuffled order
 // 5. Verifies token is correctly encrypted after each migration
 func testKMSEncryptionProvidersMigration(ctx context.Context, t testing.TB) {
-	library.TestEncryptionProvidersMigration(ctx, t, library.ProvidersMigrationScenario{
-		BasicScenario: library.BasicScenario{
-			Namespace:                       "openshift-config-managed",
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
-			EncryptionConfigSecretNamespace: "openshift-config-managed",
-			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.WellKnownAuthTargetGRs,
-			AssertFunc:                      library.AssertWellKnownTokens,
-		},
-		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
-		},
-		AssertResourceEncryptedFunc:    library.AssertWellKnownTokenOfLifeEncrypted,
-		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.WellKnownTokenOfLife,
-		ResourceName:                   "TokenOfLife",
-		EncryptionProviders: library.ShuffleEncryptionProviders([]library.EncryptionProvider{
-			librarykms.DefaultVaultEncryptionProvider(ctx, t),
-			library.SupportedStaticEncryptionProviders[rand.IntN(len(library.SupportedStaticEncryptionProviders))],
-		}),
-	})
+	library.TestEncryptionProvidersMigration(ctx, t, librarykms.EncryptionProvidersMigrationScenarios(ctx, t)...)
 }
