@@ -5,11 +5,7 @@ import (
 	"testing"
 
 	g "github.com/onsi/ginkgo/v2"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/clock"
 
-	"github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
-	"github.com/openshift/library-go/pkg/operator/events"
 	library "github.com/openshift/library-go/test/library/encryption"
 	librarykms "github.com/openshift/library-go/test/library/encryption/kms"
 )
@@ -25,62 +21,18 @@ var _ = g.Describe("[sig-auth] cluster-authentication-operator", func() {
 })
 
 // testKMSEncryptionKMSToKMSMigration tests migration between two distinct KMS providers
-// (default Vault instance and secondary Vault instance).
+// (default Vault instance and secondary Vault instance) across kube-apiserver,
+// oauth-apiserver, and openshift-apiserver operators.
 // This test:
-// 1. Shuffles the KMS and AES providers to create a randomized migration order
-// 2. Migrates between the providers in the shuffled order
-// 3. Verifies token is correctly encrypted after each migration
-// 4. Switches to identity (off) to verify the resource is re-written unencrypted
+// 1. Creates SecretOfLife, TokenOfLife, and RouteOfLife test resources
+// 2. Shuffles the two KMS providers to create a randomized migration order
+// 3. Migrates between the two KMS providers (KMS-to-KMS) in the shuffled order
+// 4. Verifies each resource is correctly encrypted with the active KMS provider after each migration
+// 5. Switches to identity (off) to verify the resources are re-written unencrypted
 func testKMSEncryptionKMSToKMSMigration(ctx context.Context, t testing.TB) {
-	library.TestEncryptionProvidersMigration(ctx, t, library.ProvidersMigrationScenario{
-		BasicScenario: library.BasicScenario{
-			Namespace:                       "openshift-config-managed",
-			LabelSelector:                   "encryption.apiserver.operator.openshift.io/component" + "=" + "openshift-oauth-apiserver",
-			EncryptionConfigSecretName:      "encryption-config-openshift-oauth-apiserver",
-			EncryptionConfigSecretNamespace: "openshift-config-managed",
-			OperatorNamespace:               "openshift-authentication-operator",
-			TargetGRs:                       library.WellKnownAuthTargetGRs,
-			AssertFunc:                      library.AssertWellKnownTokens,
-		},
-		CreateResourceFunc: func(t testing.TB, _ library.ClientSet, namespace string) runtime.Object {
-			return library.CreateAndStoreWellKnownTokenOfLife(context.TODO(), t, library.GetClients(t))
-		},
-		AssertResourceEncryptedFunc: func(t testing.TB, clientSet library.ClientSet, resource runtime.Object) {
-			library.AssertWellKnownTokenOfLifeEncryptedWithKMS(t, clientSet, "openshift-config-managed", "encryption.apiserver.operator.openshift.io/component=openshift-oauth-apiserver", resource)
-		},
-		AssertResourceNotEncryptedFunc: library.AssertWellKnownTokenOfLifeNotEncrypted,
-		ResourceFunc:                   library.WellKnownTokenOfLife,
-		ResourceName:                   "TokenOfLife",
-		EncryptionProviders: library.ShuffleEncryptionProviders([]library.EncryptionProvider{
-			librarykms.DefaultVaultEncryptionProvider(ctx, t),
-			librarykms.SecondaryVaultEncryptionProvider(ctx, t),
-		}),
-	})
+	library.TestEncryptionProvidersMigration(ctx, t, librarykms.EncryptionKMSToKMSMigrationScenarios(ctx, t)...)
 }
 
 func testKMSPreflightDeploy(ctx context.Context, t testing.TB) {
-	const (
-		// Preflight deploys into the operand namespace because the library-go
-		// scenario validates the actual workload pod wiring there, unlike the
-		// migration scenarios that operate on the rendered encryption config.
-		operandNS  = "openshift-oauth-apiserver"
-		operatorNS = "openshift-authentication-operator"
-	)
-	library.TestPreflightDeployAndPodMatchesOperand(ctx, t, library.PreflightDeployScenario{
-		BasicScenario: library.BasicScenario{
-			Namespace:     operandNS,
-			LabelSelector: "app=openshift-oauth-apiserver,apiserver=true",
-		},
-		CreateDeployerFunc: func(ctx context.Context, t testing.TB, cs library.ClientSet) *preflight.PodPreflightDeployer {
-			image := library.OperatorImageFromDeployment(ctx, t, operatorNS, "authentication-operator", "authentication-operator")
-			recorder := events.NewInMemoryRecorder("kms-preflight-e2e", clock.RealClock{})
-			return preflight.NewPodPreflightDeployer(
-				operandNS, cs.Kube.CoreV1(), cs.Kube.RbacV1(),
-				recorder, image, []string{"authentication-operator", "kms-preflight"}, library.PreflightDeployCallTimeout,
-			)
-		},
-		CreateEncryptionConfigFunc: library.VaultPreflightEncryptionConfigSecret,
-		AssertDeployFunc:           library.AssertPreflightDeploy,
-		EncryptionProvider:         librarykms.DefaultVaultEncryptionProvider(ctx, t),
-	})
+	library.TestPreflightDeployAndPodMatchesOperand(ctx, t, librarykms.PreflightDeployScenario(ctx, t))
 }
