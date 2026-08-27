@@ -45,7 +45,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
-	encryptioncontrollers "github.com/openshift/library-go/pkg/operator/encryption/controllers"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
 	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
@@ -718,8 +717,17 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces,
 		resourceSyncController,
 		authEncryptionStatusProvider,
-		kmspreflight.NewAlwaysSucceedKMSPreflightDeployer(),
-		encryptioncontrollers.NoopEncryptionConfigurationComputer{},
+		kmspreflight.NewPodPreflightDeployer(
+			"openshift-oauth-apiserver",
+			authOperatorInput.kubeClient.CoreV1(),
+			authOperatorInput.kubeClient.RbacV1(),
+			authOperatorInput.eventRecorder,
+			os.Getenv("OPERATOR_IMAGE"),
+			[]string{"authentication-operator", "kms-preflight"},
+			10*time.Second,
+		),
+		// nil selects the real EncryptionPlanner-based encryption config computation in the KMS preflight controller instead of the no-op
+		nil,
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
