@@ -570,6 +570,11 @@ func prepareOauthAPIServerOperator(
 
 	const apiServerConditionsPrefix = "APIServer"
 
+	encryptionProvider := encryption.StaticEncryptionProvider{
+		schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
+		schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
+	}
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",
 		authOperatorInput.authenticationOperatorClient,
@@ -704,10 +709,7 @@ func prepareOauthAPIServerOperator(
 		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
-		encryption.StaticEncryptionProvider{
-			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
-			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
-		},
+		encryptionProvider,
 		deployer,
 		migrator,
 		authOperatorInput.kubeClient.CoreV1(),
