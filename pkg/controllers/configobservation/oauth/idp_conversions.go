@@ -440,7 +440,15 @@ func checkOIDCPasswordGrantFlow(
 	}
 
 	if errVal, ok := respMap["error"]; ok {
-		oidcPasswordChecks[secret.ResourceVersion] = errVal == "invalid_grant" // wrong password, but password grants allowed
+		switch errVal {
+		case "invalid_grant":
+			oidcPasswordChecks[secret.ResourceVersion] = true
+		case "unsupported_grant_type":
+			oidcPasswordChecks[secret.ResourceVersion] = false
+		default:
+			klog.Warningf("OIDC token endpoint returned non-definitive error %q, not caching result", errVal)
+			return false, nil
+		}
 	} else {
 		_, ok = respMap["access_token"] // in case we managed to hit the correct user
 		oidcPasswordChecks[secret.ResourceVersion] = ok
