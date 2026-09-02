@@ -8,8 +8,6 @@ github.com/PaesslerAG/gval v1.2.3/go.mod h1:XRFLwvmkTEdYziLdaCeCa5ImcGVrfQbeNUbV
 github.com/PaesslerAG/jsonpath v0.1.0/go.mod h1:4BzmtoM/PI8fPO4aQGIusjGxGir2BzcV0grWtFzq1Y8=
 github.com/PaesslerAG/jsonpath v0.1.1 h1:c1/AToHQMVsduPAa4Vh6xp2U0evy4t8SWp8imEsylIk=
 github.com/PaesslerAG/jsonpath v0.1.1/go.mod h1:lVboNxFGal/VwW6d9JzIy56bUsYAP6tH/x80vjnCseY=
-github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2 h1:x8Brv0YNEe6jY3V/hQglIG2nd8g5E2Zj5ubGKkPQctQ=
-github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2/go.mod h1:XyjUkMA8GN+tOOPXvnbi3XuRxWFvTJntqvTFnjmhzbk=
 github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8TVTI=
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
@@ -175,14 +173,16 @@ github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af h1:Ui
 github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20260806041845-b74fb348f1e7 h1:Lphm0uMAyM26ibbOca0+dg7uLz7GmmrIdeWjzOh5R/U=
 github.com/openshift/client-go v0.0.0-20260806041845-b74fb348f1e7/go.mod h1:u08LcpI8Hq3IpelQLbciGRa/P158cE/O3uQe2Bt3Roo=
-github.com/openshift/library-go v0.0.0-20260827165743-93f90ac5198f h1:mdVYzrmOm83liescIsrmbryxbokdLD87bvO/imn2rjk=
-github.com/openshift/library-go v0.0.0-20260827165743-93f90ac5198f/go.mod h1:IrZbEK+wVUMEd+aXzYR2DCCh0p5IaQ7DvycYGP7qIYM=
+github.com/openshift/library-go v0.0.0-20260901141029-e0a0da2669df h1:85eBtJ8uVdEmJKUojnTVose5WNvTRTNkOoEFxWT2+nw=
+github.com/openshift/library-go v0.0.0-20260901141029-e0a0da2669df/go.mod h1:pH7rnNOj3dJpdpBtE32LB2pAg0AYDIaaBJJrFxX2pPY=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d h1:Rzx23P63JFNNz5D23ubhC0FCN5rK8CeJhKcq5QKcdyU=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d/go.mod h1:iVi9Bopa5cLhjG5ie9DoZVVqkH8BGb1FQVTtecOLn4I=
 github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412 h1:oDB0GmUXLp8y85fWz+LGRE0hM5JqbXTfNPi5GjEqiX0=
 github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412/go.mod h1:qPt46oOj0jFGgpabBjMazsgQXwrJ7KYBDwAuaesJLdE=
 github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1 h1:PMTgifBcBRLJJiM+LgSzPDTk9/Rx4qS09OUrfpY6GBQ=
 github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1/go.mod h1:7Du3c42kxCUegi0IImZ1wUQzMBVecgIHjR1C+NkhLQo=
+github.com/openshift/osincli v0.0.0-20160924135400-fababb0555f2 h1:9oADVMmPa4G60MQtoSjD26aD/vZreqbIAfiUiO220eY=
+github.com/openshift/osincli v0.0.0-20160924135400-fababb0555f2/go.mod h1:Riv9DbfKiX3y9ebcS4PHU4zLhVXu971+4jCVwKIue5M=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

@@ -45,9 +45,11 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csr"
 	"github.com/openshift/library-go/pkg/operator/encryption"
+	encryptioncontrollers "github.com/openshift/library-go/pkg/operator/encryption/controllers"
 	"github.com/openshift/library-go/pkg/operator/encryption/controllers/migrators"
 	encryptiondeployer "github.com/openshift/library-go/pkg/operator/encryption/deployer"
 	kmspreflight "github.com/openshift/library-go/pkg/operator/encryption/kms/preflight"
+	encryptionsecrets "github.com/openshift/library-go/pkg/operator/encryption/secrets"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -570,6 +572,23 @@ func prepareOauthAPIServerOperator(
 
 	const apiServerConditionsPrefix = "APIServer"
 
+	encryptionProvider := encryption.StaticEncryptionProvider{
+		schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
+		schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
+	}
+	encryptionSecretSelector := metav1.ListOptions{LabelSelector: encryptionsecrets.EncryptionKeySecretsLabel + "=" + "openshift-oauth-apiserver"}
+	encryptionConfigurationComputer := encryptioncontrollers.NewEncryptionConfigurationComputer(
+		"openshift-oauth-apiserver",
+		[]string{oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix},
+		encryptionProvider,
+		deployer,
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.configClient.ConfigV1().APIServers(),
+		authOperatorInput.authenticationOperatorClient,
+		encryptionSecretSelector,
+	)
+
 	apiServerControllers, err := apiservercontrollerset.NewAPIServerControllerSet(
 		"oauth-apiserver",
 		authOperatorInput.authenticationOperatorClient,
@@ -704,10 +723,7 @@ func prepareOauthAPIServerOperator(
 		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
-		encryption.StaticEncryptionProvider{
-			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthaccesstokens"},
-			schema.GroupResource{Group: "oauth.openshift.io", Resource: "oauthauthorizetokens"},
-		},
+		encryptionProvider,
 		deployer,
 		migrator,
 		authOperatorInput.kubeClient.CoreV1(),
@@ -726,8 +742,7 @@ func prepareOauthAPIServerOperator(
 			[]string{"authentication-operator", "kms-preflight"},
 			10*time.Second,
 		),
-		// nil selects the real EncryptionPlanner-based encryption config computation in the KMS preflight controller instead of the no-op
-		nil,
+		encryptionConfigurationComputer,
 	).WithUnsupportedConfigPrefixForEncryptionControllers(
 		oauthapiconfigobservercontroller.OAuthAPIServerConfigPrefix,
 	).WithFinalizerController(
