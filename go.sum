@@ -173,8 +173,8 @@ github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af h1:Ui
 github.com/openshift/build-machinery-go v0.0.0-20251023084048-5d77c1a5e5af/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20260806041845-b74fb348f1e7 h1:Lphm0uMAyM26ibbOca0+dg7uLz7GmmrIdeWjzOh5R/U=
 github.com/openshift/client-go v0.0.0-20260806041845-b74fb348f1e7/go.mod h1:u08LcpI8Hq3IpelQLbciGRa/P158cE/O3uQe2Bt3Roo=
-github.com/openshift/library-go v0.0.0-20260901141029-e0a0da2669df h1:85eBtJ8uVdEmJKUojnTVose5WNvTRTNkOoEFxWT2+nw=
-github.com/openshift/library-go v0.0.0-20260901141029-e0a0da2669df/go.mod h1:pH7rnNOj3dJpdpBtE32LB2pAg0AYDIaaBJJrFxX2pPY=
+github.com/openshift/library-go v0.0.0-20260902083006-63bdbfb4da6b h1:riOGVaqdHIzGYoFtWYPXmtcnBnn3/xgU2r3YkDhIVBQ=
+github.com/openshift/library-go v0.0.0-20260902083006-63bdbfb4da6b/go.mod h1:pH7rnNOj3dJpdpBtE32LB2pAg0AYDIaaBJJrFxX2pPY=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d h1:Rzx23P63JFNNz5D23ubhC0FCN5rK8CeJhKcq5QKcdyU=
 github.com/openshift/multi-operator-manager v0.0.0-20241205181422-20aa3906b99d/go.mod h1:iVi9Bopa5cLhjG5ie9DoZVVqkH8BGb1FQVTtecOLn4I=
 github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412 h1:oDB0GmUXLp8y85fWz+LGRE0hM5JqbXTfNPi5GjEqiX0=
