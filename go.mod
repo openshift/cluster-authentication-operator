@@ -143,3 +143,6 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+// branch: external-oidc-proxy-feature-gate
+replace github.com/openshift/api => github.com/tchap/api v0.0.0-20260910130909-df5ad383d81e
