@@ -9,6 +9,7 @@ import (
 	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/kubeapiserver"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/oauthapiserver"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -51,13 +52,14 @@ func NewExternalOIDCController(
 	configMaps corev1client.ConfigMapsGetter,
 	recorder events.Recorder,
 	featureGates featuregates.FeatureGate,
+	proxyResolver common.ProxyResolver,
 ) factory.Controller {
 	var authCfgGenerator authConfigGenerator
 
 	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
+		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates, proxyResolver)
 	}
 
 	c := &externalOIDCController{

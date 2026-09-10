@@ -151,6 +151,7 @@ func prepareOauthOperator(
 		informerFactories.operatorInformer.Operator().V1().Authentications(),
 		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
 		featureGateAccessor,
+		features.FeatureGateAuthenticationComponentProxy,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -881,6 +882,7 @@ func prepareExternalOIDC(
 	ctx context.Context,
 	authOperatorInput *authenticationOperatorInput,
 	informerFactories authenticationOperatorInformerFactories,
+	proxyResolver common.ProxyResolver,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
@@ -906,6 +908,7 @@ func prepareExternalOIDC(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.eventRecorder,
 		featureGates,
+		proxyResolver,
 	)
 
 	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{

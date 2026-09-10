@@ -14,6 +14,7 @@ import (
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
@@ -109,18 +110,21 @@ type AuthProxyResolver struct {
 	operatorAuthLister   operatorv1listers.AuthenticationLister
 	configMapLister      corelistersv1.ConfigMapLister
 	featureGateAccessor  featuregates.FeatureGateAccess
+	featureGate          configv1.FeatureGateName
 }
 
 func NewAuthProxyResolver(
 	operatorAuth operatorv1informers.AuthenticationInformer,
 	configMapLister corelistersv1.ConfigMapLister,
 	featureGateAccessor featuregates.FeatureGateAccess,
+	featureGate configv1.FeatureGateName,
 ) AuthProxyResolver {
 	return AuthProxyResolver{
 		operatorAuthInformer: operatorAuth.Informer(),
 		operatorAuthLister:   operatorAuth.Lister(),
 		configMapLister:      configMapLister,
 		featureGateAccessor:  featureGateAccessor,
+		featureGate:          featureGate,
 	}
 }
 
@@ -129,7 +133,7 @@ func (r *AuthProxyResolver) Informer() cache.SharedIndexInformer {
 }
 
 func (r *AuthProxyResolver) ResolveProxy() (*ResolvedProxy, error) {
-	return ResolveProxy(r.featureGateAccessor, r.operatorAuthLister)
+	return ResolveProxy(r.featureGateAccessor, r.featureGate, r.operatorAuthLister)
 }
 
 func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transport, error) {
@@ -157,7 +161,8 @@ func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transpo
 
 	tr := knet.SetTransportDefaults(&http.Transport{
 		TLSClientConfig: &tls.Config{
-			RootCAs: cfg.pool,
+			RootCAs:    cfg.pool,
+			MinVersion: tls.VersionTLS12,
 		},
 	})
 

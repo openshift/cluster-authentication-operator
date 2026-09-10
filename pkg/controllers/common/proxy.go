@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/openshift/api/features"
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
@@ -39,9 +39,10 @@ func (p *ResolvedProxy) ProxyFunc() transport.ProxyFunc {
 // environment (which reflects the cluster-wide proxy).
 func ResolveProxy(
 	featureGateAccessor featuregates.FeatureGateAccess,
+	featureGate configv1.FeatureGateName,
 	operatorAuthLister operatorv1listers.AuthenticationLister,
 ) (*ResolvedProxy, error) {
-	authProxy, err := getComponentProxyConfig(featureGateAccessor, operatorAuthLister)
+	authProxy, err := getComponentProxyConfig(featureGateAccessor, featureGate, operatorAuthLister)
 	if err != nil {
 		return nil, err
 	}
@@ -67,13 +68,14 @@ func ResolveProxy(
 // Returns (nil, nil) when the gate is disabled or the resource is not found.
 func getComponentProxyConfig(
 	featureGateAccessor featuregates.FeatureGateAccess,
+	featureGate configv1.FeatureGateName,
 	operatorAuthLister operatorv1listers.AuthenticationLister,
 ) (*operatorv1.AuthenticationProxyConfig, error) {
 	featureGates, err := featureGateAccessor.CurrentFeatureGates()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current feature gates: %w", err)
 	}
-	if !featureGates.Enabled(features.FeatureGateAuthenticationComponentProxy) {
+	if !featureGates.Enabled(featureGate) {
 		return nil, nil
 	}
 
