@@ -142,15 +142,19 @@ func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transpo
 		return nil, err
 	}
 
+	return NewTransport(r.configMapLister, proxy, opts...)
+}
+
+func NewTransport(configMapLister corelistersv1.ConfigMapLister, proxy *ResolvedProxy, opts ...TransportOption) (*http.Transport, error) {
 	var cfg transportConfig
 	for _, opt := range opts {
-		if err := opt(&cfg, r.configMapLister); err != nil {
+		if err := opt(&cfg, configMapLister); err != nil {
 			return nil, err
 		}
 	}
 
 	if len(proxy.TrustedCAName) > 0 {
-		proxyCA, err := transport.LoadCAData(r.configMapLister, proxy.TrustedCAName, "ca-bundle.crt")
+		proxyCA, err := transport.LoadCAData(configMapLister, proxy.TrustedCAName, "ca-bundle.crt")
 		if err != nil {
 			return nil, err
 		}

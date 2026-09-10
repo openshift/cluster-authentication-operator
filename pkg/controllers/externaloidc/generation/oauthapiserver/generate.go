@@ -575,8 +575,7 @@ func validateOAuthApiserverAuthenticationConfiguration(
 	return nil
 }
 
-// validateCACert makes a request to the provider's well-known endpoint using the
-// specified CA cert pool to validate that the certs in the pool match the host.
+// validateCACert makes a request to the provider's well-known endpoint using the specified RoundTripper.
 func validateCACert(rt http.RoundTripper, hostURL string) error {
 	client := &http.Client{
 		Transport: rt,
