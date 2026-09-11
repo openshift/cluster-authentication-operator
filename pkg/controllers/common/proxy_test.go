@@ -14,28 +14,19 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
-	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/internal/transporttest"
 )
 
 var (
-	enabledGate = featuregates.NewHardcodedFeatureGateAccess(
-		[]configv1.FeatureGateName{features.FeatureGateAuthenticationComponentProxy},
-		nil,
-	)
-	disabledGate = featuregates.NewHardcodedFeatureGateAccess(
-		nil,
-		[]configv1.FeatureGateName{features.FeatureGateAuthenticationComponentProxy},
-	)
+	enabledAuthProxy  = func() (bool, error) { return true, nil }
+	disabledAuthProxy = func() (bool, error) { return false, nil }
 )
 
 func TestResolveProxy(t *testing.T) {
-	errorGate := featuregates.NewHardcodedFeatureGateAccessForTesting(nil, nil, make(chan struct{}), errors.New("not yet observed"))
+	errorEnabled := func() (bool, error) { return false, errors.New("not yet observed") }
 
 	proxySet := &operatorv1.Authentication{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -56,7 +47,7 @@ func TestResolveProxy(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		gate       featuregates.FeatureGateAccess
+		enabled    func() (bool, error)
 		lister     operatorv1listers.AuthenticationLister
 		envHTTP    string
 		envHTTPS   string
@@ -66,39 +57,39 @@ func TestResolveProxy(t *testing.T) {
 	}{
 		{
 			name:    "gate disabled falls back to env",
-			gate:    disabledGate,
+			enabled: disabledAuthProxy,
 			lister:  newOperatorAuthLister(proxySet),
 			envHTTP: "http://cluster:3128",
 			want:    &ResolvedProxy{Config: proxyConfig("http://cluster:3128", "", "")},
 		},
 		{
-			name:    "gate error propagates",
-			gate:    errorGate,
+			name:    "enabled callback error propagates",
+			enabled: errorEnabled,
 			lister:  newOperatorAuthLister(proxySet),
-			wantErr: "failed to get current feature gates: not yet observed",
+			wantErr: "not yet observed",
 		},
 		{
 			name:    "lister error propagates",
-			gate:    enabledGate,
+			enabled: enabledAuthProxy,
 			lister:  newErrorAuthLister(errors.New("connection refused")),
 			wantErr: "failed to get operator.openshift.io/v1 authentication/cluster: connection refused",
 		},
 		{
 			name:     "CR not found falls back to env",
-			gate:     enabledGate,
+			enabled:  enabledAuthProxy,
 			lister:   newOperatorAuthLister(nil),
 			envHTTPS: "http://cluster:3129",
 			want:     &ResolvedProxy{Config: proxyConfig("", "http://cluster:3129", "")},
 		},
 		{
-			name:   "CR exists but proxy is zero-value falls back to env",
-			gate:   enabledGate,
-			lister: newOperatorAuthLister(proxyEmpty),
-			want:   &ResolvedProxy{Config: proxyConfig("", "", "")},
+			name:    "CR exists but proxy is zero-value falls back to env",
+			enabled: enabledAuthProxy,
+			lister:  newOperatorAuthLister(proxyEmpty),
+			want:    &ResolvedProxy{Config: proxyConfig("", "", "")},
 		},
 		{
 			name:    "component proxy set returns active proxy with trustedCA",
-			gate:    enabledGate,
+			enabled: enabledAuthProxy,
 			lister:  newOperatorAuthLister(proxySet),
 			envHTTP: "http://should-be-ignored:3128",
 			want: &ResolvedProxy{
@@ -108,8 +99,8 @@ func TestResolveProxy(t *testing.T) {
 			},
 		},
 		{
-			name: "component proxy with user noProxy merges with defaults",
-			gate: enabledGate,
+			name:    "component proxy with user noProxy merges with defaults",
+			enabled: enabledAuthProxy,
 			lister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -125,8 +116,8 @@ func TestResolveProxy(t *testing.T) {
 			},
 		},
 		{
-			name: "component proxy with user noProxy duplicating defaults deduplicates",
-			gate: enabledGate,
+			name:    "component proxy with user noProxy duplicating defaults deduplicates",
+			enabled: enabledAuthProxy,
 			lister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -142,8 +133,8 @@ func TestResolveProxy(t *testing.T) {
 			},
 		},
 		{
-			name: "component proxy with only httpsProxy overrides env",
-			gate: enabledGate,
+			name:    "component proxy with only httpsProxy overrides env",
+			enabled: enabledAuthProxy,
 			lister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -160,10 +151,10 @@ func TestResolveProxy(t *testing.T) {
 			},
 		},
 		{
-			name:   "neither configured returns empty",
-			gate:   disabledGate,
-			lister: newOperatorAuthLister(nil),
-			want:   &ResolvedProxy{Config: proxyConfig("", "", "")},
+			name:    "neither configured returns empty",
+			enabled: disabledAuthProxy,
+			lister:  newOperatorAuthLister(nil),
+			want:    &ResolvedProxy{Config: proxyConfig("", "", "")},
 		},
 	}
 
@@ -173,7 +164,7 @@ func TestResolveProxy(t *testing.T) {
 			t.Setenv("HTTPS_PROXY", tt.envHTTPS)
 			t.Setenv("NO_PROXY", tt.envNoProxy)
 
-			got, err := ResolveProxy(tt.gate, tt.lister)
+			got, err := ResolveProxy(tt.enabled, tt.lister)
 
 			var errMsg string
 			if err != nil {
@@ -244,14 +235,14 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		featureGate  featuregates.FeatureGateAccess
+		enabled      func() (bool, error)
 		authLister   operatorv1listers.AuthenticationLister
 		reqURL       *url.URL
 		wantProxyURL string
 	}{
 		{
-			name:        "feature gate disabled returns nil proxy (no env)",
-			featureGate: disabledGate,
+			name:    "feature gate disabled returns nil proxy (no env)",
+			enabled: disabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -263,16 +254,16 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			reqURL: httpsURL,
 		},
 		{
-			name:        "feature gate enabled but no proxy configured returns nil proxy (no env)",
-			featureGate: enabledGate,
+			name:    "feature gate enabled but no proxy configured returns nil proxy (no env)",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 			}),
 			reqURL: httpsURL,
 		},
 		{
-			name:        "feature gate enabled with httpsProxy configured returns proxy for https request",
-			featureGate: enabledGate,
+			name:    "feature gate enabled with httpsProxy configured returns proxy for https request",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -285,8 +276,8 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			wantProxyURL: "http://proxy.corp.example.com:3128",
 		},
 		{
-			name:        "feature gate enabled with httpProxy configured returns proxy for http request",
-			featureGate: enabledGate,
+			name:    "feature gate enabled with httpProxy configured returns proxy for http request",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -299,8 +290,8 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			wantProxyURL: "http://proxy.corp.example.com:3128",
 		},
 		{
-			name:        "httpsProxy configured does not proxy http requests",
-			featureGate: enabledGate,
+			name:    "httpsProxy configured does not proxy http requests",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -312,8 +303,8 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			reqURL: httpURL,
 		},
 		{
-			name:        "httpProxy configured does not proxy https requests",
-			featureGate: enabledGate,
+			name:    "httpProxy configured does not proxy https requests",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -325,8 +316,8 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			reqURL: httpsURL,
 		},
 		{
-			name:        "noProxy match returns nil proxy",
-			featureGate: enabledGate,
+			name:    "noProxy match returns nil proxy",
+			enabled: enabledAuthProxy,
 			authLister: newOperatorAuthLister(&operatorv1.Authentication{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 				Spec: operatorv1.AuthenticationSpec{
@@ -346,7 +337,7 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			t.Setenv("HTTPS_PROXY", "")
 			t.Setenv("NO_PROXY", "")
 
-			proxy, err := ResolveProxy(tt.featureGate, tt.authLister)
+			proxy, err := ResolveProxy(tt.enabled, tt.authLister)
 			if err != nil {
 				t.Fatalf("unexpected resolve error: %v", err)
 			}

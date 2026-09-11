@@ -148,10 +148,9 @@ func prepareOauthOperator(
 	)
 
 	proxyResolver := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy),
 		informerFactories.operatorInformer.Operator().V1().Authentications(),
 		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
-		featureGateAccessor,
-		features.FeatureGateAuthenticationComponentProxy,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -1004,5 +1003,21 @@ func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() (
 		}
 
 		return apiServices, nil, nil
+	}
+}
+
+func authProxyEnabledFunc(featureGateAccessor featuregates.FeatureGateAccess, featureGates ...configv1.FeatureGateName) func() (bool, error) {
+	return func() (bool, error) {
+		current, err := featureGateAccessor.CurrentFeatureGates()
+		if err != nil {
+			return false, fmt.Errorf("failed to get current feature gates: %w", err)
+		}
+
+		for _, featureGateName := range featureGates {
+			if !current.Enabled(featureGateName) {
+				return false, nil
+			}
+		}
+		return true, nil
 	}
 }

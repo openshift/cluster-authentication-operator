@@ -143,7 +143,12 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		clock:                        momInput.Clock,
 		featureGateAccessor: staticFeatureGateAccessor(
 			[]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC},
-			[]ocpconfigv1.FeatureGateName{features.FeatureGateKMSEncryption, features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateAuthenticationComponentProxy},
+			[]ocpconfigv1.FeatureGateName{
+				features.FeatureGateKMSEncryption,
+				features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				features.FeatureGateAuthenticationComponentProxy,
+				features.FeatureGateAuthenticationComponentProxyExternalOIDC,
+			},
 		),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
@@ -340,10 +345,9 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthAPIServerRunOnceFns...)
 
 	proxyResolverExternalOIDC := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy, features.FeatureGateAuthenticationComponentProxyExternalOIDC),
 		informerFactories.operatorInformer.Operator().V1().Authentications(),
 		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
-		featureGateAccessor,
-		features.FeatureGateAuthenticationComponentProxyExternalOIDC,
 	)
 
 	externalOIDCRunOnceFns, externalOIDCRunFns, err := prepareExternalOIDC(ctx, authOperatorInput, informerFactories, &proxyResolverExternalOIDC)

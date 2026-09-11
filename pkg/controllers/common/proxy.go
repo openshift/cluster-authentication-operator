@@ -10,11 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
-
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
@@ -34,17 +31,25 @@ func (p *ResolvedProxy) ProxyFunc() transport.ProxyFunc {
 }
 
 // ResolveProxy reads the component-scoped proxy from the Authentication
-// operator CR (when the feature gate is enabled) and returns the effective proxy
+// operator CR (when authProxyEnabled returns true) and returns the effective proxy
 // settings. When no component proxy is configured, it falls back to the process
 // environment (which reflects the cluster-wide proxy).
 func ResolveProxy(
-	featureGateAccessor featuregates.FeatureGateAccess,
-	featureGate configv1.FeatureGateName,
+	authProxyEnabled func() (bool, error),
 	operatorAuthLister operatorv1listers.AuthenticationLister,
 ) (*ResolvedProxy, error) {
-	authProxy, err := getComponentProxyConfig(featureGateAccessor, featureGate, operatorAuthLister)
+	enabled, err := authProxyEnabled()
 	if err != nil {
 		return nil, err
+	}
+
+	var authProxy *operatorv1.AuthenticationProxyConfig
+	if enabled {
+		var err error
+		authProxy, err = getComponentProxyConfig(operatorAuthLister)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if authProxy != nil {
@@ -64,21 +69,9 @@ func ResolveProxy(
 }
 
 // getComponentProxyConfig returns the component-scoped proxy configuration
-// from operator.openshift.io/v1 Authentication if the feature gate is enabled.
-// Returns (nil, nil) when the gate is disabled or the resource is not found.
-func getComponentProxyConfig(
-	featureGateAccessor featuregates.FeatureGateAccess,
-	featureGate configv1.FeatureGateName,
-	operatorAuthLister operatorv1listers.AuthenticationLister,
-) (*operatorv1.AuthenticationProxyConfig, error) {
-	featureGates, err := featureGateAccessor.CurrentFeatureGates()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current feature gates: %w", err)
-	}
-	if !featureGates.Enabled(featureGate) {
-		return nil, nil
-	}
-
+// from operator.openshift.io/v1 Authentication.
+// Returns (nil, nil) when the resource is not found.
+func getComponentProxyConfig(operatorAuthLister operatorv1listers.AuthenticationLister) (*operatorv1.AuthenticationProxyConfig, error) {
 	authOp, err := operatorAuthLister.Get("cluster")
 	if err != nil {
 		if errors.IsNotFound(err) {

@@ -21,10 +21,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
 	osinv1 "github.com/openshift/api/osin/v1"
 	"github.com/openshift/library-go/pkg/crypto"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeinformer"
@@ -215,7 +213,7 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 				tt.providerConfig.OpenID.Issuer = server.URL
 			}
 
-			proxyResolver := common.NewAuthProxyResolver(&fakeinformer.Authentication{}, cmLister, noProxyFeatureGate)
+			proxyResolver := common.NewAuthProxyResolver(noProxyEnabled, &fakeinformer.Authentication{}, cmLister)
 			got, err := convertProviderConfigToIDPData(secretLister, &proxyResolver, tt.providerConfig, syncData, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertProviderConfigToIDPData() error = %v, wantErr %v", err, tt.wantErr)
@@ -248,10 +246,7 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 	}
 }
 
-var noProxyFeatureGate = featuregates.NewHardcodedFeatureGateAccess(
-	nil,
-	[]configv1.FeatureGateName{features.FeatureGateAuthenticationComponentProxy},
-)
+var noProxyEnabled = func() (bool, error) { return false, nil }
 
 func newTestHTTPSServer(certPEM, keyPEM []byte, content string) (*httptest.Server, error) {
 	// use a byte slice reference to replace with a valid content with replaced
@@ -315,7 +310,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 	require.NoError(t, indexer.Add(secret))
 	cmLister := corelistersv1.NewConfigMapLister(indexer)
 	secretLister := corelistersv1.NewSecretLister(indexer)
-	proxyResolver := common.NewAuthProxyResolver(&fakeinformer.Authentication{}, cmLister, noProxyFeatureGate)
+	proxyResolver := common.NewAuthProxyResolver(noProxyEnabled, &fakeinformer.Authentication{}, cmLister)
 
 	t.Run("5xx responses are not cached", func(t *testing.T) {
 		shouldError = true

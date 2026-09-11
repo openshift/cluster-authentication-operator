@@ -14,11 +14,8 @@ import (
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
-	configv1 "github.com/openshift/api/config/v1"
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
-
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
@@ -106,25 +103,22 @@ type ProxyResolver interface {
 // from the Authentication operator CR (when the feature gate is enabled) and
 // falling back to process-level environment variables.
 type AuthProxyResolver struct {
+	authProxyEnabled     func() (bool, error)
 	operatorAuthInformer cache.SharedIndexInformer
 	operatorAuthLister   operatorv1listers.AuthenticationLister
 	configMapLister      corelistersv1.ConfigMapLister
-	featureGateAccessor  featuregates.FeatureGateAccess
-	featureGate          configv1.FeatureGateName
 }
 
 func NewAuthProxyResolver(
+	authProxyEnabled func() (bool, error),
 	operatorAuth operatorv1informers.AuthenticationInformer,
 	configMapLister corelistersv1.ConfigMapLister,
-	featureGateAccessor featuregates.FeatureGateAccess,
-	featureGate configv1.FeatureGateName,
 ) AuthProxyResolver {
 	return AuthProxyResolver{
+		authProxyEnabled:     authProxyEnabled,
 		operatorAuthInformer: operatorAuth.Informer(),
 		operatorAuthLister:   operatorAuth.Lister(),
 		configMapLister:      configMapLister,
-		featureGateAccessor:  featureGateAccessor,
-		featureGate:          featureGate,
 	}
 }
 
@@ -133,7 +127,7 @@ func (r *AuthProxyResolver) Informer() cache.SharedIndexInformer {
 }
 
 func (r *AuthProxyResolver) ResolveProxy() (*ResolvedProxy, error) {
-	return ResolveProxy(r.featureGateAccessor, r.featureGate, r.operatorAuthLister)
+	return ResolveProxy(r.authProxyEnabled, r.operatorAuthLister)
 }
 
 func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transport, error) {
