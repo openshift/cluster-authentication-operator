@@ -23,6 +23,7 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 const (
@@ -72,16 +73,26 @@ func NewExternalOIDCController(
 		authConfigGenerator: authCfgGenerator,
 	}
 
-	return factory.New().WithInformers(
+	informers := []factory.Informer{
 		// track openshift-config for changes to the provider's CA bundle
 		kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().ConfigMaps().Informer(),
 		// track auth resource
 		configInformer.Config().V1().Authentications().Informer(),
-	).WithFilteredEventsInformers(
-		// track openshift-config-managed/auth-config cm in case it gets changed externally
-		factory.NamesFilter(targetAuthConfigCMName),
-		kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
-	).WithSync(c.sync).
+	}
+	if proxyInformer, ok := proxyResolver.(interface {
+		Informer() cache.SharedIndexInformer
+	}); ok {
+		informers = append(informers, proxyInformer.Informer())
+	}
+
+	return factory.New().
+		WithInformers(informers...).
+		WithFilteredEventsInformers(
+			// track openshift-config-managed/auth-config cm in case it gets changed externally
+			factory.NamesFilter(targetAuthConfigCMName),
+			kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
+		).
+		WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
 }
