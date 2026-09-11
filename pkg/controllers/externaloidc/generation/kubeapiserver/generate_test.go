@@ -1178,7 +1178,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), tt.featureGates)
 			c.validationFn = tt.configValidator
 
-			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth)
+			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth.Spec)
 			if tt.expectError && err == nil {
 				t.Fatalf("expected error but didn't get any")
 			}

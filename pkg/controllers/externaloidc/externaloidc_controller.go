@@ -32,7 +32,7 @@ const (
 )
 
 type authConfigGenerator interface {
-	GenerateAuthenticationConfiguration(*configv1.Authentication) (runtime.Object, error)
+	GenerateAuthenticationConfiguration(*configv1.AuthenticationSpec) (runtime.Object, error)
 }
 
 type externalOIDCController struct {
@@ -57,7 +57,19 @@ func NewExternalOIDCController(
 	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
+		gen := oauthapiserver.NewAuthenticationConfigurationGenerator(
+			newCABundleResolver(kubeInformersForNamespaces.ConfigMapLister(), configNamespace),
+			newClientSecretResolver(kubeInformersForNamespaces.SecretLister(), configNamespace),
+		).WithExternalClaimsSourcing()
+
+		if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
+			gen.WithUpstreamParity()
+		}
+		if featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
+			gen.WithAdditionalClaimMappings()
+		}
+
+		authCfgGenerator = gen
 	}
 
 	c := &externalOIDCController{
@@ -95,7 +107,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return c.deleteAuthConfig(ctx, syncCtx)
 	}
 
-	authConfig, err := c.authConfigGenerator.GenerateAuthenticationConfiguration(auth)
+	authConfig, err := c.authConfigGenerator.GenerateAuthenticationConfiguration(&auth.Spec)
 	if err != nil {
 		return err
 	}
@@ -173,4 +185,32 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 	}
 
 	return existingCMApplyConfig, nil
+}
+
+func newCABundleResolver(cmLister corev1listers.ConfigMapLister, namespace string) oauthapiserver.ResolverFunc {
+	return func(name string) (string, error) {
+		cm, err := cmLister.ConfigMaps(namespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve configmap %s/%s: %v", namespace, name, err)
+		}
+		caData, ok := cm.Data["ca-bundle.crt"]
+		if !ok || len(caData) == 0 {
+			return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", namespace, name)
+		}
+		return caData, nil
+	}
+}
+
+func newClientSecretResolver(secretLister corev1listers.SecretLister, namespace string) oauthapiserver.ResolverFunc {
+	return func(name string) (string, error) {
+		secret, err := secretLister.Secrets(namespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve secret %s/%s: %v", namespace, name, err)
+		}
+		clientSecret, ok := secret.Data["client-secret"]
+		if !ok || len(clientSecret) == 0 {
+			return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", namespace, name)
+		}
+		return string(clientSecret), nil
+	}
 }
