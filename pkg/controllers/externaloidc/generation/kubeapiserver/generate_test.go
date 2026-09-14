@@ -22,12 +22,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"golang.org/x/net/http/httpproxy"
-
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	corev1 "k8s.io/api/core/v1"
@@ -332,7 +328,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 					features.FeatureGateExternalOIDCWithUpstreamParity,
 				},
 			),
-			configValidator: func(_ *apiserverv1beta1.AuthenticationConfiguration, _ common.ProxyResolver) error {
+			configValidator: func(_ *apiserverv1beta1.AuthenticationConfiguration) error {
 				return errors.New("boom")
 			},
 		},
@@ -1179,7 +1175,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				tt.configMapIndexer.Add(tt.caBundleConfigMap)
 			}
 
-			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), tt.featureGates, nil)
+			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), tt.featureGates)
 			c.validationFn = tt.configValidator
 
 			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth)
@@ -1417,21 +1413,7 @@ func TestValidateApiserverAuthenticationConfiguration(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := common.ResolvedProxy{
-				Config: &httpproxy.Config{},
-			}
-
-			transport, err := common.NewTransport(nil, &proxy, common.WithCA("test-server", []byte(validateTestCertData)))
-			if err != nil {
-				t.Fatalf("could not create test transport: %v", err)
-			}
-
-			proxyResolver := fake.ProxyResolver{
-				Proxy:     &proxy,
-				Transport: transport,
-			}
-
-			err = validateApiserverAuthenticationConfiguration(tt.authConfig, &proxyResolver)
+			err := validateApiserverAuthenticationConfiguration(tt.authConfig)
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but didn't get any")
 			}

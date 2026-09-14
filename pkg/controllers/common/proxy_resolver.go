@@ -139,6 +139,7 @@ func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transpo
 	return NewTransport(r.configMapLister, proxy, opts...)
 }
 
+// NewTransport builds a proxy-aware transport from an already resolved proxy.
 func NewTransport(configMapLister corelistersv1.ConfigMapLister, proxy *ResolvedProxy, opts ...TransportOption) (*http.Transport, error) {
 	var cfg transportConfig
 	for _, opt := range opts {

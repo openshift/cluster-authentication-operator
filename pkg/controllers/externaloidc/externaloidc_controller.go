@@ -57,7 +57,7 @@ func NewExternalOIDCController(
 ) factory.Controller {
 	var authCfgGenerator authConfigGenerator
 
-	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates, proxyResolver)
+	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
 		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates, proxyResolver)

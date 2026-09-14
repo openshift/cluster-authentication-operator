@@ -2,6 +2,7 @@ package kubeapiserver
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 
@@ -44,24 +44,18 @@ const (
 	oidcDiscoveryEndpointPath       = "/.well-known/openid-configuration"
 )
 
-type validationFunc func(*apiserverv1beta1.AuthenticationConfiguration, common.ProxyResolver) error
+type validationFunc func(*apiserverv1beta1.AuthenticationConfiguration) error
 
 type AuthenticationConfigurationGenerator struct {
 	configMapLister corev1listers.ConfigMapLister
 	featureGates    featuregates.FeatureGate
-	proxyResolver   common.ProxyResolver
 	validationFn    validationFunc
 }
 
-func NewAuthenticationConfigurationGenerator(
-	cmlister corev1listers.ConfigMapLister,
-	gates featuregates.FeatureGate,
-	proxyResolver common.ProxyResolver,
-) *AuthenticationConfigurationGenerator {
+func NewAuthenticationConfigurationGenerator(cmlister corev1listers.ConfigMapLister, gates featuregates.FeatureGate) *AuthenticationConfigurationGenerator {
 	return &AuthenticationConfigurationGenerator{
 		configMapLister: cmlister,
 		featureGates:    gates,
-		proxyResolver:   proxyResolver,
 		validationFn:    validateApiserverAuthenticationConfiguration,
 	}
 }
@@ -92,7 +86,7 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 	}
 
 	if acg.validationFn != nil {
-		if err := acg.validationFn(authConfig, acg.proxyResolver); err != nil {
+		if err := acg.validationFn(authConfig); err != nil {
 			return nil, err
 		}
 	}
@@ -516,10 +510,7 @@ func generateUserValidationRules(rules []configv1.TokenUserValidationRule) ([]ap
 	return out, nil
 }
 
-func validateApiserverAuthenticationConfiguration(
-	auth *apiserverv1beta1.AuthenticationConfiguration,
-	proxyResolver common.ProxyResolver,
-) error {
+func validateApiserverAuthenticationConfiguration(auth *apiserverv1beta1.AuthenticationConfiguration) error {
 	if auth == nil {
 		return nil
 	}
@@ -540,12 +531,7 @@ func validateApiserverAuthenticationConfiguration(
 			url = *jwt.Issuer.DiscoveryURL
 		}
 
-		rt, err := proxyResolver.NewTransport(common.WithCertPool(caCertPool))
-		if err != nil {
-			return fmt.Errorf("failed to create transport for issuer %s: %w", url, err)
-		}
-
-		if err := validateCACert(rt, url); err != nil {
+		if err := validateCACert(url, caCertPool); err != nil {
 			certMessage := "using the specified CA cert"
 			if caCertPool == nil {
 				certMessage = "using the system CAs"
@@ -557,12 +543,26 @@ func validateApiserverAuthenticationConfiguration(
 	return nil
 }
 
-// validateCACert makes a request to the provider's well-known endpoint using the specified RoundTripper.
-func validateCACert(rt http.RoundTripper, hostURL string) error {
+// validateCACert makes a request to the provider's well-known endpoint using the
+// specified CA cert pool to validate that the certs in the pool match the host.
+func validateCACert(hostURL string, caCertPool *x509.CertPool) error {
 	client := &http.Client{
-		Transport: rt,
-		Timeout:   5 * time.Second,
+		Timeout: 5 * time.Second,
 	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if transport == nil {
+		transport = &http.Transport{}
+	}
+
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+
+	transport.TLSClientConfig.RootCAs = caCertPool
+	client.Transport = transport
 
 	req, err := http.NewRequest(http.MethodGet, hostURL, nil)
 	if err != nil {
