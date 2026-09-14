@@ -22,8 +22,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"golang.org/x/net/http/httpproxy"
+
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
 
@@ -337,7 +341,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 			),
-			configValidator: func(_ *authenticationv1alpha1.AuthenticationConfiguration) error {
+			configValidator: func(_ *authenticationv1alpha1.AuthenticationConfiguration, _ common.ProxyResolver) error {
 				return errors.New("boom")
 			},
 		},
@@ -1881,7 +1885,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				tt.configMapIndexer.Add(tt.caBundleConfigMap)
 			}
 
-			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), corev1listers.NewSecretLister(tt.secretIndexer), tt.featureGates)
+			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), corev1listers.NewSecretLister(tt.secretIndexer), tt.featureGates, nil)
 			c.validationFn = tt.configValidator
 
 			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth)
@@ -2119,7 +2123,14 @@ func TestValidateOAuthApiserverAuthenticationConfiguration(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateOAuthApiserverAuthenticationConfiguration(tt.authConfig)
+			proxy := common.ResolvedProxy{Config: &httpproxy.Config{}}
+			transport, err := common.NewTransport(nil, &proxy, common.WithCA("test-server", []byte(validateTestCertData)))
+			if err != nil {
+				t.Fatalf("could not create test transport: %v", err)
+			}
+			proxyResolver := fake.ProxyResolver{Proxy: &proxy, Transport: transport}
+
+			err = validateOAuthApiserverAuthenticationConfiguration(tt.authConfig, &proxyResolver)
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but didn't get any")
 			}
