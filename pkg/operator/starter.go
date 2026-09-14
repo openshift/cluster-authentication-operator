@@ -490,6 +490,12 @@ func prepareOauthAPIServerOperator(
 		featureGateAccessor,
 	)
 
+	externalOIDCProxyResolver := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy, features.FeatureGateAuthenticationComponentProxyExternalOIDC),
+		informerFactories.operatorInformer.Operator().V1().Authentications(),
+		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
+	)
+
 	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
 	// to the openshift-oauth-apiserver if OIDC is available and FeatureGateExternalOIDCExternalClaimsSourcing is enabled.
 	// This precondition never returns an error to prevent unnecessary degradation.
@@ -532,9 +538,12 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Lister(),
 		&authConfigChecker,
 		featureGateAccessor,
-		versionRecorder)
+		versionRecorder,
+		resourceSyncController,
+		&externalOIDCProxyResolver)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
