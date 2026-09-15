@@ -16,6 +16,7 @@ import (
 
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
+
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 

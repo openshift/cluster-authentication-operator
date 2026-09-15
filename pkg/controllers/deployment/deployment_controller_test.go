@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/stretchr/testify/require"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -111,9 +111,9 @@ func TestSetRollingUpdateParameters(t *testing.T) {
 }
 
 func TestSyncComponentProxyCA(t *testing.T) {
-	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: deploymentutil.ComponentProxyCAConfigMapName}
+	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: common.ComponentProxyCAConfigMapName}
 	destCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: deploymentutil.ComponentProxyCAConfigMapName, Namespace: "openshift-authentication"},
+		ObjectMeta: metav1.ObjectMeta{Name: common.ComponentProxyCAConfigMapName, Namespace: "openshift-authentication"},
 	}
 
 	t.Run("trustedCA set and dest CM synced: adds volume and mount", func(t *testing.T) {
@@ -133,10 +133,10 @@ func TestSyncComponentProxyCA(t *testing.T) {
 		require.Equal(t, []configMapSyncCall{{src: wantSrc, dst: dest}}, rs.syncedConfigMaps)
 
 		wantVolumes := []corev1.Volume{{
-			Name: deploymentutil.ComponentProxyCAConfigMapName,
+			Name: common.ComponentProxyCAConfigMapName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: deploymentutil.ComponentProxyCAConfigMapName},
+					LocalObjectReference: corev1.LocalObjectReference{Name: common.ComponentProxyCAConfigMapName},
 				},
 			},
 		}}
@@ -145,9 +145,9 @@ func TestSyncComponentProxyCA(t *testing.T) {
 		}
 
 		wantMounts := []corev1.VolumeMount{{
-			Name:      deploymentutil.ComponentProxyCAConfigMapName,
+			Name:      common.ComponentProxyCAConfigMapName,
 			ReadOnly:  true,
-			MountPath: deploymentutil.ComponentProxyCAMountPath,
+			MountPath: common.ComponentProxyCAMountPath,
 		}}
 		if diff := cmp.Diff(wantMounts, dep.Spec.Template.Spec.Containers[0].VolumeMounts); diff != "" {
 			t.Errorf("volume mounts mismatch (-want +got):\n%s", diff)

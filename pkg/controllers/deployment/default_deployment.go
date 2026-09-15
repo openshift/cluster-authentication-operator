@@ -19,7 +19,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/arguments"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
@@ -66,7 +65,7 @@ func getOAuthServerDeployment(
 	}
 
 	// set proxy env vars
-	container.Env = append(container.Env, deploymentutil.ProxyEnvVars(httpProxy, httpsProxy, noProxy)...)
+	container.Env = append(container.Env, common.ProxyEnvVars(httpProxy, httpsProxy, noProxy)...)
 
 	// set log level
 	container.Args[0] = strings.Replace(container.Args[0], "${LOG_LEVEL}", fmt.Sprintf("%d", getLogLevel(operatorSpec.LogLevel)), -1)

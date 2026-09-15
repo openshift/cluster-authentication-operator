@@ -17,7 +17,6 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
 	commonfake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -77,8 +76,8 @@ var unsupportedConfigOverridesAPIServerArgsJSON = `
 `
 
 func TestSyncExternalOIDCComponentProxyCA(t *testing.T) {
-	destination := resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: deploymentutil.ComponentProxyCAConfigMapName}
-	destinationConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: deploymentutil.ComponentProxyCAConfigMapName, Namespace: destination.Namespace}}
+	destination := resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: common.ComponentProxyCAConfigMapName}
+	destinationConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: common.ComponentProxyCAConfigMapName, Namespace: destination.Namespace}}
 
 	t.Run("trusted CA set and synced mounts the configmap", func(t *testing.T) {
 		indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
@@ -96,9 +95,9 @@ func TestSyncExternalOIDCComponentProxyCA(t *testing.T) {
 			destination: destination,
 			source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "proxy-ca"},
 		}}, resourceSyncer.configMaps)
-		require.Equal(t, deploymentutil.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Volumes[0].Name)
-		require.Equal(t, deploymentutil.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
-		require.Equal(t, deploymentutil.ComponentProxyCAMountPath, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
+		require.Equal(t, common.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Volumes[0].Name)
+		require.Equal(t, common.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
+		require.Equal(t, common.ComponentProxyCAMountPath, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
 	})
 
 	t.Run("trusted CA set before the sync completes returns not found", func(t *testing.T) {

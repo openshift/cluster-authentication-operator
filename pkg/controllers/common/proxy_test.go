@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"golang.org/x/net/http/httpproxy"
+	corev1 "k8s.io/api/core/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -26,7 +28,8 @@ var (
 )
 
 func TestResolveProxy(t *testing.T) {
-	errorEnabled := func() (bool, error) { return false, errors.New("not yet observed") }
+	const failingEnabledErrMsg = "not yet observed"
+	failingEnabled := func() (bool, error) { return false, errors.New(failingEnabledErrMsg) }
 
 	proxySet := &operatorv1.Authentication{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -64,9 +67,9 @@ func TestResolveProxy(t *testing.T) {
 		},
 		{
 			name:    "enabled callback error propagates",
-			enabled: errorEnabled,
+			enabled: failingEnabled,
 			lister:  newOperatorAuthLister(proxySet),
-			wantErr: "not yet observed",
+			wantErr: failingEnabledErrMsg,
 		},
 		{
 			name:    "lister error propagates",
@@ -352,6 +355,35 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 			}
 			if gotProxyURL != tt.wantProxyURL {
 				t.Errorf("proxy URL = %q, want %q", gotProxyURL, tt.wantProxyURL)
+			}
+		})
+	}
+}
+
+func TestProxyEnvVars(t *testing.T) {
+	tests := []struct {
+		name                           string
+		httpProxy, httpsProxy, noProxy string
+		want                           []corev1.EnvVar
+	}{
+		{
+			name:       "all proxy values",
+			httpProxy:  "http://proxy.example.com:8080",
+			httpsProxy: "https://proxy.example.com:8443",
+			noProxy:    ".svc,localhost",
+			want: []corev1.EnvVar{
+				{Name: "NO_PROXY", Value: ".svc,localhost"},
+				{Name: "HTTP_PROXY", Value: "http://proxy.example.com:8080"},
+				{Name: "HTTPS_PROXY", Value: "https://proxy.example.com:8443"},
+			},
+		},
+		{name: "empty proxy values"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if diff := cmp.Diff(tt.want, ProxyEnvVars(tt.httpProxy, tt.httpsProxy, tt.noProxy)); diff != "" {
+				t.Fatalf("unexpected proxy environment variables (-want +got):\n%s", diff)
 			}
 		})
 	}

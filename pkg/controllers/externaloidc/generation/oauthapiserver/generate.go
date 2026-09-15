@@ -14,7 +14,6 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
@@ -86,7 +85,7 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 			return nil, fmt.Errorf("resolving proxy settings: %w", err)
 		}
 		if proxy != nil && proxy.TrustedCAName != "" {
-			authConfig.ProxyTrustedCA = deploymentutil.ComponentProxyCAFilePath
+			authConfig.ProxyTrustedCA = common.ComponentProxyCAFilePath
 		}
 	}
 

@@ -27,7 +27,6 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
@@ -360,7 +359,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
 				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
 					authConfig.JWT[0].Issuer.URL = "https://example.com"
-					authConfig.ProxyTrustedCA = deploymentutil.ComponentProxyCAFilePath
+					authConfig.ProxyTrustedCA = common.ComponentProxyCAFilePath
 				},
 			}),
 			featureGates: featuregates.NewFeatureGate(

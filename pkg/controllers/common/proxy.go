@@ -7,12 +7,22 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
+)
+
+const (
+	// ComponentProxyCAConfigMapName is the name used for the proxy trustedCA ConfigMap when being pulled into the auth namespaces.
+	ComponentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
+	// ComponentProxyCAMountPath is the directory where authentication workloads mount ComponentProxyCAConfigMapName.
+	ComponentProxyCAMountPath = "/var/config/system/configmaps/" + ComponentProxyCAConfigMapName
+	// ComponentProxyCAFilePath is the CA bundle filename in ComponentProxyCAMountPath.
+	ComponentProxyCAFilePath = ComponentProxyCAMountPath + "/ca-bundle.crt"
 )
 
 // ResolvedProxy holds the effective proxy configuration for authentication components.
@@ -106,4 +116,20 @@ func mergeNoProxy(userNoProxy []string) string {
 	entries := sets.New[string](staticNoProxyEntries...)
 	entries.Insert(userNoProxy...)
 	return strings.Join(sets.List(entries), ",")
+}
+
+// ProxyEnvVars builds environment variables for the given proxy settings.
+func ProxyEnvVars(httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	envVars = appendEnvVar(envVars, "NO_PROXY", noProxy)
+	envVars = appendEnvVar(envVars, "HTTP_PROXY", httpProxy)
+	envVars = appendEnvVar(envVars, "HTTPS_PROXY", httpsProxy)
+	return envVars
+}
+
+func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvVar {
+	if len(envVal) > 0 {
+		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
+	}
+	return envVars
 }
