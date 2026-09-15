@@ -82,7 +82,7 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 	if acg.proxyResolver != nil {
 		proxy, err := acg.proxyResolver.ResolveProxy()
 		if err != nil {
-			return nil, fmt.Errorf("resolving proxy settings: %w", err)
+			return nil, fmt.Errorf("failed to resolve proxy settings: %w", err)
 		}
 		if proxy != nil && proxy.TrustedCAName != "" {
 			authConfig.ProxyTrustedCA = common.ComponentProxyCAFilePath
@@ -588,12 +588,11 @@ func validateOAuthApiserverAuthenticationConfiguration(
 func validateCACert(rt http.RoundTripper, hostURL string) error {
 	client := &http.Client{
 		Transport: rt,
-		Timeout:   5 * time.Second,
 	}
 
 	req, err := http.NewRequest(http.MethodGet, hostURL, nil)
 	if err != nil {
-		return fmt.Errorf("could not create well-known HTTP request: %v", err)
+		return fmt.Errorf("could not create well-known HTTP request: %w", err)
 	}
 
 	var resp *http.Response
@@ -601,20 +600,22 @@ func validateCACert(rt http.RoundTripper, hostURL string) error {
 	retryCtx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
 	defer cancel()
 	if err := retry.RetryOnConnectionErrors(retryCtx, func(ctx context.Context) (done bool, err error) {
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		resp, connErr = client.Do(req.WithContext(ctx))
 		return connErr == nil, connErr
 	}); err != nil {
-		return fmt.Errorf("persistent well-known GET error: %v", err)
+		return fmt.Errorf("persistent well-known GET error: %w", err)
 	}
 	if connErr != nil {
-		return fmt.Errorf("GET well-known error: %v", connErr)
+		return fmt.Errorf("GET well-known error: %w", connErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return fmt.Errorf("unable to read response body; HTTP status: %s; error: %v", resp.Status, err)
+			return fmt.Errorf("unable to read response body; HTTP status: %s; error: %w", resp.Status, err)
 		}
 
 		return fmt.Errorf("unexpected well-known status code %s: %s", resp.Status, body)

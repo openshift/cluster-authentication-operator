@@ -29,6 +29,8 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/datasync"
 )
 
+var disabledAuthProxy = func() (bool, error) { return false, nil }
+
 func Test_convertProviderConfigToIDPData(t *testing.T) {
 	tmpDir := t.TempDir()
 	ca, err := crypto.MakeSelfSignedCA(path.Join(tmpDir, "cert.crt"), path.Join(tmpDir, "key.key"), "", "testCA", time.Hour*24*5)
@@ -213,7 +215,7 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 				tt.providerConfig.OpenID.Issuer = server.URL
 			}
 
-			proxyResolver := common.NewAuthProxyResolver(noProxyEnabled, &fakeinformer.Authentication{}, cmLister)
+			proxyResolver := common.NewAuthProxyResolver(disabledAuthProxy, &fakeinformer.Authentication{}, cmLister)
 			got, err := convertProviderConfigToIDPData(secretLister, &proxyResolver, tt.providerConfig, syncData, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertProviderConfigToIDPData() error = %v, wantErr %v", err, tt.wantErr)
@@ -245,8 +247,6 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 		})
 	}
 }
-
-var noProxyEnabled = func() (bool, error) { return false, nil }
 
 func newTestHTTPSServer(certPEM, keyPEM []byte, content string) (*httptest.Server, error) {
 	// use a byte slice reference to replace with a valid content with replaced
@@ -310,7 +310,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 	require.NoError(t, indexer.Add(secret))
 	cmLister := corelistersv1.NewConfigMapLister(indexer)
 	secretLister := corelistersv1.NewSecretLister(indexer)
-	proxyResolver := common.NewAuthProxyResolver(noProxyEnabled, &fakeinformer.Authentication{}, cmLister)
+	proxyResolver := common.NewAuthProxyResolver(disabledAuthProxy, &fakeinformer.Authentication{}, cmLister)
 
 	t.Run("5xx responses are not cached", func(t *testing.T) {
 		shouldError = true
