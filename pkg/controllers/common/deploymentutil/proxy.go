@@ -2,6 +2,12 @@ package deploymentutil
 
 import corev1 "k8s.io/api/core/v1"
 
+const (
+	ComponentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
+	ComponentProxyCAMountPath     = "/var/config/system/configmaps/" + ComponentProxyCAConfigMapName
+	ComponentProxyCAFilePath      = ComponentProxyCAMountPath + "/ca-bundle.crt"
+)
+
 // ProxyEnvVars returns the non-empty proxy environment variables in the order
 // used by authentication workloads.
 func ProxyEnvVars(httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {

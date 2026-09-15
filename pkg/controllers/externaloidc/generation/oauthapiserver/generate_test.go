@@ -27,6 +27,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/deploymentutil"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
@@ -174,6 +175,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 		configMapIndexer  cache.Indexer
 		secretIndexer     cache.Indexer
 		configValidator   validationFunc
+		proxyResolver     common.ProxyResolver
 
 		expectedAuthConfig *authenticationv1alpha1.AuthenticationConfiguration
 		expectError        bool
@@ -344,6 +346,60 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 			configValidator: func(_ *authenticationv1alpha1.AuthenticationConfiguration, _ common.ProxyResolver) error {
 				return errors.New("boom")
 			},
+		},
+		{
+			name:              "valid auth config with component proxy trusted CA",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = "https://example.com"
+					authConfig.ProxyTrustedCA = deploymentutil.ComponentProxyCAFilePath
+				},
+			}),
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
+			proxyResolver: &fake.ProxyResolver{Proxy: &common.ResolvedProxy{
+				Config:        &httpproxy.Config{},
+				TrustedCAName: "proxy-ca",
+			}},
+		},
+		{
+			name:              "valid auth config with component proxy disabled",
+			caBundleConfigMap: &baseCABundleConfigMap,
+			auth: *authWithUpdates(baseAuthResource, []func(auth *configv1.Authentication){
+				func(auth *configv1.Authentication) {
+					for i := range auth.Spec.OIDCProviders {
+						auth.Spec.OIDCProviders[i].Issuer.URL = "https://example.com"
+					}
+				},
+			}),
+			expectedAuthConfig: authConfigWithUpdates(baseAuthConfig, []func(authConfig *authenticationv1alpha1.AuthenticationConfiguration){
+				func(authConfig *authenticationv1alpha1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = "https://example.com"
+				},
+			}),
+			featureGates: featuregates.NewFeatureGate(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+					features.FeatureGateExternalOIDCWithUpstreamParity,
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				},
+			),
+			proxyResolver: &fake.ProxyResolver{Proxy: &common.ResolvedProxy{Config: &httpproxy.Config{}}},
 		},
 		{
 			name: "valid auth config with empty CA name",
@@ -1885,7 +1941,7 @@ func TestAuthenticationConfigurationGeneratorGenerateAuthenticationConfiguration
 				tt.configMapIndexer.Add(tt.caBundleConfigMap)
 			}
 
-			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), corev1listers.NewSecretLister(tt.secretIndexer), tt.featureGates, nil)
+			c := NewAuthenticationConfigurationGenerator(corev1listers.NewConfigMapLister(tt.configMapIndexer), corev1listers.NewSecretLister(tt.secretIndexer), tt.featureGates, tt.proxyResolver)
 			c.validationFn = tt.configValidator
 
 			gotConfig, err := c.GenerateAuthenticationConfiguration(&tt.auth)

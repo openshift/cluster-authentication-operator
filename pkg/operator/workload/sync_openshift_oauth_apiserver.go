@@ -54,10 +54,6 @@ type authConfigChecker interface {
 	AuthConfig() (*configv1.Authentication, error)
 }
 
-const componentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
-
-const componentProxyCAMountPath = "/var/config/system/configmaps/" + componentProxyCAConfigMapName
-
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
 	operatorClient v1helpers.OperatorClient
@@ -458,7 +454,7 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 // syncComponentProxyCA keeps the component-scoped proxy CA ConfigMap in sync
 // from openshift-config and mounts it into the External OIDC OAuth API server.
 func (c *OAuthAPIServerWorkload) syncComponentProxyCA(trustedCAName string, deployment *appsv1.Deployment) error {
-	destination := resourcesynccontroller.ResourceLocation{Namespace: c.targetNamespace, Name: componentProxyCAConfigMapName}
+	destination := resourcesynccontroller.ResourceLocation{Namespace: c.targetNamespace, Name: deploymentutil.ComponentProxyCAConfigMapName}
 
 	if len(trustedCAName) == 0 {
 		return c.resourceSyncer.SyncConfigMap(destination, resourcesynccontroller.ResourceLocation{})
@@ -469,26 +465,26 @@ func (c *OAuthAPIServerWorkload) syncComponentProxyCA(trustedCAName string, depl
 		return fmt.Errorf("failed to configure proxy trusted CA configmap sync: %w", err)
 	}
 
-	if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(componentProxyCAConfigMapName); err != nil {
+	if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(deploymentutil.ComponentProxyCAConfigMapName); err != nil {
 		if errors.IsNotFound(err) {
 			// ResourceSyncController creates the destination asynchronously. Return
 			// the original error so the workload controller retries; its ConfigMap
 			// informer will also enqueue this workload when the sync completes.
 			return err
 		}
-		return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, componentProxyCAConfigMapName, err)
+		return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, deploymentutil.ComponentProxyCAConfigMapName, err)
 	}
 
 	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-		Name: componentProxyCAConfigMapName,
+		Name: deploymentutil.ComponentProxyCAConfigMapName,
 		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-			LocalObjectReference: corev1.LocalObjectReference{Name: componentProxyCAConfigMapName},
+			LocalObjectReference: corev1.LocalObjectReference{Name: deploymentutil.ComponentProxyCAConfigMapName},
 		}},
 	})
 	deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-		Name:      componentProxyCAConfigMapName,
+		Name:      deploymentutil.ComponentProxyCAConfigMapName,
 		ReadOnly:  true,
-		MountPath: componentProxyCAMountPath,
+		MountPath: deploymentutil.ComponentProxyCAMountPath,
 	})
 	return nil
 }
