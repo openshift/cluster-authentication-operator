@@ -16,7 +16,6 @@ import (
 
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
@@ -105,22 +104,22 @@ type ProxyResolver interface {
 // from the Authentication operator CR (when the feature gate is enabled) and
 // falling back to process-level environment variables.
 type AuthProxyResolver struct {
+	authProxyEnabled     func() (bool, error)
 	operatorAuthInformer cache.SharedIndexInformer
 	operatorAuthLister   operatorv1listers.AuthenticationLister
 	configMapLister      corelistersv1.ConfigMapLister
-	featureGateAccessor  featuregates.FeatureGateAccess
 }
 
 func NewAuthProxyResolver(
+	authProxyEnabled func() (bool, error),
 	operatorAuth operatorv1informers.AuthenticationInformer,
 	configMapLister corelistersv1.ConfigMapLister,
-	featureGateAccessor featuregates.FeatureGateAccess,
 ) AuthProxyResolver {
 	return AuthProxyResolver{
+		authProxyEnabled:     authProxyEnabled,
 		operatorAuthInformer: operatorAuth.Informer(),
 		operatorAuthLister:   operatorAuth.Lister(),
 		configMapLister:      configMapLister,
-		featureGateAccessor:  featureGateAccessor,
 	}
 }
 
@@ -129,7 +128,7 @@ func (r *AuthProxyResolver) Informer() cache.SharedIndexInformer {
 }
 
 func (r *AuthProxyResolver) ResolveProxy() (*ResolvedProxy, error) {
-	return ResolveProxy(r.featureGateAccessor, r.operatorAuthLister)
+	return ResolveProxy(r.authProxyEnabled, r.operatorAuthLister)
 }
 
 func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transport, error) {
@@ -138,15 +137,20 @@ func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transpo
 		return nil, err
 	}
 
+	return NewTransport(r.configMapLister, proxy, opts...)
+}
+
+// NewTransport builds a proxy-aware transport from an already resolved proxy.
+func NewTransport(configMapLister corelistersv1.ConfigMapLister, proxy *ResolvedProxy, opts ...TransportOption) (*http.Transport, error) {
 	var cfg transportConfig
 	for _, opt := range opts {
-		if err := opt(&cfg, r.configMapLister); err != nil {
+		if err := opt(&cfg, configMapLister); err != nil {
 			return nil, err
 		}
 	}
 
 	if len(proxy.TrustedCAName) > 0 {
-		proxyCA, err := transport.LoadCAData(r.configMapLister, proxy.TrustedCAName, "ca-bundle.crt")
+		proxyCA, err := transport.LoadCAData(configMapLister, proxy.TrustedCAName, "ca-bundle.crt")
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +161,8 @@ func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (*http.Transpo
 
 	tr := knet.SetTransportDefaults(&http.Transport{
 		TLSClientConfig: &tls.Config{
-			RootCAs: cfg.pool,
+			RootCAs:    cfg.pool,
+			MinVersion: tls.VersionTLS12,
 		},
 	})
 

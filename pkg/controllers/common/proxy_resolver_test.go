@@ -12,11 +12,8 @@ import (
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
-	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeinformer"
 	"github.com/openshift/cluster-authentication-operator/pkg/internal/transporttest"
@@ -52,9 +49,9 @@ func TestAuthProxyResolver_NewTransport(t *testing.T) {
 	require.NoError(t, authIndexer.Add(authCR))
 
 	resolver := NewAuthProxyResolver(
+		enabledAuthProxy,
 		&fakeinformer.Authentication{AuthLister: operatorv1listers.NewAuthenticationLister(authIndexer)},
 		corelistersv1.NewConfigMapLister(cmIndexer),
-		enabledGate,
 	)
 
 	t.Run("no options loads proxy CA and sets proxy function", func(t *testing.T) {
@@ -97,9 +94,9 @@ func TestAuthProxyResolver_NewTransport(t *testing.T) {
 
 	t.Run("feature gate disabled ignores CR proxy config", func(t *testing.T) {
 		disabledResolver := NewAuthProxyResolver(
+			disabledAuthProxy,
 			&fakeinformer.Authentication{AuthLister: operatorv1listers.NewAuthenticationLister(authIndexer)},
 			corelistersv1.NewConfigMapLister(cmIndexer),
-			disabledGate,
 		)
 
 		t.Setenv("HTTP_PROXY", "")
@@ -127,12 +124,9 @@ func TestAuthProxyResolver_NewTransport_MultipleOptions(t *testing.T) {
 	}))
 
 	resolver := NewAuthProxyResolver(
+		disabledAuthProxy,
 		&fakeinformer.Authentication{AuthLister: operatorv1listers.NewAuthenticationLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{}))},
 		corelistersv1.NewConfigMapLister(cmIndexer),
-		featuregates.NewHardcodedFeatureGateAccess(
-			nil,
-			[]configv1.FeatureGateName{features.FeatureGateAuthenticationComponentProxy},
-		),
 	)
 
 	tr, err := resolver.NewTransport(
@@ -146,20 +140,21 @@ func TestAuthProxyResolver_NewTransport_MultipleOptions(t *testing.T) {
 func TestAuthProxyResolver_NewTransport_Errors(t *testing.T) {
 	emptyCMLister := corelistersv1.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{}))
 
-	t.Run("feature gate error propagates", func(t *testing.T) {
+	t.Run("enabled callback error propagates", func(t *testing.T) {
+		callbackErr := errors.New("not yet observed")
 		resolver := NewAuthProxyResolver(
+			func() (bool, error) { return false, callbackErr },
 			&fakeinformer.Authentication{}, emptyCMLister,
-			featuregates.NewHardcodedFeatureGateAccessForTesting(nil, nil, make(chan struct{}), errors.New("not yet observed")),
 		)
 		_, err := resolver.NewTransport()
-		require.ErrorContains(t, err, "not yet observed")
+		require.ErrorIs(t, err, callbackErr)
 	})
 
 	t.Run("lister error propagates", func(t *testing.T) {
 		resolver := NewAuthProxyResolver(
+			enabledAuthProxy,
 			&fakeinformer.Authentication{AuthLister: newErrorAuthLister(errors.New("connection refused"))},
 			emptyCMLister,
-			enabledGate,
 		)
 		_, err := resolver.NewTransport()
 		require.ErrorContains(t, err, "connection refused")
@@ -179,9 +174,9 @@ func TestAuthProxyResolver_NewTransport_Errors(t *testing.T) {
 		require.NoError(t, authIndexer.Add(authCR))
 
 		resolver := NewAuthProxyResolver(
+			enabledAuthProxy,
 			&fakeinformer.Authentication{AuthLister: operatorv1listers.NewAuthenticationLister(authIndexer)},
 			emptyCMLister,
-			enabledGate,
 		)
 		_, err := resolver.NewTransport()
 		require.ErrorContains(t, err, "missing-ca")

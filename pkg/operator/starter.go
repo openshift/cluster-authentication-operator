@@ -148,9 +148,9 @@ func prepareOauthOperator(
 	)
 
 	proxyResolver := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy),
 		informerFactories.operatorInformer.Operator().V1().Authentications(),
 		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
-		featureGateAccessor,
 	)
 
 	staticResourceController := staticresourcecontroller.NewStaticResourceController(
@@ -490,6 +490,12 @@ func prepareOauthAPIServerOperator(
 		featureGateAccessor,
 	)
 
+	externalOIDCProxyResolver := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy, features.FeatureGateAuthenticationComponentProxyExternalOIDC),
+		informerFactories.operatorInformer.Operator().V1().Authentications(),
+		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
+	)
+
 	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
 	// to the openshift-oauth-apiserver if OIDC is available and FeatureGateExternalOIDCExternalClaimsSourcing is enabled.
 	// This precondition never returns an error to prevent unnecessary degradation.
@@ -532,9 +538,12 @@ func prepareOauthAPIServerOperator(
 		os.Getenv("OPERATOR_IMAGE"),
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Lister(),
 		&authConfigChecker,
 		featureGateAccessor,
-		versionRecorder)
+		versionRecorder,
+		resourceSyncController,
+		&externalOIDCProxyResolver)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
@@ -881,6 +890,7 @@ func prepareExternalOIDC(
 	ctx context.Context,
 	authOperatorInput *authenticationOperatorInput,
 	informerFactories authenticationOperatorInformerFactories,
+	proxyResolver common.ProxyResolver,
 ) ([]libraryapplyconfiguration.NamedRunOnce, []libraryapplyconfiguration.RunFunc, error) {
 	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
 	if err != nil {
@@ -906,6 +916,7 @@ func prepareExternalOIDC(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.eventRecorder,
 		featureGates,
+		proxyResolver,
 	)
 
 	runOnceFns := []libraryapplyconfiguration.NamedRunOnce{
@@ -1001,5 +1012,21 @@ func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() (
 		}
 
 		return apiServices, nil, nil
+	}
+}
+
+func authProxyEnabledFunc(featureGateAccessor featuregates.FeatureGateAccess, featureGates ...configv1.FeatureGateName) func() (bool, error) {
+	return func() (bool, error) {
+		current, err := featureGateAccessor.CurrentFeatureGates()
+		if err != nil {
+			return false, fmt.Errorf("failed to get current feature gates: %w", err)
+		}
+
+		for _, featureGateName := range featureGates {
+			if !current.Enabled(featureGateName) {
+				return false, nil
+			}
+		}
+		return true, nil
 	}
 }

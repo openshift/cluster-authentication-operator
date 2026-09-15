@@ -6,17 +6,17 @@ import (
 	"os"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 	"k8s.io/utils/clock"
-
 	kubemigratorclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
 	migrationv1alpha1informer "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/informer"
-
-	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
-
-	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
-
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
@@ -40,10 +40,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/unsupportedconfigoverridescontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
 type authenticationOperatorInput struct {
@@ -145,7 +143,12 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 		clock:                        momInput.Clock,
 		featureGateAccessor: staticFeatureGateAccessor(
 			[]ocpconfigv1.FeatureGateName{features.FeatureGateExternalOIDC},
-			[]ocpconfigv1.FeatureGateName{features.FeatureGateKMSEncryption, features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateAuthenticationComponentProxy},
+			[]ocpconfigv1.FeatureGateName{
+				features.FeatureGateKMSEncryption,
+				features.FeatureGateExternalOIDCExternalClaimsSourcing,
+				features.FeatureGateAuthenticationComponentProxy,
+				features.FeatureGateAuthenticationComponentProxyExternalOIDC,
+			},
 		),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{
 			libraryapplyconfiguration.DynamicInformerFactoryAdapter(dynamicInformers), // we don't share the dynamic informers, but we only want to start when requested
@@ -290,6 +293,11 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	informerFactories := newInformerFactories(authOperatorInput)
 	ret.Informers = append(ret.Informers, informerFactories.simplifiedInformerFactories()...)
 
+	featureGateAccessor, err := authOperatorInput.featureGateAccessor(ctx, authOperatorInput, informerFactories)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build feature gate accessor: %w", err)
+	}
+
 	versionRecorder := status.NewVersionGetter()
 	clusterOperator, err := authOperatorInput.configClient.ConfigV1().ClusterOperators().Get(ctx, "authentication", metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -336,7 +344,13 @@ func CreateOperatorStarter(ctx context.Context, authOperatorInput *authenticatio
 	ret.ControllerRunFns = append(ret.ControllerRunFns, oauthAPIServerRunFns...)
 	ret.ControllerNamedRunOnceFns = append(ret.ControllerNamedRunOnceFns, oauthAPIServerRunOnceFns...)
 
-	externalOIDCRunOnceFns, externalOIDCRunFns, err := prepareExternalOIDC(ctx, authOperatorInput, informerFactories)
+	proxyResolverExternalOIDC := common.NewAuthProxyResolver(
+		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy, features.FeatureGateAuthenticationComponentProxyExternalOIDC),
+		informerFactories.operatorInformer.Operator().V1().Authentications(),
+		informerFactories.kubeInformersForNamespaces.ConfigMapLister(),
+	)
+
+	externalOIDCRunOnceFns, externalOIDCRunFns, err := prepareExternalOIDC(ctx, authOperatorInput, informerFactories, &proxyResolverExternalOIDC)
 	if err != nil {
 		return nil, fmt.Errorf("unable to prepare external OIDC: %w", err)
 	}
