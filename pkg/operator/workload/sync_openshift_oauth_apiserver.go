@@ -115,9 +115,9 @@ func (c *OAuthAPIServerWorkload) WorkloadDeleted(ctx context.Context) (bool, str
 		return false, "", fmt.Errorf("getting current feature gates: %w", err)
 	}
 
-	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled, we are attempting
+	// If the ExternalOIDCAsWebhook feature gate is enabled, we are attempting
 	// to use our new external OIDC architecture that always deploys the oauth-apiserver.
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) {
 		return false, "", nil
 	}
 
@@ -207,7 +207,7 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		return nil, fmt.Errorf("getting current feature gates: %w", err)
 	}
 
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) {
 		oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
 		if err != nil {
 			return nil, fmt.Errorf("checking if OIDC configuration is available: %w", err)

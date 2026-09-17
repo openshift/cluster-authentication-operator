@@ -124,7 +124,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return fmt.Errorf("observing feature gates: %w", err)
 	}
 
-	if !featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if !featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) {
 		if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
 			return err
 		} else if oidcAvailable {
@@ -170,7 +170,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 	// - CAO + CKASO have been updated to use a shared constant for default behavior
 	// - CAO returns early and does not attempt to set the field (field is still set)
 	// - CKASO sees the field is set - it reads from the set field instead of using its hardcoded default
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) {
 		return nil
 	}
 
