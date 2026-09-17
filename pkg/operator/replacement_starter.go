@@ -43,11 +43,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
 type authenticationOperatorInput struct {
 	kubeClient                   kubernetes.Interface
+	dynamicClient                dynamic.Interface
 	configClient                 configclient.Interface
 	operatorClient               operatorclient.Interface
 	routeClient                  routeclient.Interface
@@ -66,6 +68,10 @@ type authenticationOperatorInput struct {
 const componentName = "cluster-authentication-operator"
 
 func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfiguration.ApplyConfigurationInput) (*authenticationOperatorInput, error) {
+	dynamicClient, err := dynamic.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
+	if err != nil {
+		return nil, err
+	}
 	kubeClient, err := kubernetes.NewForConfigAndClient(manifestclient.RecommendedRESTConfig(), momInput.MutationTrackingClient.GetHTTPClient())
 	if err != nil {
 		return nil, err
@@ -133,6 +139,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 
 	return &authenticationOperatorInput{
 		kubeClient:                   kubeClient,
+		dynamicClient:                dynamicClient,
 		configClient:                 configClient,
 		operatorClient:               operatorClient,
 		routeClient:                  routeClient,
@@ -154,6 +161,10 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 }
 
 func CreateControllerInputFromControllerContext(ctx context.Context, controllerContext *controllercmd.ControllerContext) (*authenticationOperatorInput, error) {
+	dynamicClient, err := dynamic.NewForConfig(controllerContext.KubeConfig)
+	if err != nil {
+		return nil, err
+	}
 	kubeClient, err := kubernetes.NewForConfig(controllerContext.ProtoKubeConfig)
 	if err != nil {
 		return nil, err
@@ -213,6 +224,7 @@ func CreateControllerInputFromControllerContext(ctx context.Context, controllerC
 
 	return &authenticationOperatorInput{
 		kubeClient:                   kubeClient,
+		dynamicClient:                dynamicClient,
 		configClient:                 configClient,
 		operatorClient:               operatorClient,
 		routeClient:                  routeClient,
