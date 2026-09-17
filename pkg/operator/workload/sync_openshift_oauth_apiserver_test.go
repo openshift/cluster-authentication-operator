@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -9,21 +10,32 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http/httpproxy"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	commonfake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	clientgotesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
+
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
 var codec = scheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
@@ -62,6 +74,100 @@ var unsupportedConfigOverridesAPIServerArgsJSON = `
   }
 }
 `
+
+func TestSyncExternalOIDCComponentProxy(t *testing.T) {
+	destination := resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: common.ComponentProxyCAConfigMapName}
+	destinationConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: common.ComponentProxyCAConfigMapName, Namespace: destination.Namespace}}
+
+	t.Run("trusted CA set and synced mounts the configmap", func(t *testing.T) {
+		indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		require.NoError(t, indexer.Add(destinationConfigMap))
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(indexer),
+		}
+		deployment := oauthAPIServerTestDeployment()
+
+		proxy := &common.ResolvedProxy{Config: &httpproxy.Config{
+			HTTPProxy:  "http://proxy.example.test:8080",
+			HTTPSProxy: "https://proxy.example.test:8443",
+			NoProxy:    "example.test",
+		}, TrustedCAName: "proxy-ca"}
+
+		require.NoError(t, workload.syncComponentProxy(proxy, deployment))
+		require.Equal(t, []configMapSyncCall{{
+			destination: destination,
+			source:      resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: "proxy-ca"},
+		}}, resourceSyncer.configMaps)
+		require.Equal(t, common.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Volumes[0].Name)
+		require.Equal(t, common.ComponentProxyCAConfigMapName, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
+		require.Equal(t, common.ComponentProxyCAMountPath, deployment.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
+		require.Equal(t, common.ProxyEnvVars(proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy), deployment.Spec.Template.Spec.Containers[0].Env)
+	})
+
+	t.Run("trusted CA set before the sync completes returns not found", func(t *testing.T) {
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
+
+		deployment := oauthAPIServerTestDeployment()
+		err := workload.syncComponentProxy(&common.ResolvedProxy{Config: &httpproxy.Config{}, TrustedCAName: "proxy-ca"}, deployment)
+		require.True(t, apierrors.IsNotFound(err))
+		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
+		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
+	})
+
+	t.Run("trusted CA removed configures destination deletion", func(t *testing.T) {
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{targetNamespace: destination.Namespace, resourceSyncer: resourceSyncer}
+
+		deployment := oauthAPIServerTestDeployment()
+		require.NoError(t, workload.syncComponentProxy(&common.ResolvedProxy{Config: &httpproxy.Config{}}, deployment))
+		require.Equal(t, []configMapSyncCall{{destination: destination}}, resourceSyncer.configMaps)
+		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
+		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
+	})
+
+	t.Run("sync errors are returned", func(t *testing.T) {
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  &recordingResourceSyncer{err: stderrors.New("sync failed")},
+		}
+
+		require.ErrorContains(t, workload.syncComponentProxy(&common.ResolvedProxy{Config: &httpproxy.Config{}, TrustedCAName: "proxy-ca"}, oauthAPIServerTestDeployment()), "sync failed")
+	})
+}
+
+func oauthAPIServerTestDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "oauth-apiserver"}}}}}}
+}
+
+type configMapSyncCall struct {
+	destination resourcesynccontroller.ResourceLocation
+	source      resourcesynccontroller.ResourceLocation
+}
+
+type recordingResourceSyncer struct {
+	configMaps []configMapSyncCall
+	err        error
+}
+
+func (s *recordingResourceSyncer) SyncConfigMap(destination, source resourcesynccontroller.ResourceLocation) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.configMaps = append(s.configMaps, configMapSyncCall{destination: destination, source: source})
+	return nil
+}
+
+func (s *recordingResourceSyncer) SyncSecret(_, _ resourcesynccontroller.ResourceLocation) error {
+	return nil
+}
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
@@ -359,6 +465,8 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				kubeClient:                fakeKubeClient,
 				featureGateAccessor:       scenario.featureGates,
 				authConfigChecker:         scenario.authConfigChecker,
+				resourceSyncer:            &recordingResourceSyncer{},
+				proxyResolver:             &commonfake.ProxyResolver{Proxy: &common.ResolvedProxy{Config: &httpproxy.Config{}}},
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)

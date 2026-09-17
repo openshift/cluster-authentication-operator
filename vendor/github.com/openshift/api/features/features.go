@@ -138,22 +138,6 @@ var (
 				enhancementPR("https://github.com/kubernetes/enhancements/issues/3386").
 				mustRegister()
 
-	FeatureGateSigstoreImageVerification = newFeatureGate("SigstoreImageVerification").
-						reportProblemsToJiraComponent("node").
-						contactPerson("sgrunert").
-						productScope(ocpSpecific).
-						enhancementPR(legacyFeatureGateWithoutEnhancement).
-						enable(inDefault(), inOKD(), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
-						mustRegister()
-
-	FeatureGateSigstoreImageVerificationPKI = newFeatureGate("SigstoreImageVerificationPKI").
-						reportProblemsToJiraComponent("node").
-						contactPerson("QiWang").
-						productScope(ocpSpecific).
-						enhancementPR("https://github.com/openshift/enhancements/pull/1658").
-						enable(inDefault(), inOKD(), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
-						mustRegister()
-
 	FeatureGateCRIOCredentialProviderConfig = newFeatureGate("CRIOCredentialProviderConfig").
 						reportProblemsToJiraComponent("node").
 						contactPerson("QiWang").
@@ -176,6 +160,14 @@ var (
 					productScope(ocpSpecific).
 					enhancementPR("https://github.com/ovn-kubernetes/ovn-kubernetes/pull/5246").
 					enable(inDevPreviewNoUpgrade()).
+					mustRegister()
+
+	FeatureGateEgressIPNodeSelector = newFeatureGate("EgressIPNodeSelector").
+					reportProblemsToJiraComponent("Networking/ovn-kubernetes").
+					contactPerson("tssurya").
+					productScope(ocpSpecific).
+					enhancementPR("https://github.com/ovn-kubernetes/ovn-kubernetes/pull/6801").
+					enable(inDevPreviewNoUpgrade(), inTechPreviewNoUpgrade()).
 					mustRegister()
 
 	FeatureGateNoOverlayMode = newFeatureGate("NoOverlayMode").
@@ -280,6 +272,14 @@ var (
 						enable(inDefault(), inOKD(), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
 						mustRegister()
 
+	FeatureGateManagedBootImagesAWSCAPI = newFeatureGate("ManagedBootImagesAWSCAPI").
+						reportProblemsToJiraComponent("MachineConfigOperator").
+						contactPerson("djoshy").
+						productScope(ocpSpecific).
+						enhancementPR("https://github.com/openshift/enhancements/pull/1496").
+						enable(inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
+						mustRegister()
+
 	FeatureGateBootcNodeManagement = newFeatureGate("BootcNodeManagement").
 					reportProblemsToJiraComponent("MachineConfigOperator").
 					contactPerson("inesqyx").
@@ -351,6 +351,14 @@ var (
 						enhancementPR("https://github.com/openshift/enhancements/pull/2015").
 						enable(inClusterProfile(SelfManaged), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
 						mustRegister()
+
+	FeatureGateAuthenticationComponentProxyExternalOIDC = newFeatureGate("AuthenticationComponentProxyExternalOIDC").
+								reportProblemsToJiraComponent("authentication").
+								contactPerson("tchap").
+								productScope(ocpSpecific).
+								enhancementPR("https://github.com/openshift/enhancements/pull/2097").
+								enable(inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
+								mustRegister()
 
 	FeatureGateExternalOIDCWithAdditionalClaimMappings = newFeatureGate("ExternalOIDCWithUIDAndExtraClaimMappings").
 								reportProblemsToJiraComponent("authentication").
@@ -719,7 +727,7 @@ var (
 				contactPerson("jsafrane").
 				productScope(kubernetes).
 				enhancementPR("https://github.com/kubernetes/enhancements/issues/1710").
-				enable(inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
+				enable(inDefault(), inOKD(), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
 				mustRegister()
 
 	FeatureGateDualReplica = newFeatureGate("DualReplica").
@@ -790,7 +798,7 @@ var (
 						contactPerson("vr4manta").
 						productScope(ocpSpecific).
 						enhancementPR("https://github.com/openshift/enhancements/pull/1961").
-						enable(inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
+						enable(inDefault(), inOKD(), inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
 						mustRegister()
 
 	FeatureGateNoRegistryClusterInstall = newFeatureGate("NoRegistryClusterInstall").
@@ -1002,7 +1010,7 @@ var (
 				contactPerson("joelanford").
 				productScope(ocpSpecific).
 				enhancementPR("https://github.com/openshift/enhancements/pull/1910").
-				enable(inDevPreviewNoUpgrade(), inTechPreviewNoUpgrade()).
+				enable(inOKD(), inDevPreviewNoUpgrade(), inTechPreviewNoUpgrade()).
 				mustRegister()
 
 	FeatureGateConfidentialCluster = newFeatureGate("ConfidentialCluster").
@@ -1058,5 +1066,20 @@ var (
 					productScope(ocpSpecific).
 					enhancementPR("https://github.com/openshift/enhancements/pull/2047").
 					enable(inTechPreviewNoUpgrade(), inDevPreviewNoUpgrade()).
+					mustRegister()
+
+	FeatureGateVSpherePerComponentScopedCreds = newFeatureGate("VSpherePerComponentScopedCreds").
+							reportProblemsToJiraComponent("splat").
+							contactPerson("rvanderp3").
+							productScope(ocpSpecific).
+							enhancementPR("https://github.com/openshift/enhancements/pull/2081").
+							enable(inDevPreviewNoUpgrade()).
+							mustRegister()
+
+	FeatureGateDRADeviceTaintRules = newFeatureGate("DRADeviceTaintRules").
+					reportProblemsToJiraComponent("node").
+					contactPerson("haircommander").
+					productScope(kubernetes).
+					enhancementPR("https://github.com/kubernetes/enhancements/issues/5055").
 					mustRegister()
 )
