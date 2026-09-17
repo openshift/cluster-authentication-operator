@@ -97,7 +97,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, nil
 	}
 
-	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled then we are attempting to use the new
+	// If the ExternalOIDCAsWebhook feature gate is enabled then we are attempting to use the new
 	// external oidc architecture that re-uses the oauth-apiserver as a webhook authenticator
 	// with a new mode of operation. Because of this shift back to using the oauth-apiserver, it is
 	// safe to assume that if the authentications/cluster resource has its spec.type set to OIDC
@@ -107,7 +107,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 	// synced to the openshift-oauth-apiserver namespace before attempting to rollout any new configurations.
 	// Doing so ensures that any errors encountered during the generation of the authentication configuration
 	// file doesn't cause the entirety of our authentication stack from falling over.
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) {
 		cm, err := c.oaasConfigMapLister.ConfigMaps("openshift-oauth-apiserver").Get("auth-config")
 		if errors.IsNotFound(err) {
 			return false, nil
