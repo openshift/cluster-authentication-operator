@@ -206,6 +206,7 @@ func Convert_authentication_Authentication_To_v1alpha1_Authentication(in *authen
 }
 
 func autoConvert_v1alpha1_AuthenticationConfiguration_To_authentication_AuthenticationConfiguration(in *AuthenticationConfiguration, out *authentication.AuthenticationConfiguration, s conversion.Scope) error {
+	out.ProxyTrustedCA = in.ProxyTrustedCA
 	out.JWT = *(*[]authentication.JWTAuthenticator)(unsafe.Pointer(&in.JWT))
 	return nil
 }
@@ -216,6 +217,7 @@ func Convert_v1alpha1_AuthenticationConfiguration_To_authentication_Authenticati
 }
 
 func autoConvert_authentication_AuthenticationConfiguration_To_v1alpha1_AuthenticationConfiguration(in *authentication.AuthenticationConfiguration, out *AuthenticationConfiguration, s conversion.Scope) error {
+	out.ProxyTrustedCA = in.ProxyTrustedCA
 	out.JWT = *(*[]JWTAuthenticator)(unsafe.Pointer(&in.JWT))
 	return nil
 }

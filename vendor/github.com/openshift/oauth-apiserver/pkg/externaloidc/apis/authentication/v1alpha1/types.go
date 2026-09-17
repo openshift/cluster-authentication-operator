@@ -21,6 +21,13 @@ functionality that OpenShift needs.
 type AuthenticationConfiguration struct {
 	metav1.TypeMeta
 
+	// proxyTrustedCA is an optional path to a PEM-encoded CA bundle used to
+	// verify HTTPS proxies and TLS-intercepting proxies for outbound issuer
+	// discovery and JWKS requests. When specified, the file is watched and
+	// updates are applied without restarting the webhook server.
+	// +optional
+	ProxyTrustedCA string `json:"proxyTrustedCA,omitempty"`
+
 	// jwt is a list of authenticator to authenticate Kubernetes users using
 	// JWT compliant tokens. The authenticator will attempt to parse a raw ID token,
 	// verify it's been signed by the configured issuer. The public key to verify the
@@ -98,6 +105,9 @@ type Issuer struct {
 	// A discovery url that is exposed using kubernetes service 'oidc' in namespace 'oidc-namespace'
 	// and discovery information is available at '/.well-known/openid-configuration'.
 	// discoveryURL: "https://oidc.oidc-namespace/.well-known/openid-configuration"
+	// When an HTTP(S) proxy is configured, add this short service name to NO_PROXY.
+	// Alternatively, use the fully qualified service name, which can be covered by
+	// a NO_PROXY entry such as ".svc" or ".cluster.local".
 	// certificateAuthority is used to verify the TLS connection and the hostname on the leaf certificate
 	// must be set to 'oidc.oidc-namespace'.
 	//
