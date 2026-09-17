@@ -38,11 +38,6 @@ import (
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 )
 
-const (
-	componentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
-	componentProxyCAMountPath     = "/var/config/system/configmaps/" + componentProxyCAConfigMapName
-)
-
 var _ workload.Delegate = &oauthServerDeploymentSyncer{}
 
 // nodeCountFunction a function to return count of nodes
@@ -92,7 +87,7 @@ func NewOAuthServerWorkloadController(
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	authConfigChecker common.AuthConfigChecker,
-	proxyResolver *common.AuthProxyResolver,
+	proxyResolver common.ObservableProxyResolver,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -306,7 +301,7 @@ func (c *oauthServerDeploymentSyncer) getConfigResourceVersions() ([]string, err
 	for _, cm := range configMaps {
 		// Exclude the proxy CA configmap: its content is hot-reloaded by the
 		// OAuth server, so CA updates must not trigger a rollout.
-		if strings.HasPrefix(cm.Name, "v4-0-config-") && cm.Name != componentProxyCAConfigMapName {
+		if strings.HasPrefix(cm.Name, "v4-0-config-") && cm.Name != common.ComponentProxyCAConfigMapName {
 			configRVs = append(configRVs, "configmaps:"+cm.Name+":"+cm.ResourceVersion)
 		}
 	}
@@ -342,7 +337,7 @@ func setRollingUpdateParameters(controlPlaneCount int32, deployment *appsv1.Depl
 // the CM has been synced. The OAuth Server hot-reloads the CA file on change,
 // so no redeployment is needed for CA content updates.
 func (c *oauthServerDeploymentSyncer) syncComponentProxyCA(trustedCAName string, deployment *appsv1.Deployment) error {
-	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: componentProxyCAConfigMapName}
+	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: common.ComponentProxyCAConfigMapName}
 
 	if len(trustedCAName) == 0 {
 		// RSC will delete the destination CM when it next reconciles.
@@ -359,19 +354,19 @@ func (c *oauthServerDeploymentSyncer) syncComponentProxyCA(trustedCAName string,
 	// has a 2-minute inertia so brief races don't surface to the user.
 	// RSC creating the CM will also fire a ConfigMap informer event that
 	// triggers an additional re-sync.
-	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get(componentProxyCAConfigMapName); err != nil {
+	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get(common.ComponentProxyCAConfigMapName); err != nil {
 		if errors.IsNotFound(err) {
-			return fmt.Errorf("proxy CA configmap %q not yet synced by RSC", componentProxyCAConfigMapName)
+			return fmt.Errorf("proxy CA configmap %q not yet synced by RSC", common.ComponentProxyCAConfigMapName)
 		}
-		return fmt.Errorf("failed to get proxy trustedCA configmap \"openshift-authentication/%s\": %w", componentProxyCAConfigMapName, err)
+		return fmt.Errorf("failed to get proxy trustedCA configmap \"openshift-authentication/%s\": %w", common.ComponentProxyCAConfigMapName, err)
 	}
 
 	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-		Name: componentProxyCAConfigMapName,
+		Name: common.ComponentProxyCAConfigMapName,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: componentProxyCAConfigMapName,
+					Name: common.ComponentProxyCAConfigMapName,
 				},
 			},
 		},
@@ -379,9 +374,9 @@ func (c *oauthServerDeploymentSyncer) syncComponentProxyCA(trustedCAName string,
 	deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(
 		deployment.Spec.Template.Spec.Containers[0].VolumeMounts,
 		corev1.VolumeMount{
-			Name:      componentProxyCAConfigMapName,
+			Name:      common.ComponentProxyCAConfigMapName,
 			ReadOnly:  true,
-			MountPath: componentProxyCAMountPath,
+			MountPath: common.ComponentProxyCAMountPath,
 		},
 	)
 	return nil
