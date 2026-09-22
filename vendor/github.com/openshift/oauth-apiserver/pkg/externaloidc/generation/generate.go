@@ -1,4 +1,4 @@
-package oauthapiserver
+package generation
 
 import (
 	"context"
@@ -13,16 +13,12 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/resource/retry"
 	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
-	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/utils/ptr"
 
@@ -40,32 +36,55 @@ type oidcGenerationState struct {
 }
 
 const (
-	configNamespace                 = "openshift-config"
 	kindAuthenticationConfiguration = "AuthenticationConfiguration"
 	oidcDiscoveryEndpointPath       = "/.well-known/openid-configuration"
 )
 
 type validationFunc func(*authenticationv1alpha1.AuthenticationConfiguration) error
 
-type AuthenticationConfigurationGenerator struct {
-	configMapLister corev1listers.ConfigMapLister
-	secretLister    corev1listers.SecretLister
-	featureGates    featuregates.FeatureGate
-	validationFn    validationFunc
+// CertificateAuthorityResolver resolves an issuer CertificateAuthority ConfigMap
+// name to its PEM-encoded certificate bundle. Consumers own the lookup scope and
+// mechanism; for example, CAO can use a ConfigMap lister and HyperShift can use
+// its reconciliation client.
+type CertificateAuthorityResolver func(name string) (string, error)
+
+// ClientSecretResolver resolves an OIDC client Secret name to its client secret.
+// Consumers own the lookup scope and mechanism; for example, CAO can use a
+// Secret lister and HyperShift can use its reconciliation client.
+type ClientSecretResolver func(name string) (string, error)
+
+// Options enables authentication configuration features that remain separately
+// feature-gated.
+type Options struct {
+	ExternalClaimsSourcing bool
 }
 
-func NewAuthenticationConfigurationGenerator(cmlister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, gates featuregates.FeatureGate) *AuthenticationConfigurationGenerator {
+type AuthenticationConfigurationGenerator struct {
+	caResolver           CertificateAuthorityResolver
+	clientSecretResolver ClientSecretResolver
+	options              Options
+	validationFn         validationFunc
+}
+
+// NewAuthenticationConfigurationGenerator constructs a generator using the
+// caller's resource resolvers. The generator does not perform Kubernetes API
+// lookups itself.
+func NewAuthenticationConfigurationGenerator(caResolver CertificateAuthorityResolver, clientSecretResolver ClientSecretResolver, options Options) *AuthenticationConfigurationGenerator {
 	return &AuthenticationConfigurationGenerator{
-		configMapLister: cmlister,
-		secretLister:    secretLister,
-		featureGates:    gates,
-		validationFn:    validateOAuthApiserverAuthenticationConfiguration,
+		caResolver:           caResolver,
+		clientSecretResolver: clientSecretResolver,
+		options:              options,
+		validationFn:         validateOAuthApiserverAuthenticationConfiguration,
 	}
 }
 
 // GenerateAuthenticationConfiguration creates a structured JWT AuthenticationConfiguration for OIDC
 // in the oauth-apiserver from the configuration found in the authentication/cluster resource.
-func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfiguration(auth *configv1.Authentication) (runtime.Object, error) {
+func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfiguration(authSpec *configv1.AuthenticationSpec) (*authenticationv1alpha1.AuthenticationConfiguration, error) {
+	if authSpec == nil {
+		return nil, errors.New("authentication spec cannot be nil")
+	}
+
 	authConfig := &authenticationv1alpha1.AuthenticationConfiguration{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       kindAuthenticationConfiguration,
@@ -74,8 +93,8 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 	}
 
 	errs := []error{}
-	for _, provider := range auth.Spec.OIDCProviders {
-		jwt, err := generateJWTForProvider(provider, acg.configMapLister, acg.secretLister, acg.featureGates, auth.Spec.ServiceAccountIssuer)
+	for _, provider := range authSpec.OIDCProviders {
+		jwt, err := acg.generateJWTForProvider(provider, authSpec.ServiceAccountIssuer)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -97,17 +116,17 @@ func (acg *AuthenticationConfigurationGenerator) GenerateAuthenticationConfigura
 	return authConfig, nil
 }
 
-func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, featureGates featuregates.FeatureGate, serviceAccountIssuer string) (authenticationv1alpha1.JWTAuthenticator, error) {
+func (acg *AuthenticationConfigurationGenerator) generateJWTForProvider(provider configv1.OIDCProvider, serviceAccountIssuer string) (authenticationv1alpha1.JWTAuthenticator, error) {
 	out := authenticationv1alpha1.JWTAuthenticator{}
 
-	issuer, err := generateIssuer(provider.Issuer, configMapLister, serviceAccountIssuer)
+	issuer, err := acg.generateIssuer(provider.Issuer, serviceAccountIssuer)
 	if err != nil {
-		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating issuer for provider %q: %v", provider.Name, err)
+		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating issuer for provider %q: %w", provider.Name, err)
 	}
 
 	state := &oidcGenerationState{}
 
-	claimMappings, err := generateClaimMappings(provider.ClaimMappings, issuer.URL, featureGates, state)
+	claimMappings, err := acg.generateClaimMappings(provider.ClaimMappings, issuer.URL, state)
 	if err != nil {
 		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating claimMappings for provider %q: %v", provider.Name, err)
 	}
@@ -117,22 +136,19 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating claimValidationRules for provider %q: %v", provider.Name, err)
 	}
 
-	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-		if err := validateEmailVerifiedUsage(state); err != nil {
-			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("validating email claim usage for provider %q: %v", provider.Name, err)
-		}
-		var userValidationRules []authenticationv1alpha1.UserValidationRule
-		userValidationRules, err = generateUserValidationRules(provider.UserValidationRules)
-		if err != nil {
-			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating userValidationRules for provider %q: %v", provider.Name, err)
-		}
-		out.UserValidationRules = userValidationRules
+	if err := validateEmailVerifiedUsage(state); err != nil {
+		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("validating email claim usage for provider %q: %v", provider.Name, err)
 	}
+	userValidationRules, err := generateUserValidationRules(provider.UserValidationRules)
+	if err != nil {
+		return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating userValidationRules for provider %q: %v", provider.Name, err)
+	}
+	out.UserValidationRules = userValidationRules
 
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		externalClaimsSources, err := generateExternalClaimsSources(configMapLister, secretLister, provider.ExternalClaimsSources...)
+	if acg.options.ExternalClaimsSourcing {
+		externalClaimsSources, err := acg.generateExternalClaimsSources(provider.ExternalClaimsSources...)
 		if err != nil {
-			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating externalClaimsSources for provider %q: %v", provider.Name, err)
+			return authenticationv1alpha1.JWTAuthenticator{}, fmt.Errorf("generating externalClaimsSources for provider %q: %w", provider.Name, err)
 		}
 
 		out.ExternalClaimsSources = externalClaimsSources
@@ -145,7 +161,7 @@ func generateJWTForProvider(provider configv1.OIDCProvider, configMapLister core
 	return out, nil
 }
 
-func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.ConfigMapLister, serviceAccountIssuer string) (authenticationv1alpha1.Issuer, error) {
+func (acg *AuthenticationConfigurationGenerator) generateIssuer(issuer configv1.TokenIssuer, serviceAccountIssuer string) (authenticationv1alpha1.Issuer, error) {
 	out := authenticationv1alpha1.Issuer{}
 
 	if len(serviceAccountIssuer) > 0 {
@@ -187,9 +203,9 @@ func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.C
 		out.DiscoveryURL = issuer.DiscoveryURL
 	}
 	if len(issuer.CertificateAuthority.Name) > 0 {
-		ca, err := getCertificateAuthorityFromConfigMap(issuer.CertificateAuthority.Name, configMapLister)
+		ca, err := acg.getCertificateAuthority(issuer.CertificateAuthority.Name)
 		if err != nil {
-			return authenticationv1alpha1.Issuer{}, fmt.Errorf("getting CertificateAuthority for issuer: %v", err)
+			return authenticationv1alpha1.Issuer{}, fmt.Errorf("getting CertificateAuthority for issuer: %w", err)
 		}
 		out.CertificateAuthority = ca
 	}
@@ -197,67 +213,56 @@ func generateIssuer(issuer configv1.TokenIssuer, configMapLister corev1listers.C
 	return out, nil
 }
 
-func getCertificateAuthorityFromConfigMap(name string, configMapLister corev1listers.ConfigMapLister) (string, error) {
+func (acg *AuthenticationConfigurationGenerator) getCertificateAuthority(name string) (string, error) {
 	if len(name) == 0 {
 		return "", nil
 	}
+	if acg.caResolver == nil {
+		return "", errors.New("certificate authority resolver is required")
+	}
 
-	caConfigMap, err := configMapLister.ConfigMaps(configNamespace).Get(name)
+	certificateAuthority, err := acg.caResolver(name)
 	if err != nil {
-		return "", fmt.Errorf("could not retrieve auth configmap %s/%s to check CA bundle: %v", configNamespace, name, err)
+		return "", fmt.Errorf("resolving certificate authority ConfigMap %q: %w", name, err)
 	}
 
-	caData, ok := caConfigMap.Data["ca-bundle.crt"]
-	if !ok || len(caData) == 0 {
-		return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, name)
-	}
-
-	return caData, nil
+	return certificateAuthority, nil
 }
 
-func generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, featureGates featuregates.FeatureGate, state *oidcGenerationState) (authenticationv1alpha1.ClaimMappings, error) {
+func (acg *AuthenticationConfigurationGenerator) generateClaimMappings(claimMappings configv1.TokenClaimMappings, issuerURL string, state *oidcGenerationState) (authenticationv1alpha1.ClaimMappings, error) {
 	out := authenticationv1alpha1.ClaimMappings{}
 
-	username, usernameResult, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL, featureGates)
+	username, usernameResult, err := generateUsernameClaimMapping(claimMappings.Username, issuerURL)
 	if err != nil {
 		return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating username claim mapping: %v", err)
 	}
 	state.UsernameResult = usernameResult
 
-	groups, err := generateGroupsClaimMapping(claimMappings.Groups, featureGates)
+	groups, err := generateGroupsClaimMapping(claimMappings.Groups)
 	if err != nil {
 		return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating group claim mapping: %v", err)
 	}
 	out.Username = username
 	out.Groups = groups
 
-	if featureGates.Enabled(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
-		uid, err := generateUIDClaimMapping(claimMappings.UID)
-		if err != nil {
-			return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating uid claim mapping: %v", err)
-		}
-
-		extras, extraResults, err := generateExtraClaimMapping(claimMappings.Extra...)
-		if err != nil {
-			return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating extra claim mapping: %v", err)
-		}
-
-		out.UID = uid
-		out.Extra = extras
-		state.ExtraResults = extraResults
+	uid, err := generateUIDClaimMapping(claimMappings.UID)
+	if err != nil {
+		return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating uid claim mapping: %v", err)
 	}
+
+	extras, extraResults, err := generateExtraClaimMapping(claimMappings.Extra...)
+	if err != nil {
+		return authenticationv1alpha1.ClaimMappings{}, fmt.Errorf("generating extra claim mapping: %v", err)
+	}
+
+	out.UID = uid
+	out.Extra = extras
+	state.ExtraResults = extraResults
 
 	return out, nil
 }
 
-func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string, featureGates featuregates.FeatureGate) (authenticationv1alpha1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
-	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-		return generateUsernameClaimMappingWithParity(usernameClaimMapping, issuerURL)
-	}
-	return generateUsernameClaimMappingLegacy(usernameClaimMapping, issuerURL)
-}
-
-func generateUsernameClaimMappingWithParity(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (authenticationv1alpha1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
+func generateUsernameClaimMapping(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (authenticationv1alpha1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
 	out := authenticationv1alpha1.PrefixedClaimOrExpression{}
 
 	if len(usernameClaimMapping.Expression) == 0 && len(usernameClaimMapping.Claim) == 0 {
@@ -310,54 +315,23 @@ func generateUsernameClaimMappingWithParity(usernameClaimMapping configv1.Userna
 	return out, nil, nil
 }
 
-func generateUsernameClaimMappingLegacy(usernameClaimMapping configv1.UsernameClaimMapping, issuerURL string) (authenticationv1alpha1.PrefixedClaimOrExpression, *authenticationcel.CompilationResult, error) {
+func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping) (authenticationv1alpha1.PrefixedClaimOrExpression, error) {
 	out := authenticationv1alpha1.PrefixedClaimOrExpression{}
-
-	if len(usernameClaimMapping.Claim) == 0 {
-		return out, nil, fmt.Errorf("username claim is required but an empty value was provided")
+	if len(groupsMapping.Expression) > 0 && len(groupsMapping.Claim) > 0 {
+		return out, fmt.Errorf("groups claim mapping must not set both claim and expression")
 	}
-	out.Claim = usernameClaimMapping.Claim
-
-	switch usernameClaimMapping.PrefixPolicy {
-	case configv1.Prefix:
-		if usernameClaimMapping.Prefix == nil {
-			return out, nil, fmt.Errorf("nil username prefix while policy expects one")
-		}
-		out.Prefix = &usernameClaimMapping.Prefix.PrefixString
-	case configv1.NoPrefix:
-		out.Prefix = ptr.To("")
-	case configv1.NoOpinion:
-		prefix := ""
-		if usernameClaimMapping.Claim != "email" {
-			prefix = issuerURL + "#"
-		}
-		out.Prefix = &prefix
-	default:
-		return out, nil, fmt.Errorf("invalid username prefix policy: %s", usernameClaimMapping.PrefixPolicy)
+	if len(groupsMapping.Expression) > 0 && len(groupsMapping.Prefix) > 0 {
+		return authenticationv1alpha1.PrefixedClaimOrExpression{}, fmt.Errorf("groups claim mapping must not set prefix when expression is set")
 	}
 
-	return out, nil, nil
-}
-
-func generateGroupsClaimMapping(groupsMapping configv1.PrefixedClaimMapping, featureGates featuregates.FeatureGate) (authenticationv1alpha1.PrefixedClaimOrExpression, error) {
-	out := authenticationv1alpha1.PrefixedClaimOrExpression{}
-	if featureGates.Enabled(features.FeatureGateExternalOIDCWithUpstreamParity) {
-		if len(groupsMapping.Expression) > 0 && len(groupsMapping.Claim) > 0 {
-			return out, fmt.Errorf("groups claim mapping must not set both claim and expression")
+	if len(groupsMapping.Expression) > 0 {
+		if _, err := validateClaimsCELExpression(&authenticationcel.ClaimMappingExpression{
+			Expression: groupsMapping.Expression,
+		}); err != nil {
+			return authenticationv1alpha1.PrefixedClaimOrExpression{}, fmt.Errorf("invalid CEL expression: %v", err)
 		}
-		if len(groupsMapping.Expression) > 0 && len(groupsMapping.Prefix) > 0 {
-			return authenticationv1alpha1.PrefixedClaimOrExpression{}, fmt.Errorf("groups claim mapping must not set prefix when expression is set")
-		}
-
-		if len(groupsMapping.Expression) > 0 {
-			if _, err := validateClaimsCELExpression(&authenticationcel.ClaimMappingExpression{
-				Expression: groupsMapping.Expression,
-			}); err != nil {
-				return authenticationv1alpha1.PrefixedClaimOrExpression{}, fmt.Errorf("invalid CEL expression: %v", err)
-			}
-			out.Expression = groupsMapping.Expression
-			return out, nil
-		}
+		out.Expression = groupsMapping.Expression
+		return out, nil
 	}
 
 	out.Claim = groupsMapping.Claim
@@ -660,14 +634,22 @@ func usesEmailClaim(ast *celgo.Ast) bool {
 	if ast == nil {
 		return false
 	}
-	return hasSelectExp(ast.Expr(), "claims", "email")
+	checkedExpr, err := celgo.AstToCheckedExpr(ast)
+	if err != nil {
+		return false
+	}
+	return hasSelectExp(checkedExpr.GetExpr(), "claims", "email")
 }
 
 func usesEmailVerifiedClaim(ast *celgo.Ast) bool {
 	if ast == nil {
 		return false
 	}
-	return hasSelectExp(ast.Expr(), "claims", "email_verified")
+	checkedExpr, err := celgo.AstToCheckedExpr(ast)
+	if err != nil {
+		return false
+	}
+	return hasSelectExp(checkedExpr.GetExpr(), "claims", "email_verified")
 }
 
 func anyUsesEmailVerifiedClaim(results []authenticationcel.CompilationResult) bool {
@@ -767,11 +749,11 @@ func isConstField(exp *exprpb.Expr, field string) bool {
 	return c != nil && c.GetStringValue() == field
 }
 
-func generateExternalClaimsSources(cmLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, sources ...configv1.ExternalClaimsSource) ([]authenticationv1alpha1.ExternalClaimsSource, error) {
+func (acg *AuthenticationConfigurationGenerator) generateExternalClaimsSources(sources ...configv1.ExternalClaimsSource) ([]authenticationv1alpha1.ExternalClaimsSource, error) {
 	out := []authenticationv1alpha1.ExternalClaimsSource{}
 	seenClaimNames := sets.New[string]()
 	for _, source := range sources {
-		externalSource, err := generateExternalClaimsSource(source, cmLister, secretLister, seenClaimNames)
+		externalSource, err := acg.generateExternalClaimsSource(source, seenClaimNames)
 		if err != nil {
 			return nil, err
 		}
@@ -784,8 +766,8 @@ func generateExternalClaimsSources(cmLister corev1listers.ConfigMapLister, secre
 	return out, nil
 }
 
-func generateExternalClaimsSource(source configv1.ExternalClaimsSource, cmLister corev1listers.ConfigMapLister, secretLister corev1listers.SecretLister, seenClaimNames sets.Set[string]) (*authenticationv1alpha1.ExternalClaimsSource, error) {
-	authentication, err := generateExternalClaimsSourceAuthentication(source.Authentication, secretLister, cmLister)
+func (acg *AuthenticationConfigurationGenerator) generateExternalClaimsSource(source configv1.ExternalClaimsSource, seenClaimNames sets.Set[string]) (*authenticationv1alpha1.ExternalClaimsSource, error) {
+	authentication, err := acg.generateExternalClaimsSourceAuthentication(source.Authentication)
 	if err != nil {
 		return nil, err
 	}
@@ -793,7 +775,7 @@ func generateExternalClaimsSource(source configv1.ExternalClaimsSource, cmLister
 	zeroValueExternalSourceTLS := configv1.ExternalSourceTLS{}
 	var tls *authenticationv1alpha1.TLS
 	if source.TLS != zeroValueExternalSourceTLS {
-		tls, err = generateExternalClaimsSourceTLS(source.TLS, cmLister)
+		tls, err = acg.generateExternalClaimsSourceTLS(source.TLS)
 		if err != nil {
 			return nil, err
 		}
@@ -823,7 +805,7 @@ func generateExternalClaimsSource(source configv1.ExternalClaimsSource, cmLister
 	}, nil
 }
 
-func generateExternalClaimsSourceAuthentication(externalSourceAuthentication configv1.ExternalSourceAuthentication, secretLister corev1listers.SecretLister, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.Authentication, error) {
+func (acg *AuthenticationConfigurationGenerator) generateExternalClaimsSourceAuthentication(externalSourceAuthentication configv1.ExternalSourceAuthentication) (*authenticationv1alpha1.Authentication, error) {
 	switch externalSourceAuthentication.Type {
 	case "": // signals the omitted case which is valid and means to use anonymous auth. This means we should omit it as well so anonymous auth takes place.
 		return nil, nil
@@ -832,7 +814,7 @@ func generateExternalClaimsSourceAuthentication(externalSourceAuthentication con
 			Type: ptr.To(authenticationv1alpha1.AuthenticationTypeRequestProvidedToken),
 		}, nil
 	case configv1.ExternalSourceAuthenticationTypeClientCredential:
-		cc, err := generateExternalClaimsSourceAuthenticationClientCredential(externalSourceAuthentication.ClientCredential, secretLister, cmLister)
+		cc, err := acg.generateExternalClaimsSourceAuthenticationClientCredential(externalSourceAuthentication.ClientCredential)
 		if err != nil {
 			return nil, fmt.Errorf("generating client credentials configuration: %w", err)
 		}
@@ -846,7 +828,7 @@ func generateExternalClaimsSourceAuthentication(externalSourceAuthentication con
 	}
 }
 
-func generateExternalClaimsSourceAuthenticationClientCredential(clientCredentialConfig configv1.ClientCredentialConfig, secretLister corev1listers.SecretLister, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.ClientCredentialConfig, error) {
+func (acg *AuthenticationConfigurationGenerator) generateExternalClaimsSourceAuthenticationClientCredential(clientCredentialConfig configv1.ClientCredentialConfig) (*authenticationv1alpha1.ClientCredentialConfig, error) {
 	// TODO: enable validation when it is possible to do so. Currently blocked
 	// due to oauth-apiserver not being rebased on 1.35 and the KAS library changes
 	// not existing in the 1.35 branch.
@@ -864,7 +846,7 @@ func generateExternalClaimsSourceAuthenticationClientCredential(clientCredential
 		}
 	*/
 
-	clientSecret, err := getClientSecretFromSecret(clientCredentialConfig.ClientSecret.Name, secretLister)
+	clientSecret, err := acg.getClientSecret(clientCredentialConfig.ClientSecret.Name)
 	if err != nil {
 		return nil, fmt.Errorf("getting client secret: %w", err)
 	}
@@ -889,7 +871,7 @@ func generateExternalClaimsSourceAuthenticationClientCredential(clientCredential
 
 	var certificateAuthority *string
 	if len(clientCredentialConfig.TLS.CertificateAuthority.Name) > 0 {
-		ca, err := getCertificateAuthorityFromConfigMap(clientCredentialConfig.TLS.CertificateAuthority.Name, cmLister)
+		ca, err := acg.getCertificateAuthority(clientCredentialConfig.TLS.CertificateAuthority.Name)
 		if err != nil {
 			return nil, fmt.Errorf("getting certificate authority: %w", err)
 		}
@@ -933,22 +915,21 @@ func generateClientCredentialScopes(scopes ...configv1.OAuth2Scope) ([]string, e
 	return out, errors.Join(errs...)
 }
 
-func getClientSecretFromSecret(name string, secretLister corev1listers.SecretLister) (string, error) {
-	secret, err := secretLister.Secrets(configNamespace).Get(name)
+func (acg *AuthenticationConfigurationGenerator) getClientSecret(name string) (string, error) {
+	if acg.clientSecretResolver == nil {
+		return "", errors.New("client secret resolver is required")
+	}
+
+	clientSecret, err := acg.clientSecretResolver(name)
 	if err != nil {
-		return "", fmt.Errorf("could not retrieve auth secret %s/%s to get client secret: %v", configNamespace, name, err)
+		return "", fmt.Errorf("resolving client Secret %q: %w", name, err)
 	}
 
-	clientSecret, ok := secret.Data["client-secret"]
-	if !ok || len(clientSecret) == 0 {
-		return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", configNamespace, name)
-	}
-
-	return string(clientSecret), nil
+	return clientSecret, nil
 }
 
-func generateExternalClaimsSourceTLS(externalSourceTLS configv1.ExternalSourceTLS, cmLister corev1listers.ConfigMapLister) (*authenticationv1alpha1.TLS, error) {
-	caData, err := getCertificateAuthorityFromConfigMap(externalSourceTLS.CertificateAuthority.Name, cmLister)
+func (acg *AuthenticationConfigurationGenerator) generateExternalClaimsSourceTLS(externalSourceTLS configv1.ExternalSourceTLS) (*authenticationv1alpha1.TLS, error) {
+	caData, err := acg.getCertificateAuthority(externalSourceTLS.CertificateAuthority.Name)
 	if err != nil {
 		return nil, fmt.Errorf("getting certificate authority for external source: %w", err)
 	}
