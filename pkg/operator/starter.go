@@ -586,6 +586,7 @@ func prepareOauthAPIServerOperator(
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.configClient.ConfigV1().APIServers(),
 		authOperatorInput.authenticationOperatorClient,
+		authOperatorInput.dynamicClient,
 		encryptionSecretSelector,
 	)
 
@@ -728,6 +729,7 @@ func prepareOauthAPIServerOperator(
 		migrator,
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.dynamicClient,
 		authOperatorInput.configClient.ConfigV1().APIServers(),
 		informerFactories.operatorConfigInformer.Config().V1().APIServers(),
 		informerFactories.kubeInformersForNamespaces,
