@@ -11,11 +11,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
+	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -30,6 +32,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 
 	"github.com/openshift/cluster-authentication-operator/bindata"
@@ -64,8 +67,11 @@ type OAuthAPIServerWorkload struct {
 	kubeClient                kubernetes.Interface
 	versionRecorder           status.VersionGetter
 	deploymentsLister         appsv1listers.DeploymentLister
+	configMapLister           corev1listers.ConfigMapLister
 	authConfigChecker         authConfigChecker
 	featureGateAccessor       featuregates.FeatureGateAccess
+	resourceSyncer            resourcesynccontroller.ResourceSyncer
+	proxyResolver             common.ProxyResolver
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -78,9 +84,12 @@ func NewOAuthAPIServerWorkload(
 	operatorImagePullSpec string,
 	kubeClient kubernetes.Interface,
 	deploymentsLister appsv1listers.DeploymentLister,
+	configMapLister corev1listers.ConfigMapLister,
 	authConfigChecker authConfigChecker,
 	featureGateAccessor featuregates.FeatureGateAccess,
 	versionRecorder status.VersionGetter,
+	resourceSyncer resourcesynccontroller.ResourceSyncer,
+	proxyResolver common.ProxyResolver,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
 		operatorClient:            operatorClient,
@@ -92,8 +101,11 @@ func NewOAuthAPIServerWorkload(
 		kubeClient:                kubeClient,
 		versionRecorder:           versionRecorder,
 		deploymentsLister:         deploymentsLister,
+		configMapLister:           configMapLister,
 		authConfigChecker:         authConfigChecker,
 		featureGateAccessor:       featureGateAccessor,
+		resourceSyncer:            resourceSyncer,
+		proxyResolver:             proxyResolver,
 	}
 }
 
@@ -366,6 +378,16 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
 
+	// Apply proxy configuration.
+	proxy, err := c.proxyResolver.ResolveProxy()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve proxy settings: %w", err)
+	}
+
+	if err := c.syncComponentProxy(proxy, required); err != nil {
+		return nil, fmt.Errorf("failed to sync component proxy: %w", err)
+	}
+
 	// use the following routine for things that would require special formatting/padding (yaml)
 	encodedArgs := arguments.EncodeWithDelimiter(args, " \\\n  ")
 	r = strings.NewReplacer(
@@ -421,6 +443,59 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 
 	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.kubeClient.AppsV1(), eventRecorder, required, resourcemerge.ExpectedDeploymentGeneration(required, operatorStatus.Generations))
 	return deployment, err
+}
+
+// syncComponentProxy applies the component proxy environment, keeps the
+// component-scoped proxy CA ConfigMap in sync from openshift-config, and mounts
+// it into the External OIDC OAuth API server.
+func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy *common.ResolvedProxy, deployment *appsv1.Deployment) error {
+	destination := resourcesynccontroller.ResourceLocation{Namespace: c.targetNamespace, Name: common.ComponentProxyCAConfigMapName}
+
+	// Proxy environment variables do not depend on a custom proxy CA. A proxy
+	// can use system trust, so always render the effective proxy configuration.
+	deployment.Spec.Template.Spec.Containers[0].Env = append(
+		deployment.Spec.Template.Spec.Containers[0].Env,
+		common.ProxyEnvVars(proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy)...,
+	)
+
+	if len(proxy.TrustedCAName) == 0 {
+		if err := c.resourceSyncer.SyncConfigMap(destination, resourcesynccontroller.ResourceLocation{}); err != nil {
+			return fmt.Errorf("failed to remove proxy trusted CA configmap \"%s/%s\" from sync: %w", destination.Namespace, destination.Name, err)
+		}
+		return nil
+	}
+
+	source := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: proxy.TrustedCAName}
+	if err := c.resourceSyncer.SyncConfigMap(destination, source); err != nil {
+		return fmt.Errorf("failed to configure proxy trusted CA configmap sync from \"%s/%s\" into \"%s/%s\": %w",
+			source.Namespace, source.Name, destination.Namespace, destination.Name, err)
+	}
+
+	if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(common.ComponentProxyCAConfigMapName); err != nil {
+		if errors.IsNotFound(err) {
+			// ResourceSyncController creates the destination asynchronously. Return
+			// the original error so the workload controller retries; its ConfigMap
+			// informer will also enqueue this workload when the sync completes.
+			// This is not great as it causes the operator to degrade, but this should be very temporary
+			// and get covered by the 2-minute Degraded inertia for sure.
+			return fmt.Errorf("target proxy trusted CA configmap \"%s/%s\" not found yet: %w", destination.Namespace, destination.Name, err)
+		}
+		return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, common.ComponentProxyCAConfigMapName, err)
+	}
+
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: common.ComponentProxyCAConfigMapName,
+		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: common.ComponentProxyCAConfigMapName},
+		}},
+	})
+
+	deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+		Name:      common.ComponentProxyCAConfigMapName,
+		ReadOnly:  true,
+		MountPath: common.ComponentProxyCAMountPath,
+	})
+	return nil
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {

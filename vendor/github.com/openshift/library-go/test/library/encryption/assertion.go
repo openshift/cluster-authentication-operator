@@ -468,18 +468,13 @@ func (o kmsOperatorCR) decodeKMSOperatorStatus(obj map[string]interface{}) (kmsO
 // operatorNamespace. previous is the pre-apply snapshot (see ReadKMSPreflightForOperator).
 func AssertKMSPreflightSucceededForOperator(ctx context.Context, t testing.TB, clientSet ClientSet, operatorNamespace string, previous operatorv1.KMSPreflightCheck) {
 	t.Helper()
-	// Auth/OAS assertions require this change in their release-payload images; skip them until then.
-	if operatorNamespace != "openshift-kube-apiserver-operator" {
-		return
-	}
 	cr := operatorCRForNamespace(t, operatorNamespace)
 	assertKMSPreflightSucceeded(ctx, t, clientSet.DynamicClient, cr, "cluster", previous)
 }
 
 // assertKMSPreflightSucceeded asserts preflight passed for the CR's current config: degraded is
 // False, preflight reports Succeeded for the observed config hash, remoteKeyID is set (proving a
-// live KMS check ran), and the config hash is different from the previous snapshot (proving
-// preflight executed fresh in response to the config change).
+// live KMS check ran), and remoteKeyID advanced when the config changed since previous.
 func assertKMSPreflightSucceeded(ctx context.Context, t testing.TB, dynamicClient dynamic.Interface, cr kmsOperatorCR, name string, previous operatorv1.KMSPreflightCheck) {
 	t.Helper()
 
@@ -498,7 +493,7 @@ func assertKMSPreflightSucceeded(ctx context.Context, t testing.TB, dynamicClien
 		result := preflight.Result
 		degradedFalse = v1helpers.IsOperatorConditionFalse(status.Conditions, preflightDegradedConditionType)
 		passed := result.Status == operatorv1.KMSPreflightResultSucceeded && result.ConfigHash != "" && result.ConfigHash == preflight.ObservedConfigHash
-		fresh := preflight.ObservedConfigHash != previous.ObservedConfigHash
+		fresh := preflight.ObservedConfigHash == previous.ObservedConfigHash || result.RemoteKeyID != previous.Result.RemoteKeyID
 		ran := result.RemoteKeyID != ""
 		return degradedFalse && passed && ran && fresh, nil
 	})
