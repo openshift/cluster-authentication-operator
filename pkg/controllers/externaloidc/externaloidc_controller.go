@@ -10,11 +10,11 @@ import (
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/kubeapiserver"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/oauthapiserver"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	oauthapiserver "github.com/openshift/oauth-apiserver/pkg/externaloidc/generation"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +33,14 @@ const (
 
 type authConfigGenerator interface {
 	GenerateAuthenticationConfiguration(*configv1.Authentication) (runtime.Object, error)
+}
+
+type oauthAPIServerAuthConfigGenerator struct {
+	generator *oauthapiserver.AuthenticationConfigurationGenerator
+}
+
+func (g oauthAPIServerAuthConfigGenerator) GenerateAuthenticationConfiguration(auth *configv1.Authentication) (runtime.Object, error) {
+	return g.generator.GenerateAuthenticationConfiguration(&auth.Spec)
 }
 
 type externalOIDCController struct {
@@ -57,7 +65,15 @@ func NewExternalOIDCController(
 	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
 	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
+		configMapLister := kubeInformersForNamespaces.ConfigMapLister()
+		secretLister := kubeInformersForNamespaces.SecretLister()
+		authCfgGenerator = oauthAPIServerAuthConfigGenerator{
+			generator: oauthapiserver.NewAuthenticationConfigurationGenerator(
+				certificateAuthorityResolver(configMapLister),
+				clientSecretResolver(secretLister),
+				oauthapiserver.Options{ExternalClaimsSourcing: true},
+			),
+		}
 	}
 
 	c := &externalOIDCController{
@@ -173,4 +189,36 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 	}
 
 	return existingCMApplyConfig, nil
+}
+
+func certificateAuthorityResolver(configMapLister corev1listers.ConfigMapLister) oauthapiserver.CertificateAuthorityResolver {
+	return func(name string) (string, error) {
+		configMap, err := configMapLister.ConfigMaps(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve auth configmap %s/%s to check CA bundle: %w", configNamespace, name, err)
+		}
+
+		certificateAuthority, ok := configMap.Data["ca-bundle.crt"]
+		if !ok || len(certificateAuthority) == 0 {
+			return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, name)
+		}
+
+		return certificateAuthority, nil
+	}
+}
+
+func clientSecretResolver(secretLister corev1listers.SecretLister) oauthapiserver.ClientSecretResolver {
+	return func(name string) (string, error) {
+		secret, err := secretLister.Secrets(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve auth secret %s/%s to get client secret: %w", configNamespace, name, err)
+		}
+
+		clientSecret, ok := secret.Data["client-secret"]
+		if !ok || len(clientSecret) == 0 {
+			return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", configNamespace, name)
+		}
+
+		return string(clientSecret), nil
+	}
 }
