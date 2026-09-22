@@ -190,13 +190,13 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates() ope
 	// cert data should exist
 	data := secret.Data[ingressDomain]
 	if len(data) == 0 {
-		return newRouterCertsDegradedf("MissingRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: not found", c.defaultSecretName, ingressDomain, c.secretNamespace)
+		return newRouterCertsDegradedf("MissingRouterCertsPEM", "secret/%v.data[%v] -n %v: not found", c.defaultSecretName, ingressDomain, c.secretNamespace)
 	}
 
 	// certificates should be parse-able
 	certificates, err := crypto.CertsFromPEM(data)
 	if err != nil {
-		return newRouterCertsDegradedf("MalformedRouterCertsPEM", "secret/%v.spec.data[%v] -n %v: certificates could not be parsed: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, err)
+		return newRouterCertsDegradedf("MalformedRouterCertsPEM", "secret/%v.data[%v] -n %v: certificates could not be parsed: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, err)
 	}
 
 	// get default router CA cert cm
@@ -232,12 +232,12 @@ func (c *routerCertsDomainValidationController) validateRouterCertificates() ope
 
 	serverCerts := populateVerifyOptionsFromCertSlice(&verifyOptions, certificates)
 	if len(serverCerts) == 0 {
-		return newRouterCertsDegradedf("NoServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: no server certificates found", c.defaultSecretName, ingressDomain, c.secretNamespace)
+		return newRouterCertsDegradedf("NoServerCertRouterCerts", "secret/%v.data[%v] -n %v: no server certificates found", c.defaultSecretName, ingressDomain, c.secretNamespace)
 	}
 
 	// verify certificate chain
 	if err := verifyWithAnyCertificate(serverCerts, verifyOptions); err != nil {
-		return newRouterCertsDegradedf("InvalidServerCertRouterCerts", "secret/%v.spec.data[%v] -n %v: certificate could not validate route hostname %v: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, verifyOptions.DNSName, err)
+		return newRouterCertsDegradedf("InvalidServerCertRouterCerts", "secret/%v.data[%v] -n %v: certificate could not validate route hostname %v: %v", c.defaultSecretName, ingressDomain, c.secretNamespace, verifyOptions.DNSName, err)
 	}
 
 	// we made it this far without a problem
