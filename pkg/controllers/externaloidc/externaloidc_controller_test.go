@@ -150,21 +150,17 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			configMapIndexer: cache.Indexer(&everFailingIndexer{}),
 			expectEvents:     false,
 			expectError:      true,
-			configGenerator: &mockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration]{
-				err: errors.New("boom"),
-			},
+			configGenerator:  newMockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration](nil, errors.New("boom")),
 		},
 		{
 			name:     "auth type OIDC but apply config generation fails",
 			authType: configv1.AuthenticationTypeOIDC,
-			configGenerator: &mockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration]{
-				cfg: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-					func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-						authConfig.JWT[0].Issuer.URL = testIssuer
-						authConfig.JWT[0].Issuer.CertificateAuthority = "ca-certificate"
-					},
-				}),
-			},
+			configGenerator: newMockAuthConfigGenerator(authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = testIssuer
+					authConfig.JWT[0].Issuer.CertificateAuthority = "ca-certificate"
+				},
+			}), nil),
 			configMapIndexer: cache.Indexer(&everFailingIndexer{}),
 			expectEvents:     false,
 			expectError:      true,
@@ -173,13 +169,11 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			name:                 "auth type OIDC config same as existing",
 			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testIssuer),
 			authType:             configv1.AuthenticationTypeOIDC,
-			configGenerator: &mockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration]{
-				cfg: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-					func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-						authConfig.JWT[0].Issuer.URL = testIssuer
-					},
-				}),
-			},
+			configGenerator: newMockAuthConfigGenerator(authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = testIssuer
+				},
+			}), nil),
 			expectEvents: false,
 		},
 		{
@@ -189,14 +183,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			},
 			authType:             configv1.AuthenticationTypeOIDC,
 			existingAuthConfigCM: &baseAuthConfigCM,
-			configGenerator: &mockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration]{
-				cfg: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-					func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-						authConfig.JWT[0].Issuer.URL = testIssuer
-						authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
-					},
-				}),
-			},
+			configGenerator: newMockAuthConfigGenerator(authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = testIssuer
+					authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
+				},
+			}), nil),
 			expectEvents: false,
 			expectError:  true,
 		},
@@ -204,14 +196,12 @@ func TestExternalOIDCController_sync(t *testing.T) {
 			name:                 "auth type OIDC apply config",
 			authType:             configv1.AuthenticationTypeOIDC,
 			existingAuthConfigCM: authConfigCMWithIssuerURL(&baseAuthConfigCM, testIssuer),
-			configGenerator: &mockAuthConfigGenerator[*apiserverv1beta1.AuthenticationConfiguration]{
-				cfg: authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
-					func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
-						authConfig.JWT[0].Issuer.URL = testIssuer
-						authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
-					},
-				}),
-			},
+			configGenerator: newMockAuthConfigGenerator(authConfigWithUpdates(baseAuthConfig, []func(authConfig *apiserverv1beta1.AuthenticationConfiguration){
+				func(authConfig *apiserverv1beta1.AuthenticationConfiguration) {
+					authConfig.JWT[0].Issuer.URL = testIssuer
+					authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
+				},
+			}), nil),
 			expectEvents: true,
 		},
 	} {
@@ -279,7 +269,7 @@ func TestExternalOIDCController_sync(t *testing.T) {
 				t.Fatalf("received an unexpected error when getting ConfigMap with auth-config: %v", err)
 			}
 
-			cfg, err := tt.configGenerator.GenerateAuthenticationConfiguration(nil)
+			cfg, err := tt.configGenerator(nil)
 			if err != nil {
 				t.Fatalf("received an unexpected error when generating auth config: %v", err)
 			}
@@ -637,11 +627,8 @@ func (s *everFailingIndexer) LastStoreSyncResourceVersion() string {
 	return ""
 }
 
-type mockAuthConfigGenerator[T runtime.Object] struct {
-	cfg T
-	err error
-}
-
-func (macg *mockAuthConfigGenerator[T]) GenerateAuthenticationConfiguration(_ *configv1.Authentication) (runtime.Object, error) {
-	return macg.cfg, macg.err
+func newMockAuthConfigGenerator[T runtime.Object](cfg T, err error) authConfigGenerator {
+	return func(_ *configv1.Authentication) (runtime.Object, error) {
+		return cfg, err
+	}
 }
