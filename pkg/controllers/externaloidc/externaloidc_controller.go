@@ -6,14 +6,15 @@ import (
 	"fmt"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/kubeapiserver"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/oauthapiserver"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/externaloidc"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,9 +32,7 @@ const (
 	authConfigDataKey      = "auth-config.json"
 )
 
-type authConfigGenerator interface {
-	GenerateAuthenticationConfiguration(*configv1.Authentication) (runtime.Object, error)
-}
+type authConfigGenerator func(*configv1.Authentication) (runtime.Object, error)
 
 type externalOIDCController struct {
 	name                string
@@ -52,12 +51,31 @@ func NewExternalOIDCController(
 	recorder events.Recorder,
 	featureGates featuregates.FeatureGate,
 ) factory.Controller {
-	var authCfgGenerator authConfigGenerator
-
-	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
+	kubeGenerator := kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
+	authCfgGenerator := func(auth *configv1.Authentication) (runtime.Object, error) {
+		return kubeGenerator.GenerateAuthenticationConfiguration(auth)
+	}
 
 	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
-		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
+		configMapLister := kubeInformersForNamespaces.ConfigMapLister()
+
+		var genOptions []externaloidc.GeneratorOption
+		if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+			genOptions = append(genOptions,
+				externaloidc.WithExternalClaimsSourcing(
+					clientSecretResolver(kubeInformersForNamespaces.SecretLister()),
+				),
+			)
+		}
+
+		oauthGenerator := externaloidc.NewAuthenticationConfigurationGenerator(
+			certificateAuthorityResolver(configMapLister),
+			genOptions...,
+		)
+
+		authCfgGenerator = func(auth *configv1.Authentication) (runtime.Object, error) {
+			return oauthGenerator.Generate(&auth.Spec)
+		}
 	}
 
 	c := &externalOIDCController{
@@ -70,16 +88,27 @@ func NewExternalOIDCController(
 		authConfigGenerator: authCfgGenerator,
 	}
 
-	return factory.New().WithInformers(
+	informers := []factory.Informer{
 		// track openshift-config for changes to the provider's CA bundle
 		kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().ConfigMaps().Informer(),
 		// track auth resource
 		configInformer.Config().V1().Authentications().Informer(),
-	).WithFilteredEventsInformers(
-		// track openshift-config-managed/auth-config cm in case it gets changed externally
-		factory.NamesFilter(targetAuthConfigCMName),
-		kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
-	).WithSync(c.sync).
+	}
+
+	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+		informers = append(informers,
+			// track openshift-config for changes to the external source client secret
+			kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().Secrets().Informer(),
+		)
+	}
+
+	return factory.New().
+		WithInformers(informers...).
+		WithFilteredEventsInformers(
+			// track openshift-config-managed/auth-config cm in case it gets changed externally
+			factory.NamesFilter(targetAuthConfigCMName),
+			kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
+		).WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
 }
@@ -95,7 +124,7 @@ func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncC
 		return c.deleteAuthConfig(ctx, syncCtx)
 	}
 
-	authConfig, err := c.authConfigGenerator.GenerateAuthenticationConfiguration(auth)
+	authConfig, err := c.authConfigGenerator(auth)
 	if err != nil {
 		return err
 	}
@@ -173,4 +202,36 @@ func (c *externalOIDCController) getExistingApplyConfig() (*corev1ac.ConfigMapAp
 	}
 
 	return existingCMApplyConfig, nil
+}
+
+func certificateAuthorityResolver(configMapLister corev1listers.ConfigMapLister) externaloidc.CertificateAuthorityResolver {
+	return func(name string) (string, error) {
+		configMap, err := configMapLister.ConfigMaps(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve auth configmap %s/%s to check CA bundle: %w", configNamespace, name, err)
+		}
+
+		certificateAuthority, ok := configMap.Data["ca-bundle.crt"]
+		if !ok || len(certificateAuthority) == 0 {
+			return "", fmt.Errorf("configmap %s/%s key \"ca-bundle.crt\" missing or empty", configNamespace, name)
+		}
+
+		return certificateAuthority, nil
+	}
+}
+
+func clientSecretResolver(secretLister corev1listers.SecretLister) externaloidc.ClientSecretResolver {
+	return func(name string) (string, error) {
+		secret, err := secretLister.Secrets(configNamespace).Get(name)
+		if err != nil {
+			return "", fmt.Errorf("could not retrieve auth secret %s/%s to get client secret: %w", configNamespace, name, err)
+		}
+
+		clientSecret, ok := secret.Data["client-secret"]
+		if !ok || len(clientSecret) == 0 {
+			return "", fmt.Errorf("secret %s/%s key \"client-secret\" missing or empty", configNamespace, name)
+		}
+
+		return string(clientSecret), nil
+	}
 }
