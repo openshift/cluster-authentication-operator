@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/kubeapiserver"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/externaloidc/generation/oauthapiserver"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -56,7 +56,7 @@ func NewExternalOIDCController(
 
 	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
 		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
 	}
 

@@ -48,6 +48,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -68,6 +69,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -88,6 +90,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -109,6 +112,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -134,6 +138,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -159,6 +164,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -184,6 +190,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -208,6 +215,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -234,6 +242,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -260,6 +269,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -286,6 +296,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -312,6 +323,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -339,6 +351,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -366,6 +379,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -393,6 +407,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -420,6 +435,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -435,6 +451,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -455,6 +472,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -475,6 +493,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 			),
 		},
@@ -495,6 +514,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 				make(chan struct{}),
 				nil,
@@ -517,6 +537,7 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 				},
 				makeClosedChannel(),
 				fmt.Errorf("boom"),
@@ -545,7 +566,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
-				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
+				},
 			),
 		},
 		{
@@ -568,7 +591,9 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
-				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
+				},
 			),
 		},
 	} {
