@@ -96,6 +96,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -126,6 +127,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -157,6 +159,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				[]configv1.FeatureGateName{},
 				[]configv1.FeatureGateName{
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -184,6 +187,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -216,6 +220,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -250,6 +255,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -278,6 +284,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -308,6 +315,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),
@@ -339,6 +347,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					features.FeatureGateExternalOIDCExternalClaimsSourcing,
 				},
 				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCAsWebhook,
 					features.FeatureGateKMSEncryption,
 				},
 			),

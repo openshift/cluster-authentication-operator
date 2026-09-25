@@ -61,6 +61,14 @@ func AuthConfigCheckerInformers[T factory.Informer](c *AuthConfigChecker) []T {
 	}
 }
 
+// ExternalOIDCWebhookArchitectureRequired returns true if either ExternalOIDCAsWebhook or
+// ExternalOIDCExternalClaimsSourcing is enabled, since external claims sourcing
+// depends on the webhook architecture being active.
+func ExternalOIDCWebhookArchitectureRequired(featureGates featuregates.FeatureGate) bool {
+	return featureGates.Enabled(features.FeatureGateExternalOIDCAsWebhook) ||
+		featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing)
+}
+
 // OIDCAvailable checks the kubeapiservers/cluster resource for KAS pod
 // rollout status; it returns true if auth type is OIDC, all KAS pods are currently on a revision
 // that includes the structured auth-config ConfigMap, and the KAS args include the respective
@@ -97,17 +105,17 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 		return false, nil
 	}
 
-	// If the ExternalOIDCExternalClaimsSourcing feature gate is enabled then we are attempting to use the new
-	// external oidc architecture that re-uses the oauth-apiserver as a webhook authenticator
-	// with a new mode of operation. Because of this shift back to using the oauth-apiserver, it is
-	// safe to assume that if the authentications/cluster resource has its spec.type set to OIDC
-	// that OIDC is "available" as we no longer have to actually wait for a kube-apiserver revision rollout
-	// to have completed prior to switching to the external OIDC operational mode.
+	// If the webhook architecture is required then we are using the new external OIDC architecture
+	// that re-uses the oauth-apiserver as a webhook authenticator with a new mode of operation.
+	// Because of this shift back to using the oauth-apiserver, it is safe to assume that if the
+	// authentications/cluster resource has its spec.type set to OIDC that OIDC is "available" as
+	// we no longer have to actually wait for a kube-apiserver revision rollout to have completed
+	// prior to switching to the external OIDC operational mode.
 	// The only thing we need to ensure is that there is _some_ configuration that has been successfully
 	// synced to the openshift-oauth-apiserver namespace before attempting to rollout any new configurations.
 	// Doing so ensures that any errors encountered during the generation of the authentication configuration
 	// file doesn't cause the entirety of our authentication stack from falling over.
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if ExternalOIDCWebhookArchitectureRequired(featureGates) {
 		cm, err := c.oaasConfigMapLister.ConfigMaps("openshift-oauth-apiserver").Get("auth-config")
 		if errors.IsNotFound(err) {
 			return false, nil

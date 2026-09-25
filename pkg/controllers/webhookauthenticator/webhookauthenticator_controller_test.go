@@ -157,13 +157,13 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "OIDC checker returns error",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{err: fmt.Errorf("oidc check failed")},
 			expectError:         true,
 		},
 		{
 			name:                "OIDC available - removes webhook secret from openshift-config",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{available: true},
 			resources: []runtime.Object{
 				newWebhookKubeconfigSecret(),
@@ -172,12 +172,12 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "OIDC available - no webhook secret to remove",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{available: true},
 		},
 		{
 			name:                "OIDC available - removeOperands delete fails",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{available: true},
 			resources: []runtime.Object{
 				newWebhookKubeconfigSecret(),
@@ -191,7 +191,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "OIDC available - removeOperands secret deleted between list and delete",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{available: true},
 			resources: []runtime.Object{
 				newWebhookKubeconfigSecret(),
@@ -204,20 +204,20 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is not IntegratedOAuth - no-op",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication("LDAP", ""),
 		},
 		{
 			name:                "authentication config Get fails",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			// authentication is nil so Get("cluster") returns not-found
 			expectError: true,
 		},
 		{
 			name:                "auth type is IntegratedOAuth - cert secret not found - progressing",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -229,7 +229,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - cert secret missing tls.key - progressing",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -250,7 +250,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - cert secret missing tls.crt - progressing",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -271,7 +271,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - cert secret has empty tls.key",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -298,7 +298,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - BuildWebhookSecret fails",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -313,7 +313,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - ExternalOIDCExternalClaimsSourcing enabled - returns early after ensuring secret",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, nil),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -330,7 +330,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - webhook kubeconfig needs update",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
@@ -346,7 +346,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - webhook kubeconfig set to wrong secret name",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, "old-webhook-secret"),
 			resources: []runtime.Object{
@@ -362,7 +362,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - webhook kubeconfig already set correctly",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, webhookSecretName),
 			resources: []runtime.Object{
@@ -378,7 +378,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is empty - defaults to IntegratedOAuth - webhook kubeconfig needs update",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication("", ""),
 			resources: []runtime.Object{
@@ -394,14 +394,14 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 		},
 		{
 			name:                "auth type is IntegratedOAuth - service not found",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			expectError:         true,
 		},
 		{
 			name:                "auth type is IntegratedOAuth - authentication config Update fails",
-			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}),
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess(nil, []configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateExternalOIDCAsWebhook}),
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
