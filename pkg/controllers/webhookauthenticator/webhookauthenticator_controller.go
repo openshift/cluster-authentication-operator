@@ -23,7 +23,6 @@ import (
 
 	"github.com/openshift/api/annotations"
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
@@ -124,7 +123,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return fmt.Errorf("observing feature gates: %w", err)
 	}
 
-	if !featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if !common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
 		if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
 			return err
 		} else if oidcAvailable {
@@ -170,7 +169,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 	// - CAO + CKASO have been updated to use a shared constant for default behavior
 	// - CAO returns early and does not attempt to set the field (field is still set)
 	// - CKASO sees the field is set - it reads from the set field instead of using its hardcoded default
-	if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
 		return nil
 	}
 

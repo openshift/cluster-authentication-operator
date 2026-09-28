@@ -491,7 +491,7 @@ func prepareOauthAPIServerOperator(
 	)
 
 	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
-	// to the openshift-oauth-apiserver if OIDC is available and FeatureGateExternalOIDCExternalClaimsSourcing is enabled.
+	// to the openshift-oauth-apiserver if OIDC is available and the webhook architecture is required.
 	// This precondition never returns an error to prevent unnecessary degradation.
 	if err := resourceSyncController.SyncConfigMapConditionally(
 		resourcesynccontroller.ResourceLocation{Namespace: "openshift-oauth-apiserver", Name: "auth-config"},
@@ -507,7 +507,7 @@ func prepareOauthAPIServerOperator(
 				return false, nil
 			}
 
-			if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+			if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
 				authConfig, err := authConfigChecker.AuthConfig()
 				if err != nil {
 					klog.Errorf("checking oauth-apiserver auth-config sync preconditions failed: getting authentications/cluster: %v", err)
@@ -669,8 +669,8 @@ func prepareOauthAPIServerOperator(
 				},
 			},
 			{
-				// OAuth specific resources; deleted when OIDC is enabled and FeatureGateExternalOIDCExternalClaimsSourcing is disabled.
-				// Not deleted when OIDC is enabled when FeatureGateExternalOIDCExternalClaimsSourcing gate is enabled.
+				// OAuth specific resources; deleted when OIDC is enabled and webhook architecture is not required.
+				// Not deleted when OIDC is enabled and webhook architecture is required.
 				Files: []string{
 					"oauth-apiserver/sa.yaml",
 					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
@@ -679,7 +679,7 @@ func prepareOauthAPIServerOperator(
 				ShouldCreateFn: func() bool {
 					// If this call errors out, fallback to the existing approach
 					gates, err := featureGateAccessor.CurrentFeatureGates()
-					if err == nil && gates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+					if err == nil && common.ExternalOIDCWebhookArchitectureRequired(gates) {
 						return true
 					}
 
@@ -688,7 +688,7 @@ func prepareOauthAPIServerOperator(
 				ShouldDeleteFn: func() bool {
 					// If this call errors out, fallback to the existing approach
 					gates, err := featureGateAccessor.CurrentFeatureGates()
-					if err == nil && gates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+					if err == nil && common.ExternalOIDCWebhookArchitectureRequired(gates) {
 						return false
 					}
 
