@@ -467,6 +467,7 @@ github.com/openshift/library-go/pkg/operator/encryption/secrets
 github.com/openshift/library-go/pkg/operator/encryption/state
 github.com/openshift/library-go/pkg/operator/encryption/statemachine
 github.com/openshift/library-go/pkg/operator/events
+github.com/openshift/library-go/pkg/operator/externaloidc
 github.com/openshift/library-go/pkg/operator/genericoperatorclient
 github.com/openshift/library-go/pkg/operator/loglevel
 github.com/openshift/library-go/pkg/operator/management
@@ -499,10 +500,6 @@ github.com/openshift/multi-operator-manager/pkg/flagtypes
 github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration
 github.com/openshift/multi-operator-manager/pkg/library/libraryinputresources
 github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources
-# github.com/openshift/oauth-apiserver v0.0.0-20260520145010-97a820bd5412
-## explicit; go 1.24.0
-github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication
-github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1
 # github.com/openshift/osincli v0.0.0-20160924135400-fababb0555f2
 ## explicit
 github.com/openshift/osincli
