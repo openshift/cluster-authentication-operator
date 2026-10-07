@@ -165,8 +165,6 @@ github.com/openshift/library-go v0.0.0-20261014163427-72f37db3e12a h1:0ISKAP1/xE
 github.com/openshift/library-go v0.0.0-20261014163427-72f37db3e12a/go.mod h1:g3KONLBdxKU5r4K/Qcgg29Re5Rdx9URj0ZelXFGLxGo=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b h1:KT/Lnx+xlPZ4cN9z58KGjTShfnr9FqRpXm1etTv158Q=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b/go.mod h1:I/ZGCCccD9fBEOFGEp8mfOtq5h4o2lbCC2KWxOstMHM=
-github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e h1:4wDBGy60WxeQrsaB2G7938QdKOrsXbEylUYDaenumBg=
-github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e/go.mod h1:o03iCAF5NOwk7OFMVIGx5OkcTD4FfbInLeq0w8nMYcI=
 github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1 h1:PMTgifBcBRLJJiM+LgSzPDTk9/Rx4qS09OUrfpY6GBQ=
 github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1/go.mod h1:7Du3c42kxCUegi0IImZ1wUQzMBVecgIHjR1C+NkhLQo=
 github.com/openshift/osincli v0.0.0-20160924135400-fababb0555f2 h1:9oADVMmPa4G60MQtoSjD26aD/vZreqbIAfiUiO220eY=
