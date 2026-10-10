@@ -1,0 +1,809 @@
+---
+apiVersion: operator.openshift.io/v1
+kind: Authentication
+metadata:
+  annotations:
+    include.release.openshift.io/self-managed-high-availability: "true"
+    include.release.openshift.io/single-node-developer: "true"
+    release.openshift.io/create-only: "true"
+  creationTimestamp: "2025-09-09T00:02:33Z"
+  generation: 22
+  managedFields:
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"WebhookAuthenticatorCertApprover_OpenShiftAuthenticatorDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: WebhookAuthenticatorCertApprover_OpenShiftAuthenticator-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:13Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"ManagementStateDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: authentication-ManagementState
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:13Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"UnsupportedConfigOverridesUpgradeable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-UnsupportedConfigOverrides
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:13Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthAPIServerConfigObservationDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: oauth-apiserver-ConfigObserver
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"Encrypted"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-oauth-apiserver-EncryptionCondition
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"EncryptionKeyControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-oauth-apiserver-EncryptionKey
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"EncryptionMigrationControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"EncryptionMigrationControllerProgressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-oauth-apiserver-EncryptionMigration
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"EncryptionPruneControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-oauth-apiserver-EncryptionPrune
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"EncryptionStateControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-oauth-apiserver-EncryptionState
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:15Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthClientsController_SwitchedControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthClientsController_SwitchedController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:16Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"ResourceSyncControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: oauth-server-ResourceSync
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:20Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"AuditPolicyDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: oauth-apiserver-AuditPolicy
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:21Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"RouterCertsDomainValidationControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: RouterCertsDomainValidationController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:22Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"AuthenticatorCertKeyProgressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-WebhookAuthenticator
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:26Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"RevisionControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: RevisionController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:32Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:latestAvailableRevision: {}
+    manager: oauth-apiserver-RevisionController
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:08:32Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"APIServicesAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"APIServicesDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-apiserver-APIService
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:25:57Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OpenshiftAuthenticationStaticResourcesDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OpenshiftAuthenticationStaticResources-StaticResources
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:00Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"APIServerStaticResourcesDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: APIServerStaticResources-StaticResources
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:01Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"WebhookAuthenticatorControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: WebhookAuthenticatorController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:02Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServiceDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"SystemServiceCAConfigDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-ServiceCA
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:02Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"ProxyConfigControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: ProxyConfigController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:12Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"AuthConfigDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"IngressConfigDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthSystemMetadataDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-Metadata
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:12Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthConfigDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthConfigIngressDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthConfigRouteDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthConfigServiceDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthSessionSecretDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-PayloadConfig
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:26:19Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"ReadyIngressNodesAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-IngressNodesAvailable
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:28:27Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerServiceEndpointAccessibleControllerAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerService-EndpointAccessible
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:29:04Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerServiceEndpointAccessibleControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerServiceEndpointAccessibleController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:29:04Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerServiceEndpointsEndpointAccessibleControllerAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerServiceEndpoints-EndpointAccessible
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:29:04Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerServiceEndpointsEndpointAccessibleControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerServiceEndpointsEndpointAccessibleController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:29:04Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"IngressStateEndpointsDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"IngressStatePodsDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-IngressState
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:29:12Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"WellKnownReadyControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: WellKnownReadyController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:38:50Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"CustomRouteControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: CustomRouteController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:44:53Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"RouterCertsDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-RouterCertsDomainValidation
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:44:55Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthClientsControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthClientsController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:45:58Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"WellKnownAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"WellKnownReadyControllerProgressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: openshift-authentication-WellKnownReady
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:46:05Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerRouteEndpointAccessibleControllerAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerRoute-EndpointAccessible
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:46:46Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerRouteEndpointAccessibleControllerDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+    manager: OAuthServerRouteEndpointAccessibleController-reportDegraded
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:46:46Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerConfigObservationDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+    manager: oauth-server-ConfigObserver
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T00:55:34Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"OAuthServerDeploymentAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthServerDeploymentDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthServerDeploymentProgressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"OAuthServerWorkloadDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+        f:generations:
+          k:{"group":"apps","name":"oauth-openshift","namespace":"openshift-authentication","resource":"deployments"}:
+            .: {}
+            f:group: {}
+            f:lastGeneration: {}
+            f:name: {}
+            f:namespace: {}
+            f:resource: {}
+    manager: OAuthServer-Workload
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T01:25:42Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:status:
+        f:conditions:
+          k:{"type":"APIServerDeploymentAvailable"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"APIServerDeploymentDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"APIServerDeploymentProgressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"APIServerWorkloadDegraded"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:status: {}
+            f:type: {}
+        f:generations:
+          k:{"group":"apps","name":"apiserver","namespace":"openshift-oauth-apiserver","resource":"deployments"}:
+            .: {}
+            f:group: {}
+            f:lastGeneration: {}
+            f:name: {}
+            f:namespace: {}
+            f:resource: {}
+    manager: OAuthAPIServerController-Workload
+    operation: Apply
+    subresource: status
+    time: "2025-09-09T01:26:51Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          .: {}
+          f:include.release.openshift.io/self-managed-high-availability: {}
+          f:include.release.openshift.io/single-node-developer: {}
+          f:release.openshift.io/create-only: {}
+        f:ownerReferences:
+          .: {}
+          k:{"uid":"4e11cec4-056d-4b95-a391-a0912318fa40"}: {}
+      f:spec:
+        .: {}
+        f:logLevel: {}
+        f:managementState: {}
+        f:operatorLogLevel: {}
+    manager: cluster-version-operator
+    operation: Update
+    time: "2025-09-09T00:02:33Z"
+  - apiVersion: operator.openshift.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:spec:
+        f:observedConfig:
+          .: {}
+          f:oauthAPIServer:
+            .: {}
+            f:apiServerArguments:
+              .: {}
+              f:api-audiences: {}
+              f:cors-allowed-origins: {}
+              f:etcd-servers: {}
+              f:feature-gates: {}
+              f:tls-cipher-suites: {}
+              f:tls-min-version: {}
+          f:oauthServer:
+            .: {}
+            f:corsAllowedOrigins: {}
+            f:oauthConfig:
+              .: {}
+              f:assetPublicURL: {}
+              f:loginURL: {}
+              f:templates:
+                .: {}
+                f:error: {}
+                f:login: {}
+                f:providerSelection: {}
+              f:tokenConfig:
+                .: {}
+                f:accessTokenMaxAgeSeconds: {}
+                f:authorizeTokenMaxAgeSeconds: {}
+            f:serverArguments:
+              .: {}
+              f:audit-log-format: {}
+              f:audit-log-maxbackup: {}
+              f:audit-log-maxsize: {}
+              f:audit-log-path: {}
+              f:audit-policy-file: {}
+            f:servingInfo:
+              .: {}
+              f:cipherSuites: {}
+              f:minTLSVersion: {}
+              f:namedCertificates: {}
+            f:volumesToMount:
+              .: {}
+              f:identityProviders: {}
+        f:unsupportedConfigOverrides: {}
+    manager: authentication-operator
+    operation: Update
+    time: "2025-09-09T01:04:34Z"
+  name: cluster
+  ownerReferences:
+  - apiVersion: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+    uid: 4e11cec4-056d-4b95-a391-a0912318fa40
+  resourceVersion: "52477"
+  uid: fdd77cca-3d9e-4135-a1c1-33f9a1da3077
+spec:
+  logLevel: Normal
+  managementState: Managed
+  observedConfig:
+  operatorLogLevel: Normal
+  unsupportedConfigOverrides: null

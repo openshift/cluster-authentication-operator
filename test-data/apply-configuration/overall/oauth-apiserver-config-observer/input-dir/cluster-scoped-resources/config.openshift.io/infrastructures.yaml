@@ -1,0 +1,99 @@
+---
+apiVersion: config.openshift.io/v1
+items:
+- apiVersion: config.openshift.io/v1
+  kind: Infrastructure
+  metadata:
+    creationTimestamp: "2024-10-17T22:22:35Z"
+    generation: 1
+    managedFields:
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:spec:
+          .: {}
+          f:cloudConfig:
+            .: {}
+            f:name: {}
+          f:platformSpec:
+            .: {}
+            f:baremetal:
+              .: {}
+              f:apiServerInternalIPs: {}
+              f:ingressIPs: {}
+              f:machineNetworks: {}
+            f:type: {}
+      manager: cluster-bootstrap
+      operation: Update
+      time: "2024-10-17T22:22:35Z"
+    - apiVersion: config.openshift.io/v1
+      fieldsType: FieldsV1
+      fieldsV1:
+        f:status:
+          .: {}
+          f:apiServerInternalURI: {}
+          f:apiServerURL: {}
+          f:controlPlaneTopology: {}
+          f:cpuPartitioning: {}
+          f:etcdDiscoveryDomain: {}
+          f:infrastructureName: {}
+          f:infrastructureTopology: {}
+          f:platform: {}
+          f:platformStatus:
+            .: {}
+            f:baremetal:
+              .: {}
+              f:apiServerInternalIP: {}
+              f:apiServerInternalIPs: {}
+              f:ingressIP: {}
+              f:ingressIPs: {}
+              f:loadBalancer:
+                .: {}
+                f:type: {}
+              f:machineNetworks: {}
+            f:type: {}
+      manager: cluster-bootstrap
+      operation: Update
+      subresource: status
+      time: "2024-10-17T22:22:35Z"
+    name: cluster
+    resourceVersion: "517"
+    uid: 18848356-0a92-4985-b112-2dbe8a8012dd
+  spec:
+    cloudConfig:
+      name: ""
+    platformSpec:
+      baremetal:
+        apiServerInternalIPs:
+        - fd2e:6f44:5dd8:c956::5
+        ingressIPs:
+        - fd2e:6f44:5dd8:c956::4
+        machineNetworks:
+        - fd2e:6f44:5dd8:c956::/120
+      type: BareMetal
+  status:
+    apiServerInternalURI: https://api-int.ostest.test.metalkube.org:6443
+    apiServerURL: https://api.ostest.test.metalkube.org:6443
+    controlPlaneTopology: HighlyAvailable
+    cpuPartitioning: None
+    etcdDiscoveryDomain: ""
+    infrastructureName: ostest-knqsq
+    infrastructureTopology: HighlyAvailable
+    platform: BareMetal
+    platformStatus:
+      baremetal:
+        apiServerInternalIP: fd2e:6f44:5dd8:c956::5
+        apiServerInternalIPs:
+        - fd2e:6f44:5dd8:c956::5
+        ingressIP: fd2e:6f44:5dd8:c956::4
+        ingressIPs:
+        - fd2e:6f44:5dd8:c956::4
+        loadBalancer:
+          type: OpenShiftManagedDefault
+        machineNetworks:
+        - fd2e:6f44:5dd8:c956::/120
+      type: BareMetal
+kind: InfrastructureList
+metadata:
+  continue: ""
+  resourceVersion: "229157"
