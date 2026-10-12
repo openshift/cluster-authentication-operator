@@ -51,13 +51,14 @@ func NewExternalOIDCController(
 	configMaps corev1client.ConfigMapsGetter,
 	recorder events.Recorder,
 	featureGates featuregates.FeatureGate,
+	proxyResolver common.ObservableProxyResolver,
 ) factory.Controller {
 	var authCfgGenerator authConfigGenerator
 
 	authCfgGenerator = kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
 
 	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
-		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates)
+		authCfgGenerator = oauthapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), kubeInformersForNamespaces.SecretLister(), featureGates, proxyResolver)
 	}
 
 	c := &externalOIDCController{
@@ -75,6 +76,8 @@ func NewExternalOIDCController(
 		kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().ConfigMaps().Informer(),
 		// track auth resource
 		configInformer.Config().V1().Authentications().Informer(),
+		// track cluster proxy configuration and its trusted CA ConfigMap
+		proxyResolver.Informer(),
 	).WithFilteredEventsInformers(
 		// track openshift-config-managed/auth-config cm in case it gets changed externally
 		factory.NamesFilter(targetAuthConfigCMName),

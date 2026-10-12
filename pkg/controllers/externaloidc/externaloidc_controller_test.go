@@ -23,8 +23,10 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
+	authenticationv1alpha1 "github.com/openshift/oauth-apiserver/pkg/externaloidc/apis/authentication/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -211,6 +213,21 @@ func TestExternalOIDCController_sync(t *testing.T) {
 						authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
 					},
 				}),
+			},
+			expectEvents: true,
+		},
+		{
+			name:                 "auth type OIDC applies OAuth API server proxy trusted CA path",
+			authType:             configv1.AuthenticationTypeOIDC,
+			existingAuthConfigCM: &baseAuthConfigCM,
+			configGenerator: &mockAuthConfigGenerator[*authenticationv1alpha1.AuthenticationConfiguration]{
+				cfg: &authenticationv1alpha1.AuthenticationConfiguration{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "AuthenticationConfiguration",
+						APIVersion: authenticationv1alpha1.SchemeGroupVersion.String(),
+					},
+					ProxyTrustedCA: common.ComponentProxyCAFilePath,
+				},
 			},
 			expectEvents: true,
 		},
