@@ -14,7 +14,7 @@ require (
 	github.com/openshift/api v0.0.0-20261009034342-f9511d3fcb26
 	github.com/openshift/build-machinery-go v0.0.0-20260902143904-520f675c892b
 	github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1
-	github.com/openshift/library-go v0.0.0-20261009174154-0efe4e0bc2cb
+	github.com/openshift/library-go v0.0.0-20261012084302-f23ec502bed4
 	github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b
 	github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e
 	github.com/spf13/cobra v1.10.2
@@ -139,3 +139,6 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+// branch: external-oidc-proxy-feature-gate
+replace github.com/openshift/api => github.com/tchap/api v0.0.0-20261012082330-99cb5bc34259
