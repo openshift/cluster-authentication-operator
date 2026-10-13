@@ -2,9 +2,9 @@ package libraryapplyconfiguration
 
 import (
 	"fmt"
+
 	"github.com/openshift/library-go/pkg/manifestclient"
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryoutputresources"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type clientBasedClusterApplyResult struct {
@@ -116,7 +116,7 @@ func RemoveEvents(requests []manifestclient.SerializedRequestish) []manifestclie
 
 	for _, curr := range requests {
 		metadata := curr.GetSerializedRequest().GetLookupMetadata()
-		if metadata.ResourceType.GroupResource() == coreEventGR || metadata.ResourceType.GroupResource() == eventGR {
+		if isEventResource(metadata.ResourceType.GroupResource()) {
 			continue
 		}
 		filteredRequests = append(filteredRequests, curr)
@@ -136,24 +136,13 @@ func FilterSerializedRequests(requests []manifestclient.SerializedRequestish, al
 	return filteredRequests
 }
 
-var (
-	coreEventGR = schema.GroupResource{
-		Group:    "",
-		Resource: "events",
-	}
-	eventGR = schema.GroupResource{
-		Group:    "events.k8s.io",
-		Resource: "events",
-	}
-)
-
 func metadataMatchesFilter(metadata manifestclient.ActionMetadata, allowedResources *libraryoutputresources.ResourceList) bool {
 	if allowedResources == nil {
 		return true
 	}
 
 	gr := metadata.ResourceType.GroupResource()
-	if gr == coreEventGR || gr == eventGR {
+	if isEventResource(gr) {
 		for _, curr := range allowedResources.EventingNamespaces {
 			if metadata.Namespace == curr {
 				return true

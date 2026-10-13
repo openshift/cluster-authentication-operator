@@ -3,13 +3,15 @@ package libraryapplyconfiguration
 import (
 	"bytes"
 	"fmt"
+	"reflect"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/openshift/library-go/pkg/manifestclient"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"reflect"
 )
 
 func EquivalentApplyConfigurationResultIgnoringEvents(lhs, rhs ApplyConfigurationResult) []string {
@@ -185,18 +187,6 @@ func reasonForDiff(nameOfDestination string, sourceRequestsToCheck []manifestcli
 			}
 
 			// we know the metadata is the same, something else doesn't match
-			if !bytes.Equal(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body) {
-				mismatchReasons = append(mismatchReasons,
-					fmt.Sprintf("mutation: %v, fieldManager=%v, controllerInstanceName=%v, %v[%d]: body diff: %v",
-						currSourceRequest.GetSerializedRequest().StringID(),
-						lhsMetadata.fieldManager,
-						lhsMetadata.controllerInstanceName,
-						nameOfDestination,
-						i,
-						cmp.Diff(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body),
-					),
-				)
-			}
 			if !bytes.Equal(currSourceRequest.GetSerializedRequest().Options, currDestinationRequest.GetSerializedRequest().Options) {
 				mismatchReasons = append(mismatchReasons,
 					fmt.Sprintf("mutation: %v, fieldManager=%v, controllerInstanceName=%v, %v[%d]: options diff: %v",
@@ -206,6 +196,25 @@ func reasonForDiff(nameOfDestination string, sourceRequestsToCheck []manifestcli
 						nameOfDestination,
 						i,
 						cmp.Diff(currSourceRequest.GetSerializedRequest().Options, currDestinationRequest.GetSerializedRequest().Options),
+					),
+				)
+			}
+
+			metadata := currSourceRequest.GetSerializedRequest().GetLookupMetadata()
+			if isResourceIgnoredForBodyComparison(metadata.ResourceType.GroupResource()) {
+				found = true
+				break
+			}
+
+			if !bytes.Equal(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body) {
+				mismatchReasons = append(mismatchReasons,
+					fmt.Sprintf("mutation: %v, fieldManager=%v, controllerInstanceName=%v, %v[%d]: body diff: %v",
+						currSourceRequest.GetSerializedRequest().StringID(),
+						lhsMetadata.fieldManager,
+						lhsMetadata.controllerInstanceName,
+						nameOfDestination,
+						i,
+						cmp.Diff(currSourceRequest.GetSerializedRequest().Body, currDestinationRequest.GetSerializedRequest().Body),
 					),
 				)
 			}
@@ -219,4 +228,12 @@ func reasonForDiff(nameOfDestination string, sourceRequestsToCheck []manifestcli
 		reasons = append(reasons, mismatchReasons...)
 	}
 	return reasons
+}
+
+func isResourceIgnoredForBodyComparison(gr schema.GroupResource) bool {
+	return gr == csrGR
+}
+
+func isEventResource(gr schema.GroupResource) bool {
+	return gr == coreEventGR || gr == eventGR
 }

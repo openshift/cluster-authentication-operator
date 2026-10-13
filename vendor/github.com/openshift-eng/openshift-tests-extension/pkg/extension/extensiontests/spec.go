@@ -3,6 +3,7 @@ package extensiontests
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -193,13 +194,30 @@ func (specs ExtensionTestSpecs) Names() []string {
 }
 
 // Run executes all the specs in parallel, up to maxConcurrent at the same time. Results
-// are written to the given ResultWriter after each spec has completed execution.  BeforeEach,
-// BeforeAll, AfterEach, AfterAll hooks are executed when specified. "Each" hooks must be thread
-// safe. Returns an error if any test spec failed, indicating the quantity of failures.
-func (specs ExtensionTestSpecs) Run(ctx context.Context, w ResultWriter, maxConcurrent int) ([]*ExtensionTestResult, error) {
-	queue := make(chan *ExtensionTestSpec)
+// are written to the given ResultWriter after each spec has completed execution. Hooks
+// run in the following order per spec: BeforeSpawn (only before RunParallel), BeforeEach,
+// test execution, AfterEach. BeforeAll runs once before any spec; AfterAll runs once after
+// all specs complete. "Each" and "Spawn" hooks must be thread safe.
+// Returns an error if any test spec failed, indicating the quantity of failures.
+//
+// Tests are scheduled using isolation-aware scheduling that respects conflicts, taints, and
+// tolerations defined in each spec's Resources.Isolation field.
+func (specs ExtensionTestSpecs) Run(ctx context.Context, w ResultWriter, maxConcurrent int, opts ...SchedulerOption) ([]*ExtensionTestResult, error) {
 	terminalFailures := atomic.Int64{}
 	nonTerminalFailures := atomic.Int64{}
+
+	// if we have only a single spec to run, we do that differently than running multiple.
+	// multiple specs can run in parallel and do so by exec-ing back into the binary with `run-test` with a single test to execute.
+	// This means that to avoid infinite recursion, when requesting a single test to run
+	// we need to run it in process.
+	runSingleSpec := len(specs) == 1
+
+	// Create scheduler before BeforeAll hooks so validation errors don't leave
+	// setup side effects without cleanup.
+	scheduler, err := NewScheduler(specs, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scheduler: %w", err)
+	}
 
 	// Execute beforeAll
 	for _, spec := range specs {
@@ -208,20 +226,6 @@ func (specs ExtensionTestSpecs) Run(ctx context.Context, w ResultWriter, maxConc
 		}
 	}
 
-	// Feed the queue
-	go func() {
-		specs.Walk(func(spec *ExtensionTestSpec) {
-			queue <- spec
-		})
-		close(queue)
-	}()
-
-	// if we have only a single spec to run, we do that differently than running multiple.
-	// multiple specs can run in parallel and do so by exec-ing back into the binary with `run-test` with a single test to execute.
-	// This means that to avoid infinite recursion, when requesting a single test to run
-	// we need to run it in process.
-	runSingleSpec := len(specs) == 1
-
 	// Start consumers
 	var wg sync.WaitGroup
 	resultChan := make(chan *ExtensionTestResult, len(specs))
@@ -229,29 +233,59 @@ func (specs ExtensionTestSpecs) Run(ctx context.Context, w ResultWriter, maxConc
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for spec := range queue {
-				for _, beforeEachTask := range spec.beforeEach {
-					beforeEachTask.Run(*spec)
+			for {
+				// Get next runnable test from scheduler (blocks until available or done)
+				spec := scheduler.GetNextTestToRun(ctx)
+				if spec == nil {
+					return // No more tests or context cancelled
 				}
 
-				res := runSpec(ctx, spec, runSingleSpec)
-				if res.Result == ResultFailed {
-					if res.Lifecycle.IsTerminal() {
-						terminalFailures.Add(1)
-					} else {
-						nonTerminalFailures.Add(1)
+				func() {
+					defer scheduler.MarkTestComplete(spec)
+
+					// BeforeSpawn runs only when this invocation will use RunParallel.
+					// Single-spec run-test children execute Run in-process and skip it,
+					// even when a custom parent runner does not set SpawnedChildEnv.
+					willRunParallel := !runSingleSpec && spec.RunParallel != nil
+					if willRunParallel && os.Getenv(SpawnedChildEnv) != "1" {
+						options := &SpawnOptions{
+							Env:     maps.Clone(spec.Env),
+							Timeout: spec.Timeout,
+						}
+						for _, beforeSpawnTask := range spec.beforeSpawn {
+							beforeSpawnTask.Run(spec.Name, options)
+						}
+						spec.Env = maps.Clone(options.Env)
+						spec.Timeout = options.Timeout
 					}
-				}
 
-				for _, afterEachTask := range spec.afterEach {
-					afterEachTask.Run(res)
-				}
+					for _, beforeEachTask := range spec.beforeEach {
+						// Clone Env so BeforeEach cannot mutate the map that RunParallel
+						// later passes to the child. Other fields stay a shallow copy.
+						snapshot := *spec
+						snapshot.Env = maps.Clone(spec.Env)
+						beforeEachTask.Run(snapshot)
+					}
 
-				// We can't assume the runner will set the name of a test; it may not know it. Even if
-				// it does, we may want to modify it (e.g. k8s-tests for annotations currently).
-				res.Name = spec.Name
-				w.Write(res)
-				resultChan <- res
+					res := runSpec(ctx, spec, runSingleSpec)
+					if res.Result == ResultFailed {
+						if res.Lifecycle.IsTerminal() {
+							terminalFailures.Add(1)
+						} else {
+							nonTerminalFailures.Add(1)
+						}
+					}
+
+					for _, afterEachTask := range spec.afterEach {
+						afterEachTask.Run(res)
+					}
+
+					// We can't assume the runner will set the name of a test; it may not know it. Even if
+					// it does, we may want to modify it (e.g. k8s-tests for annotations currently).
+					res.Name = spec.Name
+					w.Write(res)
+					resultChan <- res
+				}()
 			}
 		}()
 	}
@@ -307,9 +341,21 @@ func (specs ExtensionTestSpecs) AddAfterAll(fn func()) {
 	})
 }
 
+// AddBeforeSpawn adds a function that receives the test name and configurable spawn options
+// immediately before RunParallel. It is skipped when the spec runs in-process and in marked
+// spawned run-test children. Env is nil by default; hooks must initialize it before writing
+// (e.g. options.Env = map[string]string{...}). The provided function must be thread safe.
+func (specs ExtensionTestSpecs) AddBeforeSpawn(fn func(name string, options *SpawnOptions)) {
+	task := &BeforeSpawnTask{fn: fn}
+	specs.Walk(func(spec *ExtensionTestSpec) {
+		spec.beforeSpawn = append(spec.beforeSpawn, task)
+	})
+}
+
 // AddBeforeEach adds a function that runs before each test starts executing. The ExtensionTestSpec is
-// passed in for contextual information, but must not be modified. The provided function must be thread
-// safe.
+// passed in for contextual information, but must not be modified. Env is cloned before the callback
+// so map mutations cannot affect the environment passed to RunParallel. The provided function must
+// be thread safe.
 func (specs ExtensionTestSpecs) AddBeforeEach(fn func(spec ExtensionTestSpec)) {
 	task := &SpecTask{fn: fn}
 	specs.Walk(func(spec *ExtensionTestSpec) {
@@ -615,6 +661,20 @@ func runSpec(ctx context.Context, spec *ExtensionTestSpec, runSingleSpec bool) *
 	}
 	if res.Duration == 0 {
 		res.Duration = duration.Milliseconds()
+	}
+
+	// Normalize unknown result types to ResultFailed so the scheduler's failure
+	// counting and the process exit code stay consistent with JUnit output.
+	// An unknown result (e.g. empty string) would otherwise cause run-suite to
+	// exit 0 while JUnit reports a failure.
+	switch res.Result {
+	case ResultPassed, ResultFailed, ResultSkipped:
+		// valid
+	default:
+		if res.Error == "" {
+			res.Error = fmt.Sprintf("test produced unknown result type %q; normalized to failed", res.Result)
+		}
+		res.Result = ResultFailed
 	}
 
 	return res
