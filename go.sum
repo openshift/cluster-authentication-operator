@@ -12,6 +12,8 @@ github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYW
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
+github.com/bertinatto/library-go v0.0.0-20261013210914-393499c6e5b7 h1:UM4tiUSC5lm0LybEUxh/PY/8fTp7neek+srrEJ62EyM=
+github.com/bertinatto/library-go v0.0.0-20261013210914-393499c6e5b7/go.mod h1:g3KONLBdxKU5r4K/Qcgg29Re5Rdx9URj0ZelXFGLxGo=
 github.com/blang/semver/v4 v4.0.0 h1:1PFHFE6yCCTv8C1TeyNNarDzntLi7wMI5i/pzqYIsAM=
 github.com/blang/semver/v4 v4.0.0/go.mod h1:IbckMUScFkM3pff0VJDNKRiT6TG/YpiHIM2yvyW5YoQ=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
@@ -161,8 +163,6 @@ github.com/openshift/build-machinery-go v0.0.0-20260902143904-520f675c892b h1:Er
 github.com/openshift/build-machinery-go v0.0.0-20260902143904-520f675c892b/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1 h1:HpoDz9EFYX1ujThB6iTQULFIMhUkvo7BhQb/7HSYPy4=
 github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1/go.mod h1:lFvdJoRyqXFPBtBOFrIo3aAhGutLblBULzdjC96NavI=
-github.com/openshift/library-go v0.0.0-20261009174154-0efe4e0bc2cb h1:LaVwv2K5EEIrsUWCCYkjbWd3u9wHxRBz2HR8WnRBbXw=
-github.com/openshift/library-go v0.0.0-20261009174154-0efe4e0bc2cb/go.mod h1:g3KONLBdxKU5r4K/Qcgg29Re5Rdx9URj0ZelXFGLxGo=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b h1:KT/Lnx+xlPZ4cN9z58KGjTShfnr9FqRpXm1etTv158Q=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b/go.mod h1:I/ZGCCccD9fBEOFGEp8mfOtq5h4o2lbCC2KWxOstMHM=
 github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e h1:4wDBGy60WxeQrsaB2G7938QdKOrsXbEylUYDaenumBg=
