@@ -496,7 +496,8 @@ type RotationScenario struct {
 }
 
 // TestEncryptionRotation encrypts data, forces a provider-specific key rotation, waits for
-// re-migration to complete, and verifies the resource was re-encrypted with different content.
+// re-migration to complete, verifies the resource was re-encrypted with different content,
+// and reverts to identity so the cluster is left in a clean state for the next test.
 func TestEncryptionRotation(ctx context.Context, t testing.TB, scenario RotationScenario) {
 	// test data
 	ns := scenario.Namespace
@@ -529,6 +530,9 @@ func TestEncryptionRotation(ctx context.Context, t testing.TB, scenario Rotation
 	if rawEncryptedResourceWithKey1 == rawEncryptedResourceWithKey2 {
 		t.Errorf("expected the resource to have different content after a key rotation,\ncontentBeforeRotation %s\ncontentAfterRotation %s", rawEncryptedResourceWithKey1, rawEncryptedResourceWithKey2)
 	}
+
+	// step 6: revert to identity so the cluster is left in a clean state for the next test
+	TestEncryptionTypeIdentity(ctx, t, scenario.BasicScenario)
 
 	// TODO: assert conditions - operator and encryption migration controller must report status as active not progressing, and not failing for all scenarios
 }
@@ -588,7 +592,7 @@ func TestInPlaceUpdate(ctx context.Context, t testing.TB, scenarios ...InPlaceUp
 	provider := providers[0]
 	updatedProvider := updatedProviders[0]
 
-	var createSteps, encryptSteps, assertEncryptedSteps, baselineSteps, waitSteps, assertAfterSteps, assertInPlaceSteps []testStep
+	var createSteps, encryptSteps, assertEncryptedSteps, baselineSteps, waitSteps, assertAfterSteps, assertInPlaceSteps, revertSteps []testStep
 	for _, scenario := range scenarios {
 		// baseline is captured before the shared update and read by the wait step. Each iteration owns
 		// its own baseline variable, so the parallel baseline and wait phases never race.
@@ -625,6 +629,9 @@ func TestInPlaceUpdate(ctx context.Context, t testing.TB, scenarios ...InPlaceUp
 			require.NoError(e, err)
 			scenario.AssertInPlaceUpdateFunc(e, clientSet, keyMeta)
 		}})
+		revertSteps = append(revertSteps, testStep{name: fmt.Sprintf("RevertToIdentity%s", scenario.ResourceName), testFunc: func(t testing.TB) {
+			TestEncryptionTypeIdentity(ctx, t, scenario.BasicScenario)
+		}})
 	}
 
 	// Apply the shared plugin-CRD update once, after every baseline is recorded, so no baseline can
@@ -635,12 +642,8 @@ func TestInPlaceUpdate(ctx context.Context, t testing.TB, scenarios ...InPlaceUp
 		}
 	}}
 
-	// Return the cluster-wide APIServer config to identity so the next test starts fresh, the same way
-	// the other scenarios do. The config is cluster-wide, so reverting it via one scenario reverts it
-	// for every operator.
-	revertToIdentity := testStep{name: "RevertToIdentity", testFunc: func(t testing.TB) {
-		TestEncryptionTypeIdentity(ctx, t, scenarios[0].BasicScenario)
-	}}
+	// The configuration is cluster-wide, but migration completes independently for
+	// each operator. Wait for every scenario before the next test starts.
 
 	steps := []testStep{
 		inParallel(createSteps...),
@@ -651,7 +654,7 @@ func TestInPlaceUpdate(ctx context.Context, t testing.TB, scenarios ...InPlaceUp
 		inParallel(waitSteps...),
 		inParallel(assertAfterSteps...),
 		inParallel(assertInPlaceSteps...),
-		revertToIdentity,
+		inParallel(revertSteps...),
 	}
 
 	for _, step := range steps {
