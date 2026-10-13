@@ -27,7 +27,7 @@ func GetIngressConfig(ingressLister configv1lister.IngressLister, conditionPrefi
 			Type:    conditionPrefix + "Degraded",
 			Status:  operatorv1.ConditionTrue,
 			Reason:  "Invalid",
-			Message: fmt.Sprintf("The ingress config domain cannot be empty"),
+			Message: "The ingress config domain cannot be empty",
 		}}
 	}
 	return ingress, nil

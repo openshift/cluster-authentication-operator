@@ -363,7 +363,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			fakeKubeClient := fake.NewSimpleClientset()
 
 			target := &OAuthAPIServerWorkload{
-				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
+				countNodes:                func(nodeSelector map[string]string) (*int32, error) { i := int32(1); return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
 				featureGateAccessor:       scenario.featureGates,

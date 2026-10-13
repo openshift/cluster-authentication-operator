@@ -46,11 +46,11 @@ func isUnsupportedUnsafeAuthentication(spec *operatorv1.OperatorSpec) (bool, err
 	if !found {
 		return false, nil
 	}
-	switch value.(type) {
+	switch value := value.(type) {
 	case bool:
-		return value.(bool), nil
+		return value, nil
 	case string:
-		return strconv.ParseBool(value.(string))
+		return strconv.ParseBool(value)
 	default:
 		return false, nil
 	}
