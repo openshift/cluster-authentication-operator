@@ -161,8 +161,6 @@ github.com/openshift/build-machinery-go v0.0.0-20260902143904-520f675c892b h1:Er
 github.com/openshift/build-machinery-go v0.0.0-20260902143904-520f675c892b/go.mod h1:8jcm8UPtg2mCAsxfqKil1xrmRMI3a+XU2TZ9fF8A7TE=
 github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1 h1:HpoDz9EFYX1ujThB6iTQULFIMhUkvo7BhQb/7HSYPy4=
 github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1/go.mod h1:lFvdJoRyqXFPBtBOFrIo3aAhGutLblBULzdjC96NavI=
-github.com/openshift/library-go v0.0.0-20261014055851-5f23482209db h1:JE50Kd18Kelu8POB4VX8GsTeaARlECdXRnQf8DUvs10=
-github.com/openshift/library-go v0.0.0-20261014055851-5f23482209db/go.mod h1:g3KONLBdxKU5r4K/Qcgg29Re5Rdx9URj0ZelXFGLxGo=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b h1:KT/Lnx+xlPZ4cN9z58KGjTShfnr9FqRpXm1etTv158Q=
 github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b/go.mod h1:I/ZGCCccD9fBEOFGEp8mfOtq5h4o2lbCC2KWxOstMHM=
 github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e h1:4wDBGy60WxeQrsaB2G7938QdKOrsXbEylUYDaenumBg=
@@ -212,6 +210,8 @@ github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
+github.com/tjungblu/library-go v0.0.0-20261014110312-fdba861742a9 h1:xZfA4R2XdhUjI26oTBUvrhVopx1va/vKPd3PdgLmqj8=
+github.com/tjungblu/library-go v0.0.0-20261014110312-fdba861742a9/go.mod h1:g3KONLBdxKU5r4K/Qcgg29Re5Rdx9URj0ZelXFGLxGo=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
