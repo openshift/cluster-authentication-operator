@@ -16,7 +16,6 @@ require (
 	github.com/openshift/client-go v0.0.0-20261006222332-348fc1ca8bb1
 	github.com/openshift/library-go v0.0.0-20261016065345-a04ab1d10e10
 	github.com/openshift/multi-operator-manager v0.0.0-20260112172834-b64ebc8c627b
-	github.com/openshift/oauth-apiserver v0.0.0-20260911161042-dd82b4a7e06e
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
