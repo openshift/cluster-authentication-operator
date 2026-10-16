@@ -70,9 +70,21 @@ func testExternalOIDCWithKeycloak(ctx context.Context, t testing.TB) {
 	testClient, err := newTestClient(t, testCtx)
 	require.NoError(t, err)
 
-	checkFeatureGatesOrSkip(t, testCtx, testClient.configClient, features.FeatureGateExternalOIDC, features.FeatureGateExternalOIDCWithAdditionalClaimMappings)
+	testClient.enabledFeatures, err = enabledFeatureGates(testCtx, testClient.configClient)
+	require.NoError(t, err)
 
-	newExternalOIDCArchitectureEnabled := featureGateEnabled(testCtx, testClient.configClient, features.FeatureGateExternalOIDCExternalClaimsSourcing)
+	requiredFeatures := []configv1.FeatureGateName{
+		features.FeatureGateExternalOIDC,
+		features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+	}
+	if !testClient.enabledFeatures.HasAny(requiredFeatures...) {
+		t.Skipf("skipping as none of the feature gates in %v are enabled", requiredFeatures)
+	}
+
+	newExternalOIDCArchitectureEnabled := testClient.enabledFeatures.HasAny(
+		features.FeatureGateExternalOIDCAsWebhook,
+		features.FeatureGateExternalOIDCExternalClaimsSourcing,
+	)
 
 	// post-test cluster cleanup
 	var cleanups []func()
@@ -205,15 +217,8 @@ func testExternalOIDCWithKeycloak(ctx context.Context, t testing.TB) {
 
 	for _, tt := range celTests {
 		t.Logf("  - Testing: %s", tt.name)
-		skipTest := false
-		for _, fg := range tt.requireFeatureGates {
-			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
-				t.Logf("    SKIPPED: required feature gate %q is not enabled", fg)
-				skipTest = true
-				break
-			}
-		}
-		if skipTest {
+		if missing := sets.New(tt.requireFeatureGates...).Difference(testClient.enabledFeatures); missing.Len() > 0 {
+			t.Logf("    SKIPPED: required feature gates not enabled: %v", sets.List(missing))
 			continue
 		}
 
@@ -224,42 +229,38 @@ func testExternalOIDCWithKeycloak(ctx context.Context, t testing.TB) {
 	t.Logf("<<< Sub-test 2 PASSED: invalid CEL expression tests completed")
 
 	// ========================================================================
-	// Sub-test 3: invalid OIDC config degrades auth operator
+	// Sub-test 3: OIDC configuration validation behavior
 	// ========================================================================
-	t.Logf(">>> Sub-test 3: invalid OIDC config degrades auth operator")
+	t.Logf(">>> Sub-test 3: OIDC configuration validation behavior")
 	invalidConfigTests := []struct {
-		name                string
-		specUpdate          func(*configv1.AuthenticationSpec)
-		requireFeatureGates []configv1.FeatureGateName
+		name                  string
+		specUpdate            func(*configv1.AuthenticationSpec)
+		expectLegacyDegraded  bool
+		expectWebhookDegraded bool
 	}{
 		{
 			name: "invalid issuer CA bundle",
 			specUpdate: func(s *configv1.AuthenticationSpec) {
 				s.OIDCProviders[0].Issuer.CertificateAuthority.Name = "invalid-ca-bundle"
 			},
-			requireFeatureGates: []configv1.FeatureGateName{},
+			expectLegacyDegraded:  true,
+			expectWebhookDegraded: true,
 		},
 		{
-			name: "invalid issuer URL",
+			name: "unreachable issuer URL",
 			specUpdate: func(s *configv1.AuthenticationSpec) {
-				s.OIDCProviders[0].Issuer.URL = "https://invalid-idp.testing"
+				s.OIDCProviders[0].Issuer.URL = "https://unreachable-idp.invalid"
 			},
-			requireFeatureGates: []configv1.FeatureGateName{},
+			expectLegacyDegraded:  true,
+			expectWebhookDegraded: false,
 		},
 	}
 
 	for _, tt := range invalidConfigTests {
 		t.Logf("  - Testing: %s", tt.name)
-		skipTest := false
-		for _, fg := range tt.requireFeatureGates {
-			if !featureGateEnabled(testCtx, testClient.configClient, fg) {
-				t.Logf("    SKIPPED: required feature gate %q is not enabled", fg)
-				skipTest = true
-				break
-			}
-		}
-		if skipTest {
-			continue
+		expectDegraded := tt.expectLegacyDegraded
+		if newExternalOIDCArchitectureEnabled {
+			expectDegraded = tt.expectWebhookDegraded
 		}
 
 		err := testClient.authResourceRollback(testCtx, origAuthSpec)
@@ -267,15 +268,25 @@ func testExternalOIDCWithKeycloak(ctx context.Context, t testing.TB) {
 
 		testClient.checkPreconditions(t, testCtx, typeOAuth, operatorAvailable, nil)
 
-		_, err = testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
+		auth, err := testClient.updateAuthResource(t, testCtx, testSpec, tt.specUpdate)
 		require.NoError(t, err, "failed to update authentication/cluster")
 
-		require.NoError(t, test.WaitForClusterOperatorDegraded(t, testClient.configClient.ConfigV1(), "authentication"))
+		if expectDegraded {
+			require.NoError(t, test.WaitForClusterOperatorDegraded(t, testClient.configClient.ConfigV1(), "authentication"))
 
-		testClient.validateOAuthState(t, testCtx, false, newExternalOIDCArchitectureEnabled)
-		t.Logf("    PASSED: operator degraded as expected")
+			testClient.validateOAuthState(t, testCtx, false, newExternalOIDCArchitectureEnabled)
+			t.Logf("    PASSED: operator degraded as expected")
+			continue
+		}
+
+		require.NoError(t, testClient.waitForAuthConfigIssuer(testCtx, auth.Spec.OIDCProviders[0].Issuer.URL))
+
+		require.NoError(t, test.WaitForClusterOperatorAvailableNotProgressingNotDegraded(
+			t, testClient.configClient.ConfigV1(),
+			"authentication",
+		))
 	}
-	t.Logf("<<< Sub-test 3 PASSED: invalid OIDC config degradation tests completed")
+	t.Logf("<<< Sub-test 3 PASSED: OIDC configuration validation tests completed")
 
 	// ========================================================================
 	// Sub-test 4: OIDC config rolls out successfully with different
@@ -518,35 +529,6 @@ func extractRSAPubKeyFunc(issuerJWKS *jwks) func(*jwt.Token) (any, error) {
 	}
 }
 
-func checkFeatureGatesOrSkip(t testing.TB, ctx context.Context, configClient *configclient.Clientset, features ...configv1.FeatureGateName) {
-	featureGates, err := configClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
-	require.NoError(t, err)
-
-	if len(featureGates.Status.FeatureGates) != 1 {
-		// fail test if there are multiple feature gate versions (i.e. ongoing upgrade)
-		t.Fatalf("multiple feature gate versions detected")
-		return
-	}
-
-	atLeastOneFeatureEnabled := false
-	for _, feature := range features {
-		for _, gate := range featureGates.Status.FeatureGates[0].Enabled {
-			if gate.Name == feature {
-				atLeastOneFeatureEnabled = true
-				break
-			}
-		}
-
-		if atLeastOneFeatureEnabled {
-			break
-		}
-	}
-
-	if !atLeastOneFeatureEnabled {
-		t.Skipf("skipping as none of the feature gates in %v are enabled", features)
-	}
-}
-
 func authSpecForOIDCProvider(idpName, idpURL, caBundleName, groupsClaim string, oidcClientID configv1.TokenAudience) *configv1.AuthenticationSpec {
 	spec := configv1.AuthenticationSpec{
 		Type:                      configv1.AuthenticationTypeOIDC,
@@ -591,6 +573,8 @@ type testClient struct {
 	oauthClient           oauthclient.Interface
 	routeClient           routeclient.Interface
 	apiregistrationClient apiregistrationclient.Interface
+
+	enabledFeatures sets.Set[configv1.FeatureGateName]
 }
 
 func newTestClient(t testing.TB, ctx context.Context) (*testClient, error) {
@@ -798,7 +782,7 @@ func (tc *testClient) validateAuthConfigJSON(t testing.TB, ctx context.Context, 
 
 	authConfigJSONTemplate := `{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{}}}]}`
 	// If the ExternalOIDCWithUIDAndExtraClaimMappings feature gate is enabled, default the uid claim to "sub"
-	if featureGateEnabled(ctx, tc.configClient, features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
+	if tc.enabledFeatures.Has(features.FeatureGateExternalOIDCWithAdditionalClaimMappings) {
 		authConfigJSONTemplate = `{"kind":"AuthenticationConfiguration","apiVersion":"apiserver.config.k8s.io/v1beta1","jwt":[{"issuer":{"url":"%s","certificateAuthority":"%s","audiences":[%s],"audienceMatchPolicy":"MatchAny"},"claimMappings":{"username":{"claim":"%s","prefix":"%s"},"groups":{"claim":"%s","prefix":"%s"},"uid":{"claim":"sub"}}}]}`
 	}
 
@@ -824,6 +808,54 @@ func (tc *testClient) validateAuthConfigJSON(t testing.TB, ctx context.Context, 
 		require.NoError(t, err)
 		require.Equal(t, expectedAuthConfigJSON, actualCM.Data["auth-config.json"], "unexpected auth-config.json contents in %s/%s", actualCM.Namespace, actualCM.Name)
 	}
+}
+
+func (tc *testClient) waitForAuthConfigIssuer(ctx context.Context, expectedIssuer string) error {
+	var lastObservation string
+	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		cm, err := tc.kubeClient.CoreV1().ConfigMaps(managedNS).Get(ctx, authCM, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			lastObservation = "auth-config ConfigMap does not exist"
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+
+		authConfigJSON, ok := cm.Data["auth-config.json"]
+		if !ok {
+			lastObservation = "auth-config.json key does not exist"
+			return false, nil
+		}
+
+		var authConfig struct {
+			JWT []struct {
+				Issuer struct {
+					URL string `json:"url"`
+				} `json:"issuer"`
+			} `json:"jwt"`
+		}
+		if err := json.Unmarshal([]byte(authConfigJSON), &authConfig); err != nil {
+			lastObservation = fmt.Sprintf("auth-config.json could not be decoded: %v", err)
+			return false, nil
+		}
+
+		observedIssuers := make([]string, 0, len(authConfig.JWT))
+		for _, jwt := range authConfig.JWT {
+			observedIssuers = append(observedIssuers, jwt.Issuer.URL)
+			if jwt.Issuer.URL == expectedIssuer {
+				return true, nil
+			}
+		}
+
+		lastObservation = fmt.Sprintf("observed issuers: %v", observedIssuers)
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("waiting for issuer %q in %s/%s: %w (last observation: %s)", expectedIssuer, managedNS, authCM, err, lastObservation)
+	}
+
+	return nil
 }
 
 func (tc *testClient) validateOAuthState(t testing.TB, ctx context.Context, requireMissing, newExternalOIDCArchitectureEnabled bool) {
@@ -1242,21 +1274,20 @@ func (tc *testClient) authResourceRollback(ctx context.Context, origAuthSpec *co
 	return nil
 }
 
-func featureGateEnabled(ctx context.Context, configClient *configclient.Clientset, feature configv1.FeatureGateName) bool {
+func enabledFeatureGates(ctx context.Context, configClient *configclient.Clientset) (sets.Set[configv1.FeatureGateName], error) {
 	featureGates, err := configClient.ConfigV1().FeatureGates().Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
-		return false
+		return nil, err
 	}
 
-	if len(featureGates.Status.FeatureGates) == 0 {
-		return false
+	if len(featureGates.Status.FeatureGates) != 1 {
+		return nil, fmt.Errorf("expected one feature gate version, got %d", len(featureGates.Status.FeatureGates))
 	}
 
-	for _, enabled := range featureGates.Status.FeatureGates[0].Enabled {
-		if enabled.Name == feature {
-			return true
-		}
+	enabled := sets.New[configv1.FeatureGateName]()
+	for _, feature := range featureGates.Status.FeatureGates[0].Enabled {
+		enabled.Insert(feature.Name)
 	}
 
-	return false
+	return enabled, nil
 }
