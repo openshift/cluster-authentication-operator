@@ -868,7 +868,7 @@ func (tc *testClient) validateOAuthState(t testing.TB, ctx context.Context, requ
 		// When OAuth resources should be missing, we expect type=OIDC (or webhook for new arch)
 		expectedType := configv1.AuthenticationTypeOIDC
 		if newExternalOIDCArchitectureEnabled {
-			if auth.Spec.WebhookTokenAuthenticators != nil && len(auth.Spec.WebhookTokenAuthenticators) > 0 {
+			if len(auth.Spec.WebhookTokenAuthenticators) > 0 {
 				expectedType = ""
 			}
 		}
