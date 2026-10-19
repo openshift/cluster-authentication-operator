@@ -65,7 +65,7 @@ func NewCustomRouteController(
 	routeInformer routeinformer.RouteInformer,
 	routeClient routeclient.RouteInterface,
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces,
-	proxyResolver *common.AuthProxyResolver,
+	proxyResolver common.ObservableProxyResolver,
 	operatorClient v1helpers.OperatorClient,
 	authConfigChecker common.AuthConfigChecker,
 	eventRecorder events.Recorder,

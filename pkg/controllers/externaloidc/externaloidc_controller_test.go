@@ -21,9 +21,14 @@ import (
 	"testing"
 	"time"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	fakecommon "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
+	"k8s.io/apimachinery/pkg/util/sets"
 	apiserverv1beta1 "k8s.io/apiserver/pkg/apis/apiserver/v1beta1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -202,6 +208,21 @@ func TestExternalOIDCController_sync(t *testing.T) {
 					authConfig.JWT[0].Issuer.Audiences = []string{"my-test-aud", "yet-another-aud"}
 				},
 			}), nil),
+			expectEvents: true,
+		},
+		{
+			name:                 "auth type OIDC applies trusted CA path",
+			authType:             configv1.AuthenticationTypeOIDC,
+			existingAuthConfigCM: &baseAuthConfigCM,
+			configGenerator: func(*configv1.Authentication) (runtime.Object, error) {
+				return &authenticationv1alpha1.AuthenticationConfiguration{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "AuthenticationConfiguration",
+						APIVersion: authenticationv1alpha1.SchemeGroupVersion.String(),
+					},
+					TrustedCAFilePath: common.ComponentProxyCAFilePath,
+				}, nil
+			},
 			expectEvents: true,
 		},
 	} {
@@ -630,5 +651,108 @@ func (s *everFailingIndexer) LastStoreSyncResourceVersion() string {
 func newMockAuthConfigGenerator[T runtime.Object](cfg T, err error) authConfigGenerator {
 	return func(_ *configv1.Authentication) (runtime.Object, error) {
 		return cfg, err
+	}
+}
+
+// allKnownGates is the full set of feature gates that newAuthConfigGenerator (and the
+// generators it delegates to) may query. Every gate must appear in either the enabled
+// or disabled list passed to featuregates.NewFeatureGate, otherwise Enabled() panics.
+var allKnownGates = sets.New(
+	features.FeatureGateExternalOIDCAsWebhook,
+	features.FeatureGateExternalOIDCExternalClaimsSourcing,
+	features.FeatureGateExternalOIDCWithUpstreamParity,
+	features.FeatureGateExternalOIDCWithAdditionalClaimMappings,
+)
+
+// newTestFeatureGates builds a FeatureGate with the given gates enabled and all
+// remaining known gates disabled.
+func newTestFeatureGates(enabled []configv1.FeatureGateName) featuregates.FeatureGate {
+	enabledSet := sets.New(enabled...)
+	disabledSet := allKnownGates.Difference(enabledSet)
+	return featuregates.NewFeatureGate(enabled, sets.List(disabledSet))
+}
+
+func TestNewAuthConfigGenerator_proxy(t *testing.T) {
+	for _, tt := range []struct {
+		name                  string
+		enabledGates          []configv1.FeatureGateName
+		proxy                 common.ResolvedProxy
+		proxyErr              error
+		expectError           bool
+		expectedTrustedCAPath string
+		expectedWebhookArch   bool
+	}{
+		{
+			name:                  "webhook arch, proxy with trusted CA",
+			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
+			expectedWebhookArch:   true,
+		},
+		{
+			name:                  "webhook arch, no trusted CA",
+			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+			proxy:                 common.ResolvedProxy{TrustedCAName: ""},
+			expectedTrustedCAPath: "",
+			expectedWebhookArch:   true,
+		},
+		{
+			name:                  "webhook arch, resolver returns nil proxy",
+			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+			proxy:                 common.ResolvedProxy{},
+			expectedTrustedCAPath: "",
+			expectedWebhookArch:   true,
+		},
+		{
+			name:                "webhook arch, proxy resolver error",
+			enabledGates:        []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+			proxy:               common.ResolvedProxy{},
+			proxyErr:            errors.New("proxy resolution failed"),
+			expectError:         true,
+			expectedWebhookArch: true,
+		},
+		{
+			name:                "default path (no webhook arch feature gate)",
+			enabledGates:        nil,
+			proxy:               common.ResolvedProxy{},
+			expectedWebhookArch: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configMapIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			fakeProxy := &fakecommon.ProxyResolver{Proxy: tt.proxy, Err: tt.proxyErr}
+
+			gen := newAuthConfigGenerator(
+				corev1listers.NewConfigMapLister(configMapIndexer),
+				corev1listers.NewSecretLister(secretIndexer),
+				newTestFeatureGates(tt.enabledGates),
+				fakeProxy,
+			)
+
+			auth := newAuthWithSpec(configv1.AuthenticationSpec{Type: configv1.AuthenticationTypeOIDC})
+			result, err := gen(auth)
+
+			if tt.expectError != (err != nil) {
+				t.Fatalf("expected error=%v; got err=%v", tt.expectError, err)
+			}
+			if tt.expectError {
+				return
+			}
+
+			if tt.expectedWebhookArch {
+				authCfg, ok := result.(*authenticationv1alpha1.AuthenticationConfiguration)
+				if !ok {
+					t.Fatalf("expected *authenticationv1alpha1.AuthenticationConfiguration, got %T", result)
+				}
+				if authCfg.TrustedCAFilePath != tt.expectedTrustedCAPath {
+					t.Errorf("expected TrustedCAFilePath=%q; got %q", tt.expectedTrustedCAPath, authCfg.TrustedCAFilePath)
+				}
+			} else {
+				if _, ok := result.(*apiserverv1beta1.AuthenticationConfiguration); !ok {
+					t.Errorf("expected *apiserverv1beta1.AuthenticationConfiguration (default path), got %T", result)
+				}
+			}
+		})
 	}
 }
