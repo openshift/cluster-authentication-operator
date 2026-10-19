@@ -134,7 +134,7 @@ func unhealthyPodMessages(pod *corev1.Pod) []string {
 		}
 	}
 	pendingTooLong := pod.Status.Phase == corev1.PodPending && pod.Status.StartTime != nil &&
-		time.Now().Sub(pod.Status.StartTime.Time) >= maxToleratedPodPendingDuration
+		time.Since(pod.Status.StartTime.Time) >= maxToleratedPodPendingDuration
 	if pendingTooLong {
 		result = append(result, fmt.Sprintf("pod %q has been pending for longer than %v", pod.Name, maxToleratedPodPendingDuration))
 	}
@@ -164,7 +164,7 @@ func subsetWithReadyAddresses(endpoints *corev1.Endpoints) (*corev1.EndpointSubs
 	// endpoints have at most one subset) to simplify determination of
 	// endpoint health.
 	if len(endpoints.Subsets) > 1 {
-		return nil, nil, fmt.Errorf("More than one subset found for the endpoints of oauth-server")
+		return nil, nil, fmt.Errorf("more than one subset found for the endpoints of oauth-server")
 	}
 	subset := endpoints.Subsets[0]
 	// Report degraded if no addresses are ready

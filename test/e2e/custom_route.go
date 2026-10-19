@@ -202,7 +202,7 @@ func getAndUpdateComponentRoute(t testing.TB, configClient configclient.ConfigV1
 			ingressConfig.Spec.ComponentRoutes = append(ingressConfig.Spec.ComponentRoutes, *componentRoute)
 		}
 
-		ingressConfig, err = configClient.Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
+		_, err = configClient.Ingresses().Update(context.TODO(), ingressConfig, metav1.UpdateOptions{})
 		if err != nil {
 			return false, nil
 		}

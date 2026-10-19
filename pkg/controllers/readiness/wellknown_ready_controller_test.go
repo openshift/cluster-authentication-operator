@@ -485,7 +485,7 @@ func Test_wellKnownReadyController_isWellknownEndpointsReady(t *testing.T) {
 				if _, ok := err.(*ControllerDegradationObservedError); !ok {
 					t.Errorf("expected *ControllerDegradationObservedError, got %T: %v", err, err)
 				}
-			} else if err != nil {
+			} else {
 				if _, ok := err.(*ControllerDegradationObservedError); ok {
 					t.Errorf("expected plain error, got *ControllerDegradationObservedError: %v", err)
 				}
