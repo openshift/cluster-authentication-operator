@@ -535,6 +535,7 @@ func prepareOauthAPIServerOperator(
 		authOperatorInput.kubeClient,
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Apps().V1().Deployments().Lister(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps().Lister(),
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Lister(),
 		&authConfigChecker,
 		featureGateAccessor,
 		versionRecorder,

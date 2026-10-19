@@ -9,7 +9,7 @@ metadata:
     revision: "1"
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "f971259e7c772ec2d9710f5e627559833b44c514e04be299e8d140ccf48af58c"
+    operator.openshift.io/spec-hash: "0b1490d642c4bd7b9def0c1dc07fa7a471060f94e4564001939ed5f0d5de59fd"
 spec:
   strategy:
     type: RollingUpdate
@@ -55,6 +55,7 @@ spec:
               --cors-allowed-origins='//localhost(:|$)' \
               --tls-cipher-suites=TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 \
               --tls-min-version=VersionTLS13 \
+              --tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,/var/run/secrets/token-review-serving-cert/tls.key \
               --v=2
         resources:
           requests:
@@ -72,6 +73,9 @@ spec:
           name: serving-cert
         - mountPath: /var/run/configmaps/auth-config
           name: auth-config
+        - name: token-review-serving-cert
+          mountPath: /var/run/secrets/token-review-serving-cert
+          readOnly: true
       terminationGracePeriodSeconds: 120 # a bit more than the 60 seconds timeout of non-long-running requests + the shutdown delay
       volumes:
       - name: serving-cert
@@ -90,6 +94,9 @@ spec:
           items:
           - key: auth-config.json
             path: auth-config.json
+      - name: token-review-serving-cert
+        secret:
+          secretName: token-review-serving-cert
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
