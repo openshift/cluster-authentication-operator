@@ -52,6 +52,12 @@ type authConfigChecker interface {
 	AuthConfig() (*configv1.Authentication, error)
 }
 
+const (
+	tokenReviewServingCertSecretName = "token-review-serving-cert"
+	tokenReviewServingCertVolumeName = "token-review-serving-cert"
+	tokenReviewServingCertMountPath  = "/var/run/secrets/token-review-serving-cert"
+)
+
 // OAuthAPIServerWorkload is a struct that holds necessary data to install OAuthAPIServer
 type OAuthAPIServerWorkload struct {
 	operatorClient v1helpers.OperatorClient
@@ -67,6 +73,7 @@ type OAuthAPIServerWorkload struct {
 	versionRecorder           status.VersionGetter
 	deploymentsLister         appsv1listers.DeploymentLister
 	configMapLister           corev1listers.ConfigMapLister
+	secretsLister             corev1listers.SecretLister
 	authConfigChecker         authConfigChecker
 	featureGateAccessor       featuregates.FeatureGateAccess
 	resourceSyncer            resourcesynccontroller.ResourceSyncer
@@ -84,6 +91,7 @@ func NewOAuthAPIServerWorkload(
 	kubeClient kubernetes.Interface,
 	deploymentsLister appsv1listers.DeploymentLister,
 	configMapLister corev1listers.ConfigMapLister,
+	secretsLister corev1listers.SecretLister,
 	authConfigChecker authConfigChecker,
 	featureGateAccessor featuregates.FeatureGateAccess,
 	versionRecorder status.VersionGetter,
@@ -101,6 +109,7 @@ func NewOAuthAPIServerWorkload(
 		versionRecorder:           versionRecorder,
 		deploymentsLister:         deploymentsLister,
 		configMapLister:           configMapLister,
+		secretsLister:             secretsLister,
 		authConfigChecker:         authConfigChecker,
 		featureGateAccessor:       featureGateAccessor,
 		resourceSyncer:            resourceSyncer,
@@ -218,7 +227,12 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		return nil, fmt.Errorf("getting current feature gates: %w", err)
 	}
 
-	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
+	webhookArchitectureRequired := common.ExternalOIDCWebhookArchitectureRequired(featureGates)
+	if webhookArchitectureRequired {
+		if err := c.ensureTokenReviewServingCertAvailable(); err != nil {
+			return nil, err
+		}
+
 		oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
 		if err != nil {
 			return nil, fmt.Errorf("checking if OIDC configuration is available: %w", err)
@@ -229,10 +243,10 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 		}
 	}
 
-	return c.syncStandardDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+	return c.syncStandardDeployment(ctx, operatorSpec, operatorStatus, eventRecorder, webhookArchitectureRequired)
 }
 
-func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
+func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder, webhookArchitectureRequired bool) (*appsv1.Deployment, error) {
 	tmpl, err := bindata.Asset("oauth-apiserver/deploy.yaml")
 	if err != nil {
 		return nil, err
@@ -250,6 +264,9 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+	if webhookArchitectureRequired {
+		args["tls-sni-cert-key"] = []string{fmt.Sprintf("%s/tls.crt,%s/tls.key", tokenReviewServingCertMountPath, tokenReviewServingCertMountPath)}
+	}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -265,6 +282,11 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 	}
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
+	if webhookArchitectureRequired {
+		if err := configureTokenReviewServingCert(&required.Spec.Template.Spec); err != nil {
+			return nil, err
+		}
+	}
 
 	// use the following routine for things that would require special formatting/padding (yaml)
 	encodedArgs := arguments.EncodeWithDelimiter(args, " \\\n  ")
@@ -343,6 +365,48 @@ func (c *OAuthAPIServerWorkload) syncStandardDeployment(ctx context.Context, ope
 	return deployment, err
 }
 
+func (c *OAuthAPIServerWorkload) ensureTokenReviewServingCertAvailable() error {
+	secret, err := c.secretsLister.Secrets(c.targetNamespace).Get(tokenReviewServingCertSecretName)
+	if errors.IsNotFound(err) {
+		return fmt.Errorf("waiting for Secret %s/%s to be created", c.targetNamespace, tokenReviewServingCertSecretName)
+	}
+	if err != nil {
+		return fmt.Errorf("getting Secret %s/%s: %w", c.targetNamespace, tokenReviewServingCertSecretName, err)
+	}
+
+	for _, key := range []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey} {
+		if len(secret.Data[key]) == 0 {
+			return fmt.Errorf("waiting for Secret %s/%s to contain %q", c.targetNamespace, tokenReviewServingCertSecretName, key)
+		}
+	}
+
+	return nil
+}
+
+func configureTokenReviewServingCert(podSpec *corev1.PodSpec) error {
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name != "oauth-apiserver" {
+			continue
+		}
+
+		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, corev1.VolumeMount{
+			Name:      tokenReviewServingCertVolumeName,
+			MountPath: tokenReviewServingCertMountPath,
+			ReadOnly:  true,
+		})
+
+		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+			Name: tokenReviewServingCertVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: tokenReviewServingCertSecretName},
+			},
+		})
+		return nil
+	}
+
+	return fmt.Errorf("oauth-apiserver container not found")
+}
+
 func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context, operatorSpec *operatorv1.OperatorSpec, operatorStatus *operatorv1.OperatorStatus, eventRecorder events.Recorder) (*appsv1.Deployment, error) {
 	tmpl, err := bindata.Asset("oauth-apiserver/externaloidc-deploy.yaml")
 	if err != nil {
@@ -361,6 +425,7 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
+	args["tls-sni-cert-key"] = []string{fmt.Sprintf("%s/tls.crt,%s/tls.key", tokenReviewServingCertMountPath, tokenReviewServingCertMountPath)}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -376,6 +441,9 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 	}
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
+	if err := configureTokenReviewServingCert(&required.Spec.Template.Spec); err != nil {
+		return nil, err
+	}
 
 	// Apply proxy configuration.
 	proxy, err := c.proxyResolver.ResolveProxy()
