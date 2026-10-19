@@ -703,6 +703,47 @@ func prepareOauthAPIServerOperator(
 					return oidcAvailable(authConfigChecker)
 				},
 			},
+			{
+				// The dedicated TokenReview Service is present in both authentication modes when
+				// the External OIDC webhook architecture is enabled.
+				Files: []string{
+					"oauth-apiserver/token-review-svc.yaml",
+				},
+				ShouldCreateFn: func() bool {
+					required, err := externalOIDCWebhookArchitectureRequired(featureGateAccessor)
+					if err != nil {
+						klog.Errorf("checking token-review Service creation preconditions failed: %v", err)
+						return false
+					}
+					return required
+				},
+				ShouldDeleteFn: func() bool {
+					required, err := externalOIDCWebhookArchitectureRequired(featureGateAccessor)
+					if err != nil {
+						klog.Errorf("checking token-review Service deletion preconditions failed: %v", err)
+						return false
+					}
+
+					if required {
+						return false
+					}
+
+					serviceLister := oauthAPIServerInformers.Core().V1().Services().Lister()
+					tokenReviewServiceNamespace := "openshift-oauth-apiserver"
+					tokenReviewServiceName := "token-review"
+					_, err = serviceLister.Services(tokenReviewServiceNamespace).Get(tokenReviewServiceName)
+					if errors.IsNotFound(err) {
+						return false
+					}
+
+					if err != nil {
+						klog.Errorf("getting Service %s/%s: %v", tokenReviewServiceNamespace, tokenReviewServiceName, err)
+						return false
+					}
+
+					return true
+				},
+			},
 		},
 
 		informerFactories.kubeInformersForNamespaces,
@@ -1000,6 +1041,19 @@ func oidcAvailable(authConfigChecker common.AuthConfigChecker) bool {
 		klog.Errorf("error while checking auth config: %v", err)
 	}
 	return oidcAvailable
+}
+
+func externalOIDCWebhookArchitectureRequired(featureGateAccessor featuregates.FeatureGateAccess) (bool, error) {
+	if !featureGateAccessor.AreInitialFeatureGatesObserved() {
+		return false, fmt.Errorf("initial feature gates have not been observed")
+	}
+
+	featureGates, err := featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return false, fmt.Errorf("getting current feature gates: %w", err)
+	}
+
+	return common.ExternalOIDCWebhookArchitectureRequired(featureGates), nil
 }
 
 func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
