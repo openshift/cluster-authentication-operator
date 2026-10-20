@@ -14,15 +14,22 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
+)
+
+const (
+	testOAuthAPIServerDeploymentName  = "apiserver"
+	testTokenReviewServingCertFlagKey = "--tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,"
 )
 
 // fakeOIDCChecker implements oidcAvailabler for tests.
@@ -37,11 +44,15 @@ func (f *fakeOIDCChecker) OIDCAvailable() (bool, error) {
 
 // fakeWebhookSecretBuilder implements webhookSecretBuilder for tests.
 type fakeWebhookSecretBuilder struct {
-	secret *corev1.Secret
-	err    error
+	secret          *corev1.Secret
+	err             error
+	wantServiceName string
 }
 
-func (f *fakeWebhookSecretBuilder) BuildWebhookSecret(_ context.Context, _ *corev1.Service, _, _ []byte) (*corev1.Secret, error) {
+func (f *fakeWebhookSecretBuilder) BuildWebhookSecret(_ context.Context, svc *corev1.Service, _, _ []byte) (*corev1.Secret, error) {
+	if f.wantServiceName != "" && svc.Name != f.wantServiceName {
+		return nil, fmt.Errorf("expected service %q, got %q", f.wantServiceName, svc.Name)
+	}
 	return f.secret, f.err
 }
 
@@ -91,6 +102,60 @@ func newOAuthAPIService() *corev1.Service {
 				{Port: 443},
 			},
 		},
+	}
+}
+
+func newTokenReviewService() *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tokenReviewServiceName,
+			Namespace: oauthAPIServerNamespace,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.0.0.2",
+			Ports:     []corev1.ServicePort{{Port: 443}},
+		},
+	}
+}
+
+func newReadyTokenReviewDeployment() *appsv1.Deployment {
+	replicas := int32(1)
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testOAuthAPIServerDeploymentName,
+			Namespace:  oauthAPIServerNamespace,
+			Generation: 1,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "oauth-apiserver",
+						Args: []string{testTokenReviewServingCertFlagKey + "/var/run/secrets/token-review-serving-cert/tls.key"},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: 1,
+			Replicas:           replicas,
+			UpdatedReplicas:    replicas,
+			ReadyReplicas:      replicas,
+			AvailableReplicas:  replicas,
+		},
+	}
+}
+
+func newTokenReviewEndpoints() *corev1.Endpoints {
+	return &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tokenReviewServiceName,
+			Namespace: oauthAPIServerNamespace,
+		},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.3"}},
+		}},
 	}
 }
 
@@ -317,15 +382,76 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 			oidcChecker:         &fakeOIDCChecker{},
 			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			resources: []runtime.Object{
-				newOAuthAPIService(),
+				newTokenReviewService(),
+				newReadyTokenReviewDeployment(),
+				newTokenReviewEndpoints(),
 				newAuthenticatorCertsSecret(),
 			},
-			webhookSecretBuilder: &fakeWebhookSecretBuilder{secret: newWebhookKubeconfigSecret()},
+			webhookSecretBuilder: &fakeWebhookSecretBuilder{secret: newWebhookKubeconfigSecret(), wantServiceName: tokenReviewServiceName},
 			// auth config should remain unchanged (no webhook field set)
 			expectedAuthentication: newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			verifySecretCreated:    true,
 			expectedConditions: []expectedCondition{
 				{condType: "AuthenticatorCertKeyProgressing", status: operatorv1.ConditionFalse, reason: "AsExpected"},
+			},
+		},
+		{
+			name:                "auth type is OIDC - ExternalOIDCExternalClaimsSourcing enabled - ensures token-review webhook secret",
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook}),
+			oidcChecker:         &fakeOIDCChecker{},
+			authentication:      newAuthentication(configv1.AuthenticationTypeOIDC, ""),
+			resources: []runtime.Object{
+				newTokenReviewService(),
+				newReadyTokenReviewDeployment(),
+				newTokenReviewEndpoints(),
+				newAuthenticatorCertsSecret(),
+			},
+			webhookSecretBuilder:   &fakeWebhookSecretBuilder{secret: newWebhookKubeconfigSecret(), wantServiceName: tokenReviewServiceName},
+			expectedAuthentication: newAuthentication(configv1.AuthenticationTypeOIDC, ""),
+			verifySecretCreated:    true,
+			expectedConditions: []expectedCondition{
+				{condType: "AuthenticatorCertKeyProgressing", status: operatorv1.ConditionFalse, reason: "AsExpected"},
+			},
+		},
+		{
+			name:                "webhook architecture waits for deployment to serve token-review certificate",
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook}),
+			oidcChecker:         &fakeOIDCChecker{},
+			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
+			resources: []runtime.Object{
+				newTokenReviewService(),
+				&appsv1.Deployment{
+					ObjectMeta: metav1.ObjectMeta{Name: testOAuthAPIServerDeploymentName, Namespace: oauthAPIServerNamespace},
+				},
+				newTokenReviewEndpoints(),
+				newAuthenticatorCertsSecret(),
+			},
+		},
+		{
+			name:                "webhook architecture waits for token-review deployment rollout",
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook}),
+			oidcChecker:         &fakeOIDCChecker{},
+			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
+			resources: []runtime.Object{
+				newTokenReviewService(),
+				func() *appsv1.Deployment {
+					deployment := newReadyTokenReviewDeployment()
+					deployment.Status.UpdatedReplicas = 0
+					return deployment
+				}(),
+				newTokenReviewEndpoints(),
+				newAuthenticatorCertsSecret(),
+			},
+		},
+		{
+			name:                "webhook architecture waits for token-review endpoints",
+			featureGateAccessor: featuregates.NewHardcodedFeatureGateAccess([]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing}, []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook}),
+			oidcChecker:         &fakeOIDCChecker{},
+			authentication:      newAuthentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
+			resources: []runtime.Object{
+				newTokenReviewService(),
+				newReadyTokenReviewDeployment(),
+				newAuthenticatorCertsSecret(),
 			},
 		},
 		{
@@ -424,7 +550,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set up the fake kube client and indexers from test resources.
-			// Services and secrets need separate indexers because typed listers
+			// Resource types need separate indexers because typed listers
 			// do type assertions internally (e.g., obj.(*v1.Service)), so mixing
 			// types in one indexer would panic. Secrets from different namespaces
 			// can share a single indexer because SecretLister.Secrets(ns).Get(name)
@@ -435,6 +561,8 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 			}
 
 			svcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			endpointsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			deploymentsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			secretsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 
 			for _, obj := range tc.resources {
@@ -442,6 +570,14 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 				case *corev1.Service:
 					if err := svcIndexer.Add(o); err != nil {
 						t.Fatalf("failed to add service to indexer: %v", err)
+					}
+				case *corev1.Endpoints:
+					if err := endpointsIndexer.Add(o); err != nil {
+						t.Fatalf("failed to add endpoints to indexer: %v", err)
+					}
+				case *appsv1.Deployment:
+					if err := deploymentsIndexer.Add(o); err != nil {
+						t.Fatalf("failed to add deployment to indexer: %v", err)
 					}
 				case *corev1.Secret:
 					if err := secretsIndexer.Add(o); err != nil {
@@ -470,6 +606,8 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 				controllerInstanceName: "test-WebhookAuthenticator",
 				authentication:         configClient.ConfigV1().Authentications(),
 				svcLister:              corev1listers.NewServiceLister(svcIndexer),
+				endpointsLister:        corev1listers.NewEndpointsLister(endpointsIndexer),
+				deploymentsLister:      appsv1listers.NewDeploymentLister(deploymentsIndexer),
 				secrets:                kubeClient.CoreV1(),
 				secretsLister:          corev1listers.NewSecretLister(secretsIndexer),
 				configNSSecretsLister:  corev1listers.NewSecretLister(secretsIndexer),
