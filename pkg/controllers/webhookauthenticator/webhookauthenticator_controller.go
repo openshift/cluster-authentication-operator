@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -37,8 +38,11 @@ import (
 )
 
 const (
-	configNamespace   = "openshift-config"
-	webhookSecretName = "webhook-authentication-integrated-oauth"
+	configNamespace           = "openshift-config"
+	oauthAPIServerNamespace   = "openshift-oauth-apiserver"
+	oauthAPIServerServiceName = "api"
+	tokenReviewServiceName    = "token-review"
+	webhookSecretName         = "webhook-authentication-integrated-oauth"
 )
 
 // webhookAuthenticatorController makes sure that the webhook token authenticators
@@ -50,6 +54,8 @@ type webhookAuthenticatorController struct {
 	authentication         configv1client.AuthenticationInterface
 
 	svcLister             corev1listers.ServiceLister
+	endpointsLister       corev1listers.EndpointsLister
+	deploymentsLister     appsv1listers.DeploymentLister
 	secrets               corev1client.SecretsGetter
 	secretsLister         corev1listers.SecretLister
 	configNSSecretsLister corev1listers.SecretLister
@@ -86,6 +92,8 @@ func NewWebhookAuthenticatorController(
 		configNSSecretsLister:  kubeInformersForConfigNamespace.Core().V1().Secrets().Lister(),
 		secretsLister:          kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		svcLister:              kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
+		endpointsLister:        kubeInformersForTargetNamespace.Core().V1().Endpoints().Lister(),
+		deploymentsLister:      kubeInformersForTargetNamespace.Apps().V1().Deployments().Lister(),
 		authentication:         authentication,
 		operatorClient:         operatorClient,
 		authConfigChecker:      authConfigChecker,
@@ -100,6 +108,8 @@ func NewWebhookAuthenticatorController(
 
 	return factory.New().
 		WithInformers(
+			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
+			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -123,16 +133,40 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return fmt.Errorf("observing feature gates: %w", err)
 	}
 
-	if !common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
-		if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
-			return err
-		} else if oidcAvailable {
-			if err := c.removeOperands(ctx); err != nil {
-				return err
-			}
+	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
+		return c.syncWebhookArchitecture(ctx, syncCtx.Recorder())
+	}
 
-			return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
+	return c.syncLegacy(ctx, syncCtx.Recorder())
+}
+
+func (c *webhookAuthenticatorController) syncWebhookArchitecture(ctx context.Context, recorder events.Recorder) error {
+	// During upgrades, this Service may select old pods that do not serve its SNI certificate, so wait before publishing the endpoint.
+	ready, err := common.TokenReviewEndpointReady(c.deploymentsLister, c.endpointsLister)
+	if err != nil || !ready {
+		return err
+	}
+
+	tokenReviewService, err := c.svcLister.Services(oauthAPIServerNamespace).Get(tokenReviewServiceName)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve service %s/%s: %w", oauthAPIServerNamespace, tokenReviewServiceName, err)
+	}
+
+	// Under the webhook architecture, cluster-kube-apiserver-operator reads this
+	// secret by its default name, so Authentication.spec is left unchanged.
+	_, err = c.ensureKubeConfigSecret(ctx, tokenReviewService, recorder)
+	return err
+}
+
+func (c *webhookAuthenticatorController) syncLegacy(ctx context.Context, recorder events.Recorder) error {
+	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+		return err
+	} else if oidcAvailable {
+		if err := c.removeOperands(ctx); err != nil {
+			return err
 		}
+
+		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
 	}
 
 	authConfig, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
@@ -145,32 +179,14 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 		return nil
 	}
 
-	oauthAPIsvc, err := c.svcLister.Services("openshift-oauth-apiserver").Get("api")
+	oauthAPIsvc, err := c.svcLister.Services(oauthAPIServerNamespace).Get(oauthAPIServerServiceName)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve service openshift-oauth-apiserver/api: %w", err)
+		return fmt.Errorf("failed to retrieve service %s/%s: %w", oauthAPIServerNamespace, oauthAPIServerServiceName, err)
 	}
 
-	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, syncCtx.Recorder())
+	kubeConfigSecret, err := c.ensureKubeConfigSecret(ctx, oauthAPIsvc, recorder)
 	if kubeConfigSecret == nil {
 		return err
-	}
-
-	// As part of the new approach for configuring the OIDC authentication method, we no longer want to
-	// explicitly set the `authentications.config.openshift.io/cluster.spec.webhookTokenAuthenticator`
-	// field as part of this controller's behavior.
-	// This allows us to disallow setting `.spec.webhookTokenAuthenticator` when `.spec.type`
-	// is set to one that consumes the single KAS webhook token authenticator slot with the
-	// oauth-apiserver.
-	// Combined with a change in the cluster-kube-apiserver-operator to default
-	// the secret that it attempts to read from the openshift-config namespaces when `.spec.webhookTokenAuthenticator`
-	// is not set, simply returning here should be backwards compatible.
-	// Backwards compatibility example:
-	// - `.spec.webhookTokenAuthenticator` was previously set by this controller
-	// - CAO + CKASO have been updated to use a shared constant for default behavior
-	// - CAO returns early and does not attempt to set the field (field is still set)
-	// - CKASO sees the field is set - it reads from the set field instead of using its hardcoded default
-	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
-		return nil
 	}
 
 	if authConfig.Spec.WebhookTokenAuthenticator == nil {
@@ -305,6 +321,7 @@ func (d *defaultWebhookSecretBuilder) BuildWebhookSecret(ctx context.Context, sv
 	replacer := strings.NewReplacer(
 		"${CA_DATA}", base64.StdEncoding.EncodeToString(caBundle),
 		"${APISERVER_IP}", net.JoinHostPort(svc.Spec.ClusterIP, strconv.Itoa(int(svc.Spec.Ports[0].Port))),
+		"${APISERVER_HOSTNAME}", fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace),
 		"${CLIENT_CERT}", base64.StdEncoding.EncodeToString(cert),
 		"${CLIENT_KEY}", base64.StdEncoding.EncodeToString(key),
 	)
