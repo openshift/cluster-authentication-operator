@@ -46,6 +46,7 @@ type nodeCountFunc func(nodeSelector map[string]string) (*int32, error)
 // ensureAtMostOnePodPerNode a function that updates the deployment spec to prevent more than
 // one pod of a given replicaset from landing on a node.
 type ensureAtMostOnePodPerNodeFunc func(spec *appsv1.DeploymentSpec, componentName string) error
+type legacyOAuthAPIsRemovedFunc func() (bool, error)
 
 type authConfigChecker interface {
 	OIDCAvailable() (bool, error)
@@ -78,6 +79,7 @@ type OAuthAPIServerWorkload struct {
 	featureGateAccessor       featuregates.FeatureGateAccess
 	resourceSyncer            resourcesynccontroller.ResourceSyncer
 	proxyResolver             common.ProxyResolver
+	legacyOAuthAPIsRemoved    legacyOAuthAPIsRemovedFunc
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -94,6 +96,7 @@ func NewOAuthAPIServerWorkload(
 	secretsLister corev1listers.SecretLister,
 	authConfigChecker authConfigChecker,
 	featureGateAccessor featuregates.FeatureGateAccess,
+	legacyOAuthAPIsRemoved legacyOAuthAPIsRemovedFunc,
 	versionRecorder status.VersionGetter,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	proxyResolver common.ProxyResolver,
@@ -114,6 +117,7 @@ func NewOAuthAPIServerWorkload(
 		featureGateAccessor:       featureGateAccessor,
 		resourceSyncer:            resourceSyncer,
 		proxyResolver:             proxyResolver,
+		legacyOAuthAPIsRemoved:    legacyOAuthAPIsRemoved,
 	}
 }
 
@@ -228,6 +232,10 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	}
 
 	webhookArchitectureRequired := common.ExternalOIDCWebhookArchitectureRequired(featureGates)
+	// Both modes need the token-review serving certificate. When OIDC is requested,
+	// keep normal mode until the legacy APIs are removed. Once they are absent,
+	// wait for OIDC configuration before deploying external-oidc mode; falling back
+	// to normal mode would recreate OAuth pods during migration from direct OIDC.
 	if webhookArchitectureRequired {
 		if err := c.ensureTokenReviewServingCertAvailable(); err != nil {
 			return nil, err
@@ -238,8 +246,23 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 			return nil, fmt.Errorf("checking if OIDC configuration is available: %w", err)
 		}
 
-		if oidcAvailable {
-			return c.syncExternalOIDCDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+		authConfig, err := c.authConfigChecker.AuthConfig()
+		if err != nil {
+			return nil, fmt.Errorf("getting authentication configuration: %w", err)
+		}
+
+		if authConfig.Spec.Type == configv1.AuthenticationTypeOIDC {
+			legacyAPIsRemoved, err := c.legacyOAuthAPIsRemoved()
+			if err != nil {
+				return nil, fmt.Errorf("checking whether legacy OAuth APIs are removed: %w", err)
+			}
+			if legacyAPIsRemoved {
+				// Do not recreate a normal OAuth deployment while direct OIDC migrates to the webhook.
+				if !oidcAvailable {
+					return nil, fmt.Errorf("waiting for OIDC configuration to be available")
+				}
+				return c.syncExternalOIDCDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+			}
 		}
 	}
 
@@ -425,7 +448,6 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
-	args["tls-sni-cert-key"] = []string{fmt.Sprintf("%s/tls.crt,%s/tls.key", tokenReviewServingCertMountPath, tokenReviewServingCertMountPath)}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -441,9 +463,6 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 	}
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
-	if err := configureTokenReviewServingCert(&required.Spec.Template.Spec); err != nil {
-		return nil, err
-	}
 
 	// Apply proxy configuration.
 	proxy, err := c.proxyResolver.ResolveProxy()
