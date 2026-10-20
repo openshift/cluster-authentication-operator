@@ -220,8 +220,13 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		expectedActions    []string
 		featureGates       featuregates.FeatureGateAccess
 		authenticationType configv1.AuthenticationType
-		authConfigChecker  authConfigChecker
+		authConfigChecker  *mockAuthConfigChecker
+		expectedError      string
 		tokenReviewCert    *corev1.Secret
+		legacyAPIsRemoved  bool
+		kasReady           bool
+		kasReadinessError  error
+		legacyRemovalError error
 	}{
 		// scenario 1
 		{
@@ -417,8 +422,75 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			tokenReviewCert: newTokenReviewServingCert(""),
 		},
 		{
-			name:       "happy path: a default deployment configuring the new oauth-apiserver external OIDC mode is created",
-			goldenFile: "./testdata/sync_ds_scenario_4.yaml",
+			name:       "OIDC configured but legacy APIs remain keeps the standard deployment",
+			kasReady:   true,
+			goldenFile: "./testdata/sync_ds_scenario_7.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: true},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+		},
+		{
+			name: "direct OIDC waits for auth-config without creating a normal deployment",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			kasReady:           true,
+			expectedError:      "waiting for OIDC configuration to be available",
+		},
+		{
+			name:       "IntegratedOAuth to OIDC keeps normal deployment until auth-config is synced",
+			goldenFile: "./testdata/sync_ds_scenario_7.yaml",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+		},
+		{
+			name:               "happy path: a default deployment configuring the new oauth-apiserver external OIDC mode is created",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_4.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
 				Status: operatorv1.AuthenticationStatus{
@@ -444,11 +516,14 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
-			tokenReviewCert: newTokenReviewServingCert(""),
+			tokenReviewCert:   newTokenReviewServingCert(""),
+			legacyAPIsRemoved: true,
+			kasReady:          true,
 		},
 		{
-			name:       "a deployment with custom flags (for oauthapi server) for the external OIDC mode is created",
-			goldenFile: "./testdata/sync_ds_scenario_5.yaml",
+			name:               "a deployment with custom flags (for oauthapi server) for the external OIDC mode is created",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_5.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
@@ -476,11 +551,14 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
-			tokenReviewCert: newTokenReviewServingCert(""),
+			tokenReviewCert:   newTokenReviewServingCert(""),
+			legacyAPIsRemoved: true,
+			kasReady:          true,
 		},
 		{
-			name:       "a deployment with custom flags (for oauthapi server) and external OIDC mode is created with UnsupportedConfigOverrides",
-			goldenFile: "./testdata/sync_ds_scenario_6.yaml",
+			name:               "a deployment with custom flags (for oauthapi server) and external OIDC mode is created with UnsupportedConfigOverrides",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_6.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
@@ -509,7 +587,86 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
-			tokenReviewCert: newTokenReviewServingCert(""),
+			tokenReviewCert:   newTokenReviewServingCert(""),
+			legacyAPIsRemoved: true,
+			kasReady:          true,
+		},
+		{
+			name: "absent legacy APIs with KAS still using legacy endpoint keeps standard deployment",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{LatestAvailableRevision: 1}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: true},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			goldenFile:         "./testdata/sync_ds_scenario_7.yaml",
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+		},
+		{
+			name: "absent legacy APIs with KAS still using legacy endpoint and no OIDC config keeps standard deployment",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{LatestAvailableRevision: 1}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: false},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			goldenFile:         "./testdata/sync_ds_scenario_7.yaml",
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+		},
+		{
+			name: "unknown KAS readiness blocks deployment changes",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{LatestAvailableRevision: 1}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: true},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			kasReadinessError:  stderrors.New("revision config unavailable"),
+			expectedError:      "checking KAS readiness for legacy OAuth API removal: revision config unavailable",
+		},
+		{
+			name: "unknown legacy resource removal blocks deployment changes",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{LatestAvailableRevision: 1}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: true},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			kasReady:           true,
+			legacyRemovalError: stderrors.New("APIService cache has not synchronized"),
+			expectedError:      "checking whether legacy OAuth APIs are removed: APIService cache has not synchronized",
 		},
 	}
 
@@ -517,6 +674,11 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("", clocktesting.NewFakePassiveClock(time.Now()))
 			fakeKubeClient := fake.NewSimpleClientset()
+			if scenario.authConfigChecker != nil {
+				scenario.authConfigChecker.authentication = &configv1.Authentication{
+					Spec: configv1.AuthenticationSpec{Type: scenario.authenticationType},
+				}
+			}
 			secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 			if scenario.tokenReviewCert != nil {
 				if err := secretIndexer.Add(scenario.tokenReviewCert); err != nil {
@@ -533,9 +695,25 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				authConfigChecker:         scenario.authConfigChecker,
 				resourceSyncer:            &recordingResourceSyncer{},
 				proxyResolver:             &commonfake.ProxyResolver{Proxy: common.ResolvedProxy{}},
+				legacyOAuthAPIsRemoved: func() (bool, error) {
+					if !scenario.kasReady {
+						t.Fatal("legacy resource removal checked before KAS was ready")
+					}
+					return scenario.legacyAPIsRemoved, scenario.legacyRemovalError
+				},
+				kasReadyForLegacyRemoval: func() (bool, error) { return scenario.kasReady, scenario.kasReadinessError },
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			if scenario.expectedError != "" {
+				if err == nil || err.Error() != scenario.expectedError {
+					t.Fatalf("got error %v, want %q", err, scenario.expectedError)
+				}
+				if actualDeployment != nil || len(fakeKubeClient.Actions()) != 0 {
+					t.Fatalf("expected no deployment or client actions while waiting, got deployment %v and actions %v", actualDeployment, actionStrings(fakeKubeClient.Actions()))
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -81,7 +81,9 @@ type OAuthAPIServerWorkload struct {
 	proxyResolver             common.ProxyResolver
 	// sourceConfigMapLister lists ConfigMaps in openshift-config, used to
 	// validate the proxy trustedCA source before registering it for sync.
-	sourceConfigMapLister corev1listers.ConfigMapLister
+	sourceConfigMapLister    corev1listers.ConfigMapLister
+	legacyOAuthAPIsRemoved   func() (bool, error)
+	kasReadyForLegacyRemoval func() (bool, error)
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -98,6 +100,8 @@ func NewOAuthAPIServerWorkload(
 	secretsLister corev1listers.SecretLister,
 	authConfigChecker authConfigChecker,
 	featureGateAccessor featuregates.FeatureGateAccess,
+	legacyOAuthAPIsRemoved func() (bool, error),
+	kasReadyForLegacyRemoval func() (bool, error),
 	versionRecorder status.VersionGetter,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	proxyResolver common.ProxyResolver,
@@ -120,6 +124,8 @@ func NewOAuthAPIServerWorkload(
 		resourceSyncer:            resourceSyncer,
 		proxyResolver:             proxyResolver,
 		sourceConfigMapLister:     sourceConfigMapLister,
+		legacyOAuthAPIsRemoved:    legacyOAuthAPIsRemoved,
+		kasReadyForLegacyRemoval:  kasReadyForLegacyRemoval,
 	}
 }
 
@@ -234,6 +240,10 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 	}
 
 	webhookArchitectureRequired := common.ExternalOIDCWebhookArchitectureRequired(featureGates)
+	// Both modes need the token-review serving certificate. When OIDC is requested,
+	// keep normal mode until KAS no longer needs the legacy endpoint and the legacy
+	// APIs are removed. Wait for OIDC configuration before deploying external-oidc
+	// mode; falling back would recreate OAuth pods during migration from direct OIDC.
 	if webhookArchitectureRequired {
 		if err := c.ensureTokenReviewServingCertAvailable(); err != nil {
 			return nil, err
@@ -244,8 +254,29 @@ func (c *OAuthAPIServerWorkload) syncDeployment(ctx context.Context, operatorSpe
 			return nil, fmt.Errorf("checking if OIDC configuration is available: %w", err)
 		}
 
-		if oidcAvailable {
-			return c.syncExternalOIDCDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+		authConfig, err := c.authConfigChecker.AuthConfig()
+		if err != nil {
+			return nil, fmt.Errorf("getting authentication configuration: %w", err)
+		}
+
+		if authConfig.Spec.Type == configv1.AuthenticationTypeOIDC {
+			kasReady, err := c.kasReadyForLegacyRemoval()
+			if err != nil {
+				return nil, fmt.Errorf("checking KAS readiness for legacy OAuth API removal: %w", err)
+			}
+			if kasReady {
+				legacyAPIsRemoved, err := c.legacyOAuthAPIsRemoved()
+				if err != nil {
+					return nil, fmt.Errorf("checking whether legacy OAuth APIs are removed: %w", err)
+				}
+				if legacyAPIsRemoved {
+					// Do not recreate a normal OAuth deployment while direct OIDC migrates to the webhook.
+					if !oidcAvailable {
+						return nil, fmt.Errorf("waiting for OIDC configuration to be available")
+					}
+					return c.syncExternalOIDCDeployment(ctx, operatorSpec, operatorStatus, eventRecorder)
+				}
+			}
 		}
 	}
 
@@ -431,7 +462,6 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 
 	// log level verbosity is taken from the spec always
 	args["v"] = []string{loglevelToKlog(operatorSpec.LogLevel)}
-	args["tls-sni-cert-key"] = []string{fmt.Sprintf("%s/tls.crt,%s/tls.key", tokenReviewServingCertMountPath, tokenReviewServingCertMountPath)}
 
 	// use string replacer for simple things
 	r := strings.NewReplacer(
@@ -447,9 +477,6 @@ func (c *OAuthAPIServerWorkload) syncExternalOIDCDeployment(ctx context.Context,
 	}
 
 	required := resourceread.ReadDeploymentV1OrDie(tmpl)
-	if err := configureTokenReviewServingCert(&required.Spec.Template.Spec); err != nil {
-		return nil, err
-	}
 
 	// Apply proxy configuration.
 	proxy, err := c.proxyResolver.ResolveProxy()

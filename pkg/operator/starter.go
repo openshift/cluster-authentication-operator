@@ -146,7 +146,6 @@ func prepareOauthOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps(),
 		featureGateAccessor,
 	)
-
 	proxyResolver := common.NewAuthProxyResolver(
 		authProxyEnabledFunc(featureGateAccessor, features.FeatureGateAuthenticationComponentProxy),
 		informerFactories.operatorInformer.Operator().V1().Authentications(),
@@ -484,12 +483,24 @@ func prepareOauthAPIServerOperator(
 		return nil, nil, err
 	}
 
+	kasInformers := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver")
 	authConfigChecker := common.NewAuthConfigChecker(
 		informerFactories.operatorConfigInformer.Config().V1().Authentications(),
 		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
-		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-kube-apiserver").Core().V1().ConfigMaps(),
+		kasInformers.Core().V1().ConfigMaps(),
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().ConfigMaps(),
 		featureGateAccessor,
+	)
+	oauthAPIServerInformers := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver")
+	apiServiceInformer := informerFactories.apiregistrationInformers.Apiregistration().V1().APIServices()
+	legacyOAuthAPIs := newLegacyOAuthAPIsObserver(
+		&authConfigChecker,
+		featureGateAccessor,
+		oauthAPIServerInformers.Core().V1().Services(),
+		informerFactories.operatorInformer.Operator().V1().KubeAPIServers(),
+		kasInformers.Core().V1().Secrets(),
+		kasInformers.Core().V1().ConfigMaps(),
+		apiServiceInformer,
 	)
 
 	// conditionally sync the auth-config configmap from the openshift-config-managed namespace
@@ -538,6 +549,8 @@ func prepareOauthAPIServerOperator(
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-oauth-apiserver").Core().V1().Secrets().Lister(),
 		&authConfigChecker,
 		featureGateAccessor,
+		legacyOAuthAPIs.removed,
+		legacyOAuthAPIs.kasReadyForLegacyRemoval,
 		versionRecorder,
 		resourceSyncController,
 		proxyResolver,
@@ -618,6 +631,9 @@ func prepareOauthAPIServerOperator(
 			[]factory.Informer{
 				authOperatorInput.authenticationOperatorClient.Informer(), // TODO update the library so that the operator client informer is automatically added.
 				proxyResolver.Informer(),
+				oauthAPIServerInformers.Core().V1().Services().Informer(),
+				apiServiceInformer.Informer(),
+				kasInformers.Core().V1().Secrets().Informer(),
 			},
 			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
 		)...,
@@ -667,25 +683,34 @@ func prepareOauthAPIServerOperator(
 				},
 			},
 			{
-				// OAuth specific resources; deleted when OIDC is enabled
+				// Legacy OAuth API resources remain until KAS can use the dedicated token-review endpoint.
 				Files: []string{
 					"oauth-apiserver/RBAC/useroauthaccesstokens_binding.yaml",
 					"oauth-apiserver/RBAC/useroauthaccesstokens_clusterrole.yaml",
+					"oauth-apiserver/svc.yaml",
 				},
 				ShouldCreateFn: func() bool {
-					return !oidcAvailable(authConfigChecker)
+					shouldRemove, err := legacyOAuthAPIs.shouldRemove()
+					if err != nil {
+						klog.Errorf("checking legacy OAuth API resource creation preconditions failed: %v", err)
+						return false
+					}
+					return !shouldRemove
 				},
 				ShouldDeleteFn: func() bool {
-					return oidcAvailable(authConfigChecker)
+					shouldRemove, err := legacyOAuthAPIs.shouldRemove()
+					if err != nil {
+						klog.Errorf("checking legacy OAuth API resource deletion preconditions failed: %v", err)
+						return false
+					}
+					return shouldRemove
 				},
 			},
 			{
-				// OAuth specific resources; deleted when OIDC is enabled and webhook architecture is not required.
-				// Not deleted when OIDC is enabled and webhook architecture is required.
+				// The oauth-apiserver identity remains required by external-oidc mode.
 				Files: []string{
 					"oauth-apiserver/sa.yaml",
 					"oauth-apiserver/apiserver-clusterrolebinding.yaml",
-					"oauth-apiserver/svc.yaml",
 				},
 				ShouldCreateFn: func() bool {
 					// If this call errors out, fallback to the existing approach
@@ -768,12 +793,16 @@ func prepareOauthAPIServerOperator(
 	).WithAPIServiceController(
 		"openshift-apiserver",
 		"openshift-oauth-apiserver",
-		apiServicesFuncWrapper(authConfigChecker),
+		apiServicesFuncWrapper(legacyOAuthAPIs.shouldRemove),
 		informerFactories.apiregistrationInformers,
 		authOperatorInput.apiregistrationv1Client.ApiregistrationV1(),
 		informerFactories.kubeInformersForNamespaces,
 		authOperatorInput.kubeClient,
-		common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...,
+		append(
+			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker),
+			oauthAPIServerInformers.Core().V1().Services().Informer(),
+			kasInformers.Core().V1().Secrets().Informer(),
+		)...,
 	).WithEncryptionControllers(
 		"openshift-oauth-apiserver",
 		encryptionProvider,
@@ -1059,12 +1088,14 @@ func externalOIDCWebhookArchitectureRequired(featureGateAccessor featuregates.Fe
 	return common.ExternalOIDCWebhookArchitectureRequired(featureGates), nil
 }
 
-func apiServicesFuncWrapper(authConfigChecker common.AuthConfigChecker) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
+func apiServicesFuncWrapper(shouldRemoveLegacyOAuthAPIs func() (bool, error)) func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
 	return func() ([]*apiregistrationv1.APIService, []*apiregistrationv1.APIService, error) {
 		apiServices := apiServices()
-		if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil {
-			return nil, nil, fmt.Errorf("checking if authentication mode is OIDC: %v", err)
-		} else if oidcAvailable {
+		shouldRemove, err := shouldRemoveLegacyOAuthAPIs()
+		if err != nil {
+			return nil, nil, fmt.Errorf("checking legacy OAuth API removal preconditions: %w", err)
+		}
+		if shouldRemove {
 			// return apiServices as disabled
 			return nil, apiServices, nil
 		}

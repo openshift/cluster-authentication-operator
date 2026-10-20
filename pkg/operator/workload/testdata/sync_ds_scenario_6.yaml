@@ -9,7 +9,7 @@ metadata:
     revision: "1"
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "0b1490d642c4bd7b9def0c1dc07fa7a471060f94e4564001939ed5f0d5de59fd"
+    operator.openshift.io/spec-hash: "35f030587d1dcffc4f20d6db20e404b9344fdbd58ff60adf5c181b8d9218a3cd"
 spec:
   strategy:
     type: RollingUpdate
@@ -48,14 +48,13 @@ spec:
             fi
             exec oauth-apiserver external-oidc \
               --secure-port=8443 \
-              --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
-              --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+              --tls-private-key-file=/var/run/secrets/token-review-serving-cert/tls.key \
+              --tls-cert-file=/var/run/secrets/token-review-serving-cert/tls.crt \
               --config=/var/run/configmaps/auth-config/auth-config.json \
               --cors-allowed-origins='//127\.0\.0\.1(:|$)' \
               --cors-allowed-origins='//localhost(:|$)' \
               --tls-cipher-suites=TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 \
               --tls-min-version=VersionTLS13 \
-              --tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,/var/run/secrets/token-review-serving-cert/tls.key \
               --v=2
         resources:
           requests:
@@ -69,18 +68,15 @@ spec:
         volumeMounts:
         - mountPath: /var/run/configmaps/trusted-ca-bundle
           name: trusted-ca-bundle
-        - mountPath: /var/run/secrets/serving-cert
-          name: serving-cert
+        - mountPath: /var/run/secrets/token-review-serving-cert
+          name: token-review-serving-cert
         - mountPath: /var/run/configmaps/auth-config
           name: auth-config
-        - name: token-review-serving-cert
-          mountPath: /var/run/secrets/token-review-serving-cert
-          readOnly: true
       terminationGracePeriodSeconds: 120 # a bit more than the 60 seconds timeout of non-long-running requests + the shutdown delay
       volumes:
-      - name: serving-cert
+      - name: token-review-serving-cert
         secret:
-          secretName: serving-cert
+          secretName: token-review-serving-cert
       - name: trusted-ca-bundle
         configMap:
           name: trusted-ca-bundle
@@ -94,9 +90,6 @@ spec:
           items:
           - key: auth-config.json
             path: auth-config.json
-      - name: token-review-serving-cert
-        secret:
-          secretName: token-review-serving-cert
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
