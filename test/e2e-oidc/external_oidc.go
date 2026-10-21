@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +47,7 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/golang-jwt/jwt/v5"
 	g "github.com/onsi/ginkgo/v2"
@@ -150,6 +153,9 @@ func testExternalOIDCWithKeycloak(ctx context.Context, t testing.TB) {
 	// ========================================================================
 	t.Logf(">>> Sub-test 1: auth-config cm must not exist when type not OIDC")
 	testClient.checkPreconditions(t, testCtx, typeOAuth, operatorAvailable, nil)
+	if newExternalOIDCArchitectureEnabled {
+		testClient.validateOAuthState(t, testCtx, false, true)
+	}
 
 	_, err = testClient.kubeClient.CoreV1().ConfigMaps(managedNS).Get(testCtx, authCM, metav1.GetOptions{})
 	require.True(t, errors.IsNotFound(err), "openshift-config-managed/auth-config configmap must be missing")
@@ -575,6 +581,8 @@ type testClient struct {
 	apiregistrationClient apiregistrationclient.Interface
 
 	enabledFeatures sets.Set[configv1.FeatureGateName]
+	// Captured in IntegratedOAuth mode and checked throughout the configure/revert scenarios.
+	initialTokenReviewService *v1.Service
 }
 
 func newTestClient(t testing.TB, ctx context.Context) (*testClient, error) {
@@ -884,6 +892,14 @@ func (tc *testClient) validateOAuthState(t testing.TB, ctx context.Context, requ
 	waitErr := wait.PollUntilContextTimeout(ctx, 30*time.Second, 10*time.Minute, false, func(pollCtx context.Context) (bool, error) {
 		validationErrs = make([]error, 0)
 		validationErrs = append(validationErrs, validateOAuthResources(pollCtx, dynamicClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
+		if newExternalOIDCArchitectureEnabled {
+			if err := tc.validateTokenReviewWebhook(pollCtx); err != nil {
+				validationErrs = append(validationErrs, err)
+			}
+			if err := tc.validateOAuthAPIServerDeployment(pollCtx, requireMissing); err != nil {
+				validationErrs = append(validationErrs, err)
+			}
+		}
 		validationErrs = append(validationErrs, validateOAuthRoutes(pollCtx, tc.routeClient, tc.configClient, requireMissing)...)
 		validationErrs = append(validationErrs, validateOAuthControllerConditions(tc.operatorClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
 		validationErrs = append(validationErrs, validateOperandVersions(pollCtx, tc.configClient, requireMissing, newExternalOIDCArchitectureEnabled)...)
@@ -920,6 +936,7 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-authentication", "v4-0-config-system-session"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-authentication", "oauth-openshift"},
 		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-authentication", "oauth-openshift"},
+		{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "api"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.oauth.openshift.io"},
 		{schema.GroupVersionResource{Group: "apiregistration.k8s.io", Version: "v1", Resource: "apiservices"}, "", "v1.user.openshift.io"},
 		{schema.GroupVersionResource{Group: "oauth.openshift.io", Version: "v1", Resource: "oauthclients"}, "", "openshift-browser-client"},
@@ -937,7 +954,6 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 	if !newExternalOIDCArchitectureEnabled {
 		resourceReferences = append(resourceReferences,
 			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-config", "webhook-authentication-integrated-oauth"},
-			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "api"},
 			resourceReference{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-oauth-apiserver", "oauth-apiserver-sa"},
 			resourceReference{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:oauth-apiserver"},
 		)
@@ -952,7 +968,132 @@ func validateOAuthResources(ctx context.Context, dynamicClient *dynamic.DynamicC
 		}
 	}
 
+	if newExternalOIDCArchitectureEnabled {
+		alwaysPresentResourceReferences := []resourceReference{
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-config", "webhook-authentication-integrated-oauth"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, "openshift-oauth-apiserver", "token-review"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, "openshift-oauth-apiserver", "token-review-serving-cert"},
+			{schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, "openshift-oauth-apiserver", "oauth-apiserver-sa"},
+			{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "openshift-oauth-apiserver", "apiserver"},
+			{schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, "", "system:openshift:oauth-apiserver"},
+		}
+
+		for _, obj := range alwaysPresentResourceReferences {
+			if _, err := dynamicClient.Resource(obj.gvr).Namespace(obj.namespace).Get(ctx, obj.name, metav1.GetOptions{}); err != nil {
+				errs = append(errs, fmt.Errorf("required resource %s '%s/%s' is unavailable: %v", obj.gvr.String(), obj.namespace, obj.name, err))
+			}
+		}
+	}
+
 	return errs
+}
+
+func (tc *testClient) validateTokenReviewWebhook(ctx context.Context) error {
+	service, err := tc.kubeClient.CoreV1().Services("openshift-oauth-apiserver").Get(ctx, "token-review", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("getting token-review Service: %w", err)
+	}
+	if len(service.Spec.Ports) == 0 {
+		return fmt.Errorf("token-review Service has no ports")
+	}
+	if tc.initialTokenReviewService != nil {
+		if service.UID != tc.initialTokenReviewService.UID || service.Spec.ClusterIP != tc.initialTokenReviewService.Spec.ClusterIP {
+			return fmt.Errorf("token-review Service identity changed: UID %s -> %s, ClusterIP %s -> %s",
+				tc.initialTokenReviewService.UID, service.UID, tc.initialTokenReviewService.Spec.ClusterIP, service.Spec.ClusterIP)
+		}
+	}
+
+	secret, err := tc.kubeClient.CoreV1().Secrets("openshift-config").Get(ctx, "webhook-authentication-integrated-oauth", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("getting webhook kubeconfig Secret: %w", err)
+	}
+
+	kubeconfig, err := clientcmd.Load(secret.Data["kubeConfig"])
+	if err != nil {
+		return fmt.Errorf("decoding webhook kubeconfig: %w", err)
+	}
+	currentContext, ok := kubeconfig.Contexts[kubeconfig.CurrentContext]
+	if !ok {
+		return fmt.Errorf("webhook kubeconfig current context %q does not exist", kubeconfig.CurrentContext)
+	}
+	cluster, ok := kubeconfig.Clusters[currentContext.Cluster]
+	if !ok {
+		return fmt.Errorf("webhook kubeconfig cluster %q does not exist", currentContext.Cluster)
+	}
+
+	expectedServer := "https://" + net.JoinHostPort(service.Spec.ClusterIP, strconv.Itoa(int(service.Spec.Ports[0].Port))) + "/apis/oauth.openshift.io/v1/tokenreviews"
+	if cluster.Server != expectedServer {
+		return fmt.Errorf("webhook kubeconfig server is %q, expected %q", cluster.Server, expectedServer)
+	}
+	if cluster.TLSServerName != "token-review.openshift-oauth-apiserver.svc" {
+		return fmt.Errorf("webhook kubeconfig TLS server name is %q, expected token-review.openshift-oauth-apiserver.svc", cluster.TLSServerName)
+	}
+	if tc.initialTokenReviewService == nil {
+		tc.initialTokenReviewService = service.DeepCopy()
+	}
+
+	return nil
+}
+
+func (tc *testClient) validateOAuthAPIServerDeployment(ctx context.Context, externalOIDCMode bool) error {
+	deployment, err := tc.kubeClient.AppsV1().Deployments("openshift-oauth-apiserver").Get(ctx, "apiserver", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("getting oauth-apiserver Deployment: %w", err)
+	}
+
+	desiredReplicas := int32(1)
+	if deployment.Spec.Replicas != nil {
+		desiredReplicas = *deployment.Spec.Replicas
+	}
+	if desiredReplicas == 0 ||
+		deployment.Status.ObservedGeneration < deployment.Generation ||
+		deployment.Status.Replicas != desiredReplicas ||
+		deployment.Status.UpdatedReplicas != desiredReplicas ||
+		deployment.Status.ReadyReplicas != desiredReplicas ||
+		deployment.Status.AvailableReplicas != desiredReplicas ||
+		deployment.Status.UnavailableReplicas != 0 {
+		return fmt.Errorf("oauth-apiserver Deployment rollout is incomplete")
+	}
+
+	var oauthAPIServerArgs string
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == "oauth-apiserver" {
+			oauthAPIServerArgs = strings.Join(container.Args, "\n")
+			break
+		}
+	}
+	if len(oauthAPIServerArgs) == 0 {
+		return fmt.Errorf("oauth-apiserver container has no arguments")
+	}
+
+	standardModeFlags := []string{
+		"exec oauth-apiserver start",
+		"--tls-cert-file=/var/run/secrets/serving-cert/tls.crt",
+		"--tls-private-key-file=/var/run/secrets/serving-cert/tls.key",
+		"--tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,/var/run/secrets/token-review-serving-cert/tls.key",
+	}
+	externalOIDCModeFlags := []string{
+		"exec oauth-apiserver external-oidc",
+		"--tls-cert-file=/var/run/secrets/token-review-serving-cert/tls.crt",
+		"--tls-private-key-file=/var/run/secrets/token-review-serving-cert/tls.key",
+	}
+
+	expectedFlags, unexpectedFlags := standardModeFlags, externalOIDCModeFlags
+	if externalOIDCMode {
+		expectedFlags, unexpectedFlags = externalOIDCModeFlags, standardModeFlags
+	}
+	for _, expected := range expectedFlags {
+		if !strings.Contains(oauthAPIServerArgs, expected) {
+			return fmt.Errorf("oauth-apiserver Deployment does not contain expected argument %q", expected)
+		}
+	}
+	for _, unexpected := range unexpectedFlags {
+		if strings.Contains(oauthAPIServerArgs, unexpected) {
+			return fmt.Errorf("oauth-apiserver Deployment contains unexpected argument %q", unexpected)
+		}
+	}
+
+	return nil
 }
 
 func validateOAuthRoutes(ctx context.Context, routeClient routeclient.Interface, configClient *configclient.Clientset, requireMissing bool) []error {
