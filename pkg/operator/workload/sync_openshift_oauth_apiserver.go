@@ -38,6 +38,7 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/arguments"
 	oauthapiconfigobservercontroller "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/configobservercontroller"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // nodeCountFunction a function to return count of nodes
@@ -71,6 +72,9 @@ type OAuthAPIServerWorkload struct {
 	featureGateAccessor       featuregates.FeatureGateAccess
 	resourceSyncer            resourcesynccontroller.ResourceSyncer
 	proxyResolver             common.ProxyResolver
+	// sourceConfigMapLister lists ConfigMaps in openshift-config, used to
+	// validate the proxy trustedCA source before registering it for sync.
+	sourceConfigMapLister corev1listers.ConfigMapLister
 }
 
 // NewOAuthAPIServerWorkload creates new OAuthAPIServerWorkload struct
@@ -89,6 +93,7 @@ func NewOAuthAPIServerWorkload(
 	versionRecorder status.VersionGetter,
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	proxyResolver common.ProxyResolver,
+	sourceConfigMapLister corev1listers.ConfigMapLister,
 ) *OAuthAPIServerWorkload {
 	return &OAuthAPIServerWorkload{
 		operatorClient:            operatorClient,
@@ -105,6 +110,7 @@ func NewOAuthAPIServerWorkload(
 		featureGateAccessor:       featureGateAccessor,
 		resourceSyncer:            resourceSyncer,
 		proxyResolver:             proxyResolver,
+		sourceConfigMapLister:     sourceConfigMapLister,
 	}
 }
 
@@ -462,6 +468,12 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 			return fmt.Errorf("failed to remove proxy trusted CA configmap \"%s/%s\" from sync: %w", destination.Namespace, destination.Name, err)
 		}
 		return nil
+	}
+
+	// Fail fast if the source configmap doesn't exist yet or lacks CA data,
+	// rather than registering a sync rule for a source that isn't ready.
+	if _, err := transport.LoadCAData(c.sourceConfigMapLister, proxy.TrustedCAName, "ca-bundle.crt"); err != nil {
+		return fmt.Errorf("proxy trustedCA configmap \"openshift-config/%s\" is not ready: %w", proxy.TrustedCAName, err)
 	}
 
 	source := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: proxy.TrustedCAName}

@@ -25,6 +25,7 @@ import (
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/apiserver/controller/workload"
@@ -65,6 +66,10 @@ type oauthServerDeploymentSyncer struct {
 	podsLister      corev1listers.PodLister
 	routeLister     routev1listers.RouteLister
 
+	// sourceConfigMapLister lists ConfigMaps in openshift-config, used to
+	// validate the proxy trustedCA source before registering it for sync.
+	sourceConfigMapLister corev1listers.ConfigMapLister
+
 	resourceSyncer resourcesynccontroller.ResourceSyncer
 	proxyResolver  common.ProxyResolver
 
@@ -88,6 +93,7 @@ func NewOAuthServerWorkloadController(
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	authConfigChecker common.AuthConfigChecker,
 	proxyResolver common.ObservableProxyResolver,
+	sourceConfigMapLister corev1listers.ConfigMapLister,
 ) factory.Controller {
 	targetNS := "openshift-authentication"
 
@@ -101,10 +107,11 @@ func NewOAuthServerWorkloadController(
 		deployments:       kubeClient.AppsV1(),
 		deploymentsLister: kubeInformersForTargetNamespace.Apps().V1().Deployments().Lister(),
 
-		configMapLister: kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
-		secretLister:    kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
-		podsLister:      kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
-		routeLister:     routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
+		configMapLister:       kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
+		secretLister:          kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		podsLister:            kubeInformersForTargetNamespace.Core().V1().Pods().Lister(),
+		routeLister:           routeInformersForTargetNamespace.Route().V1().Routes().Lister(),
+		sourceConfigMapLister: sourceConfigMapLister,
 
 		resourceSyncer: resourceSyncer,
 		proxyResolver:  proxyResolver,
@@ -342,6 +349,12 @@ func (c *oauthServerDeploymentSyncer) syncComponentProxyCA(trustedCAName string,
 	if len(trustedCAName) == 0 {
 		// RSC will delete the destination CM when it next reconciles.
 		return c.resourceSyncer.SyncConfigMap(dest, resourcesynccontroller.ResourceLocation{})
+	}
+
+	// Fail fast if the source configmap doesn't exist yet or lacks CA data,
+	// rather than registering a sync rule for a source that isn't ready.
+	if _, err := transport.LoadCAData(c.sourceConfigMapLister, trustedCAName, "ca-bundle.crt"); err != nil {
+		return fmt.Errorf("proxy trustedCA configmap \"openshift-config/%s\" is not ready: %w", trustedCAName, err)
 	}
 
 	src := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: trustedCAName}

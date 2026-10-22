@@ -84,9 +84,10 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 
 		resourceSyncer := &recordingResourceSyncer{}
 		workload := &OAuthAPIServerWorkload{
-			targetNamespace: destination.Namespace,
-			resourceSyncer:  resourceSyncer,
-			configMapLister: corev1listers.NewConfigMapLister(indexer),
+			targetNamespace:       destination.Namespace,
+			resourceSyncer:        resourceSyncer,
+			configMapLister:       corev1listers.NewConfigMapLister(indexer),
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "proxy-ca"),
 		}
 		deployment := oauthAPIServerTestDeployment()
 		proxy := common.ResolvedProxy{
@@ -111,9 +112,10 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 	t.Run("trusted CA set before the sync completes returns not found", func(t *testing.T) {
 		resourceSyncer := &recordingResourceSyncer{}
 		workload := &OAuthAPIServerWorkload{
-			targetNamespace: destination.Namespace,
-			resourceSyncer:  resourceSyncer,
-			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+			targetNamespace:       destination.Namespace,
+			resourceSyncer:        resourceSyncer,
+			configMapLister:       corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "proxy-ca"),
 		}
 
 		deployment := oauthAPIServerTestDeployment()
@@ -121,6 +123,21 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		require.True(t, apierrors.IsNotFound(err))
 		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
 		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
+	})
+
+	t.Run("trusted CA source configmap not ready: returns error without registering sync", func(t *testing.T) {
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace:       destination.Namespace,
+			resourceSyncer:        resourceSyncer,
+			sourceConfigMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
+
+		deployment := oauthAPIServerTestDeployment()
+		err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCAName: "proxy-ca"}, deployment)
+		require.ErrorContains(t, err, "not ready")
+		require.Empty(t, resourceSyncer.configMaps)
+		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
 	})
 
 	t.Run("trusted CA removed configures destination deletion", func(t *testing.T) {
@@ -149,12 +166,25 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 
 	t.Run("sync errors are returned", func(t *testing.T) {
 		workload := &OAuthAPIServerWorkload{
-			targetNamespace: destination.Namespace,
-			resourceSyncer:  &recordingResourceSyncer{err: stderrors.New("sync failed")},
+			targetNamespace:       destination.Namespace,
+			resourceSyncer:        &recordingResourceSyncer{err: stderrors.New("sync failed")},
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "proxy-ca"),
 		}
 
 		require.ErrorContains(t, workload.syncComponentProxy(common.ResolvedProxy{TrustedCAName: "proxy-ca"}, oauthAPIServerTestDeployment()), "sync failed")
 	})
+}
+
+// sourceCAConfigMapLister returns a ConfigMapLister with a valid proxy trustedCA
+// source configmap seeded in openshift-config under the given name.
+func sourceCAConfigMapLister(t *testing.T, name string) corev1listers.ConfigMapLister {
+	t.Helper()
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	require.NoError(t, indexer.Add(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "openshift-config"},
+		Data:       map[string]string{"ca-bundle.crt": "test-ca-data"},
+	}))
+	return corev1listers.NewConfigMapLister(indexer)
 }
 func oauthAPIServerTestDeployment() *appsv1.Deployment {
 	return &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "oauth-apiserver"}}}}}}
