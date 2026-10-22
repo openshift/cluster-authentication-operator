@@ -678,15 +678,25 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		enabledGates          []configv1.FeatureGateName
 		proxy                 common.ResolvedProxy
 		proxyErr              error
+		destCMSynced          bool
 		expectError           bool
 		expectedTrustedCAPath string
 		expectedWebhookArch   bool
 	}{
 		{
-			name:                  "webhook arch, proxy with trusted CA",
+			name:                  "webhook arch, proxy with trusted CA, destination configmap synced",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			destCMSynced:          true,
 			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
+			expectedWebhookArch:   true,
+		},
+		{
+			name:                  "webhook arch, proxy with trusted CA, destination configmap not yet synced",
+			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			destCMSynced:          false,
+			expectedTrustedCAPath: "",
 			expectedWebhookArch:   true,
 		},
 		{
@@ -721,6 +731,16 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			configMapIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			if tt.destCMSynced {
+				if err := configMapIndexer.Add(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: targetNamespace,
+						Name:      common.ComponentProxyCAConfigMapName,
+					},
+				}); err != nil {
+					t.Fatalf("failed to seed proxy CA configmap: %v", err)
+				}
+			}
 			fakeProxy := &fakecommon.ProxyResolver{Proxy: tt.proxy, Err: tt.proxyErr}
 
 			gen := newAuthConfigGenerator(
