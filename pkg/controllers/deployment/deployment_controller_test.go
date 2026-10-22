@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/stretchr/testify/require"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -110,9 +111,9 @@ func TestSetRollingUpdateParameters(t *testing.T) {
 }
 
 func TestSyncComponentProxyCA(t *testing.T) {
-	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: componentProxyCAConfigMapName}
+	dest := resourcesynccontroller.ResourceLocation{Namespace: "openshift-authentication", Name: common.ComponentProxyCAConfigMapName}
 	destCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: componentProxyCAConfigMapName, Namespace: "openshift-authentication"},
+		ObjectMeta: metav1.ObjectMeta{Name: common.ComponentProxyCAConfigMapName, Namespace: "openshift-authentication"},
 	}
 
 	t.Run("trustedCA set and dest CM synced: adds volume and mount", func(t *testing.T) {
@@ -132,10 +133,10 @@ func TestSyncComponentProxyCA(t *testing.T) {
 		require.Equal(t, []configMapSyncCall{{src: wantSrc, dst: dest}}, rs.syncedConfigMaps)
 
 		wantVolumes := []corev1.Volume{{
-			Name: componentProxyCAConfigMapName,
+			Name: common.ComponentProxyCAConfigMapName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: componentProxyCAConfigMapName},
+					LocalObjectReference: corev1.LocalObjectReference{Name: common.ComponentProxyCAConfigMapName},
 				},
 			},
 		}}
@@ -144,9 +145,9 @@ func TestSyncComponentProxyCA(t *testing.T) {
 		}
 
 		wantMounts := []corev1.VolumeMount{{
-			Name:      componentProxyCAConfigMapName,
+			Name:      common.ComponentProxyCAConfigMapName,
 			ReadOnly:  true,
-			MountPath: componentProxyCAMountPath,
+			MountPath: common.ComponentProxyCAMountPath,
 		}}
 		if diff := cmp.Diff(wantMounts, dep.Spec.Template.Spec.Containers[0].VolumeMounts); diff != "" {
 			t.Errorf("volume mounts mismatch (-want +got):\n%s", diff)

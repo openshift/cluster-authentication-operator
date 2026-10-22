@@ -50,33 +50,14 @@ func NewExternalOIDCController(
 	configMaps corev1client.ConfigMapsGetter,
 	recorder events.Recorder,
 	featureGates featuregates.FeatureGate,
+	proxyResolver common.ObservableProxyResolver,
 ) factory.Controller {
-	kubeGenerator := kubeapiserver.NewAuthenticationConfigurationGenerator(kubeInformersForNamespaces.ConfigMapLister(), featureGates)
-	authCfgGenerator := func(auth *configv1.Authentication) (runtime.Object, error) {
-		return kubeGenerator.GenerateAuthenticationConfiguration(auth)
-	}
-
-	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
-		configMapLister := kubeInformersForNamespaces.ConfigMapLister()
-
-		var genOptions []externaloidc.GeneratorOption
-		if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
-			genOptions = append(genOptions,
-				externaloidc.WithExternalClaimsSourcing(
-					clientSecretResolver(kubeInformersForNamespaces.SecretLister()),
-				),
-			)
-		}
-
-		oauthGenerator := externaloidc.NewAuthenticationConfigurationGenerator(
-			certificateAuthorityResolver(configMapLister),
-			genOptions...,
-		)
-
-		authCfgGenerator = func(auth *configv1.Authentication) (runtime.Object, error) {
-			return oauthGenerator.Generate(&auth.Spec)
-		}
-	}
+	authCfgGenerator := newAuthConfigGenerator(
+		kubeInformersForNamespaces.ConfigMapLister(),
+		kubeInformersForNamespaces.SecretLister(),
+		featureGates,
+		proxyResolver,
+	)
 
 	c := &externalOIDCController{
 		name:      "ExternalOIDCController",
@@ -101,6 +82,10 @@ func NewExternalOIDCController(
 			kubeInformersForNamespaces.InformersFor(configNamespace).Core().V1().Secrets().Informer(),
 		)
 	}
+	// track auth proxy config changes
+	if informer := proxyResolver.Informer(); informer != nil {
+		informers = append(informers, informer)
+	}
 
 	return factory.New().
 		WithInformers(informers...).
@@ -111,6 +96,51 @@ func NewExternalOIDCController(
 		).WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
+}
+
+// newAuthConfigGenerator selects and constructs the auth config generator.
+// When the webhook architecture is required it uses the oauth-apiserver generator
+// (which supports the external OIDC proxy CA path); otherwise it falls back to the
+// kube-apiserver generator.
+func newAuthConfigGenerator(
+	configMapLister corev1listers.ConfigMapLister,
+	secretLister corev1listers.SecretLister,
+	featureGates featuregates.FeatureGate,
+	proxyResolver common.ProxyResolver,
+) authConfigGenerator {
+	if common.ExternalOIDCWebhookArchitectureRequired(featureGates) {
+		var genOptions []externaloidc.GeneratorOption
+		if featureGates.Enabled(features.FeatureGateExternalOIDCExternalClaimsSourcing) {
+			genOptions = append(genOptions,
+				externaloidc.WithExternalClaimsSourcing(clientSecretResolver(secretLister)),
+			)
+		}
+		// When the auth proxy is disabled the resolver returns an empty TrustedCAName,
+		// so there is no need to check the feature flag here.
+		genOptions = append(genOptions,
+			externaloidc.WithTrustedCAFilePath(func() (string, error) {
+				proxy, err := proxyResolver.ResolveProxy()
+				if err != nil {
+					return "", fmt.Errorf("failed to resolve external OIDC proxy config: %w", err)
+				}
+				if proxy.TrustedCAName != "" {
+					return common.ComponentProxyCAFilePath, nil
+				}
+				return "", nil
+			}),
+		)
+		oauthGenerator := externaloidc.NewAuthenticationConfigurationGenerator(
+			certificateAuthorityResolver(configMapLister), genOptions...,
+		)
+		return func(auth *configv1.Authentication) (runtime.Object, error) {
+			return oauthGenerator.Generate(&auth.Spec)
+		}
+	}
+
+	kubeGenerator := kubeapiserver.NewAuthenticationConfigurationGenerator(configMapLister, featureGates)
+	return func(auth *configv1.Authentication) (runtime.Object, error) {
+		return kubeGenerator.GenerateAuthenticationConfiguration(auth)
+	}
 }
 
 func (c *externalOIDCController) sync(ctx context.Context, syncCtx factory.SyncContext) error {

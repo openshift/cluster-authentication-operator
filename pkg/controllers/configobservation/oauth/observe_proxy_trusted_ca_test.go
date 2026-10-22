@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"golang.org/x/net/http/httpproxy"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clocktesting "k8s.io/utils/clock/testing"
 
@@ -27,17 +25,17 @@ func TestObserveComponentProxyTrustedCA(t *testing.T) {
 	}
 
 	noProxy := &fake.ProxyResolver{
-		Proxy: &common.ResolvedProxy{Config: &httpproxy.Config{}},
+		Proxy: common.ResolvedProxy{},
 	}
 	proxyWithCA := &fake.ProxyResolver{
-		Proxy: &common.ResolvedProxy{
-			Config:        &httpproxy.Config{HTTPSProxy: "https://proxy:3128"},
+		Proxy: common.ResolvedProxy{
+			HTTPSProxy:    "https://proxy:3128",
 			TrustedCAName: "my-proxy-ca",
 		},
 	}
 	proxyWithoutCA := &fake.ProxyResolver{
-		Proxy: &common.ResolvedProxy{
-			Config: &httpproxy.Config{HTTPSProxy: "https://proxy:3128"},
+		Proxy: common.ResolvedProxy{
+			HTTPSProxy: "https://proxy:3128",
 		},
 	}
 
