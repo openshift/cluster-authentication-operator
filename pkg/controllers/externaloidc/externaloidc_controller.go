@@ -28,6 +28,7 @@ import (
 const (
 	configNamespace        = "openshift-config"
 	managedNamespace       = "openshift-config-managed"
+	targetNamespace        = "openshift-oauth-apiserver"
 	targetAuthConfigCMName = "auth-config"
 	authConfigDataKey      = "auth-config.json"
 )
@@ -93,6 +94,12 @@ func NewExternalOIDCController(
 			// track openshift-config-managed/auth-config cm in case it gets changed externally
 			factory.NamesFilter(targetAuthConfigCMName),
 			kubeInformersForNamespaces.InformersFor(managedNamespace).Core().V1().ConfigMaps().Informer(),
+		).
+		WithFilteredEventsInformers(
+			// re-sync once OAuthAPIServerWorkload has synced the proxy trusted CA
+			// configmap, so the generated auth-config can start referencing its path
+			factory.NamesFilter(common.ComponentProxyCAConfigMapName),
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().ConfigMaps().Informer(),
 		).WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
@@ -123,10 +130,19 @@ func newAuthConfigGenerator(
 				if err != nil {
 					return "", fmt.Errorf("failed to resolve external OIDC proxy config: %w", err)
 				}
-				if proxy.TrustedCAName != "" {
-					return common.ComponentProxyCAFilePath, nil
+				if proxy.TrustedCAName == "" {
+					return "", nil
 				}
-				return "", nil
+				// Only reference the path once OAuthAPIServerWorkload has synced the CA
+				// content into the target namespace and mounted it into the deployment;
+				// otherwise a pod could reload this config before the file exists.
+				if _, err := configMapLister.ConfigMaps(targetNamespace).Get(common.ComponentProxyCAConfigMapName); err != nil {
+					if apierrors.IsNotFound(err) {
+						return "", nil
+					}
+					return "", fmt.Errorf("failed to get proxy trusted CA configmap %s/%s: %w", targetNamespace, common.ComponentProxyCAConfigMapName, err)
+				}
+				return common.ComponentProxyCAFilePath, nil
 			}),
 		)
 		oauthGenerator := externaloidc.NewAuthenticationConfigurationGenerator(
