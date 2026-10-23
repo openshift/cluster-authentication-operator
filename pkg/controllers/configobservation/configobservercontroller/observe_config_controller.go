@@ -28,7 +28,7 @@ func NewConfigObserver(
 	resourceSyncer resourcesynccontroller.ResourceSyncer,
 	enabledClusterCapabilities sets.String,
 	eventRecorder events.Recorder,
-	proxyResolver common.ObservableProxyResolver,
+	proxyResolver *common.AuthProxyResolver,
 ) factory.Controller {
 	interestingNamespaces := []string{
 		"openshift-authentication",

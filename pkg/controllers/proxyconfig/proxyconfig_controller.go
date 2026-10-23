@@ -52,7 +52,7 @@ func NewProxyConfigChecker(
 	recorder events.Recorder,
 	operatorClient v1helpers.OperatorClient,
 	oauthLister configv1listers.OAuthLister,
-	proxyResolver common.ObservableProxyResolver,
+	proxyResolver *common.AuthProxyResolver,
 ) factory.Controller {
 	p := proxyConfigChecker{
 		routeLister:       routeInformer.Lister(),
@@ -244,10 +244,12 @@ func (p *proxyConfigChecker) createHTTPClients() (*http.Client, *http.Client, er
 		return nil, nil, err
 	}
 
-	withoutProxy, err := p.proxyResolver.NewTransport(poolOpt, common.WithoutProxy())
+	withoutProxy, err := p.proxyResolver.NewTransport(poolOpt)
 	if err != nil {
 		return nil, nil, err
 	}
+	withoutProxy.Proxy = nil
+
 	return &http.Client{Transport: withProxy}, &http.Client{Transport: withoutProxy}, nil
 }
 
