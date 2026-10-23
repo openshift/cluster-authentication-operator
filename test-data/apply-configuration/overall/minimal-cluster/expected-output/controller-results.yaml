@@ -134,7 +134,7 @@ controllerResults:
   status: Succeeded
 - controllerName: openshift-apiserver-APIService
   errors:
-  - message: 'checking if authentication mode is OIDC: getting authentications.config.openshift.io/cluster:
+  - message: 'checking legacy OAuth API removal preconditions: getting authentications.config.openshift.io/cluster:
       authentication.config.openshift.io "cluster" not found'
   status: Failed
 - controllerName: openshift-oauth-apiserver-EncryptionCondition

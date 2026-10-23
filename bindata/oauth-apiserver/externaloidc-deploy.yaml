@@ -48,8 +48,8 @@ spec:
             fi
             exec oauth-apiserver external-oidc \
               --secure-port=8443 \
-              --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
-              --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+              --tls-private-key-file=/var/run/secrets/token-review-serving-cert/tls.key \
+              --tls-cert-file=/var/run/secrets/token-review-serving-cert/tls.crt \
               --config=/var/run/configmaps/auth-config/auth-config.json \
               ${FLAGS}
         resources:
@@ -65,15 +65,15 @@ spec:
         volumeMounts:
         - mountPath: /var/run/configmaps/trusted-ca-bundle
           name: trusted-ca-bundle
-        - mountPath: /var/run/secrets/serving-cert
-          name: serving-cert
+        - mountPath: /var/run/secrets/token-review-serving-cert
+          name: token-review-serving-cert
         - mountPath: /var/run/configmaps/auth-config
           name: auth-config
       terminationGracePeriodSeconds: 120 # a bit more than the 60 seconds timeout of non-long-running requests + the shutdown delay
       volumes:
-      - name: serving-cert
+      - name: token-review-serving-cert
         secret:
-          secretName: serving-cert
+          secretName: token-review-serving-cert
       - name: trusted-ca-bundle
         configMap:
           name: trusted-ca-bundle

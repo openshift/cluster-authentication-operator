@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,13 +185,18 @@ func (s *recordingResourceSyncer) SyncSecret(_, _ resourcesynccontroller.Resourc
 
 func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 	scenarios := []struct {
-		name               string
-		goldenFile         string
-		operator           *operatorv1.Authentication
-		expectedActions    []string
-		featureGates       featuregates.FeatureGateAccess
-		authenticationType configv1.AuthenticationType
-		authConfigChecker  authConfigChecker
+		name                   string
+		goldenFile             string
+		operator               *operatorv1.Authentication
+		expectedActions        []string
+		featureGates           featuregates.FeatureGateAccess
+		authenticationType     configv1.AuthenticationType
+		authConfigChecker      *mockAuthConfigChecker
+		expectedError          string
+		tokenReviewCert        *corev1.Secret
+		wantTokenReviewSNI     bool
+		wantTokenReviewPrimary bool
+		legacyAPIsRemoved      bool
 	}{
 		// scenario 1
 		{
@@ -313,6 +319,8 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: false,
 			},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			wantTokenReviewSNI: true,
 		},
 		{
 			name:       "a deployment with custom flags (for oauthapi server) is created with ExternalOIDCExternalClaimsSourcing gate enabled but OIDC not configured",
@@ -346,6 +354,8 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: false,
 			},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			wantTokenReviewSNI: true,
 		},
 
 		{
@@ -381,10 +391,79 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: false,
 			},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			wantTokenReviewSNI: true,
 		},
 		{
-			name:       "happy path: a default deployment configuring the new oauth-apiserver external OIDC mode is created",
-			goldenFile: "./testdata/sync_ds_scenario_4.yaml",
+			name:       "OIDC configured but legacy APIs remain keeps the standard deployment",
+			goldenFile: "./testdata/sync_ds_scenario_1.yaml",
+			operator: &operatorv1.Authentication{
+				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{oidcAvailable: true},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			wantTokenReviewSNI: true,
+		},
+		{
+			name: "direct OIDC waits for auth-config without creating a normal deployment",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			legacyAPIsRemoved:  true,
+			expectedError:      "waiting for OIDC configuration to be available",
+		},
+		{
+			name:       "IntegratedOAuth to OIDC keeps normal deployment until auth-config is synced",
+			goldenFile: "./testdata/sync_ds_scenario_1.yaml",
+			operator: &operatorv1.Authentication{
+				Status: operatorv1.AuthenticationStatus{OperatorStatus: operatorv1.OperatorStatus{
+					LatestAvailableRevision: 1,
+				}},
+			},
+			expectedActions: []string{
+				"get:secrets:etcd-client",
+				"get:configmaps:etcd-serving-ca",
+				"get:configmaps:trusted-ca-bundle",
+				"get:deployments:openshift-oauth-apiserver:apiserver",
+				"create:deployments:openshift-oauth-apiserver:apiserver",
+			},
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
+				[]configv1.FeatureGateName{features.FeatureGateExternalOIDCExternalClaimsSourcing, features.FeatureGateKMSEncryption},
+			),
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			authConfigChecker:  &mockAuthConfigChecker{},
+			tokenReviewCert:    newTokenReviewServingCert(""),
+			wantTokenReviewSNI: true,
+		},
+		{
+			name:               "happy path: a default deployment configuring the new oauth-apiserver external OIDC mode is created",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_4.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{}},
 				Status: operatorv1.AuthenticationStatus{
@@ -410,10 +489,14 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
+			tokenReviewCert:        newTokenReviewServingCert(""),
+			wantTokenReviewPrimary: true,
+			legacyAPIsRemoved:      true,
 		},
 		{
-			name:       "a deployment with custom flags (for oauthapi server) for the external OIDC mode is created",
-			goldenFile: "./testdata/sync_ds_scenario_5.yaml",
+			name:               "a deployment with custom flags (for oauthapi server) for the external OIDC mode is created",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_5.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig: runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
@@ -441,10 +524,14 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
+			tokenReviewCert:        newTokenReviewServingCert(""),
+			wantTokenReviewPrimary: true,
+			legacyAPIsRemoved:      true,
 		},
 		{
-			name:       "a deployment with custom flags (for oauthapi server) and external OIDC mode is created with UnsupportedConfigOverrides",
-			goldenFile: "./testdata/sync_ds_scenario_6.yaml",
+			name:               "a deployment with custom flags (for oauthapi server) and external OIDC mode is created with UnsupportedConfigOverrides",
+			authenticationType: configv1.AuthenticationTypeOIDC,
+			goldenFile:         "./testdata/sync_ds_scenario_6.yaml",
 			operator: &operatorv1.Authentication{
 				Spec: operatorv1.AuthenticationSpec{OperatorSpec: operatorv1.OperatorSpec{
 					ObservedConfig:             runtime.RawExtension{Raw: []byte(customAPIServerArgsJSON)},
@@ -473,6 +560,9 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			authConfigChecker: &mockAuthConfigChecker{
 				oidcAvailable: true,
 			},
+			tokenReviewCert:        newTokenReviewServingCert(""),
+			wantTokenReviewPrimary: true,
+			legacyAPIsRemoved:      true,
 		},
 	}
 
@@ -480,18 +570,40 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			eventRecorder := events.NewInMemoryRecorder("", clocktesting.NewFakePassiveClock(time.Now()))
 			fakeKubeClient := fake.NewSimpleClientset()
+			if scenario.authConfigChecker != nil {
+				scenario.authConfigChecker.authentication = &configv1.Authentication{
+					Spec: configv1.AuthenticationSpec{Type: scenario.authenticationType},
+				}
+			}
+			secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+			if scenario.tokenReviewCert != nil {
+				if err := secretIndexer.Add(scenario.tokenReviewCert); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			target := &OAuthAPIServerWorkload{
 				countNodes:                func(nodeSelector map[string]string) (*int32, error) { var i int32; i = 1; return &i, nil },
 				ensureAtMostOnePodPerNode: func(spec *appsv1.DeploymentSpec, componentName string) error { return nil },
 				kubeClient:                fakeKubeClient,
+				secretsLister:             corev1listers.NewSecretLister(secretIndexer),
 				featureGateAccessor:       scenario.featureGates,
 				authConfigChecker:         scenario.authConfigChecker,
 				resourceSyncer:            &recordingResourceSyncer{},
 				proxyResolver:             &commonfake.ProxyResolver{Proxy: common.ResolvedProxy{}},
+				legacyOAuthAPIsRemoved:    func() (bool, error) { return scenario.legacyAPIsRemoved, nil },
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
+			if scenario.expectedError != "" {
+				if err == nil || err.Error() != scenario.expectedError {
+					t.Fatalf("got error %v, want %q", err, scenario.expectedError)
+				}
+				if actualDeployment != nil || len(fakeKubeClient.Actions()) != 0 {
+					t.Fatalf("expected no deployment or client actions while waiting, got deployment %v and actions %v", actualDeployment, actionStrings(fakeKubeClient.Actions()))
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -505,6 +617,12 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				if err := runtime.DecodeInto(codec, data, goldenDeployment); err != nil {
 					t.Fatal(err)
 				}
+				if scenario.wantTokenReviewSNI {
+					configureExpectedTokenReviewServingCert(t, &goldenDeployment.Spec.Template.Spec)
+				}
+				if scenario.wantTokenReviewSNI || scenario.wantTokenReviewPrimary {
+					goldenDeployment.Annotations["operator.openshift.io/spec-hash"] = actualDeployment.Annotations["operator.openshift.io/spec-hash"]
+				}
 
 				if !equality.Semantic.DeepEqual(actualDeployment, goldenDeployment) {
 					t.Errorf("created Deployment is different from the expected one (file) : %s", cmp.Diff(actualDeployment, goldenDeployment))
@@ -512,6 +630,107 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnsureTokenReviewServingCertAvailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		secret    *corev1.Secret
+		wantError string
+	}{
+		{
+			name:      "secret does not exist",
+			wantError: "waiting for Secret openshift-oauth-apiserver/token-review-serving-cert to be created",
+		},
+		{
+			name: "certificate is missing",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: tokenReviewServingCertSecretName, Namespace: "openshift-oauth-apiserver"},
+				Data:       map[string][]byte{corev1.TLSPrivateKeyKey: []byte("key")},
+			},
+			wantError: `waiting for Secret openshift-oauth-apiserver/token-review-serving-cert to contain "tls.crt"`,
+		},
+		{
+			name: "private key is missing",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: tokenReviewServingCertSecretName, Namespace: "openshift-oauth-apiserver"},
+				Data:       map[string][]byte{corev1.TLSCertKey: []byte("cert")},
+			},
+			wantError: `waiting for Secret openshift-oauth-apiserver/token-review-serving-cert to contain "tls.key"`,
+		},
+		{
+			name:   "certificate and private key are available",
+			secret: newTokenReviewServingCert("openshift-oauth-apiserver"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+			if tt.secret != nil {
+				if err := indexer.Add(tt.secret); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			target := &OAuthAPIServerWorkload{
+				targetNamespace: "openshift-oauth-apiserver",
+				secretsLister:   corev1listers.NewSecretLister(indexer),
+			}
+			err := target.ensureTokenReviewServingCertAvailable()
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantError {
+				t.Fatalf("got error %v, want %q", err, tt.wantError)
+			}
+		})
+	}
+}
+
+func newTokenReviewServingCert(namespace string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: tokenReviewServingCertSecretName, Namespace: namespace},
+		Data: map[string][]byte{
+			corev1.TLSCertKey:       []byte("cert"),
+			corev1.TLSPrivateKeyKey: []byte("key"),
+		},
+	}
+}
+
+func configureExpectedTokenReviewServingCert(t *testing.T, podSpec *corev1.PodSpec) {
+	t.Helper()
+
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name != "oauth-apiserver" {
+			continue
+		}
+		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, corev1.VolumeMount{
+			Name:      "token-review-serving-cert",
+			MountPath: "/var/run/secrets/token-review-serving-cert",
+			ReadOnly:  true,
+		})
+		for j := range podSpec.Containers[i].Args {
+			podSpec.Containers[i].Args[j] = strings.Replace(
+				podSpec.Containers[i].Args[j],
+				"--v=2",
+				"--tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,/var/run/secrets/token-review-serving-cert/tls.key \\\n  --v=2",
+				1,
+			)
+		}
+		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+			Name: "token-review-serving-cert",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: "token-review-serving-cert"},
+			},
+		})
+		return
+	}
+
+	t.Fatal("oauth-apiserver container not found in golden Deployment")
 }
 
 var emptyAPIServerArgsJSON = `
