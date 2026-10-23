@@ -7,89 +7,76 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/transport"
-)
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 
-const (
-	// ComponentProxyCAConfigMapName is the name used for the proxy trustedCA ConfigMap when being pulled into the auth namespaces.
-	ComponentProxyCAConfigMapName = "v4-0-config-system-auth-proxy-ca"
-	// ComponentProxyCAMountPath is the directory where authentication workloads mount ComponentProxyCAConfigMapName.
-	ComponentProxyCAMountPath = "/var/config/system/configmaps/" + ComponentProxyCAConfigMapName
-	// ComponentProxyCAFilePath is the CA bundle filename in ComponentProxyCAMountPath.
-	ComponentProxyCAFilePath = ComponentProxyCAMountPath + "/ca-bundle.crt"
+	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 )
 
 // ResolvedProxy holds the effective proxy configuration for authentication components.
 type ResolvedProxy struct {
-	HTTPProxy     string
-	HTTPSProxy    string
-	NoProxy       string
+	*httpproxy.Config
 	TrustedCAName string
 }
 
-func (p ResolvedProxy) IsProxyConfigured() bool {
+func (p *ResolvedProxy) IsProxyConfigured() bool {
 	return len(p.HTTPProxy) != 0 || len(p.HTTPSProxy) != 0
 }
 
 // ProxyFunc returns a function that resolves the proxy URL for a given request URL.
-func (p ResolvedProxy) ProxyFunc() transport.ProxyFunc {
-	c := httpproxy.Config{
-		HTTPProxy:  p.HTTPProxy,
-		HTTPSProxy: p.HTTPSProxy,
-		NoProxy:    p.NoProxy,
-	}
-	return c.ProxyFunc()
+func (p *ResolvedProxy) ProxyFunc() transport.ProxyFunc {
+	return transport.ProxyFunc(p.Config.ProxyFunc())
 }
 
 // ResolveProxy reads the component-scoped proxy from the Authentication
-// operator CR (when authProxyEnabled returns true) and returns the effective proxy
+// operator CR (when the feature gate is enabled) and returns the effective proxy
 // settings. When no component proxy is configured, it falls back to the process
 // environment (which reflects the cluster-wide proxy).
 func ResolveProxy(
-	authProxyEnabled func() (bool, error),
+	featureGateAccessor featuregates.FeatureGateAccess,
 	operatorAuthLister operatorv1listers.AuthenticationLister,
-) (ResolvedProxy, error) {
-	enabled, err := authProxyEnabled()
+) (*ResolvedProxy, error) {
+	authProxy, err := getComponentProxyConfig(featureGateAccessor, operatorAuthLister)
 	if err != nil {
-		return ResolvedProxy{}, err
-	}
-
-	var authProxy *operatorv1.AuthenticationProxyConfig
-	if enabled {
-		var err error
-		authProxy, err = getComponentProxyConfig(operatorAuthLister)
-		if err != nil {
-			return ResolvedProxy{}, err
-		}
+		return nil, err
 	}
 
 	if authProxy != nil {
-		return ResolvedProxy{
-			HTTPProxy:     authProxy.HTTPProxy,
-			HTTPSProxy:    authProxy.HTTPSProxy,
-			NoProxy:       mergeNoProxy(authProxy.NoProxy),
+		return &ResolvedProxy{
 			TrustedCAName: authProxy.TrustedCA.Name,
+			Config: &httpproxy.Config{
+				HTTPProxy:  authProxy.HTTPProxy,
+				HTTPSProxy: authProxy.HTTPSProxy,
+				NoProxy:    mergeNoProxy(authProxy.NoProxy),
+			},
 		}, nil
 	}
 
-	c := httpproxy.FromEnvironment()
-	return ResolvedProxy{
-		HTTPProxy:  c.HTTPProxy,
-		HTTPSProxy: c.HTTPSProxy,
-		NoProxy:    c.NoProxy,
+	return &ResolvedProxy{
+		Config: httpproxy.FromEnvironment(),
 	}, nil
 }
 
 // getComponentProxyConfig returns the component-scoped proxy configuration
-// from operator.openshift.io/v1 Authentication.
-// Returns (nil, nil) when the resource is not found.
-func getComponentProxyConfig(operatorAuthLister operatorv1listers.AuthenticationLister) (*operatorv1.AuthenticationProxyConfig, error) {
+// from operator.openshift.io/v1 Authentication if the feature gate is enabled.
+// Returns (nil, nil) when the gate is disabled or the resource is not found.
+func getComponentProxyConfig(
+	featureGateAccessor featuregates.FeatureGateAccess,
+	operatorAuthLister operatorv1listers.AuthenticationLister,
+) (*operatorv1.AuthenticationProxyConfig, error) {
+	featureGates, err := featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current feature gates: %w", err)
+	}
+	if !featureGates.Enabled(features.FeatureGateAuthenticationComponentProxy) {
+		return nil, nil
+	}
+
 	authOp, err := operatorAuthLister.Get("cluster")
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -124,20 +111,4 @@ func mergeNoProxy(userNoProxy []string) string {
 	entries := sets.New[string](staticNoProxyEntries...)
 	entries.Insert(userNoProxy...)
 	return strings.Join(sets.List(entries), ",")
-}
-
-// ProxyEnvVars builds environment variables for the given proxy settings.
-func ProxyEnvVars(httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	envVars = appendEnvVar(envVars, "NO_PROXY", noProxy)
-	envVars = appendEnvVar(envVars, "HTTP_PROXY", httpProxy)
-	envVars = appendEnvVar(envVars, "HTTPS_PROXY", httpsProxy)
-	return envVars
-}
-
-func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvVar {
-	if len(envVal) > 0 {
-		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
-	}
-	return envVars
 }

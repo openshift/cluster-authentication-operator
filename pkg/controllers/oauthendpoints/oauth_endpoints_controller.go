@@ -37,7 +37,7 @@ func NewOAuthRouteCheckController(
 	kubeInformersForConfigNS informers.SharedInformerFactory,
 	routeInformerNamespaces routev1informers.RouteInformer,
 	ingressInformerAllNamespaces configv1informers.IngressInformer,
-	proxyResolver common.ObservableProxyResolver,
+	proxyResolver *common.AuthProxyResolver,
 	authConfigChecker common.AuthConfigChecker,
 	systemCABundle []byte,
 	recorder events.Recorder,
