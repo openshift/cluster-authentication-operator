@@ -9,7 +9,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
@@ -209,7 +208,7 @@ func randomBits(bits uint) []byte {
 
 func (c *oauthClientsController) ensureOAuthClient(ctx context.Context, client oauthv1.OAuthClient) error {
 	_, err := c.oauthClientLister.Get(client.Name)
-	if apierrors.IsNotFound(err) {
+	if errors.IsNotFound(err) {
 		_, err = c.oauthClientClient.Create(ctx, &client, metav1.CreateOptions{})
 		return err
 	}

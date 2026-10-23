@@ -20,7 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/client-go/kubernetes/fake"
-	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -268,8 +267,8 @@ func TestValidateRouterCertificates(t *testing.T) {
 				authConfigChecker: common.NewAuthConfigChecker(
 					test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), true),
 					test.NewFakeSharedIndexInformerWithSync[operatorv1listers.KubeAPIServerLister](nil, true),
-					test.NewFakeSharedIndexInformerWithSync[corelistersv1.ConfigMapLister](nil, true),
-					test.NewFakeSharedIndexInformerWithSync[corelistersv1.ConfigMapLister](nil, true),
+					test.NewFakeSharedIndexInformerWithSync[corev1listers.ConfigMapLister](nil, true),
+					test.NewFakeSharedIndexInformerWithSync[corev1listers.ConfigMapLister](nil, true),
 					featuregates.NewHardcodedFeatureGateAccess(
 						[]configv1.FeatureGateName{},
 						[]configv1.FeatureGateName{
