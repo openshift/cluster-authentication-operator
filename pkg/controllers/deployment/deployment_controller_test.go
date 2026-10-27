@@ -122,8 +122,9 @@ func TestSyncComponentProxyCA(t *testing.T) {
 
 		rs := &fakeResourceSyncer{}
 		syncer := &oauthServerDeploymentSyncer{
-			resourceSyncer:  rs,
-			configMapLister: corev1listers.NewConfigMapLister(indexer),
+			resourceSyncer:        rs,
+			configMapLister:       corev1listers.NewConfigMapLister(indexer),
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "my-proxy-ca"),
 		}
 
 		dep := testDeployment()
@@ -159,13 +160,28 @@ func TestSyncComponentProxyCA(t *testing.T) {
 
 		rs := &fakeResourceSyncer{}
 		syncer := &oauthServerDeploymentSyncer{
-			resourceSyncer:  rs,
-			configMapLister: corev1listers.NewConfigMapLister(indexer),
+			resourceSyncer:        rs,
+			configMapLister:       corev1listers.NewConfigMapLister(indexer),
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "my-proxy-ca"),
 		}
 
 		dep := testDeployment()
 		err := syncer.syncComponentProxyCA("my-proxy-ca", dep)
 		require.ErrorContains(t, err, "not yet synced")
+		require.Empty(t, dep.Spec.Template.Spec.Volumes)
+	})
+
+	t.Run("trustedCA set but source CM not ready: returns error without registering sync", func(t *testing.T) {
+		rs := &fakeResourceSyncer{}
+		syncer := &oauthServerDeploymentSyncer{
+			resourceSyncer:        rs,
+			sourceConfigMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
+
+		dep := testDeployment()
+		err := syncer.syncComponentProxyCA("my-proxy-ca", dep)
+		require.ErrorContains(t, err, "not ready")
+		require.Empty(t, rs.syncedConfigMaps)
 		require.Empty(t, dep.Spec.Template.Spec.Volumes)
 	})
 
@@ -185,13 +201,26 @@ func TestSyncComponentProxyCA(t *testing.T) {
 	t.Run("SyncConfigMap error propagates", func(t *testing.T) {
 		rs := &fakeResourceSyncer{err: stderrors.New("sync failed")}
 		syncer := &oauthServerDeploymentSyncer{
-			resourceSyncer: rs,
+			resourceSyncer:        rs,
+			sourceConfigMapLister: sourceCAConfigMapLister(t, "my-proxy-ca"),
 		}
 
 		dep := testDeployment()
 		err := syncer.syncComponentProxyCA("my-proxy-ca", dep)
 		require.ErrorContains(t, err, "sync failed")
 	})
+}
+
+// sourceCAConfigMapLister returns a ConfigMapLister with a valid proxy trustedCA
+// source configmap seeded in openshift-config under the given name.
+func sourceCAConfigMapLister(t *testing.T, name string) corev1listers.ConfigMapLister {
+	t.Helper()
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	require.NoError(t, indexer.Add(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "openshift-config"},
+		Data:       map[string]string{"ca-bundle.crt": "test-ca-data"},
+	}))
+	return corev1listers.NewConfigMapLister(indexer)
 }
 
 func testDeployment() *appsv1.Deployment {

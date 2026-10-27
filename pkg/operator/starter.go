@@ -295,6 +295,7 @@ func prepareOauthOperator(
 		resourceSyncController,
 		authConfigChecker,
 		&proxyResolver,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config").Core().V1().ConfigMaps().Lister(),
 	)
 
 	workersAvailableController := ingressnodesavailable.NewIngressNodesAvailableController(
@@ -539,6 +540,7 @@ func prepareOauthAPIServerOperator(
 		versionRecorder,
 		resourceSyncController,
 		proxyResolver,
+		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config").Core().V1().ConfigMaps().Lister(),
 	)
 
 	infra, err := authOperatorInput.configClient.ConfigV1().Infrastructures().Get(ctx, "cluster", metav1.GetOptions{})
