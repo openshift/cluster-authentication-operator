@@ -9,7 +9,7 @@ metadata:
     revision: "1"
   annotations:
     openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
-    operator.openshift.io/spec-hash: "881cf9b086402c9dfc70e1daa0a27de2b62eec5e21cefd02e081e65ca10bfc0d"
+    operator.openshift.io/spec-hash: "8e0c74febf33b7b60c9759eb1fcb7110e8eb08cf0149d06baccbbc6a101a5873"
 spec:
   strategy:
     type: RollingUpdate
@@ -48,8 +48,8 @@ spec:
               fi
               exec oauth-apiserver external-oidc \
                 --secure-port=8443 \
-                --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
-                --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+                --tls-private-key-file=/var/run/secrets/token-review-serving-cert/tls.key \
+                --tls-cert-file=/var/run/secrets/token-review-serving-cert/tls.crt \
                 --config=/var/run/configmaps/auth-config/auth-config.json \
                 --v=2
           resources:
@@ -64,15 +64,15 @@ spec:
           volumeMounts:
             - mountPath: /var/run/configmaps/trusted-ca-bundle
               name: trusted-ca-bundle
-            - mountPath: /var/run/secrets/serving-cert
-              name: serving-cert
+            - mountPath: /var/run/secrets/token-review-serving-cert
+              name: token-review-serving-cert
             - mountPath: /var/run/configmaps/auth-config
               name: auth-config
       terminationGracePeriodSeconds: 120 # a bit more than the 60 seconds timeout of non-long-running requests + the shutdown delay
       volumes:
-        - name: serving-cert
+        - name: token-review-serving-cert
           secret:
-            secretName: serving-cert
+            secretName: token-review-serving-cert
         - name: trusted-ca-bundle
           configMap:
             name: trusted-ca-bundle

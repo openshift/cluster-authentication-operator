@@ -1,0 +1,231 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    openshiftapiservers.operator.openshift.io/operator-pull-spec: ""
+    operator.openshift.io/spec-hash: "98a24f885b54c88df69971447967857b7936ecaff5dcae90faf33d5eaf654ecf"
+  creationTimestamp: ~
+  labels:
+    apiserver: "true"
+    app: openshift-oauth-apiserver
+    revision: '1'
+  name: apiserver
+  namespace: openshift-oauth-apiserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      apiserver: "true"
+      app: openshift-oauth-apiserver
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      creationTimestamp: ~
+      labels:
+        apiserver: "true"
+        app: openshift-oauth-apiserver
+        revision: '1'
+      name: openshift-oauth-apiserver
+      annotations:
+        target.workload.openshift.io/management: '{"effect": "PreferredDuringScheduling"}'
+        openshift.io/required-scc: privileged
+    spec:
+      containers:
+        -
+          args:
+            - |
+              if [ -s /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem ]; then
+                echo "Copying system trust bundle"
+                cp -f /var/run/configmaps/trusted-ca-bundle/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+              fi
+              exec oauth-apiserver start \
+                --secure-port=8443 \
+                --audit-log-path=/var/log/oauth-apiserver/audit.log \
+                --audit-log-format=json \
+                --audit-log-maxsize=100 \
+                --audit-log-maxbackup=10 \
+                --audit-policy-file=/var/run/configmaps/audit/policy.yaml \
+                --etcd-cafile=/var/run/configmaps/etcd-serving-ca/ca-bundle.crt \
+                --etcd-keyfile=/var/run/secrets/etcd-client/tls.key \
+                --etcd-certfile=/var/run/secrets/etcd-client/tls.crt \
+                --etcd-healthcheck-timeout=9s \
+                --etcd-readycheck-timeout=9s \
+                --shutdown-delay-duration=50s \
+                --shutdown-send-retry-after=true \
+                --tls-private-key-file=/var/run/secrets/serving-cert/tls.key \
+                --tls-cert-file=/var/run/secrets/serving-cert/tls.crt \
+                --enable-priority-and-fairness=false \
+                --cors-allowed-origins='//127\.0\.0\.1(:|$)' \
+                --cors-allowed-origins='//localhost(:|$)' \
+                --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 \
+                --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 \
+                --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 \
+                --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 \
+                --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305 \
+                --tls-cipher-suites=TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 \
+                --tls-min-version=VersionTLS12 \
+                --tls-sni-cert-key=/var/run/secrets/token-review-serving-cert/tls.crt,/var/run/secrets/token-review-serving-cert/tls.key \
+                --v=2
+          command:
+            - /bin/bash
+            - "-ec"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 8443
+              path: livez?exclude=etcd
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 8443
+              path: readyz?exclude=etcd&exclude=etcd-readiness
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 8443
+              path: livez
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 30
+          name: oauth-apiserver
+          ports:
+            -
+              containerPort: 8443
+          resources:
+            requests:
+              cpu: 150m
+              memory: 200Mi
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            -
+              mountPath: /var/run/configmaps/audit
+              name: audit-policies
+            -
+              mountPath: /var/run/secrets/etcd-client
+              name: etcd-client
+            -
+              mountPath: /var/run/configmaps/etcd-serving-ca
+              name: etcd-serving-ca
+            -
+              mountPath: /var/run/configmaps/trusted-ca-bundle
+              name: trusted-ca-bundle
+            -
+              mountPath: /var/run/secrets/serving-cert
+              name: serving-cert
+            -
+              mountPath: /var/run/secrets/encryption-config
+              name: encryption-config
+            -
+              mountPath: /var/log/oauth-apiserver
+              name: audit-dir
+            - name: token-review-serving-cert
+              mountPath: /var/run/secrets/token-review-serving-cert
+              readOnly: true
+      initContainers:
+        -
+          command:
+            - sh
+            - "-c"
+            - "chmod 0700 /var/log/oauth-apiserver && touch /var/log/oauth-apiserver/audit.log && chmod 0600 /var/log/oauth-apiserver/*"
+          imagePullPolicy: IfNotPresent
+          name: fix-audit-permissions
+          resources:
+            requests:
+              cpu: 15m
+              memory: 50Mi
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            -
+              mountPath: /var/log/oauth-apiserver
+              name: audit-dir
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      priorityClassName: system-node-critical
+      serviceAccountName: oauth-apiserver-sa
+      terminationGracePeriodSeconds: 120
+      tolerations:
+        -
+          effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        -
+          effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 120
+        -
+          effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 120
+      volumes:
+        -
+          configMap:
+            name: audit-1
+          name: audit-policies
+        -
+          name: etcd-client
+          secret:
+            secretName: etcd-client
+        -
+          configMap:
+            name: etcd-serving-ca
+          name: etcd-serving-ca
+        -
+          name: serving-cert
+          secret:
+            secretName: serving-cert
+        -
+          configMap:
+            items:
+              -
+                key: ca-bundle.crt
+                path: tls-ca-bundle.pem
+            name: trusted-ca-bundle
+            optional: true
+          name: trusted-ca-bundle
+        -
+          name: encryption-config
+          secret:
+            optional: true
+            secretName: encryption-config-1
+        -
+          hostPath:
+            path: /var/log/oauth-apiserver
+          name: audit-dir
+        - name: token-review-serving-cert
+          secret:
+            secretName: token-review-serving-cert
+status: {}
