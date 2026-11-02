@@ -174,3 +174,5 @@ func prepareOperatorTestsRegistry() (*oteextension.Registry, error) {
 	registry.Register(extension)
 	return registry, nil
 }
+
+// testing ci
