@@ -6,6 +6,7 @@ metadata:
   labels:
     app: oauth-openshift
 spec:
+  minReadySeconds: 30
   strategy:
     type: RollingUpdate
     rollingUpdate:
