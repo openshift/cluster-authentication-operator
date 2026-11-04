@@ -14,7 +14,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.2
 	go.etcd.io/etcd/client/v3 v3.5.9
-	golang.org/x/net v0.25.0
+	golang.org/x/net v1.26.9
 	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.28.2
