@@ -13,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	go.etcd.io/etcd/client/v3 v3.5.10
-	golang.org/x/net v0.25.0
+	golang.org/x/net v1.26.9
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.29.0
 	k8s.io/apimachinery v0.29.0
