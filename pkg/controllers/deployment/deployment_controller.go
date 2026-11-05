@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +77,13 @@ type oauthServerDeploymentSyncer struct {
 	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
+
+	// Diagnostic baseline only; it describes observations, not successful applies.
+	previousHashInputs *hashInputSnapshot
+
+	// Diagnostic baseline only; it measures informer cache lag per sync.
+	// It never gates a rollout and never fails a sync.
+	listerLag *listerLagObserver
 }
 
 func NewOAuthServerWorkloadController(
@@ -119,6 +127,33 @@ func NewOAuthServerWorkloadController(
 		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
+
+	// Diagnostic wiring only. The recorder rides the same shared informers the
+	// controller factory uses, so it observes exactly what the sync will read.
+	// The live getter reads the API server directly, bypassing every cache.
+	liveResourceVersion := func(ctx context.Context, kind, name string) (string, error) {
+		if kind == "secrets" {
+			live, err := kubeClient.CoreV1().Secrets(targetNS).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return "", err
+			}
+			return live.ResourceVersion, nil
+		}
+		live, err := kubeClient.CoreV1().ConfigMaps(targetNS).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		return live.ResourceVersion, nil
+	}
+	deliveryRecorder := newInformerDeliveryRecorder()
+	deliveryRecorder.registerConfigMaps(kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer())
+	deliveryRecorder.registerSecrets(kubeInformersForTargetNamespace.Core().V1().Secrets().Informer())
+	oauthDeploymentSyncer.listerLag = newListerLagObserver(
+		deliveryRecorder,
+		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
+		kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		liveResourceVersion,
+	)
 
 	if userExists, err := oauthDeploymentSyncer.bootstrapUserDataGetter.IsEnabled(); err != nil {
 		klog.Warningf("unable to determine the state of bootstrap user: %v", err)
@@ -232,6 +267,26 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
+	rvsHash := hashResourceVersions(resourceVersions)
+	observation, snapshot := observeHashInputs(c.previousHashInputs, proxy, configResourceVersions, rvsHash)
+	klog.InfoS("OAuth server rollout hash inputs",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"baseline", observation.baseline,
+		"inputs", observation.inputs,
+		"addedInputs", observation.added,
+		"removedInputs", observation.removed,
+		"changedInputs", observation.changed,
+		"previousHash", observation.previousHash,
+		"currentHash", rvsHash,
+		"hashChanged", observation.hashChanged)
+	c.previousHashInputs = snapshot
+
+	// Diagnostic observation only. A stale entry in this log means this sync
+	// computed its hash from an old cache state. Join the delivery log lines
+	// with API write times from the audit log to measure the delivery lag.
+	klog.InfoS("OAuth server lister lag",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"entries", c.listerLag.observe(ctx, time.Now()))
 
 	// Determine whether the bootstrap user has been deleted so that
 	// detail can be used in computing the deployment.
@@ -244,7 +299,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy, c.bootstrapUserChangeRollOut, resourceVersions...)
+	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy, c.bootstrapUserChangeRollOut, rvsHash)
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
