@@ -11,7 +11,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
-	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	apiregistrationinformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
@@ -254,8 +253,6 @@ type authenticationOperatorInformerFactories struct {
 	operatorInformer           operatorinformer.SharedInformerFactory
 	apiregistrationInformers   apiregistrationinformers.SharedInformerFactory
 	migrationInformer          migrationv1alpha1informer.SharedInformerFactory
-	// TODO remove
-	kubeInformers kubeinformers.SharedInformerFactory
 
 	namespacedOpenshiftAuthenticationRoutes routeinformer.SharedInformerFactory
 }
@@ -272,14 +269,12 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 			"openshift-authentication-operator",
 			"openshift-kube-apiserver",
 			"", // an informer for non-namespaced resources
-			"kube-system",
 			libgoetcd.EtcdEndpointNamespace,
 		),
 		operatorConfigInformer:   configinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.configClient, resync),
 		operatorInformer:         operatorinformer.NewSharedInformerFactory(authOperatorInput.operatorClient, 24*time.Hour),
 		apiregistrationInformers: apiregistrationinformers.NewSharedInformerFactory(authOperatorInput.apiregistrationv1Client, 10*time.Minute),
 		migrationInformer:        migrationv1alpha1informer.NewSharedInformerFactory(authOperatorInput.migrationClient, time.Minute*30),
-		kubeInformers:            kubeinformers.NewSharedInformerFactory(authOperatorInput.kubeClient, resync),
 
 		namespacedOpenshiftAuthenticationRoutes: routeinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.routeClient, resync,
 			routeinformer.WithNamespace("openshift-authentication"),
@@ -295,7 +290,6 @@ func (a authenticationOperatorInformerFactories) simplifiedInformerFactories() [
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.operatorConfigInformer),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.apiregistrationInformers),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.migrationInformer),
-		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.kubeInformers),
 		libraryapplyconfiguration.GeneratedInformerFactoryAdapter(a.namespacedOpenshiftAuthenticationRoutes),
 	}
 }
