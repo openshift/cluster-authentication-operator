@@ -559,6 +559,22 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 	)
 
 	if len(proxy.TrustedCAName) == 0 {
+		// Removal is staged: the auth-config is rewritten without the CA path first
+		// (by the ExternalOIDCController). Only then are the mount and the ConfigMap
+		// removed. While the auth-config still references the CA file, keep both.
+		referenced, err := c.authConfigReferencesProxyCA()
+		if err != nil {
+			return err
+		}
+		if referenced {
+			if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(common.ComponentProxyCAConfigMapName); err == nil {
+				addProxyCAVolume(deployment)
+				return nil
+			} else if !errors.IsNotFound(err) {
+				return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, common.ComponentProxyCAConfigMapName, err)
+			}
+			// the ConfigMap is already gone, nothing left to keep mounted
+		}
 		if err := c.resourceSyncer.SyncConfigMap(destination, resourcesynccontroller.ResourceLocation{}); err != nil {
 			return fmt.Errorf("failed to remove proxy trusted CA configmap \"%s/%s\" from sync: %w", destination.Namespace, destination.Name, err)
 		}
@@ -589,6 +605,31 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, common.ComponentProxyCAConfigMapName, err)
 	}
 
+	addProxyCAVolume(deployment)
+	return nil
+}
+
+// authConfigReferencesProxyCA returns true if the external OIDC auth-config, as
+// seen by the oauth-apiserver pods, still points at the mounted proxy CA file.
+// It reads the copy in the target namespace (synced from openshift-config-managed),
+// which is what the pods consume, not the source.
+func (c *OAuthAPIServerWorkload) authConfigReferencesProxyCA() (bool, error) {
+	cm, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get("auth-config")
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get configmap \"%s/auth-config\": %w", c.targetNamespace, err)
+	}
+	for _, v := range cm.Data {
+		if strings.Contains(v, common.ComponentProxyCAFilePath) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func addProxyCAVolume(deployment *appsv1.Deployment) {
 	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
 		Name: common.ComponentProxyCAConfigMapName,
 		VolumeSource: corev1.VolumeSource{
@@ -603,7 +644,6 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		ReadOnly:  true,
 		MountPath: common.ComponentProxyCAMountPath,
 	})
-	return nil
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {
