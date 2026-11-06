@@ -26,6 +26,7 @@ import (
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/window_settle"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -84,6 +85,11 @@ type oauthServerDeploymentSyncer struct {
 	// Diagnostic baseline only; it measures informer cache lag per sync.
 	// It never gates a rollout and never fails a sync.
 	listerLag *listerLagObserver
+
+	// Diagnostic only; it evaluates whether a settle window
+	// (input-quiescence debounce) would have deferred the deployment apply.
+	// It never gates the apply and never fails a sync.
+	deploymentWindowSettle *window_settle.WindowSettle
 }
 
 func NewOAuthServerWorkloadController(
@@ -154,6 +160,7 @@ func NewOAuthServerWorkloadController(
 		kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		liveResourceVersion,
 	)
+	oauthDeploymentSyncer.deploymentWindowSettle = window_settle.NewWindowSettle()
 
 	if userExists, err := oauthDeploymentSyncer.bootstrapUserDataGetter.IsEnabled(); err != nil {
 		klog.Warningf("unable to determine the state of bootstrap user: %v", err)
@@ -341,7 +348,37 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	expectedDeployment.Spec.Replicas = controlPlaneCount
 	setRollingUpdateParameters(*controlPlaneCount, expectedDeployment)
 
-	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
+	// Evaluation of a settle window: it never gates the apply below.
+	// The decision and the ground truth of the apply are logged together so
+	// a run can be replayed offline to project the rollout count under a
+	// real window.
+	var deployedSignature window_settle.DeploymentSignature
+	if deployed, err := c.deploymentsLister.Deployments("openshift-authentication").Get("oauth-openshift"); err == nil {
+		var deployedReplicas int32
+		if deployed.Spec.Replicas != nil {
+			deployedReplicas = *deployed.Spec.Replicas
+		}
+
+		deployedSignature = window_settle.NewDeploymentSignature(
+			deployed.Spec.Template.Annotations["operator.openshift.io/rvs-hash"],
+			deployedReplicas,
+			len(deployed.Spec.Template.Spec.Volumes),
+			len(deployed.Spec.Template.Spec.Containers[0].VolumeMounts),
+			len(deployed.Spec.Template.Spec.Containers[0].Env),
+		)
+	} else if !errors.IsNotFound(err) {
+		klog.Warningf("window settle: unable to read deployed oauth-openshift deployment: %v", err)
+	}
+	desiredSignature := window_settle.NewDeploymentSignature(
+		rvsHash,
+		*expectedDeployment.Spec.Replicas,
+		len(expectedDeployment.Spec.Template.Spec.Volumes),
+		len(expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts),
+		len(expectedDeployment.Spec.Template.Spec.Containers[0].Env),
+	)
+	debounceOutcome := c.deploymentWindowSettle.Debounce(time.Now(), desiredSignature, deployedSignature)
+
+	deployment, deploymentChanged, err := resourceapply.ApplyDeployment(ctx, c.deployments,
 		syncContext.Recorder(),
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
@@ -349,6 +386,19 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	if err != nil {
 		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
 	}
+
+	klog.InfoS("OAuth server deployment window settle",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"wouldDefer", debounceOutcome.WouldDefer,
+		"reason", debounceOutcome.Reason,
+		"desiredSignature", desiredSignature,
+		"deployedSignature", deployedSignature,
+		"waited", debounceOutcome.Waited.String(),
+		"remaining", debounceOutcome.Remaining.String(),
+		"pending", debounceOutcome.Pending.String(),
+		"settleWindow", c.deploymentWindowSettle.Window.String(),
+		"maxDeferral", c.deploymentWindowSettle.MaxDeferral.String(),
+		"actuallyChanged", deploymentChanged)
 
 	return deployment, true, errs
 }
