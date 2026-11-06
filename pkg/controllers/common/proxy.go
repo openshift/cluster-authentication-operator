@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"golang.org/x/net/http/httpproxy"
+	"k8s.io/utils/ptr"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -109,9 +111,10 @@ func getComponentProxyConfig(operatorAuthLister operatorv1listers.Authentication
 // proxy. Auth components connect to internal services via DNS names covered by
 // .svc and .cluster.local. The kubernetes API service IP (KUBERNETES_SERVICE_HOST)
 // is included explicitly because Go's in-cluster client connects to it by raw IP,
-// which does not match the hostname-based entries above.
+// which does not match the hostname-based entries above. Go does not strip a
+// trailing dot before suffix matching, so trailing-dot forms are listed too.
 var staticNoProxyEntries = func() []string {
-	entries := []string{".cluster.local", ".svc", "127.0.0.1", "localhost"}
+	entries := []string{".cluster.local", ".cluster.local.", ".svc", ".svc.", "127.0.0.1", "localhost", "localhost."}
 	if host := os.Getenv("KUBERNETES_SERVICE_HOST"); host != "" {
 		entries = append(entries, host)
 	}
@@ -140,4 +143,45 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 		return append(envVars, corev1.EnvVar{Name: envName, Value: envVal})
 	}
 	return envVars
+}
+
+// DeploymentRolledOutWithVolume returns true when the deployment has been fully
+// rolled out (the controller observed the latest generation and all replicas are
+// updated, with no old replicas left) and the named container mounts the named volume.
+func DeploymentRolledOutWithVolume(d *appsv1.Deployment, containerName, volumeName string) bool {
+	if d == nil || d.Status.ObservedGeneration < d.Generation {
+		return false
+	}
+
+	hasVolume := false
+	for _, v := range d.Spec.Template.Spec.Volumes {
+		if v.Name == volumeName {
+			hasVolume = true
+		}
+	}
+	if !hasVolume {
+		return false
+	}
+
+	mounted := false
+	for _, c := range d.Spec.Template.Spec.Containers {
+		if c.Name != containerName {
+			continue
+		}
+		for _, m := range c.VolumeMounts {
+			if m.Name == volumeName {
+				mounted = true
+			}
+		}
+	}
+	if !mounted {
+		return false
+	}
+
+	replicas := ptr.Deref(d.Spec.Replicas, 1)
+	// Every pod must come from the new ReplicaSet (and thus have the mount) and no
+	// old pods may remain. Readiness is deliberately not required: it says nothing
+	// about the mount and would block on unrelated pod problems.
+	st := d.Status
+	return st.Replicas == replicas && st.UpdatedReplicas == replicas
 }
