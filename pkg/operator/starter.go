@@ -200,6 +200,7 @@ func prepareOauthOperator(
 		enabledClusterCapabilities,
 		authOperatorInput.eventRecorder,
 		&proxyResolver,
+		featureGateAccessor,
 	)
 
 	routerCertsController := routercerts.NewRouterCertsDomainValidationController(
