@@ -142,7 +142,11 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 
 	t.Run("trusted CA removed configures destination deletion", func(t *testing.T) {
 		resourceSyncer := &recordingResourceSyncer{}
-		workload := &OAuthAPIServerWorkload{targetNamespace: destination.Namespace, resourceSyncer: resourceSyncer}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
 
 		deployment := oauthAPIServerTestDeployment()
 		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
@@ -152,9 +156,44 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].Env)
 	})
 
+	t.Run("trusted CA removed keeps mount and sync while auth-config references it", func(t *testing.T) {
+		cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		require.NoError(t, cmIndexer.Add(destinationConfigMap))
+		require.NoError(t, cmIndexer.Add(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
+			Data:       map[string]string{"auth-config.json": `{"trustedCAFilePath":"` + common.ComponentProxyCAFilePath + `"}`},
+		}))
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cmIndexer),
+		}
+		deployment := oauthAPIServerTestDeployment()
+		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
+		require.Empty(t, resourceSyncer.configMaps)
+		require.Len(t, deployment.Spec.Template.Spec.Volumes, 1)
+		require.Len(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+
+		// once the auth-config no longer references the CA, mount and sync are removed
+		require.NoError(t, cmIndexer.Update(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
+			Data:       map[string]string{"auth-config.json": `{}`},
+		}))
+		deployment = oauthAPIServerTestDeployment()
+		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
+		require.Equal(t, []configMapSyncCall{{destination: destination}}, resourceSyncer.configMaps)
+		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
+		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
+	})
+
 	t.Run("proxy without trusted CA renders environment variables", func(t *testing.T) {
 		resourceSyncer := &recordingResourceSyncer{}
-		workload := &OAuthAPIServerWorkload{targetNamespace: destination.Namespace, resourceSyncer: resourceSyncer}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
 		deployment := oauthAPIServerTestDeployment()
 		proxy := common.ResolvedProxy{HTTPSProxy: "http://proxy.example.test:3128"}
 
@@ -519,6 +558,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 				authConfigChecker:         scenario.authConfigChecker,
 				resourceSyncer:            &recordingResourceSyncer{},
 				proxyResolver:             &commonfake.ProxyResolver{Proxy: common.ResolvedProxy{}},
+				configMapLister:           corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
