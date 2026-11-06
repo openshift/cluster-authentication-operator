@@ -2,7 +2,6 @@ package configobservation
 
 import (
 	"fmt"
-	"strconv"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -34,21 +33,6 @@ const (
 	// It stores group names temporarily for change detection, then is removed from the final config.
 	tempGroupsFieldName = "tempServingInfoGroupsIgnore"
 )
-
-// buildCurveIDToGroupMap creates a reverse mapping from numeric curve IDs to TLS group names
-// using library-go's public API. This allows reconstructing group names from curve preferences.
-func buildCurveIDToGroupMap() map[int32]string {
-	reverseMap := make(map[int32]string)
-	for _, group := range crypto.ValidTLSGroups() {
-		if curveID, ok := crypto.TLSGroupToCurveID(group); ok {
-			reverseMap[int32(curveID)] = string(group)
-		}
-	}
-	return reverseMap
-}
-
-// Package-level variable to avoid rebuilding the map on every sync
-var curveIDToGroup = buildCurveIDToGroupMap()
 
 func NewConfigObserverController(
 	operatorClient v1helpers.OperatorClient,
@@ -107,21 +91,9 @@ func NewConfigObserverController(
 				)
 			}
 
-			// Reconstruct temporary groups field from tls-curve-preferences if needed.
-			// This prevents spurious "groups changed" events when the temp field was previously empty.
-			// Avoids touching the actual servingInfo struct which may be used for other purposes in the future.
-			if curvePrefsStrs, found, _ := unstructured.NestedStringSlice(existingConfig, "apiServerArguments", "tls-curve-preferences"); found {
-				reconstructedGroups := make([]string, 0, len(curvePrefsStrs))
-				for _, cpStr := range curvePrefsStrs {
-					cpInt, err := strconv.Atoi(cpStr)
-					if err != nil {
-						return existingConfig, []error{fmt.Errorf("failed to parse tls-curve-preference %q: %w", cpStr, err)}
-					}
-					if groupName, ok := curveIDToGroup[int32(cpInt)]; ok {
-						reconstructedGroups = append(reconstructedGroups, groupName)
-					}
-				}
-				unstructured.SetNestedStringSlice(existingConfig, reconstructedGroups, tempGroupsFieldName)
+			// Reconstruct temp groups from existing tls-curve-preferences to prevent spurious events
+			if _, err := crypto.CurvePreferencesToGroups[string](existingConfig, []string{"apiServerArguments", "tls-curve-preferences"}, []string{tempGroupsFieldName}); err != nil {
+				return existingConfig, []error{err}
 			}
 
 			defer func() {
@@ -140,26 +112,10 @@ func NewConfigObserverController(
 				return observedConfig, errs
 			}
 
-			groups, _, err := unstructured.NestedStringSlice(observedConfig, tempGroupsFieldName)
-			if err != nil {
-				return observedConfig, []error{fmt.Errorf("couldn't get %s: %w", tempGroupsFieldName, err)}
-			}
-
-			if len(groups) > 0 {
-				curvePreferences, unrecognizedGroups := crypto.TLSGroupsToCurvePreferences(groups)
-				if len(unrecognizedGroups) > 0 {
-					return observedConfig, []error{fmt.Errorf("unrecognized groups when reading curve preferences: %v", unrecognizedGroups)}
-				}
-
-				if len(curvePreferences) > 0 {
-					curvePrefsStrings := make([]string, len(curvePreferences))
-					for i, cp := range curvePreferences {
-						curvePrefsStrings[i] = strconv.Itoa(int(cp))
-					}
-					if err := unstructured.SetNestedStringSlice(observedConfig, curvePrefsStrings, "apiServerArguments", "tls-curve-preferences"); err != nil {
-						return observedConfig, []error{fmt.Errorf("failed to set apiServerArguments.tls-curve-preferences: %w", err)}
-					}
-				}
+			if unrecognizedGroups, err := crypto.GroupsToCurvePreferences[string](observedConfig, []string{tempGroupsFieldName}, []string{"apiServerArguments", "tls-curve-preferences"}); err != nil {
+				return observedConfig, []error{err}
+			} else if len(unrecognizedGroups) > 0 {
+				return observedConfig, []error{fmt.Errorf("unrecognized TLS groups: %v", unrecognizedGroups)}
 			}
 
 			return observedConfig, errs
