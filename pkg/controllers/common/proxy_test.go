@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -415,4 +416,85 @@ func expectedNoProxy(extra ...string) string {
 	}
 	entries.Insert(extra...)
 	return strings.Join(sets.List(entries), ",")
+}
+
+func TestDeploymentRolledOutWithVolume(t *testing.T) {
+	const volumeName = "test-volume"
+
+	// newDeployment returns a fully rolled out 3-replica deployment mounting the volume.
+	newDeployment := func(mutate func(d *appsv1.Deployment)) *appsv1.Deployment {
+		d := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Generation: 2},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: new(int32(3)),
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{Name: volumeName}},
+					Containers: []corev1.Container{{
+						Name:         "c",
+						VolumeMounts: []corev1.VolumeMount{{Name: volumeName}},
+					}},
+				}},
+			},
+			Status: appsv1.DeploymentStatus{ObservedGeneration: 2, Replicas: 3, UpdatedReplicas: 3},
+		}
+		if mutate != nil {
+			mutate(d)
+		}
+		return d
+	}
+
+	for _, tt := range []struct {
+		name     string
+		dep      *appsv1.Deployment
+		expected bool
+	}{
+		{name: "nil deployment", dep: nil, expected: false},
+		{name: "fully rolled out", dep: newDeployment(nil), expected: true},
+		{
+			name:     "ready/available counts are not required",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Status.ReadyReplicas, d.Status.AvailableReplicas = 0, 0 }),
+			expected: true,
+		},
+		{
+			name:     "nil spec replicas defaults to 1",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Spec.Replicas = nil; d.Status.Replicas, d.Status.UpdatedReplicas = 1, 1 }),
+			expected: true,
+		},
+		{
+			name:     "generation not yet observed",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Status.ObservedGeneration = 1 }),
+			expected: false,
+		},
+		{
+			name:     "volume missing",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Spec.Template.Spec.Volumes = nil }),
+			expected: false,
+		},
+		{
+			name:     "volume declared but not mounted",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Spec.Template.Spec.Containers[0].VolumeMounts = nil }),
+			expected: false,
+		},
+		{
+			name:     "no containers",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Spec.Template.Spec.Containers = nil }),
+			expected: false,
+		},
+		{
+			name:     "not all replicas updated",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Status.UpdatedReplicas = 2 }),
+			expected: false,
+		},
+		{
+			name:     "old replicas still present",
+			dep:      newDeployment(func(d *appsv1.Deployment) { d.Status.Replicas = 4 }),
+			expected: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DeploymentRolledOutWithVolume(tt.dep, volumeName); got != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, got)
+			}
+		})
+	}
 }
