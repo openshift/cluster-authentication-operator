@@ -1,11 +1,17 @@
 package configobservation
 
 import (
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
 	"github.com/openshift/library-go/pkg/operator/configobserver/apiserver"
 	libgoetcd "github.com/openshift/library-go/pkg/operator/configobserver/etcd"
@@ -15,7 +21,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	observeauthentication "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/authentication"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
@@ -23,6 +28,10 @@ import (
 
 const (
 	OAuthAPIServerConfigPrefix = "oauthAPIServer"
+
+	// tempGroupsFieldName is a temporary field used during TLS groups observation.
+	// It stores group names temporarily for change detection, then is removed from the final config.
+	tempGroupsFieldName = "tempServingInfoGroupsIgnore"
 )
 
 func NewConfigObserverController(
@@ -69,7 +78,49 @@ func NewConfigObserverController(
 	observers := []configobserver.ObserveConfigFunc{}
 	for _, o := range []configobserver.ObserveConfigFunc{
 		apiserver.ObserveAdditionalCORSAllowedOriginsToArguments,
-		apiserver.ObserveTLSSecurityProfileToArguments,
+		func(listers configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+			featureGate, err := featureGateAccessor.CurrentFeatureGates()
+			if err != nil {
+				return existingConfig, []error{fmt.Errorf("failed to get current feature gates: %w", err)}
+			}
+			if !featureGate.Enabled(features.FeatureGateTLSGroupPreferences) {
+				return apiserver.ObserveTLSSecurityProfileToArguments(
+					listers,
+					recorder,
+					existingConfig,
+				)
+			}
+
+			// Reconstruct temp groups from existing tls-curve-preferences to prevent spurious events
+			if _, err := crypto.CurvePreferencesToGroups[string](existingConfig, []string{"apiServerArguments", "tls-curve-preferences"}, []string{tempGroupsFieldName}); err != nil {
+				return existingConfig, []error{err}
+			}
+
+			defer func() {
+				unstructured.RemoveNestedField(existingConfig, tempGroupsFieldName)
+				unstructured.RemoveNestedField(observedConfig, tempGroupsFieldName)
+			}()
+
+			observedConfig, errs = apiserver.ObserveTLSSecurityProfileWithGroupPaths(
+				listers,
+				recorder,
+				existingConfig,
+				[]string{"apiServerArguments", "tls-min-version"},
+				[]string{"apiServerArguments", "tls-cipher-suites"},
+				[]string{tempGroupsFieldName},
+			)
+			if len(errs) > 0 {
+				return observedConfig, errs
+			}
+
+			if unrecognizedGroups, err := crypto.GroupsToCurvePreferences[string](observedConfig, []string{tempGroupsFieldName}, []string{"apiServerArguments", "tls-curve-preferences"}); err != nil {
+				return observedConfig, []error{err}
+			} else if len(unrecognizedGroups) > 0 {
+				return observedConfig, []error{fmt.Errorf("unrecognized TLS groups: %v", unrecognizedGroups)}
+			}
+
+			return observedConfig, errs
+		},
 		observeauthentication.ObserveAPIAudiences,
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
