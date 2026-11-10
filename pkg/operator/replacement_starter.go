@@ -269,6 +269,9 @@ func newInformerFactories(authOperatorInput *authenticationOperatorInput) authen
 			"openshift-authentication-operator",
 			"openshift-kube-apiserver",
 			"", // an informer for non-namespaced resources
+			// Required by library-go APIServerControllerSet (WithWorkloadController / WithAPIServiceController)
+			// which call InformersFor(metav1.NamespaceSystem); missing entry returns nil and panics on .Core().
+			"kube-system",
 			libgoetcd.EtcdEndpointNamespace,
 		),
 		operatorConfigInformer:   configinformer.NewSharedInformerFactoryWithOptions(authOperatorInput.configClient, resync),
