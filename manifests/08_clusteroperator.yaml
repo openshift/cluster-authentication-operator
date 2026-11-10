@@ -20,6 +20,9 @@ status:
     - group: config.openshift.io
       name: cluster
       resource: oauths
+    - group: rbac.authorization.k8s.io
+      name: system:openshift:operator:authentication
+      resource: clusterrolebindings
     - group: ""
       name: openshift-config
       resource: namespaces
