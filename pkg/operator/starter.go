@@ -220,7 +220,7 @@ func prepareOauthOperator(
 	ingressStateController := ingressstate.NewIngressStateController(
 		"openshift-authentication",
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
-		authOperatorInput.kubeClient.CoreV1(),
+		authOperatorInput.kubeClient.DiscoveryV1(),
 		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
 		authConfigChecker,

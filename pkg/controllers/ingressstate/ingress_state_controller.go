@@ -14,12 +14,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	discoveryv1client "k8s.io/client-go/kubernetes/typed/discovery/v1"
 )
 
 const (
@@ -34,7 +35,7 @@ var degradedConditionTypes = sets.NewString(
 
 type ingressStateController struct {
 	controllerInstanceName string
-	endpointsGetter        corev1client.EndpointsGetter
+	endpointSlicesGetter   discoveryv1client.EndpointSlicesGetter
 	podsGetter             corev1client.PodsGetter
 	targetNamespace        string
 	operatorClient         v1helpers.OperatorClient
@@ -44,7 +45,7 @@ type ingressStateController struct {
 func NewIngressStateController(
 	instanceName string,
 	kubeInformersForTargetNamespace informers.SharedInformerFactory,
-	endpointsGetter corev1client.EndpointsGetter,
+	endpointSlicesGetter discoveryv1client.EndpointSlicesGetter,
 	podsGetter corev1client.PodsGetter,
 	operatorClient v1helpers.OperatorClient,
 	authConfigChecker common.AuthConfigChecker,
@@ -53,7 +54,7 @@ func NewIngressStateController(
 ) factory.Controller {
 	c := &ingressStateController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "IngressState"),
-		endpointsGetter:        endpointsGetter,
+		endpointSlicesGetter:   endpointSlicesGetter,
 		podsGetter:             podsGetter,
 		targetNamespace:        targetNamespace,
 		operatorClient:         operatorClient,
@@ -63,7 +64,7 @@ func NewIngressStateController(
 	return factory.New().
 		WithInformers(
 			kubeInformersForTargetNamespace.Core().V1().Pods().Informer(),
-			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
+			kubeInformersForTargetNamespace.Discovery().V1().EndpointSlices().Informer(),
 		).
 		WithInformers(common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...).
 		WithSync(c.sync).
@@ -90,27 +91,26 @@ func (c *ingressStateController) sync(ctx context.Context, syncCtx factory.SyncC
 		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
 	}
 
-	endpoints, err := c.endpointsGetter.Endpoints(c.targetNamespace).Get(context.TODO(), "oauth-openshift", metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		// Clear the error to allow checkSubset to report degraded because endpoints == nil
-		err = nil
-	}
+	sliceList, err := c.endpointSlicesGetter.EndpointSlices(c.targetNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: common.ServiceEndpointSliceSelector("oauth-openshift").String(),
+	})
 	if err != nil {
 		return err
+	}
+
+	slices := make([]*discoveryv1.EndpointSlice, 0, len(sliceList.Items))
+	for i := range sliceList.Items {
+		slices = append(slices, &sliceList.Items[i])
 	}
 
 	var degradedConditions []operatorv1.OperatorCondition
 
-	subset, subsetCondition, err := subsetWithReadyAddresses(endpoints)
-	if err != nil {
-		return err
-	}
-	readyAddresses := subset != nil
-	if readyAddresses {
-		degradedConditions = checkAddresses(context.TODO(), subset.Addresses, c.checkPodStatus)
+	readyAddresses, degradedCondition := readyAddressesOrDegraded(len(slices), common.FlattenServiceEndpoints(slices))
+	if degradedCondition != nil {
+		// With no ready addresses to check, the degraded condition is the only one to report.
+		degradedConditions = []operatorv1.OperatorCondition{*degradedCondition}
 	} else {
-		// With no ready addresses to check, the subset condition is the only one to report.
-		degradedConditions = []operatorv1.OperatorCondition{*subsetCondition}
+		degradedConditions = checkAddresses(ctx, readyAddresses, c.checkPodStatus)
 	}
 
 	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, degradedConditionTypes, degradedConditions)
@@ -142,37 +142,34 @@ func unhealthyPodMessages(pod *corev1.Pod) []string {
 	return result
 }
 
-// subsetWithReadyAddresses returns either a subset or a condition from the
-// given endpoints. A subset will be returned if there is a single subset with
-// one or more ready addresses, otherwise a condition will be returned. If
-// there are more than one subsets, an error will be returned instead of either
-// a subset or condition.
-func subsetWithReadyAddresses(endpoints *corev1.Endpoints) (*corev1.EndpointSubset, *operatorv1.OperatorCondition, error) {
-	// Check for an empty uid to ensure correct error handling when the shared
-	// informer returns an empty endpoints resource (instead of nil) when the target
-	// endpoints resource has been deleted.
-	//
-	// TODO(marun) Figure out why the informer is not returning nil when the
-	// endpoints resource has been deleted.
-	if endpoints == nil || len(endpoints.UID) == 0 {
-		return nil, endpointsDegraded("MissingEndpoints", "No endpoints found for oauth-server"), nil
+// readyAddressesOrDegraded returns the ready backend addresses of the oauth-server
+// service, or a degraded condition describing why none are available. sliceCount
+// is the number of EndpointSlices found for the service and endpoints is the
+// flattened view of their addresses.
+func readyAddressesOrDegraded(sliceCount int, endpoints []common.ServiceEndpoint) ([]common.ServiceEndpoint, *operatorv1.OperatorCondition) {
+	if sliceCount == 0 {
+		return nil, endpointsDegraded("MissingEndpoints", "No endpoints found for oauth-server")
 	}
-	if len(endpoints.Subsets) == 0 {
-		return nil, endpointsDegraded("MissingSubsets", "No subsets found for the endpoints of oauth-server"), nil
+	if len(endpoints) == 0 {
+		return nil, endpointsDegraded("MissingSubsets", "No addresses found in the EndpointSlices of oauth-server")
 	}
-	// Assume that the service targets only a single port (and therefore the
-	// endpoints have at most one subset) to simplify determination of
-	// endpoint health.
-	if len(endpoints.Subsets) > 1 {
-		return nil, nil, fmt.Errorf("more than one subset found for the endpoints of oauth-server")
+
+	var ready []common.ServiceEndpoint
+	notReady := 0
+	for _, endpoint := range endpoints {
+		if endpoint.Ready {
+			ready = append(ready, endpoint)
+		} else {
+			notReady++
+		}
 	}
-	subset := endpoints.Subsets[0]
+
 	// Report degraded if no addresses are ready
-	if len(subset.Addresses) == 0 && len(subset.NotReadyAddresses) > 0 {
-		msg := fmt.Sprintf("All %d endpoints for oauth-server are reporting 'not ready'", len(subset.NotReadyAddresses))
-		return nil, endpointsDegraded("NonReadyEndpoints", msg), nil
+	if len(ready) == 0 {
+		msg := fmt.Sprintf("All %d endpoints for oauth-server are reporting 'not ready'", notReady)
+		return nil, endpointsDegraded("NonReadyEndpoints", msg)
 	}
-	return &subset, nil, nil
+	return ready, nil
 }
 
 // Providing these helper functions as arguments to checkAddresses supports
@@ -181,7 +178,7 @@ type checkPodFunc func(ctx context.Context, reference *corev1.ObjectReference) [
 
 // checkAddresses checks that the provided endpoint's associated pods are healthy,
 // and returns the appropriate operator conditions if that is not the case.
-func checkAddresses(ctx context.Context, addresses []corev1.EndpointAddress, checkPod checkPodFunc) []operatorv1.OperatorCondition {
+func checkAddresses(ctx context.Context, addresses []common.ServiceEndpoint, checkPod checkPodFunc) []operatorv1.OperatorCondition {
 	podMessages := map[string][]string{}
 	unhealthyPodCount := 0
 	for _, address := range addresses {
