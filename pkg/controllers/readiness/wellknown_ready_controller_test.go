@@ -30,10 +30,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/ptr"
 )
 
 type testServer struct {
@@ -283,7 +286,7 @@ func newTestTLSServer(t *testing.T, handler http.Handler, caCert *x509.Certifica
 	return server
 }
 
-func buildKubernetesServiceAndEndpoints(t *testing.T, targetPort int, numEndpoints int) (*corev1.Service, *corev1.Endpoints) {
+func buildKubernetesServiceAndEndpoints(t *testing.T, targetPort int, numEndpoints int) (*corev1.Service, *discoveryv1.EndpointSlice) {
 	t.Helper()
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -301,30 +304,133 @@ func buildKubernetesServiceAndEndpoints(t *testing.T, targetPort int, numEndpoin
 		},
 	}
 
-	addresses := make([]corev1.EndpointAddress, numEndpoints)
-	for i := range addresses {
-		addresses[i] = corev1.EndpointAddress{IP: "127.0.0.1"}
+	ready := true
+	endpoints := make([]discoveryv1.Endpoint, numEndpoints)
+	for i := range endpoints {
+		endpoints[i] = discoveryv1.Endpoint{
+			Addresses:  []string{"127.0.0.1"},
+			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+		}
 	}
 
-	ep := &corev1.Endpoints{
+	port := int32(targetPort)
+	protocol := corev1.ProtocolTCP
+	slice := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kubernetes",
+			Name:      "kubernetes-abcde",
 			Namespace: "default",
+			Labels:    map[string]string{discoveryv1.LabelServiceName: "kubernetes"},
 		},
-		Subsets: []corev1.EndpointSubset{
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints:   endpoints,
+		Ports: []discoveryv1.EndpointPort{
 			{
-				Addresses: addresses,
-				Ports: []corev1.EndpointPort{
-					{
-						Port:     int32(targetPort),
-						Protocol: corev1.ProtocolTCP,
-					},
-				},
+				Port:     &port,
+				Protocol: &protocol,
 			},
 		},
 	}
 
-	return svc, ep
+	return svc, slice
+}
+
+// kasEndpointSlice builds an EndpointSlice for the kubernetes service of the
+// given address family, advertising a single port and the provided endpoints.
+func kasEndpointSlice(name string, addressType discoveryv1.AddressType, port *int32, endpoints ...discoveryv1.Endpoint) *discoveryv1.EndpointSlice {
+	return &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels:    map[string]string{discoveryv1.LabelServiceName: "kubernetes"},
+		},
+		AddressType: addressType,
+		Endpoints:   endpoints,
+		Ports: []discoveryv1.EndpointPort{
+			{Port: port, Protocol: ptr.To(corev1.ProtocolTCP)},
+		},
+	}
+}
+
+func Test_getAPIServerIPs(t *testing.T) {
+	const targetPort = 6443
+	svc, _ := buildKubernetesServiceAndEndpoints(t, targetPort, 0)
+
+	readyEndpoint := func(address string) discoveryv1.Endpoint {
+		return discoveryv1.Endpoint{
+			Addresses:  []string{address},
+			Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(true)},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		slices  []*discoveryv1.EndpointSlice
+		want    []string
+		wantErr bool
+	}{
+		{
+			// Dual-stack: ready backends split across an IPv4 and an IPv6 slice
+			// must all be aggregated into the result.
+			name: "ready backends aggregated across two slices",
+			slices: []*discoveryv1.EndpointSlice{
+				kasEndpointSlice("kubernetes-ipv4", discoveryv1.AddressTypeIPv4, ptr.To(int32(targetPort)), readyEndpoint("10.0.0.1")),
+				kasEndpointSlice("kubernetes-ipv6", discoveryv1.AddressTypeIPv6, ptr.To(int32(targetPort)), readyEndpoint("fd00::1")),
+			},
+			want: []string{
+				net.JoinHostPort("10.0.0.1", strconv.Itoa(targetPort)),
+				net.JoinHostPort("fd00::1", strconv.Itoa(targetPort)),
+			},
+		},
+		{
+			// A not-ready backend on the target port means the backends are not
+			// all ready, mirroring the previous Endpoints behavior.
+			name: "unready backend on target port fails readiness",
+			slices: []*discoveryv1.EndpointSlice{
+				kasEndpointSlice("kubernetes-ipv4", discoveryv1.AddressTypeIPv4, ptr.To(int32(targetPort)),
+					readyEndpoint("10.0.0.1"),
+					discoveryv1.Endpoint{
+						Addresses:  []string{"10.0.0.2"},
+						Conditions: discoveryv1.EndpointConditions{Ready: ptr.To(false)},
+					},
+				),
+			},
+			wantErr: true,
+		},
+		{
+			// A slice that advertises only a non-target port is ignored, leaving
+			// no matching backend.
+			name: "slice without target port is not matched",
+			slices: []*discoveryv1.EndpointSlice{
+				kasEndpointSlice("kubernetes-ipv4", discoveryv1.AddressTypeIPv4, ptr.To(int32(9999)), readyEndpoint("10.0.0.1")),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			require.NoError(t, svcIndexer.Add(svc))
+			sliceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			for _, slice := range tt.slices {
+				require.NoError(t, sliceIndexer.Add(slice))
+			}
+
+			c := &wellKnownReadyController{
+				serviceLister:        corev1listers.NewServiceLister(svcIndexer),
+				endpointSlicesLister: discoveryv1listers.NewEndpointSliceLister(sliceIndexer),
+			}
+
+			got, err := c.getAPIServerIPs()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("getAPIServerIPs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			require.ElementsMatch(t, tt.want, got)
+		})
+	}
 }
 
 func Test_wellKnownReadyController_isWellknownEndpointsReady(t *testing.T) {
@@ -455,7 +561,7 @@ func Test_wellKnownReadyController_isWellknownEndpointsReady(t *testing.T) {
 					},
 				}
 
-				svc, ep := buildKubernetesServiceAndEndpoints(t, port, len(tt.serverResponses))
+				svc, slice := buildKubernetesServiceAndEndpoints(t, port, len(tt.serverResponses))
 
 				cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 				require.NoError(t, cmIndexer.Add(cm))
@@ -463,13 +569,13 @@ func Test_wellKnownReadyController_isWellknownEndpointsReady(t *testing.T) {
 				svcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 				require.NoError(t, svcIndexer.Add(svc))
 
-				epIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-				require.NoError(t, epIndexer.Add(ep))
+				sliceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+				require.NoError(t, sliceIndexer.Add(slice))
 
 				c.caDataGetter = &fakeCADataGetter{caData: caPEM}
 				c.configMapLister = corev1listers.NewConfigMapLister(cmIndexer)
 				c.serviceLister = corev1listers.NewServiceLister(svcIndexer)
-				c.endpointLister = corev1listers.NewEndpointsLister(epIndexer)
+				c.endpointSlicesLister = discoveryv1listers.NewEndpointSliceLister(sliceIndexer)
 			}
 
 			ctx := context.Background()
@@ -615,7 +721,7 @@ func Test_wellKnownReadyController_sync(t *testing.T) {
 				},
 			}
 
-			svc, ep := buildKubernetesServiceAndEndpoints(t, port, len(tt.serverResponses))
+			svc, slice := buildKubernetesServiceAndEndpoints(t, port, len(tt.serverResponses))
 
 			cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			require.NoError(t, cmIndexer.Add(cm))
@@ -623,8 +729,8 @@ func Test_wellKnownReadyController_sync(t *testing.T) {
 			svcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			require.NoError(t, svcIndexer.Add(svc))
 
-			epIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-			require.NoError(t, epIndexer.Add(ep))
+			sliceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			require.NoError(t, sliceIndexer.Add(slice))
 
 			authIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			require.NoError(t, authIndexer.Add(authConfig))
@@ -667,7 +773,7 @@ func Test_wellKnownReadyController_sync(t *testing.T) {
 				routeLister:            routev1listers.NewRouteLister(routeIndexer),
 				configMapLister:        corev1listers.NewConfigMapLister(cmIndexer),
 				serviceLister:          corev1listers.NewServiceLister(svcIndexer),
-				endpointLister:         corev1listers.NewEndpointsLister(epIndexer),
+				endpointSlicesLister:   discoveryv1listers.NewEndpointSliceLister(sliceIndexer),
 				caDataGetter:           &fakeCADataGetter{caData: caPEM},
 				authConfigChecker:      &fakeOIDCAvailabler{},
 			}

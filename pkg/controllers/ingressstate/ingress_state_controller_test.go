@@ -7,89 +7,65 @@ import (
 	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 )
 
-func TestSubsetWithReadyAddresses(t *testing.T) {
-	objMeta := metav1.ObjectMeta{
-		UID: "foo-uid",
-	}
+func readyEndpoint(ready bool) common.ServiceEndpoint {
+	return common.ServiceEndpoint{Address: "127.0.0.1", Ready: ready}
+}
+
+func TestReadyAddressesOrDegraded(t *testing.T) {
 	testCases := map[string]struct {
-		endpoints   *corev1.Endpoints
-		degraded    bool
-		errExpected bool
+		sliceCount   int
+		endpoints    []common.ServiceEndpoint
+		degraded     bool
+		wantReadyLen int
 	}{
-		"Degraded for missing endpoints": {
-			degraded: true,
+		"Degraded for missing endpointslices": {
+			sliceCount: 0,
+			degraded:   true,
 		},
-		"Degraded for empty endpoints": {
-			endpoints: &corev1.Endpoints{},
-			degraded:  true,
-		},
-		"Degraded for no subsets": {
-			endpoints: &corev1.Endpoints{
-				ObjectMeta: objMeta,
-			},
-			degraded: true,
-		},
-		"Error if more than one subset": {
-			endpoints: &corev1.Endpoints{
-				ObjectMeta: objMeta,
-				Subsets: []corev1.EndpointSubset{
-					{},
-					{},
-				},
-			},
-			errExpected: true,
+		"Degraded for no endpoints in slices": {
+			sliceCount: 1,
+			endpoints:  nil,
+			degraded:   true,
 		},
 		"Degraded if all addresses are not ready": {
-			endpoints: &corev1.Endpoints{
-				ObjectMeta: objMeta,
-				Subsets: []corev1.EndpointSubset{
-					{
-						NotReadyAddresses: []corev1.EndpointAddress{
-							{IP: "127.0.0.1"},
-						},
-					},
-				},
-			},
-			degraded: true,
+			sliceCount: 1,
+			endpoints:  []common.ServiceEndpoint{readyEndpoint(false)},
+			degraded:   true,
+		},
+		"Ready addresses returned": {
+			sliceCount:   1,
+			endpoints:    []common.ServiceEndpoint{readyEndpoint(true), readyEndpoint(false)},
+			wantReadyLen: 1,
 		},
 	}
 	for testName, tc := range testCases {
 		t.Run(testName, func(t *testing.T) {
-			subset, condition, err := subsetWithReadyAddresses(tc.endpoints)
-			if tc.errExpected {
-				require.Error(t, err)
-				// An error precludes further validation
-				return
-			} else {
-				require.NoError(t, err)
-			}
+			ready, condition := readyAddressesOrDegraded(tc.sliceCount, tc.endpoints)
 			if tc.degraded {
-				require.Nil(t, subset)
+				require.Nil(t, ready)
 				require.NotNil(t, condition)
 				require.True(t, degradedConditionTypes.Has(condition.Type))
 			} else {
-				require.NotNil(t, subset)
 				require.Nil(t, condition)
-				require.Equal(t, &tc.endpoints.Subsets[0], subset)
+				require.Len(t, ready, tc.wantReadyLen)
 			}
-
 		})
 	}
 }
 
 func TestCheckAddresses(t *testing.T) {
 	testCases := map[string]struct {
-		addresses          []corev1.EndpointAddress
-		unhealthyEndpoints []string
-		unhealthyPods      []string
-		conditionCount     int
+		addresses      []common.ServiceEndpoint
+		unhealthyPods  []string
+		conditionCount int
 	}{
 		"Healthy with 1 unhealthy pod": {
-			addresses: []corev1.EndpointAddress{
+			addresses: []common.ServiceEndpoint{
 				{
 					TargetRef: &corev1.ObjectReference{
 						Kind: "Pod",
@@ -101,7 +77,7 @@ func TestCheckAddresses(t *testing.T) {
 			conditionCount: 1,
 		},
 		"Degraded with 2 unhealthy pods": {
-			addresses: []corev1.EndpointAddress{
+			addresses: []common.ServiceEndpoint{
 				{
 					TargetRef: &corev1.ObjectReference{
 						Kind: "Pod",

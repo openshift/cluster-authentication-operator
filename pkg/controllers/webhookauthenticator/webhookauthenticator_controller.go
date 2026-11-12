@@ -19,6 +19,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
@@ -54,7 +55,7 @@ type webhookAuthenticatorController struct {
 	authentication         configv1client.AuthenticationInterface
 
 	svcLister             corev1listers.ServiceLister
-	endpointsLister       corev1listers.EndpointsLister
+	endpointSlicesLister  discoveryv1listers.EndpointSliceLister
 	deploymentsLister     appsv1listers.DeploymentLister
 	secrets               corev1client.SecretsGetter
 	secretsLister         corev1listers.SecretLister
@@ -92,7 +93,7 @@ func NewWebhookAuthenticatorController(
 		configNSSecretsLister:  kubeInformersForConfigNamespace.Core().V1().Secrets().Lister(),
 		secretsLister:          kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
 		svcLister:              kubeInformersForTargetNamespace.Core().V1().Services().Lister(),
-		endpointsLister:        kubeInformersForTargetNamespace.Core().V1().Endpoints().Lister(),
+		endpointSlicesLister:   kubeInformersForTargetNamespace.Discovery().V1().EndpointSlices().Lister(),
 		deploymentsLister:      kubeInformersForTargetNamespace.Apps().V1().Deployments().Lister(),
 		authentication:         authentication,
 		operatorClient:         operatorClient,
@@ -109,7 +110,7 @@ func NewWebhookAuthenticatorController(
 	return factory.New().
 		WithInformers(
 			kubeInformersForTargetNamespace.Apps().V1().Deployments().Informer(),
-			kubeInformersForTargetNamespace.Core().V1().Endpoints().Informer(),
+			kubeInformersForTargetNamespace.Discovery().V1().EndpointSlices().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().ServiceAccounts().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Services().Informer(),
 			kubeInformersForTargetNamespace.Core().V1().Secrets().Informer(),
@@ -142,7 +143,7 @@ func (c *webhookAuthenticatorController) sync(ctx context.Context, syncCtx facto
 
 func (c *webhookAuthenticatorController) syncWebhookArchitecture(ctx context.Context, recorder events.Recorder) error {
 	// During upgrades, this Service may select old pods that do not serve its SNI certificate, so wait before publishing the endpoint.
-	ready, err := common.TokenReviewEndpointReady(c.deploymentsLister, c.endpointsLister)
+	ready, err := common.TokenReviewEndpointReady(c.deploymentsLister, c.endpointSlicesLister)
 	if err != nil || !ready {
 		return err
 	}
