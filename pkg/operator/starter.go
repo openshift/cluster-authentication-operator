@@ -852,6 +852,7 @@ func prepareOauthAPIServerOperator(
 				{Group: configv1.GroupName, Resource: "authentications", Name: "cluster"},
 				{Group: configv1.GroupName, Resource: "infrastructures", Name: "cluster"},
 				{Group: configv1.GroupName, Resource: "oauths", Name: "cluster"},
+				{Group: "rbac.authorization.k8s.io", Resource: "clusterrolebindings", Name: "system:openshift:operator:authentication"},
 				{Resource: "namespaces", Name: "openshift-config"},
 				{Resource: "namespaces", Name: "openshift-config-managed"},
 				{Resource: "namespaces", Name: "openshift-authentication"},
