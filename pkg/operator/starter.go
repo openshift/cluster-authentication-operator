@@ -221,7 +221,6 @@ func prepareOauthOperator(
 		"openshift-authentication",
 		informerFactories.kubeInformersForNamespaces.InformersFor("openshift-authentication"),
 		authOperatorInput.kubeClient.CoreV1(),
-		authOperatorInput.kubeClient.CoreV1(),
 		authOperatorInput.authenticationOperatorClient,
 		authConfigChecker,
 		"openshift-authentication",

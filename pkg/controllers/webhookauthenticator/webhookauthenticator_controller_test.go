@@ -16,12 +16,14 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -147,14 +149,18 @@ func newReadyTokenReviewDeployment() *appsv1.Deployment {
 	}
 }
 
-func newTokenReviewEndpoints() *corev1.Endpoints {
-	return &corev1.Endpoints{
+func newTokenReviewEndpoints() *discoveryv1.EndpointSlice {
+	ready := true
+	return &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      tokenReviewServiceName,
+			Name:      tokenReviewServiceName + "-abcde",
 			Namespace: oauthAPIServerNamespace,
+			Labels:    map[string]string{discoveryv1.LabelServiceName: tokenReviewServiceName},
 		},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: []corev1.EndpointAddress{{IP: "10.0.0.3"}},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints: []discoveryv1.Endpoint{{
+			Addresses:  []string{"10.0.0.3"},
+			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
 		}},
 	}
 }
@@ -561,7 +567,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 			}
 
 			svcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-			endpointsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			endpointSliceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			deploymentsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			secretsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 
@@ -571,9 +577,9 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 					if err := svcIndexer.Add(o); err != nil {
 						t.Fatalf("failed to add service to indexer: %v", err)
 					}
-				case *corev1.Endpoints:
-					if err := endpointsIndexer.Add(o); err != nil {
-						t.Fatalf("failed to add endpoints to indexer: %v", err)
+				case *discoveryv1.EndpointSlice:
+					if err := endpointSliceIndexer.Add(o); err != nil {
+						t.Fatalf("failed to add endpointslice to indexer: %v", err)
 					}
 				case *appsv1.Deployment:
 					if err := deploymentsIndexer.Add(o); err != nil {
@@ -606,7 +612,7 @@ func TestWebhookAuthenticatorControllerSync(t *testing.T) {
 				controllerInstanceName: "test-WebhookAuthenticator",
 				authentication:         configClient.ConfigV1().Authentications(),
 				svcLister:              corev1listers.NewServiceLister(svcIndexer),
-				endpointsLister:        corev1listers.NewEndpointsLister(endpointsIndexer),
+				endpointSlicesLister:   discoveryv1listers.NewEndpointSliceLister(endpointSliceIndexer),
 				deploymentsLister:      appsv1listers.NewDeploymentLister(deploymentsIndexer),
 				secrets:                kubeClient.CoreV1(),
 				secretsLister:          corev1listers.NewSecretLister(secretsIndexer),

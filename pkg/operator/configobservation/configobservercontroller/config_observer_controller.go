@@ -4,6 +4,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
+	corev1listers "k8s.io/client-go/listers/core/v1"
+
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
@@ -42,8 +44,7 @@ func NewConfigObserverController(
 		configInformer.Config().V1().Authentications().Informer().HasSynced,
 		configInformer.Config().V1().OAuths().Informer().HasSynced,
 
-		// for etcd observer
-		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer().HasSynced,
+		// for etcd observer (reads the etcd-endpoints ConfigMap)
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().ConfigMaps().Informer().HasSynced,
 
 		// for encryption-config observer
@@ -58,8 +59,7 @@ func NewConfigObserverController(
 		configInformer.Config().V1().Authentications().Informer(),
 		configInformer.Config().V1().OAuths().Informer(),
 
-		// for etcd observer
-		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Informer(),
+		// for etcd observer (reads the etcd-endpoints ConfigMap)
 		kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().ConfigMaps().Informer(),
 
 		// for encryption-config observer
@@ -94,10 +94,16 @@ func NewConfigObserverController(
 		operatorClient,
 		eventRecorder,
 		configobservation.Listers{
-			APIServerLister_:   configInformer.Config().V1().APIServers().Lister(),
-			AuthConfigLister_:  configInformer.Config().V1().Authentications().Lister(),
-			ConfigMapLister_:   kubeInformersForNamespaces.ConfigMapLister(),
-			EndpointsLister_:   kubeInformersForNamespaces.InformersFor(libgoetcd.EtcdEndpointNamespace).Core().V1().Endpoints().Lister(),
+			APIServerLister_:  configInformer.Config().V1().APIServers().Lister(),
+			AuthConfigLister_: configInformer.Config().V1().Authentications().Lister(),
+			ConfigMapLister_:  kubeInformersForNamespaces.ConfigMapLister(),
+			// The etcd storage-URL observer reads the etcd-endpoints ConfigMap. Its legacy
+			// host-etcd-2 Endpoints fallback only runs on pre-4.5 clusters and is unreachable
+			// here. Feed a non-watching, empty lister so the operator no longer opens a
+			// deprecated core/v1 Endpoints LIST/WATCH, while still satisfying
+			// libgoetcd.EndpointsLister and letting the dead fallback fail gracefully
+			// (NotFound) rather than panic. See OCPBUGS-120740.
+			EndpointsLister_:   corev1listers.NewEndpointsLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
 			OAuthLister_:       configInformer.Config().V1().OAuths().Lister(),
 			SecretLister_:      kubeInformersForNamespaces.SecretLister(),
 			ResourceSync:       resourceSyncer,
