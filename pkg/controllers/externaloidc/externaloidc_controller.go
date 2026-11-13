@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -151,8 +152,14 @@ func newAuthConfigGenerator(
 				// a pod could reload this config before the file exists. Keep the path
 				// in the auth-config once it's there, so unrelated rollouts don't flip it.
 				if existing, err := configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); err == nil {
-					if strings.Contains(existing.Data[authConfigDataKey], common.ComponentProxyCAFilePath) {
-						return common.ComponentProxyCAFilePath, nil
+					if raw, ok := existing.Data[authConfigDataKey]; ok {
+						var existingCfg authenticationv1alpha1.AuthenticationConfiguration
+						if err := json.NewDecoder(strings.NewReader(raw)).Decode(&existingCfg); err != nil {
+							return "", fmt.Errorf("failed to parse %s from configmap %s/%s: %w", authConfigDataKey, managedNamespace, targetAuthConfigCMName, err)
+						}
+						if existingCfg.TrustedCAFilePath == common.ComponentProxyCAFilePath {
+							return common.ComponentProxyCAFilePath, nil
+						}
 					}
 				} else if !apierrors.IsNotFound(err) {
 					return "", fmt.Errorf("failed to get configmap %s/%s: %w", managedNamespace, targetAuthConfigCMName, err)

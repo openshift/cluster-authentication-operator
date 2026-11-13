@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -161,7 +163,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		require.NoError(t, cmIndexer.Add(destinationConfigMap))
 		require.NoError(t, cmIndexer.Add(&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
-			Data:       map[string]string{"auth-config.json": `{"trustedCAFilePath":"` + common.ComponentProxyCAFilePath + `"}`},
+			Data:       map[string]string{"auth-config.json": marshalAuthConfig(t, &authenticationv1alpha1.AuthenticationConfiguration{TrustedCAFilePath: common.ComponentProxyCAFilePath})},
 		}))
 		resourceSyncer := &recordingResourceSyncer{}
 		workload := &OAuthAPIServerWorkload{
@@ -178,7 +180,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		// once the auth-config no longer references the CA, mount and sync are removed
 		require.NoError(t, cmIndexer.Update(&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
-			Data:       map[string]string{"auth-config.json": `{}`},
+			Data:       map[string]string{"auth-config.json": marshalAuthConfig(t, &authenticationv1alpha1.AuthenticationConfiguration{})},
 		}))
 		deployment = oauthAPIServerTestDeployment()
 		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
@@ -1026,4 +1028,11 @@ func (macc *mockAuthConfigChecker) AuthConfig() (*configv1.Authentication, error
 
 func (macc *mockAuthConfigChecker) OIDCAvailable() (bool, error) {
 	return macc.oidcAvailable, macc.err
+}
+
+func marshalAuthConfig(t *testing.T, cfg *authenticationv1alpha1.AuthenticationConfiguration) string {
+	t.Helper()
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	return string(raw)
 }

@@ -20,6 +20,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -621,12 +622,17 @@ func (c *OAuthAPIServerWorkload) authConfigReferencesProxyCA() (bool, error) {
 		}
 		return false, fmt.Errorf("failed to get configmap \"%s/auth-config\": %w", c.targetNamespace, err)
 	}
-	for _, v := range cm.Data {
-		if strings.Contains(v, common.ComponentProxyCAFilePath) {
-			return true, nil
-		}
+
+	raw, ok := cm.Data["auth-config.json"]
+	if !ok {
+		return false, nil
 	}
-	return false, nil
+
+	var authConfig authenticationv1alpha1.AuthenticationConfiguration
+	if err := json.NewDecoder(strings.NewReader(raw)).Decode(&authConfig); err != nil {
+		return false, fmt.Errorf("failed to parse auth-config.json from configmap \"%s/auth-config\": %w", c.targetNamespace, err)
+	}
+	return authConfig.TrustedCAFilePath == common.ComponentProxyCAFilePath, nil
 }
 
 func addProxyCAVolume(deployment *appsv1.Deployment) {
