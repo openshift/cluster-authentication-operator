@@ -711,7 +711,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		proxyErr              error
 		destCMSynced          bool
 		deployment            *appsv1.Deployment
-		existingAuthConfig    string
+		existingAuthConfig    *authenticationv1alpha1.AuthenticationConfiguration
 		expectError           bool
 		expectedTrustedCAPath string
 		expectedWebhookArch   bool
@@ -749,7 +749,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
 			destCMSynced:          true,
 			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted, withRolloutInProgress),
-			existingAuthConfig:    `{"trustedCAFilePath":"` + common.ComponentProxyCAFilePath + `"}`,
+			existingAuthConfig:    &authenticationv1alpha1.AuthenticationConfiguration{TrustedCAFilePath: common.ComponentProxyCAFilePath},
 			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
 			expectedWebhookArch:   true,
 		},
@@ -803,10 +803,14 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 					t.Fatalf("failed to seed proxy CA configmap: %v", err)
 				}
 			}
-			if tt.existingAuthConfig != "" {
+			if tt.existingAuthConfig != nil {
+				existingAuthConfigBytes, err := json.Marshal(tt.existingAuthConfig)
+				if err != nil {
+					t.Fatalf("failed to serialize auth-config: %v", err)
+				}
 				if err := configMapIndexer.Add(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Namespace: managedNamespace, Name: targetAuthConfigCMName},
-					Data:       map[string]string{authConfigDataKey: tt.existingAuthConfig},
+					Data:       map[string]string{authConfigDataKey: string(existingAuthConfigBytes)},
 				}); err != nil {
 					t.Fatalf("failed to seed auth-config: %v", err)
 				}
