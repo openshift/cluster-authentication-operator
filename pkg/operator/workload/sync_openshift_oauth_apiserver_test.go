@@ -173,7 +173,8 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		}
 		deployment := oauthAPIServerTestDeployment()
 		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
-		require.Empty(t, resourceSyncer.configMaps)
+		// the destination is pinned to itself so a vanished source can't delete it
+		require.Equal(t, []configMapSyncCall{{destination: destination, source: destination}}, resourceSyncer.configMaps)
 		require.Len(t, deployment.Spec.Template.Spec.Volumes, 1)
 		require.Len(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
 
@@ -182,6 +183,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
 			Data:       map[string]string{"auth-config.json": marshalAuthConfig(t, &authenticationv1alpha1.AuthenticationConfiguration{})},
 		}))
+		resourceSyncer.configMaps = nil
 		deployment = oauthAPIServerTestDeployment()
 		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
 		require.Equal(t, []configMapSyncCall{{destination: destination}}, resourceSyncer.configMaps)

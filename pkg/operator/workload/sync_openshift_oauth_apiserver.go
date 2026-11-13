@@ -569,6 +569,13 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		}
 		if referenced {
 			if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(common.ComponentProxyCAConfigMapName); err == nil {
+				// The sync rule registered while the trusted CA was set would delete
+				// the destination if its source ConfigMap goes away. Replace it with a
+				// rule that uses the destination as its own source: the copy is a no-op
+				// and the destination is preserved until the removal stage completes.
+				if err := c.resourceSyncer.SyncConfigMap(destination, destination); err != nil {
+					return fmt.Errorf("failed to pin proxy trusted CA configmap \"%s/%s\" while auth-config references it: %w", destination.Namespace, destination.Name, err)
+				}
 				addProxyCAVolume(deployment)
 				return nil
 			} else if !errors.IsNotFound(err) {
