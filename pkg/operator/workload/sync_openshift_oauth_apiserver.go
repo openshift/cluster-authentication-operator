@@ -20,6 +20,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -559,6 +560,29 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 	)
 
 	if len(proxy.TrustedCAName) == 0 {
+		// Removal is staged: the auth-config is rewritten without the CA path first
+		// (by the ExternalOIDCController). Only then are the mount and the ConfigMap
+		// removed. While the auth-config still references the CA file, keep both.
+		referenced, err := c.authConfigReferencesProxyCA()
+		if err != nil {
+			return err
+		}
+		if referenced {
+			if _, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get(common.ComponentProxyCAConfigMapName); err == nil {
+				// The sync rule registered while the trusted CA was set would delete
+				// the destination if its source ConfigMap goes away. Replace it with a
+				// rule that uses the destination as its own source: the copy is a no-op
+				// and the destination is preserved until the removal stage completes.
+				if err := c.resourceSyncer.SyncConfigMap(destination, destination); err != nil {
+					return fmt.Errorf("failed to pin proxy trusted CA configmap \"%s/%s\" while auth-config references it: %w", destination.Namespace, destination.Name, err)
+				}
+				addProxyCAVolume(deployment)
+				return nil
+			} else if !errors.IsNotFound(err) {
+				return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, common.ComponentProxyCAConfigMapName, err)
+			}
+			// the ConfigMap is already gone, nothing left to keep mounted
+		}
 		if err := c.resourceSyncer.SyncConfigMap(destination, resourcesynccontroller.ResourceLocation{}); err != nil {
 			return fmt.Errorf("failed to remove proxy trusted CA configmap \"%s/%s\" from sync: %w", destination.Namespace, destination.Name, err)
 		}
@@ -589,6 +613,36 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		return fmt.Errorf("failed to get proxy trusted CA configmap \"%s/%s\": %w", c.targetNamespace, common.ComponentProxyCAConfigMapName, err)
 	}
 
+	addProxyCAVolume(deployment)
+	return nil
+}
+
+// authConfigReferencesProxyCA returns true if the external OIDC auth-config, as
+// seen by the oauth-apiserver pods, still points at the mounted proxy CA file.
+// It reads the copy in the target namespace (synced from openshift-config-managed),
+// which is what the pods consume, not the source.
+func (c *OAuthAPIServerWorkload) authConfigReferencesProxyCA() (bool, error) {
+	cm, err := c.configMapLister.ConfigMaps(c.targetNamespace).Get("auth-config")
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get configmap \"%s/auth-config\": %w", c.targetNamespace, err)
+	}
+
+	raw, ok := cm.Data["auth-config.json"]
+	if !ok {
+		return false, nil
+	}
+
+	var authConfig authenticationv1alpha1.AuthenticationConfiguration
+	if err := json.NewDecoder(strings.NewReader(raw)).Decode(&authConfig); err != nil {
+		return false, fmt.Errorf("failed to parse auth-config.json from configmap \"%s/auth-config\": %w", c.targetNamespace, err)
+	}
+	return authConfig.TrustedCAFilePath == common.ComponentProxyCAFilePath, nil
+}
+
+func addProxyCAVolume(deployment *appsv1.Deployment) {
 	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
 		Name: common.ComponentProxyCAConfigMapName,
 		VolumeSource: corev1.VolumeSource{
@@ -603,7 +657,6 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		ReadOnly:  true,
 		MountPath: common.ComponentProxyCAMountPath,
 	})
-	return nil
 }
 
 func loglevelToKlog(logLevel operatorv1.LogLevel) string {

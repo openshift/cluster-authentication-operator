@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -142,7 +144,11 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 
 	t.Run("trusted CA removed configures destination deletion", func(t *testing.T) {
 		resourceSyncer := &recordingResourceSyncer{}
-		workload := &OAuthAPIServerWorkload{targetNamespace: destination.Namespace, resourceSyncer: resourceSyncer}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
 
 		deployment := oauthAPIServerTestDeployment()
 		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
@@ -152,9 +158,46 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].Env)
 	})
 
+	t.Run("trusted CA removed keeps mount and sync while auth-config references it", func(t *testing.T) {
+		cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+		require.NoError(t, cmIndexer.Add(destinationConfigMap))
+		require.NoError(t, cmIndexer.Add(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
+			Data:       map[string]string{"auth-config.json": marshalAuthConfig(t, &authenticationv1alpha1.AuthenticationConfiguration{TrustedCAFilePath: common.ComponentProxyCAFilePath})},
+		}))
+		resourceSyncer := &recordingResourceSyncer{}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cmIndexer),
+		}
+		deployment := oauthAPIServerTestDeployment()
+		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
+		// the destination is pinned to itself so a vanished source can't delete it
+		require.Equal(t, []configMapSyncCall{{destination: destination, source: destination}}, resourceSyncer.configMaps)
+		require.Len(t, deployment.Spec.Template.Spec.Volumes, 1)
+		require.Len(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+
+		// once the auth-config no longer references the CA, mount and sync are removed
+		require.NoError(t, cmIndexer.Update(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: destination.Namespace, Name: "auth-config"},
+			Data:       map[string]string{"auth-config.json": marshalAuthConfig(t, &authenticationv1alpha1.AuthenticationConfiguration{})},
+		}))
+		resourceSyncer.configMaps = nil
+		deployment = oauthAPIServerTestDeployment()
+		require.NoError(t, workload.syncComponentProxy(common.ResolvedProxy{}, deployment))
+		require.Equal(t, []configMapSyncCall{{destination: destination}}, resourceSyncer.configMaps)
+		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
+		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
+	})
+
 	t.Run("proxy without trusted CA renders environment variables", func(t *testing.T) {
 		resourceSyncer := &recordingResourceSyncer{}
-		workload := &OAuthAPIServerWorkload{targetNamespace: destination.Namespace, resourceSyncer: resourceSyncer}
+		workload := &OAuthAPIServerWorkload{
+			targetNamespace: destination.Namespace,
+			resourceSyncer:  resourceSyncer,
+			configMapLister: corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		}
 		deployment := oauthAPIServerTestDeployment()
 		proxy := common.ResolvedProxy{HTTPSProxy: "http://proxy.example.test:3128"}
 
@@ -702,6 +745,7 @@ func TestSyncOAuthAPIServerDeployment(t *testing.T) {
 					return scenario.legacyAPIsRemoved, scenario.legacyRemovalError
 				},
 				kasReadyForLegacyRemoval: func() (bool, error) { return scenario.kasReady, scenario.kasReadinessError },
+				configMapLister:          corev1listers.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
 			}
 
 			actualDeployment, err := target.syncDeployment(context.TODO(), &scenario.operator.Spec.OperatorSpec, &scenario.operator.Status.OperatorStatus, eventRecorder)
@@ -986,4 +1030,11 @@ func (macc *mockAuthConfigChecker) AuthConfig() (*configv1.Authentication, error
 
 func (macc *mockAuthConfigChecker) OIDCAvailable() (bool, error) {
 	return macc.oidcAvailable, macc.err
+}
+
+func marshalAuthConfig(t *testing.T, cfg *authenticationv1alpha1.AuthenticationConfiguration) string {
+	t.Helper()
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	return string(raw)
 }
