@@ -410,7 +410,7 @@ func (l *errorAuthLister) Get(_ string) (*operatorv1.Authentication, error) {
 }
 
 func expectedNoProxy(extra ...string) string {
-	entries := sets.New[string](".cluster.local", ".svc", "127.0.0.1", "localhost")
+	entries := sets.New[string](".cluster.local", ".cluster.local.", ".svc", ".svc.", "127.0.0.1", "localhost", "localhost.")
 	if host := os.Getenv("KUBERNETES_SERVICE_HOST"); host != "" {
 		entries.Insert(host)
 	}

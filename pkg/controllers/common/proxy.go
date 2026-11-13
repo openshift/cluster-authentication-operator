@@ -111,9 +111,10 @@ func getComponentProxyConfig(operatorAuthLister operatorv1listers.Authentication
 // proxy. Auth components connect to internal services via DNS names covered by
 // .svc and .cluster.local. The kubernetes API service IP (KUBERNETES_SERVICE_HOST)
 // is included explicitly because Go's in-cluster client connects to it by raw IP,
-// which does not match the hostname-based entries above.
+// which does not match the hostname-based entries above. Go does not strip a
+// trailing dot before suffix matching, so trailing-dot forms are listed too.
 var staticNoProxyEntries = func() []string {
-	entries := []string{".cluster.local", ".svc", "127.0.0.1", "localhost"}
+	entries := []string{".cluster.local", ".cluster.local.", ".svc", ".svc.", "127.0.0.1", "localhost", "localhost."}
 	if host := os.Getenv("KUBERNETES_SERVICE_HOST"); host != "" {
 		entries = append(entries, host)
 	}
