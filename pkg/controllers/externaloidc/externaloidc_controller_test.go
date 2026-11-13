@@ -675,19 +675,33 @@ func newTestFeatureGates(enabled []configv1.FeatureGateName) featuregates.Featur
 	return featuregates.NewFeatureGate(enabled, sets.List(disabledSet))
 }
 
-// rolloutState describes the state of the oauth-apiserver deployment seeded in tests.
-type rolloutState int
+// newOAuthAPIServerDeployment returns a fully rolled out single-replica
+// oauth-apiserver deployment in the target namespace. Pass mutators to customize it.
+func newOAuthAPIServerDeployment(mutators ...func(d *appsv1.Deployment)) *appsv1.Deployment {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: targetNamespace, Name: oauthAPIServerDeploymentName, Generation: 2},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: new(int32(1)),
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: oauthAPIServerContainerName}}}},
+		},
+		Status: appsv1.DeploymentStatus{ObservedGeneration: 2, Replicas: 1, UpdatedReplicas: 1},
+	}
+	for _, m := range mutators {
+		m(dep)
+	}
+	return dep
+}
 
-const (
-	// rolloutNoDeployment means no deployment exists (zero value).
-	rolloutNoDeployment rolloutState = iota
-	// rolloutComplete means the deployment is fully rolled out with the CA volume mounted.
-	rolloutComplete
-	// rolloutVolumeNotMounted means the deployment is rolled out but lacks the CA volume.
-	rolloutVolumeNotMounted
-	// rolloutInProgress means the CA volume is mounted but not all replicas are updated.
-	rolloutInProgress
-)
+// withProxyCAMounted makes the deployment's oauth-apiserver container mount the proxy CA volume.
+func withProxyCAMounted(d *appsv1.Deployment) {
+	d.Spec.Template.Spec.Volumes = []corev1.Volume{{Name: common.ComponentProxyCAConfigMapName}}
+	d.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: common.ComponentProxyCAConfigMapName}}
+}
+
+// withRolloutInProgress marks the deployment as having no updated replicas.
+func withRolloutInProgress(d *appsv1.Deployment) {
+	d.Status.UpdatedReplicas = 0
+}
 
 func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 	for _, tt := range []struct {
@@ -696,7 +710,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		proxy                 common.ResolvedProxy
 		proxyErr              error
 		destCMSynced          bool
-		rolloutState          rolloutState
+		deployment            *appsv1.Deployment
 		existingAuthConfig    string
 		expectError           bool
 		expectedTrustedCAPath string
@@ -707,7 +721,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
 			destCMSynced:          true,
-			rolloutState:          rolloutComplete,
+			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted),
 			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
 			expectedWebhookArch:   true,
 		},
@@ -716,7 +730,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
 			destCMSynced:          true,
-			rolloutState:          rolloutVolumeNotMounted,
+			deployment:            newOAuthAPIServerDeployment(),
 			expectedTrustedCAPath: "",
 			expectedWebhookArch:   true,
 		},
@@ -725,7 +739,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
 			destCMSynced:          true,
-			rolloutState:          rolloutInProgress,
+			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted, withRolloutInProgress),
 			expectedTrustedCAPath: "",
 			expectedWebhookArch:   true,
 		},
@@ -734,7 +748,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
 			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
 			destCMSynced:          true,
-			rolloutState:          rolloutInProgress,
+			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted, withRolloutInProgress),
 			existingAuthConfig:    `{"trustedCAFilePath":"` + common.ComponentProxyCAFilePath + `"}`,
 			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
 			expectedWebhookArch:   true,
@@ -798,21 +812,8 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 				}
 			}
 			deploymentIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-			if tt.rolloutState != rolloutNoDeployment {
-				dep := &appsv1.Deployment{
-					ObjectMeta: metav1.ObjectMeta{Namespace: targetNamespace, Name: oauthAPIServerDeploymentName, Generation: 2},
-					Spec:       appsv1.DeploymentSpec{Replicas: new(int32(1))},
-					Status:     appsv1.DeploymentStatus{ObservedGeneration: 2, Replicas: 1, UpdatedReplicas: 1},
-				}
-				dep.Spec.Template.Spec.Containers = []corev1.Container{{Name: "oauth-apiserver"}}
-				if tt.rolloutState != rolloutVolumeNotMounted {
-					dep.Spec.Template.Spec.Volumes = []corev1.Volume{{Name: common.ComponentProxyCAConfigMapName}}
-					dep.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: common.ComponentProxyCAConfigMapName}}
-				}
-				if tt.rolloutState == rolloutInProgress {
-					dep.Status.UpdatedReplicas = 0
-				}
-				if err := deploymentIndexer.Add(dep); err != nil {
+			if tt.deployment != nil {
+				if err := deploymentIndexer.Add(tt.deployment); err != nil {
 					t.Fatalf("failed to seed deployment: %v", err)
 				}
 			}
