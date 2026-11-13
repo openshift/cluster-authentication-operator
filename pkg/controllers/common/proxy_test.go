@@ -419,7 +419,10 @@ func expectedNoProxy(extra ...string) string {
 }
 
 func TestDeploymentRolledOutWithVolume(t *testing.T) {
-	const volumeName = "test-volume"
+	const (
+		volumeName    = "test-volume"
+		containerName = "c"
+	)
 
 	// newDeployment returns a fully rolled out 3-replica deployment mounting the volume.
 	newDeployment := func(mutate func(d *appsv1.Deployment)) *appsv1.Deployment {
@@ -430,7 +433,7 @@ func TestDeploymentRolledOutWithVolume(t *testing.T) {
 				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 					Volumes: []corev1.Volume{{Name: volumeName}},
 					Containers: []corev1.Container{{
-						Name:         "c",
+						Name:         containerName,
 						VolumeMounts: []corev1.VolumeMount{{Name: volumeName}},
 					}},
 				}},
@@ -476,6 +479,23 @@ func TestDeploymentRolledOutWithVolume(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "volume mounted only by a different container",
+			dep: newDeployment(func(d *appsv1.Deployment) {
+				d.Spec.Template.Spec.Containers = []corev1.Container{
+					{Name: "other"},
+					{Name: containerName, VolumeMounts: []corev1.VolumeMount{{Name: volumeName}}},
+				}
+			}),
+			expected: true,
+		},
+		{
+			name: "named container missing",
+			dep: newDeployment(func(d *appsv1.Deployment) {
+				d.Spec.Template.Spec.Containers[0].Name = "other"
+			}),
+			expected: false,
+		},
+		{
 			name:     "no containers",
 			dep:      newDeployment(func(d *appsv1.Deployment) { d.Spec.Template.Spec.Containers = nil }),
 			expected: false,
@@ -492,7 +512,7 @@ func TestDeploymentRolledOutWithVolume(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := DeploymentRolledOutWithVolume(tt.dep, volumeName); got != tt.expected {
+			if got := DeploymentRolledOutWithVolume(tt.dep, containerName, volumeName); got != tt.expected {
 				t.Errorf("expected %v, got %v", tt.expected, got)
 			}
 		})

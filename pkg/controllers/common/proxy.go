@@ -146,8 +146,8 @@ func appendEnvVar(envVars []corev1.EnvVar, envName, envVal string) []corev1.EnvV
 
 // DeploymentRolledOutWithVolume returns true when the deployment has been fully
 // rolled out (the controller observed the latest generation and all replicas are
-// updated, with no old replicas left) and its first container mounts the named volume.
-func DeploymentRolledOutWithVolume(d *appsv1.Deployment, volumeName string) bool {
+// updated, with no old replicas left) and the named container mounts the named volume.
+func DeploymentRolledOutWithVolume(d *appsv1.Deployment, containerName, volumeName string) bool {
 	if d == nil || d.Status.ObservedGeneration < d.Generation {
 		return false
 	}
@@ -158,14 +158,19 @@ func DeploymentRolledOutWithVolume(d *appsv1.Deployment, volumeName string) bool
 			hasVolume = true
 		}
 	}
-	if !hasVolume || len(d.Spec.Template.Spec.Containers) == 0 {
+	if !hasVolume {
 		return false
 	}
 
 	mounted := false
-	for _, m := range d.Spec.Template.Spec.Containers[0].VolumeMounts {
-		if m.Name == volumeName {
-			mounted = true
+	for _, c := range d.Spec.Template.Spec.Containers {
+		if c.Name != containerName {
+			continue
+		}
+		for _, m := range c.VolumeMounts {
+			if m.Name == volumeName {
+				mounted = true
+			}
 		}
 	}
 	if !mounted {

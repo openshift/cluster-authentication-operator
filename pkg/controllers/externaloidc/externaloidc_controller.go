@@ -32,6 +32,7 @@ const (
 	managedNamespace             = "openshift-config-managed"
 	targetNamespace              = "openshift-oauth-apiserver"
 	oauthAPIServerDeploymentName = "apiserver"
+	oauthAPIServerContainerName  = "oauth-apiserver"
 	targetAuthConfigCMName       = "auth-config"
 	authConfigDataKey            = "auth-config.json"
 )
@@ -165,7 +166,7 @@ func newAuthConfigGenerator(
 					}
 					return "", fmt.Errorf("failed to get deployment %s/%s: %w", targetNamespace, oauthAPIServerDeploymentName, err)
 				}
-				if !common.DeploymentRolledOutWithVolume(dep, common.ComponentProxyCAConfigMapName) {
+				if !common.DeploymentRolledOutWithVolume(dep, oauthAPIServerContainerName, common.ComponentProxyCAConfigMapName) {
 					return "", nil
 				}
 				return common.ComponentProxyCAFilePath, nil
