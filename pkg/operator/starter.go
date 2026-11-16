@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"net/url"
 	"os"
 	"time"
 
@@ -26,7 +27,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientscontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
@@ -52,6 +52,7 @@ import (
 	encryptionsecrets "github.com/openshift/library-go/pkg/operator/encryption/secrets"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
@@ -61,6 +62,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -338,20 +340,46 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
-	proxyConfigController := proxyconfig.NewProxyConfigChecker(
-		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+	oauthRouteInformer := informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes()
+	oauthLister := informerFactories.operatorConfigInformer.Config().V1().OAuths().Lister()
+	proxyConfigController := proxyconfig.NewProxyConfigController(
+		"ProxyConfig",
+		&proxyResolver,
 		informerFactories.kubeInformersForNamespaces,
-		authConfigChecker,
-		"openshift-authentication",
-		"oauth-openshift",
 		map[string][]string{
 			"openshift-authentication-operator": {"trusted-ca-bundle"},
 			"openshift-config-managed":          {"default-ingress-cert"},
 		},
-		authOperatorInput.eventRecorder,
 		authOperatorInput.authenticationOperatorClient,
-		informerFactories.operatorConfigInformer.Config().V1().OAuths().Lister(),
-		&proxyResolver,
+		authOperatorInput.eventRecorder,
+		proxyconfig.WithPrecondition(func() (bool, error) {
+			oidcAvailable, err := authConfigChecker.OIDCAvailable()
+			return !oidcAvailable, err
+		}),
+		proxyconfig.WithNoProxyCheckedEndpoints(func() ([]*url.URL, error) {
+			route, err := oauthRouteInformer.Lister().Routes("openshift-authentication").Get("oauth-openshift")
+			if err != nil {
+				return nil, err
+			}
+			routeURL, _, err := routeapihelpers.IngressURI(route, "")
+			if err != nil {
+				return nil, err
+			}
+			routeURL.Path = "healthz"
+			return []*url.URL{routeURL}, nil
+		}),
+		proxyconfig.WithProxiedEndpoints("IdPEndpointUnreachable", func() ([]string, error) {
+			oauthConfig, err := oauthLister.Get("cluster")
+			if err != nil {
+				return nil, err
+			}
+			return extractIdPURLs(oauthConfig), nil
+		}),
+		proxyconfig.WithInformers(append(
+			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker),
+			oauthRouteInformer.Informer(),
+			proxyResolver.Informer(),
+		)...),
 	)
 
 	customRouteController := componentroutesecretsync.NewCustomRouteController(

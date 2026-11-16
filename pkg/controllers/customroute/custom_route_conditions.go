@@ -15,6 +15,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/library-go/pkg/network/httptransport"
 	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
@@ -154,7 +155,7 @@ func routeAvailability(secretLister corev1listers.SecretLister, proxyResolver co
 		return err
 	}
 
-	tr, err := proxyResolver.NewTransport(common.WithCA("router-certs", []byte(certBytes)))
+	tr, err := proxyResolver.NewTransport(httptransport.WithCAData("router-certs", []byte(certBytes)))
 	if err != nil {
 		return err
 	}

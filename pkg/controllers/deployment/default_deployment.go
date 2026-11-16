@@ -26,7 +26,8 @@ import (
 
 func getOAuthServerDeployment(
 	operatorSpec *operatorv1.OperatorSpec,
-	httpProxy, httpsProxy, noProxy string,
+	httpProxy, httpsProxy string,
+	noProxy []string,
 	bootstrapUserExists bool,
 	resourceVersions ...string,
 ) (*appsv1.Deployment, error) {
