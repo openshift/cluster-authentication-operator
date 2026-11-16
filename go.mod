@@ -138,3 +138,6 @@ require (
 )
 
 replace github.com/onsi/ginkgo/v2 => github.com/openshift/onsi-ginkgo/v2 v2.6.1-0.20251001123353-fd5b1fb35db1
+
+// branch: proxyconfig-controller
+replace github.com/openshift/library-go => github.com/tchap/library-go v0.0.0-20261126141843-1eb2e6a3fbb6

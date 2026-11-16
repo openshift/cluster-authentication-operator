@@ -5,7 +5,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"net/url"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/openshift/multi-operator-manager/pkg/library/libraryapplyconfiguration"
@@ -26,7 +28,6 @@ import (
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthclientscontroller"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/oauthendpoints"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/payload"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/proxyconfig"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/readiness"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/routercerts"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/serviceca"
@@ -52,6 +53,7 @@ import (
 	encryptionsecrets "github.com/openshift/library-go/pkg/operator/encryption/secrets"
 	"github.com/openshift/library-go/pkg/operator/management"
 	"github.com/openshift/library-go/pkg/operator/managementstatecontroller"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/revisioncontroller"
@@ -61,6 +63,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/staticresourcecontroller"
 	"github.com/openshift/library-go/pkg/operator/status"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	"github.com/openshift/library-go/pkg/route/routeapihelpers"
 	certapiv1 "k8s.io/api/certificates/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -339,20 +342,135 @@ func prepareOauthOperator(
 		authOperatorInput.eventRecorder,
 	)
 
-	proxyConfigController := proxyconfig.NewProxyConfigChecker(
-		informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes(),
+	oauthRouteInformer := informerFactories.namespacedOpenshiftAuthenticationRoutes.Route().V1().Routes()
+	oauthLister := informerFactories.operatorConfigInformer.Config().V1().OAuths().Lister()
+	openshiftConfigConfigMaps := informerFactories.kubeInformersForNamespaces.InformersFor("openshift-config").Core().V1().ConfigMaps()
+
+	// The oauth-apiserver talks to the external OIDC issuers through the proxy, but only in the webhook architecture.
+	oidcIssuersProbed := func() (*configv1.Authentication, bool, error) {
+		auth, err := authConfigChecker.AuthConfig()
+		if err != nil {
+			return nil, false, err
+		}
+		if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
+			return nil, false, nil
+		}
+		webhookArchitecture, err := externalOIDCWebhookArchitectureRequired(featureGateAccessor)
+		return auth, webhookArchitecture, err
+	}
+
+	proxyConfigController := proxyconfig.NewProxyConfigController(
+		"ProxyConfig",
+		&proxyResolver,
 		informerFactories.kubeInformersForNamespaces,
-		authConfigChecker,
-		"openshift-authentication",
-		"oauth-openshift",
 		map[string][]string{
 			"openshift-authentication-operator": {"trusted-ca-bundle"},
 			"openshift-config-managed":          {"default-ingress-cert"},
 		},
-		authOperatorInput.eventRecorder,
 		authOperatorInput.authenticationOperatorClient,
-		informerFactories.operatorConfigInformer.Config().V1().OAuths().Lister(),
-		&proxyResolver,
+		authOperatorInput.eventRecorder,
+		// Integrated OAuth only: the oauth route's /healthz must be reachable the way NO_PROXY says
+		// (directly when covered, through the proxy otherwise), so any inconsistency, including the
+		// route being down, Degrades the operator. Skipped once OIDC is serving, as the route is gone.
+		proxyconfig.WithEndpoints(proxyconfig.DegradeOnFailure, func() ([]*url.URL, error) {
+			if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil || oidcAvailable {
+				return nil, err
+			}
+			route, err := oauthRouteInformer.Lister().Routes("openshift-authentication").Get("oauth-openshift")
+			if err != nil {
+				return nil, err
+			}
+			routeURL, _, err := routeapihelpers.IngressURI(route, "")
+			if err != nil {
+				return nil, err
+			}
+			routeURL.Path = "healthz"
+			return []*url.URL{routeURL}, nil
+		}),
+
+		// External OIDC only: the issuers' discovery documents are checked against NO_PROXY as well.
+		// An issuer can be down regardless of the proxy, so only a definite mismatch Degrades
+		// (reachable directly but NO_PROXY does not cover it, or covered but only reachable via proxy).
+		proxyconfig.WithEndpoints(proxyconfig.DegradeOnNoProxyMismatch, func() ([]*url.URL, error) {
+			auth, probed, err := oidcIssuersProbed()
+			if err != nil || !probed {
+				return nil, err
+			}
+			return parseEndpointURLs(oidcIssuerDiscoveryURLs(auth)), nil
+		}),
+
+		// Integrated OAuth only: the configured identity providers must be reachable through the proxy.
+		// External IdPs can be down for unrelated reasons, so a failure is only a warning event.
+		proxyconfig.WithEndpointWarnings("IdPEndpointUnreachable", func() ([]*url.URL, error) {
+			if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil || oidcAvailable {
+				return nil, err
+			}
+			oauthConfig, err := oauthLister.Get("cluster")
+			if err != nil {
+				return nil, err
+			}
+			return parseEndpointURLs(extractIdPURLs(oauthConfig)), nil
+		}),
+
+		// External OIDC only: the issuers' discovery documents must be reachable through the proxy,
+		// as that is how the oauth-apiserver fetches them. A failure is only a warning event.
+		proxyconfig.WithEndpointWarnings("OIDCIssuerUnreachable", func() ([]*url.URL, error) {
+			auth, probed, err := oidcIssuersProbed()
+			if err != nil || !probed {
+				return nil, err
+			}
+			return parseEndpointURLs(oidcIssuerDiscoveryURLs(auth)), nil
+		}),
+
+		// External OIDC only: trust the issuers' own CA bundles on top of the base trust, as the
+		// oauth-apiserver does, so issuers with a private CA do not produce false warnings.
+		proxyconfig.WithTrustedCABundles(func() ([][]byte, error) {
+			auth, probed, err := oidcIssuersProbed()
+			if err != nil || !probed {
+				return nil, err
+			}
+			var bundles [][]byte
+			for _, name := range oidcIssuerCAConfigMapNames(auth) {
+				cm, err := openshiftConfigConfigMaps.Lister().ConfigMaps("openshift-config").Get(name)
+				if err != nil {
+					// A missing CA is reported by the external OIDC controller already.
+					klog.Warningf("skipping OIDC issuer CA configmap %q for the proxy check: %v", name, err)
+					continue
+				}
+				if data := cm.Data["ca-bundle.crt"]; len(data) > 0 {
+					// An unparsable bundle would fail the creation of the probe clients and thus all
+					// the proxy checks, so skip it. The external OIDC controller reports it.
+					if !x509.NewCertPool().AppendCertsFromPEM([]byte(data)) {
+						klog.Warningf("skipping OIDC issuer CA configmap %q for the proxy check: no valid PEM certificates in ca-bundle.crt", name)
+						continue
+					}
+					bundles = append(bundles, []byte(data))
+				}
+			}
+			return bundles, nil
+		}),
+
+		proxyconfig.WithInformers(append(
+			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker),
+			oauthRouteInformer.Informer(),
+			proxyResolver.Informer(),
+		)...),
+
+		// Only the ConfigMaps read during the sync trigger it: the proxy trusted CA and the OIDC issuer CAs.
+		proxyconfig.WithFilteredInformers(func(obj interface{}) bool {
+			name, ok := objectName(obj)
+			if !ok {
+				return true
+			}
+			if proxy, err := proxyResolver.ResolveProxy(); err != nil || proxy.TrustedCA.Name == name {
+				return true
+			}
+			auth, probed, err := oidcIssuersProbed()
+			if err != nil {
+				return true
+			}
+			return probed && slices.Contains(oidcIssuerCAConfigMapNames(auth), name)
+		}, openshiftConfigConfigMaps.Informer()),
 	)
 
 	customRouteController := componentroutesecretsync.NewCustomRouteController(

@@ -1,55 +1,35 @@
 package common
 
 import (
-	"crypto/x509"
 	"fmt"
 	"net/http"
-	"net/url"
-
-	"golang.org/x/net/http/httpproxy"
 
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 
 	operatorv1informers "github.com/openshift/client-go/operator/informers/externalversions/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
+	"github.com/openshift/library-go/pkg/network/httptransport"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
-	"github.com/openshift/library-go/pkg/network/httptransport"
 )
 
-// transportConfig holds the options being assembled by TransportOptions.
-type transportConfig struct {
-	opts []httptransport.Option
-}
+// ProxyResolver resolves the effective proxy configuration and builds
+// pre-configured HTTP transports for outbound requests.
+type ProxyResolver interface {
+	proxyconfig.ProxyResolver
 
-// TransportOption configures the trust pool for NewTransport.
-type TransportOption func(cfg *transportConfig, cmLister corelistersv1.ConfigMapLister) error
-
-// WithCertPool provides a pre-built certificate pool as the base trust
-// pool. The proxy's trusted CA (if any) is appended to this pool.
-// This avoids reparsing CA bundles when multiple transports share the
-// same trust anchors.
-func WithCertPool(pool *x509.CertPool) TransportOption {
-	return func(cfg *transportConfig, _ corelistersv1.ConfigMapLister) error {
-		cfg.opts = append(cfg.opts, httptransport.WithCertPool(pool))
-		return nil
-	}
-}
-
-// WithCA appends raw CA certificate bytes to the transport's trust pool.
-// The name identifies the source for error messages.
-func WithCA(name string, data []byte) TransportOption {
-	return func(cfg *transportConfig, _ corelistersv1.ConfigMapLister) error {
-		cfg.opts = append(cfg.opts, httptransport.WithCAData(name, data))
-		return nil
-	}
+	// NewTransport returns an http.RoundTripper with proxy settings, the proxy's
+	// trusted CA, and any additional options applied. The opts are applied last,
+	// so that they take precedence.
+	NewTransport(opts ...httptransport.Option) (http.RoundTripper, error)
 }
 
 // WithCAFromConfigMap loads a CA bundle from a ConfigMap in the openshift-config
-// namespace and appends it to the transport's trust pool.
-func WithCAFromConfigMap(name, key string) TransportOption {
-	return func(cfg *transportConfig, cmLister corelistersv1.ConfigMapLister) error {
+// namespace and appends it to the transport's trust pool. It is a no-op for an empty name.
+func WithCAFromConfigMap(cmLister corelistersv1.ConfigMapLister, name, key string) httptransport.Option {
+	return func(cfg *httptransport.Config) error {
 		if len(name) == 0 {
 			return nil
 		}
@@ -57,29 +37,8 @@ func WithCAFromConfigMap(name, key string) TransportOption {
 		if err != nil {
 			return err
 		}
-		cfg.opts = append(cfg.opts, httptransport.WithCAData(fmt.Sprintf("configmap %q", name), data))
-		return nil
+		return httptransport.WithCAData(fmt.Sprintf("configmap %q", name), data)(cfg)
 	}
-}
-
-// WithoutProxy disables proxy use for the constructed round tripper.
-func WithoutProxy() TransportOption {
-	return func(cfg *transportConfig, _ corelistersv1.ConfigMapLister) error {
-		cfg.opts = append(cfg.opts, httptransport.WithProxyFunc(nil))
-		return nil
-	}
-}
-
-// ProxyResolver resolves the effective proxy configuration and builds
-// pre-configured HTTP transports for outbound requests.
-type ProxyResolver interface {
-	// ResolveProxy resolves proxy configuration.
-	ResolveProxy() (ResolvedProxy, error)
-
-	// NewTransport returns an http.RoundTripper with proxy settings, the
-	// proxy's trusted CA, and any additional CA sources merged into the
-	// trust pool.
-	NewTransport(opts ...TransportOption) (http.RoundTripper, error)
 }
 
 type ObservableProxyResolver interface {
@@ -116,33 +75,10 @@ func (r *AuthProxyResolver) ResolveProxy() (ResolvedProxy, error) {
 	return ResolveProxy(r.authProxyEnabled, r.operatorAuthLister)
 }
 
-func (r *AuthProxyResolver) NewTransport(opts ...TransportOption) (http.RoundTripper, error) {
+func (r *AuthProxyResolver) NewTransport(opts ...httptransport.Option) (http.RoundTripper, error) {
 	proxy, err := r.ResolveProxy()
 	if err != nil {
 		return nil, err
 	}
-	return NewTransport(r.configMapLister, proxy, opts...)
-}
-
-func NewTransport(configMapLister corelistersv1.ConfigMapLister, proxy ResolvedProxy, opts ...TransportOption) (http.RoundTripper, error) {
-	var cfg transportConfig
-	if len(proxy.TrustedCAName) > 0 {
-		proxyCA, err := transport.LoadCAData(configMapLister, proxy.TrustedCAName, "ca-bundle.crt")
-		if err != nil {
-			return nil, err
-		}
-		cfg.opts = append(cfg.opts, httptransport.WithCAData(fmt.Sprintf("proxy trustedCA %q", proxy.TrustedCAName), proxyCA))
-	}
-	if proxy.IsProxyConfigured() {
-		proxyFunc := (&httpproxy.Config{HTTPProxy: proxy.HTTPProxy, HTTPSProxy: proxy.HTTPSProxy, NoProxy: proxy.NoProxy}).ProxyFunc()
-		cfg.opts = append(cfg.opts, httptransport.WithProxyFunc(func(req *http.Request) (*url.URL, error) { return proxyFunc(req.URL) }))
-	}
-	// Caller-supplied opts are applied last so they can override the
-	// resolved proxy configuration above (e.g. WithoutProxy()).
-	for _, opt := range opts {
-		if err := opt(&cfg, configMapLister); err != nil {
-			return nil, err
-		}
-	}
-	return httptransport.NewRoundTripper(cfg.opts...)
+	return proxyconfig.NewTransport(proxy, r.configMapLister, opts...)
 }

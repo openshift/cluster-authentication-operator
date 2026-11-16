@@ -46,7 +46,7 @@ func (o *componentProxyTrustedCAObserver) ObserveComponentProxyTrustedCA(_ confi
 
 	observedConfig := map[string]interface{}{}
 	var observedValue interface{}
-	if len(proxy.TrustedCAName) > 0 {
+	if len(proxy.TrustedCA.Name) > 0 {
 		observedValue = proxyTrustedCAFile
 		if err := unstructured.SetNestedField(observedConfig, proxyTrustedCAFile, proxyTrustedCAPath...); err != nil {
 			return existingConfig, []error{err}

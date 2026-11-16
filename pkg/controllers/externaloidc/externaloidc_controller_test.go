@@ -22,6 +22,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 
 	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
@@ -29,7 +30,7 @@ import (
 	"github.com/openshift/api/features"
 	configv1listers "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	fakecommon "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
+	fakecommon "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeproxy"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -719,7 +720,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, proxy with trusted CA, destination configmap synced",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"}},
 			destCMSynced:          true,
 			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted),
 			expectedTrustedCAPath: common.ComponentProxyCAFilePath,
@@ -728,7 +729,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, CA synced but deployment not yet mounting it",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"}},
 			destCMSynced:          true,
 			deployment:            newOAuthAPIServerDeployment(),
 			expectedTrustedCAPath: "",
@@ -737,7 +738,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, CA mounted but rollout in progress",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"}},
 			destCMSynced:          true,
 			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted, withRolloutInProgress),
 			expectedTrustedCAPath: "",
@@ -746,7 +747,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, path already in auth-config is kept during unrelated rollout",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"}},
 			destCMSynced:          true,
 			deployment:            newOAuthAPIServerDeployment(withProxyCAMounted, withRolloutInProgress),
 			existingAuthConfig:    &authenticationv1alpha1.AuthenticationConfiguration{TrustedCAFilePath: common.ComponentProxyCAFilePath},
@@ -756,7 +757,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, proxy with trusted CA, destination configmap not yet synced",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: "my-proxy-ca"},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"}},
 			destCMSynced:          false,
 			expectedTrustedCAPath: "",
 			expectedWebhookArch:   true,
@@ -764,7 +765,7 @@ func TestNewAuthConfigGenerator_proxy(t *testing.T) {
 		{
 			name:                  "webhook arch, no trusted CA",
 			enabledGates:          []configv1.FeatureGateName{features.FeatureGateExternalOIDCAsWebhook},
-			proxy:                 common.ResolvedProxy{TrustedCAName: ""},
+			proxy:                 common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: ""}},
 			expectedTrustedCAPath: "",
 			expectedWebhookArch:   true,
 		},

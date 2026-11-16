@@ -573,7 +573,7 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 		common.ProxyEnvVars(proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy)...,
 	)
 
-	if len(proxy.TrustedCAName) == 0 {
+	if len(proxy.TrustedCA.Name) == 0 {
 		// Removal is staged: the auth-config is rewritten without the CA path first
 		// (by the ExternalOIDCController). Only then are the mount and the ConfigMap
 		// removed. While the auth-config still references the CA file, keep both.
@@ -608,11 +608,11 @@ func (c *OAuthAPIServerWorkload) syncComponentProxy(proxy common.ResolvedProxy, 
 
 	// Fail fast if the source configmap doesn't exist yet or lacks CA data,
 	// rather than registering a sync rule for a source that isn't ready.
-	if _, err := transport.LoadCAData(c.sourceConfigMapLister, proxy.TrustedCAName, "ca-bundle.crt"); err != nil {
-		return nil, fmt.Errorf("proxy trustedCA configmap \"openshift-config/%s\" is not ready: %w", proxy.TrustedCAName, err)
+	if _, err := transport.LoadCAData(c.sourceConfigMapLister, proxy.TrustedCA.Name, "ca-bundle.crt"); err != nil {
+		return nil, fmt.Errorf("proxy trustedCA configmap \"openshift-config/%s\" is not ready: %w", proxy.TrustedCA.Name, err)
 	}
 
-	source := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: proxy.TrustedCAName}
+	source := resourcesynccontroller.ResourceLocation{Namespace: "openshift-config", Name: proxy.TrustedCA.Name}
 	if err := c.resourceSyncer.SyncConfigMap(destination, source); err != nil {
 		return nil, fmt.Errorf("failed to configure proxy trusted CA configmap sync from \"%s/%s\" into \"%s/%s\": %w",
 			source.Namespace, source.Name, destination.Namespace, destination.Name, err)
