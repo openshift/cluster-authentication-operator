@@ -17,9 +17,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	configlistersv1 "github.com/openshift/client-go/config/listers/config/v1"
 	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig/fake"
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation"
 )
 

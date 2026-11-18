@@ -13,8 +13,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig/fake"
 )
 
 func TestObserveComponentProxyTrustedCA(t *testing.T) {

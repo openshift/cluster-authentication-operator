@@ -16,9 +16,9 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	commonfake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
+	commonfake "github.com/openshift/library-go/pkg/operator/proxyconfig/fake"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -93,7 +93,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		proxy := common.ResolvedProxy{
 			HTTPProxy:     "http://proxy.example.test:8080",
 			HTTPSProxy:    "https://proxy.example.test:8443",
-			NoProxy:       "example.test",
+			NoProxy:       []string{"example.test"},
 			TrustedCAName: "proxy-ca",
 		}
 

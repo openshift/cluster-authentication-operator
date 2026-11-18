@@ -13,7 +13,7 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	operatorv1listers "github.com/openshift/client-go/operator/listers/operator/v1"
-	"github.com/openshift/cluster-authentication-operator/pkg/transport"
+	"github.com/openshift/library-go/pkg/operator/proxyconfig"
 )
 
 const (
@@ -26,26 +26,7 @@ const (
 )
 
 // ResolvedProxy holds the effective proxy configuration for authentication components.
-type ResolvedProxy struct {
-	HTTPProxy     string
-	HTTPSProxy    string
-	NoProxy       string
-	TrustedCAName string
-}
-
-func (p ResolvedProxy) IsProxyConfigured() bool {
-	return len(p.HTTPProxy) != 0 || len(p.HTTPSProxy) != 0
-}
-
-// ProxyFunc returns a function that resolves the proxy URL for a given request URL.
-func (p ResolvedProxy) ProxyFunc() transport.ProxyFunc {
-	c := httpproxy.Config{
-		HTTPProxy:  p.HTTPProxy,
-		HTTPSProxy: p.HTTPSProxy,
-		NoProxy:    p.NoProxy,
-	}
-	return c.ProxyFunc()
-}
+type ResolvedProxy = proxyconfig.ResolvedProxy
 
 // ResolveProxy reads the component-scoped proxy from the Authentication
 // operator CR (when authProxyEnabled returns true) and returns the effective proxy
@@ -82,7 +63,7 @@ func ResolveProxy(
 	return ResolvedProxy{
 		HTTPProxy:  c.HTTPProxy,
 		HTTPSProxy: c.HTTPSProxy,
-		NoProxy:    c.NoProxy,
+		NoProxy:    splitNoProxy(c.NoProxy),
 	}, nil
 }
 
@@ -120,16 +101,27 @@ var staticNoProxyEntries = func() []string {
 
 // mergeNoProxy combines user-provided noProxy entries with static cluster-internal
 // defaults. The result is deduplicated and sorted for deterministic output.
-func mergeNoProxy(userNoProxy []string) string {
+func mergeNoProxy(userNoProxy []string) []string {
 	entries := sets.New[string](staticNoProxyEntries...)
 	entries.Insert(userNoProxy...)
-	return strings.Join(sets.List(entries), ",")
+	return sets.List(entries)
+}
+
+// splitNoProxy splits a comma-separated NO_PROXY value, dropping empty entries.
+func splitNoProxy(noProxy string) []string {
+	var entries []string
+	for e := range strings.SplitSeq(noProxy, ",") {
+		if e = strings.TrimSpace(e); len(e) > 0 {
+			entries = append(entries, e)
+		}
+	}
+	return entries
 }
 
 // ProxyEnvVars builds environment variables for the given proxy settings.
-func ProxyEnvVars(httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
+func ProxyEnvVars(httpProxy, httpsProxy string, noProxy []string) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	envVars = appendEnvVar(envVars, "NO_PROXY", noProxy)
+	envVars = appendEnvVar(envVars, "NO_PROXY", strings.Join(noProxy, ","))
 	envVars = appendEnvVar(envVars, "HTTP_PROXY", httpProxy)
 	envVars = appendEnvVar(envVars, "HTTPS_PROXY", httpsProxy)
 	return envVars

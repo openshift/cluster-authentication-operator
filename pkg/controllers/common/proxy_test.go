@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/url"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -181,8 +180,8 @@ func TestResolveProxy(t *testing.T) {
 			if got.HTTPSProxy != tt.want.HTTPSProxy {
 				t.Errorf("HTTPSProxy = %q, want %q", got.HTTPSProxy, tt.want.HTTPSProxy)
 			}
-			if got.NoProxy != tt.want.NoProxy {
-				t.Errorf("NoProxy = %q, want %q", got.NoProxy, tt.want.NoProxy)
+			if diff := cmp.Diff(tt.want.NoProxy, got.NoProxy); diff != "" {
+				t.Errorf("unexpected NoProxy (-want +got):\n%s", diff)
 			}
 			if got.TrustedCAName != tt.want.TrustedCAName {
 				t.Errorf("TrustedCAName = %q, want %q", got.TrustedCAName, tt.want.TrustedCAName)
@@ -357,15 +356,16 @@ func TestResolvedProxy_ProxyFunc(t *testing.T) {
 
 func TestProxyEnvVars(t *testing.T) {
 	tests := []struct {
-		name                           string
-		httpProxy, httpsProxy, noProxy string
-		want                           []corev1.EnvVar
+		name                  string
+		httpProxy, httpsProxy string
+		noProxy               []string
+		want                  []corev1.EnvVar
 	}{
 		{
 			name:       "all proxy values",
 			httpProxy:  "http://proxy.example.com:8080",
 			httpsProxy: "https://proxy.example.com:8443",
-			noProxy:    ".svc,localhost",
+			noProxy:    []string{".svc", "localhost"},
 			want: []corev1.EnvVar{
 				{Name: "NO_PROXY", Value: ".svc,localhost"},
 				{Name: "HTTP_PROXY", Value: "http://proxy.example.com:8080"},
@@ -408,11 +408,11 @@ func (l *errorAuthLister) Get(_ string) (*operatorv1.Authentication, error) {
 	return nil, l.err
 }
 
-func expectedNoProxy(extra ...string) string {
+func expectedNoProxy(extra ...string) []string {
 	entries := sets.New[string](".cluster.local", ".svc", "127.0.0.1", "localhost")
 	if host := os.Getenv("KUBERNETES_SERVICE_HOST"); host != "" {
 		entries.Insert(host)
 	}
 	entries.Insert(extra...)
-	return strings.Join(sets.List(entries), ",")
+	return sets.List(entries)
 }

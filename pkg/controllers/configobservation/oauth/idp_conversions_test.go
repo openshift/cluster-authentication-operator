@@ -216,7 +216,7 @@ func Test_convertProviderConfigToIDPData(t *testing.T) {
 			}
 
 			proxyResolver := common.NewAuthProxyResolver(disabledAuthProxy, &fakeinformer.Authentication{}, cmLister)
-			got, err := convertProviderConfigToIDPData(secretLister, &proxyResolver, tt.providerConfig, syncData, 0)
+			got, err := convertProviderConfigToIDPData(secretLister, cmLister, &proxyResolver, tt.providerConfig, syncData, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertProviderConfigToIDPData() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -316,6 +316,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		shouldError = true
 		result, err := checkOIDCPasswordGrantFlow(
 			secretLister,
+			cmLister,
 			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
@@ -333,6 +334,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		shouldError = false
 		result, err := checkOIDCPasswordGrantFlow(
 			secretLister,
+			cmLister,
 			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
@@ -352,6 +354,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		shouldError = true
 		res1, err := checkOIDCPasswordGrantFlow(
 			secretLister,
+			cmLister,
 			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
@@ -367,6 +370,7 @@ func TestCheckOIDCPasswordGrantFlowCaching(t *testing.T) {
 		shouldError = false
 		res2, err := checkOIDCPasswordGrantFlow(
 			secretLister,
+			cmLister,
 			&proxyResolver,
 			server.URL+"/token",
 			"test-client",
