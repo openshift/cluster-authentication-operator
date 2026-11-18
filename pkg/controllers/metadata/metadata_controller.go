@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -96,9 +97,16 @@ func NewMetadataController(instanceName string,
 }
 
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
-	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+	oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
+	if err != nil {
+		// OIDCAvailable also reads Authentication/cluster. Report that lookup failure
+		// through the controller's degraded condition while preserving other errors.
+		if _, authConfigErr := c.authConfigChecker.AuthConfig(); authConfigErr != nil {
+			return c.reportAuthConfigFailure(ctx, "FailedGet", "Unable to get cluster authentication config", authConfigErr)
+		}
 		return err
-	} else if oidcAvailable {
+	}
+	if oidcAvailable {
 		// Remove operands and clear metadata when OIDC is available.
 		if err := c.removeOperands(ctx); err != nil {
 			return c.reportAuthConfigFailure(ctx, "OperandRemovalFailed", "Unable to remove OIDC operands", err)
@@ -140,15 +148,16 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 // reportAuthConfigFailure records a degraded condition and returns the operation error
 // so the controller factory retries the failed reconciliation.
 func (c *metadataController) reportAuthConfigFailure(ctx context.Context, reason, operation string, err error) error {
+	operationErr := fmt.Errorf("%s: %w", operation, err)
 	if conditionErr := common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, []operatorv1.OperatorCondition{{
 		Type:    "AuthConfigDegraded",
 		Status:  operatorv1.ConditionTrue,
 		Reason:  reason,
 		Message: fmt.Sprintf("%s: %v", operation, err),
 	}}); conditionErr != nil {
-		return conditionErr
+		return stderrors.Join(operationErr, fmt.Errorf("unable to apply AuthConfigDegraded condition: %w", conditionErr))
 	}
-	return fmt.Errorf("%s: %w", operation, err)
+	return operationErr
 }
 
 func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
@@ -192,8 +201,9 @@ func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, r
 // endpoint, but since that endpoint belongs to the apiserver, its syncing is
 // handled in cluster-kube-apiserver-operator
 func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.OperatorCondition {
-	// Always read the raw Authentication object and do not rely on defaulting from defaultAuthConfig.
-	authConfigNoDefaults, err := c.authConfigChecker.AuthConfig()
+	// Read the live object because the Authentication informer may still show the old
+	// reference after the OIDC path has cleared it.
+	authConfigNoDefaults, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return []operatorv1.OperatorCondition{{
 			Type:    "AuthConfigDegraded",
@@ -202,8 +212,6 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 			Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
 		}}
 	}
-	authConfigNoDefaults = authConfigNoDefaults.DeepCopy()
-
 	expectedReference := configv1.ConfigMapNameReference{
 		Name: "oauth-openshift",
 	}

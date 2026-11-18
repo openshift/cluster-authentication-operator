@@ -10,6 +10,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configfake "github.com/openshift/client-go/config/clientset/versioned/fake"
+	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -28,12 +29,13 @@ import (
 
 type fakeAuthenticationConfigChecker struct {
 	oidcAvailable   bool
+	oidcError       error
 	authConfig      *configv1.Authentication
 	authConfigError error
 }
 
 func (c *fakeAuthenticationConfigChecker) OIDCAvailable() (bool, error) {
-	return c.oidcAvailable, nil
+	return c.oidcAvailable, c.oidcError
 }
 
 func (c *fakeAuthenticationConfigChecker) AuthConfig() (*configv1.Authentication, error) {
@@ -45,6 +47,15 @@ type staticRouteClient struct {
 	route *routev1.Route
 }
 
+type failingOperatorClient struct {
+	v1helpers.OperatorClient
+	applyError error
+}
+
+func (c failingOperatorClient) ApplyOperatorStatus(context.Context, string, *applyoperatorv1.OperatorStatusApplyConfiguration) error {
+	return c.applyError
+}
+
 func (c staticRouteClient) Get(context.Context, string, metav1.GetOptions) (*routev1.Route, error) {
 	return c.route, nil
 }
@@ -53,6 +64,8 @@ func TestMetadataControllerSync(t *testing.T) {
 	deleteError := stderrors.New("config map deletion failed")
 	statusUpdateError := stderrors.New("authentication status update failed")
 	getAuthConfigError := stderrors.New("authentication config lister failed")
+	availabilityError := stderrors.New("OIDC availability check failed")
+	conditionApplyError := stderrors.New("operator status apply failed")
 
 	authentication := func(authType configv1.AuthenticationType, metadataName string) *configv1.Authentication {
 		return &configv1.Authentication{
@@ -70,20 +83,24 @@ func TestMetadataControllerSync(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		oidcAvailable      bool
-		authentication     *configv1.Authentication
-		authConfigError    error
-		operandPresent     bool
-		deleteError        error
-		statusUpdateError  error
-		route              *routev1.Route
-		wantMetadataName   string
-		wantDeleteAttempt  bool
-		wantStatusUpdate   bool
-		wantSyncError      bool
-		wantOperationError error
-		wantDegradedReason string
+		name                string
+		oidcAvailable       bool
+		oidcError           error
+		authentication      *configv1.Authentication
+		liveAuthentication  *configv1.Authentication
+		authConfigError     error
+		operandPresent      bool
+		deleteError         error
+		statusUpdateError   error
+		operatorStatusError error
+		route               *routev1.Route
+		wantMetadataName    string
+		wantDeleteAttempt   bool
+		wantStatusUpdate    bool
+		wantSyncError       bool
+		wantOperationError  error
+		wantConditionError  error
+		wantDegradedReason  string
 	}{
 		{
 			name:              "clears integrated OAuth metadata after OIDC operands are removed",
@@ -116,6 +133,24 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantDegradedReason: "FailedGet",
 		},
 		{
+			name:               "reports Authentication read failure from OIDC availability check",
+			oidcError:          availabilityError,
+			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			authConfigError:    getAuthConfigError,
+			wantMetadataName:   "oauth-openshift",
+			wantSyncError:      true,
+			wantOperationError: getAuthConfigError,
+			wantDegradedReason: "FailedGet",
+		},
+		{
+			name:               "preserves unrelated OIDC availability errors",
+			oidcError:          availabilityError,
+			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			wantMetadataName:   "oauth-openshift",
+			wantSyncError:      true,
+			wantOperationError: availabilityError,
+		},
+		{
 			name:               "reports and retries authentication status update failure",
 			oidcAvailable:      true,
 			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
@@ -127,11 +162,32 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantDegradedReason: "UpdateStatusFailed",
 		},
 		{
+			name:                "preserves both operand and condition apply failures",
+			oidcAvailable:       true,
+			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:      true,
+			deleteError:         deleteError,
+			operatorStatusError: conditionApplyError,
+			wantMetadataName:    "oauth-openshift",
+			wantDeleteAttempt:   true,
+			wantSyncError:       true,
+			wantOperationError:  deleteError,
+			wantConditionError:  conditionApplyError,
+		},
+		{
 			name:             "sets integrated OAuth metadata when OIDC is unavailable",
 			authentication:   authentication(configv1.AuthenticationTypeIntegratedOAuth, ""),
 			route:            route,
 			wantMetadataName: "oauth-openshift",
 			wantStatusUpdate: true,
+		},
+		{
+			name:               "restores metadata from live status when the informer is stale",
+			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			liveAuthentication: authentication(configv1.AuthenticationTypeOIDC, ""),
+			route:              route,
+			wantMetadataName:   "oauth-openshift",
+			wantStatusUpdate:   true,
 		},
 		{
 			name:             "retains OIDC metadata while OIDC is unavailable",
@@ -145,7 +201,11 @@ func TestMetadataControllerSync(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			originalMetadataName := test.authentication.Status.IntegratedOAuthMetadata.Name
-			configClient := configfake.NewClientset(test.authentication)
+			liveAuthentication := test.liveAuthentication
+			if liveAuthentication == nil {
+				liveAuthentication = test.authentication.DeepCopy()
+			}
+			configClient := configfake.NewClientset(liveAuthentication)
 			if test.statusUpdateError != nil {
 				configClient.PrependReactor("update", "authentications", func(action clienttesting.Action) (bool, runtime.Object, error) {
 					if action.GetSubresource() == "status" {
@@ -173,11 +233,15 @@ func TestMetadataControllerSync(t *testing.T) {
 				})
 			}
 
-			operatorClient := v1helpers.NewFakeOperatorClient(
+			operatorStateClient := v1helpers.NewFakeOperatorClient(
 				&operatorv1.OperatorSpec{ManagementState: operatorv1.Managed},
 				&operatorv1.OperatorStatus{},
 				nil,
 			)
+			var operatorClient v1helpers.OperatorClient = operatorStateClient
+			if test.operatorStatusError != nil {
+				operatorClient = failingOperatorClient{OperatorClient: operatorStateClient, applyError: test.operatorStatusError}
+			}
 			controller := &metadataController{
 				controllerInstanceName: "test-metadata",
 				configMapLister:        corev1listers.NewConfigMapLister(configMapIndexer),
@@ -187,6 +251,7 @@ func TestMetadataControllerSync(t *testing.T) {
 				operatorClient:         operatorClient,
 				authConfigChecker: &fakeAuthenticationConfigChecker{
 					oidcAvailable:   test.oidcAvailable,
+					oidcError:       test.oidcError,
 					authConfig:      test.authentication,
 					authConfigError: test.authConfigError,
 				},
@@ -200,6 +265,9 @@ func TestMetadataControllerSync(t *testing.T) {
 			}
 			if test.wantSyncError && !stderrors.Is(syncErr, test.wantOperationError) {
 				t.Errorf("sync error = %v, want wrapped operation error %v", syncErr, test.wantOperationError)
+			}
+			if test.wantConditionError != nil && !stderrors.Is(syncErr, test.wantConditionError) {
+				t.Errorf("sync error = %v, want condition apply error %v", syncErr, test.wantConditionError)
 			}
 
 			updatedAuthentication, err := configClient.ConfigV1().Authentications().Get(ctx, "cluster", metav1.GetOptions{})
@@ -220,7 +288,7 @@ func TestMetadataControllerSync(t *testing.T) {
 				t.Errorf("authentication status updated = %v, want %v", got > 0, test.wantStatusUpdate)
 			}
 
-			_, operatorStatus, _, err := operatorClient.GetOperatorState()
+			_, operatorStatus, _, err := operatorStateClient.GetOperatorState()
 			if err != nil {
 				t.Fatalf("failed to get operator status: %v", err)
 			}
