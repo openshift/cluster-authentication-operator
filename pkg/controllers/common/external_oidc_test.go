@@ -1,6 +1,7 @@
 package common
 
 import (
+	stderrors "errors"
 	"fmt"
 	"testing"
 
@@ -25,16 +26,18 @@ const (
 
 func TestExternalOIDCConfigAvailable(t *testing.T) {
 	for _, tt := range []struct {
-		name               string
-		authInformerSynced bool
-		kasInformerSynced  bool
-		cmInformerSynced   bool
-		configMaps         []*corev1.ConfigMap
-		authType           configv1.AuthenticationType
-		nodeStatuses       []operatorv1.NodeStatus
-		expectAvailable    bool
-		expectError        bool
-		featureGates       featuregates.FeatureGateAccess
+		name                        string
+		authInformerSynced          bool
+		kasInformerSynced           bool
+		cmInformerSynced            bool
+		configMaps                  []*corev1.ConfigMap
+		authType                    configv1.AuthenticationType
+		nodeStatuses                []operatorv1.NodeStatus
+		expectAvailable             bool
+		expectError                 bool
+		authConfigMissing           bool
+		expectAuthConfigLookupError bool
+		featureGates                featuregates.FeatureGateAccess
 	}{
 		{
 			name:               "no node statuses observed",
@@ -456,6 +459,23 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			),
 		},
 		{
+			name:                        "authentication config lookup error is identifiable",
+			authInformerSynced:          true,
+			kasInformerSynced:           true,
+			cmInformerSynced:            true,
+			authConfigMissing:           true,
+			expectAvailable:             false,
+			expectError:                 true,
+			expectAuthConfigLookupError: true,
+			featureGates: featuregates.NewHardcodedFeatureGateAccess(
+				[]configv1.FeatureGateName{},
+				[]configv1.FeatureGateName{
+					features.FeatureGateExternalOIDCExternalClaimsSourcing,
+					features.FeatureGateExternalOIDCAsWebhook,
+				},
+			),
+		},
+		{
 			name:               "kas informer not synced",
 			authInformerSynced: true,
 			kasInformerSynced:  false,
@@ -622,11 +642,14 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 				return "cluster", nil
 			}, cache.Indexers{})
 
-			authIndexer.Add(&configv1.Authentication{
-				Spec: configv1.AuthenticationSpec{
-					Type: tt.authType,
-				},
-			})
+			if !tt.authConfigMissing {
+				authIndexer.Add(&configv1.Authentication{
+					ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+					Spec: configv1.AuthenticationSpec{
+						Type: tt.authType,
+					},
+				})
+			}
 
 			authConfigChecker := NewAuthConfigChecker(
 				test.NewFakeSharedIndexInformerWithSync(configv1listers.NewAuthenticationLister(authIndexer), tt.authInformerSynced),
@@ -640,6 +663,10 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 
 			if tt.expectError != (err != nil) {
 				t.Fatalf("expected error %v; got %v", tt.expectError, err)
+			}
+			var authConfigLookupErr *AuthenticationConfigLookupError
+			if got := stderrors.As(err, &authConfigLookupErr); got != tt.expectAuthConfigLookupError {
+				t.Errorf("Authentication config lookup error identifiable = %v, want %v", got, tt.expectAuthConfigLookupError)
 			}
 
 			if tt.expectAvailable != available {

@@ -12,6 +12,7 @@ import (
 	configfake "github.com/openshift/client-go/config/clientset/versioned/fake"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
+	common "github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
@@ -32,6 +33,7 @@ type fakeAuthenticationConfigChecker struct {
 	oidcError       error
 	authConfig      *configv1.Authentication
 	authConfigError error
+	authConfigCalls int
 }
 
 func (c *fakeAuthenticationConfigChecker) OIDCAvailable() (bool, error) {
@@ -39,6 +41,7 @@ func (c *fakeAuthenticationConfigChecker) OIDCAvailable() (bool, error) {
 }
 
 func (c *fakeAuthenticationConfigChecker) AuthConfig() (*configv1.Authentication, error) {
+	c.authConfigCalls++
 	return c.authConfig, c.authConfigError
 }
 
@@ -97,18 +100,20 @@ func TestMetadataControllerSync(t *testing.T) {
 		wantMetadataName    string
 		wantDeleteAttempt   bool
 		wantStatusUpdate    bool
+		wantAuthConfigCalls int
 		wantSyncError       bool
 		wantOperationError  error
 		wantConditionError  error
 		wantDegradedReason  string
 	}{
 		{
-			name:              "clears integrated OAuth metadata after OIDC operands are removed",
-			oidcAvailable:     true,
-			authentication:    authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			operandPresent:    true,
-			wantDeleteAttempt: true,
-			wantStatusUpdate:  true,
+			name:                "clears integrated OAuth metadata after OIDC operands are removed",
+			oidcAvailable:       true,
+			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:      true,
+			wantDeleteAttempt:   true,
+			wantStatusUpdate:    true,
+			wantAuthConfigCalls: 1,
 		},
 		{
 			name:               "reports and retries operand removal failure before updating status",
@@ -123,20 +128,20 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantDegradedReason: "OperandRemovalFailed",
 		},
 		{
-			name:               "reports and retries authentication config read failure",
-			oidcAvailable:      true,
-			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			authConfigError:    getAuthConfigError,
-			wantMetadataName:   "oauth-openshift",
-			wantSyncError:      true,
-			wantOperationError: getAuthConfigError,
-			wantDegradedReason: "FailedGet",
+			name:                "reports and retries authentication config read failure",
+			oidcAvailable:       true,
+			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			authConfigError:     getAuthConfigError,
+			wantMetadataName:    "oauth-openshift",
+			wantAuthConfigCalls: 1,
+			wantSyncError:       true,
+			wantOperationError:  getAuthConfigError,
+			wantDegradedReason:  "FailedGet",
 		},
 		{
 			name:               "reports Authentication read failure from OIDC availability check",
-			oidcError:          availabilityError,
+			oidcError:          &common.AuthenticationConfigLookupError{Err: getAuthConfigError},
 			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			authConfigError:    getAuthConfigError,
 			wantMetadataName:   "oauth-openshift",
 			wantSyncError:      true,
 			wantOperationError: getAuthConfigError,
@@ -146,20 +151,22 @@ func TestMetadataControllerSync(t *testing.T) {
 			name:               "preserves unrelated OIDC availability errors",
 			oidcError:          availabilityError,
 			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			authConfigError:    getAuthConfigError,
 			wantMetadataName:   "oauth-openshift",
 			wantSyncError:      true,
 			wantOperationError: availabilityError,
 		},
 		{
-			name:               "reports and retries authentication status update failure",
-			oidcAvailable:      true,
-			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			statusUpdateError:  statusUpdateError,
-			wantMetadataName:   "oauth-openshift",
-			wantStatusUpdate:   true,
-			wantSyncError:      true,
-			wantOperationError: statusUpdateError,
-			wantDegradedReason: "UpdateStatusFailed",
+			name:                "reports and retries authentication status update failure",
+			oidcAvailable:       true,
+			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			statusUpdateError:   statusUpdateError,
+			wantMetadataName:    "oauth-openshift",
+			wantStatusUpdate:    true,
+			wantAuthConfigCalls: 1,
+			wantSyncError:       true,
+			wantOperationError:  statusUpdateError,
+			wantDegradedReason:  "UpdateStatusFailed",
 		},
 		{
 			name:                "preserves both operand and condition apply failures",
@@ -242,6 +249,12 @@ func TestMetadataControllerSync(t *testing.T) {
 			if test.operatorStatusError != nil {
 				operatorClient = failingOperatorClient{OperatorClient: operatorStateClient, applyError: test.operatorStatusError}
 			}
+			fakeAuthConfigChecker := &fakeAuthenticationConfigChecker{
+				oidcAvailable:   test.oidcAvailable,
+				oidcError:       test.oidcError,
+				authConfig:      test.authentication,
+				authConfigError: test.authConfigError,
+			}
 			controller := &metadataController{
 				controllerInstanceName: "test-metadata",
 				configMapLister:        corev1listers.NewConfigMapLister(configMapIndexer),
@@ -249,12 +262,7 @@ func TestMetadataControllerSync(t *testing.T) {
 				route:                  staticRouteClient{route: test.route},
 				authentication:         configClient.ConfigV1().Authentications(),
 				operatorClient:         operatorClient,
-				authConfigChecker: &fakeAuthenticationConfigChecker{
-					oidcAvailable:   test.oidcAvailable,
-					oidcError:       test.oidcError,
-					authConfig:      test.authentication,
-					authConfigError: test.authConfigError,
-				},
+				authConfigChecker:      fakeAuthConfigChecker,
 			}
 
 			recorder := events.NewInMemoryRecorder("metadata-controller-test", clocktesting.NewFakePassiveClock(time.Now()))
@@ -262,6 +270,9 @@ func TestMetadataControllerSync(t *testing.T) {
 			syncErr := controller.sync(ctx, syncContext)
 			if (syncErr != nil) != test.wantSyncError {
 				t.Fatalf("sync error = %v, want error %v", syncErr, test.wantSyncError)
+			}
+			if got := fakeAuthConfigChecker.authConfigCalls; got != test.wantAuthConfigCalls {
+				t.Errorf("AuthConfig calls = %d, want %d", got, test.wantAuthConfigCalls)
 			}
 			if test.wantSyncError && !stderrors.Is(syncErr, test.wantOperationError) {
 				t.Errorf("sync error = %v, want wrapped operation error %v", syncErr, test.wantOperationError)

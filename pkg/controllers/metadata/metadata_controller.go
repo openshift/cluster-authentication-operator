@@ -99,10 +99,9 @@ func NewMetadataController(instanceName string,
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
 	oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
 	if err != nil {
-		// OIDCAvailable also reads Authentication/cluster. Report that lookup failure
-		// through the controller's degraded condition while preserving other errors.
-		if _, authConfigErr := c.authConfigChecker.AuthConfig(); authConfigErr != nil {
-			return c.reportAuthConfigFailure(ctx, "FailedGet", "Unable to get cluster authentication config", authConfigErr)
+		var authConfigLookupErr *common.AuthenticationConfigLookupError
+		if stderrors.As(err, &authConfigLookupErr) {
+			return c.reportAuthConfigFailure(ctx, "FailedGet", "Unable to get cluster authentication config", err)
 		}
 		return err
 	}
