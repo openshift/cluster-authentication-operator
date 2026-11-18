@@ -39,14 +39,36 @@ func WithNoProxyCheckedEndpoints(endpoints func() ([]*url.URL, error)) Option {
 	return func(p *proxyConfigChecker) { p.noProxyEndpoints = endpoints }
 }
 
-// WithProxiedEndpoints sets a function returning endpoints that are probed through the proxy.
+// WithNoProxyCheckedMismatchOnlyEndpoints is like WithNoProxyCheckedEndpoints, but an endpoint that
+// is unreachable both with and without the proxy is not reported. Only a definite misconfiguration
+// is: the endpoint is reachable one way but the NO_PROXY setting expects the other. Use it for endpoints
+// that can be down for reasons unrelated to the proxy, such as external identity providers.
+func WithNoProxyCheckedMismatchOnlyEndpoints(endpoints func() ([]*url.URL, error)) Option {
+	return func(p *proxyConfigChecker) { p.noProxyMismatchOnlyEndpoints = endpoints }
+}
+
+// WithAdditionalCABundles sets a function returning PEM CA bundles that are trusted, in addition to the
+// CA ConfigMaps passed to the controller, when probing endpoints. The bundles are shared by all probes.
+func WithAdditionalCABundles(bundles func() ([][]byte, error)) Option {
+	return func(p *proxyConfigChecker) { p.additionalCABundles = bundles }
+}
+
+// WithProxiedEndpoints adds a function returning endpoints that are probed through the proxy.
 // Failures only emit a warning event with the given reason (they never degrade the operator)
 // and the check is skipped until the proxy settings or the endpoints change.
+// It can be used multiple times, each group is tracked separately.
 func WithProxiedEndpoints(eventReason string, endpoints func() ([]string, error)) Option {
 	return func(p *proxyConfigChecker) {
-		p.proxiedEventReason = eventReason
-		p.proxiedEndpoints = endpoints
+		p.proxiedGroups = append(p.proxiedGroups, &proxiedEndpointsGroup{eventReason: eventReason, endpoints: endpoints})
 	}
+}
+
+// proxiedEndpointsGroup is a set of endpoints probed through the proxy that is reported with a single event reason.
+type proxiedEndpointsGroup struct {
+	eventReason string
+	endpoints   func() ([]string, error)
+	// lastValidationHash is the hash of the last fully successful validation.
+	lastValidationHash string
 }
 
 // WithInformers adds informers that trigger the controller, typically the sources of the
@@ -61,13 +83,13 @@ type proxyConfigChecker struct {
 	caConfigMaps    map[string][]string // ns -> []configmapNames
 	proxyResolver   ProxyResolver
 
-	precondition       func() (bool, error)
-	noProxyEndpoints   func() ([]*url.URL, error)
-	proxiedEventReason string
-	proxiedEndpoints   func() ([]string, error)
-	informers          []factory.Informer
-
-	lastProxiedValidationHash string
+	precondition     func() (bool, error)
+	noProxyEndpoints func() ([]*url.URL, error)
+	// noProxyMismatchOnlyEndpoints are checked like noProxyEndpoints, but unreachability alone is not an error.
+	noProxyMismatchOnlyEndpoints func() ([]*url.URL, error)
+	additionalCABundles          func() ([][]byte, error)
+	proxiedGroups                []*proxiedEndpointsGroup
+	informers                    []factory.Informer
 }
 
 // NewProxyConfigController returns a controller validating that proxy settings work.
@@ -126,9 +148,15 @@ func (p *proxyConfigChecker) sync(ctx context.Context, syncCtx factory.SyncConte
 		return nil
 	}
 
-	var endpoints []*url.URL
+	var strictEndpoints, mismatchOnlyEndpoints []*url.URL
 	if p.noProxyEndpoints != nil {
-		endpoints, err = p.noProxyEndpoints()
+		strictEndpoints, err = p.noProxyEndpoints()
+		if err != nil {
+			return err
+		}
+	}
+	if p.noProxyMismatchOnlyEndpoints != nil {
+		mismatchOnlyEndpoints, err = p.noProxyMismatchOnlyEndpoints()
 		if err != nil {
 			return err
 		}
@@ -140,8 +168,14 @@ func (p *proxyConfigChecker) sync(ctx context.Context, syncCtx factory.SyncConte
 	}
 
 	var errs []error
-	for _, endpoint := range endpoints {
-		if err := checkProxyConfig(ctx, endpoint, strings.Join(proxy.NoProxy, ","), clientWithProxy, clientWithoutProxy); err != nil {
+	noProxy := strings.Join(proxy.NoProxy, ",")
+	for _, endpoint := range strictEndpoints {
+		if err := checkProxyConfig(ctx, endpoint, noProxy, clientWithProxy, clientWithoutProxy, false); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, endpoint := range mismatchOnlyEndpoints {
+		if err := checkProxyConfig(ctx, endpoint, noProxy, clientWithProxy, clientWithoutProxy, true); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -149,8 +183,8 @@ func (p *proxyConfigChecker) sync(ctx context.Context, syncCtx factory.SyncConte
 		return utilerrors.NewAggregate(errs)
 	}
 
-	if p.proxiedEndpoints != nil {
-		p.validateProxiedEndpoints(ctx, syncCtx.Recorder(), clientWithProxy, proxy)
+	for _, group := range p.proxiedGroups {
+		p.validateProxiedEndpoints(ctx, syncCtx.Recorder(), clientWithProxy, proxy, group)
 	}
 	return nil
 }
@@ -159,19 +193,19 @@ func (p *proxyConfigChecker) sync(ctx context.Context, syncCtx factory.SyncConte
 // Only runs on config change (tracked by hash). Reports warnings for failures instead
 // of returning errors (which would set Degraded), since external endpoints can be
 // unreachable for reasons unrelated to proxy configuration.
-func (p *proxyConfigChecker) validateProxiedEndpoints(ctx context.Context, recorder events.Recorder, client *http.Client, proxy ResolvedProxy) {
-	endpoints, err := p.proxiedEndpoints()
+func (p *proxyConfigChecker) validateProxiedEndpoints(ctx context.Context, recorder events.Recorder, client *http.Client, proxy ResolvedProxy, group *proxiedEndpointsGroup) {
+	endpoints, err := group.endpoints()
 	if err != nil {
 		klog.Warningf("unable to get endpoints for proxy validation: %v", err)
 		return
 	}
 	if len(endpoints) == 0 {
-		p.lastProxiedValidationHash = ""
+		group.lastValidationHash = ""
 		return
 	}
 
 	hash := computeValidationHash(proxy.HTTPProxy, proxy.HTTPSProxy, strings.Join(proxy.NoProxy, ","), endpoints)
-	if hash == p.lastProxiedValidationHash {
+	if hash == group.lastValidationHash {
 		return
 	}
 
@@ -183,9 +217,9 @@ func (p *proxyConfigChecker) validateProxiedEndpoints(ctx context.Context, recor
 		}
 	}
 	if len(unreachable) > 0 {
-		recorder.Warningf(p.proxiedEventReason, "endpoints unreachable through proxy: %s", strings.Join(unreachable, "; "))
+		recorder.Warningf(group.eventReason, "endpoints unreachable through proxy: %s", strings.Join(unreachable, "; "))
 	} else {
-		p.lastProxiedValidationHash = hash
+		group.lastValidationHash = hash
 	}
 }
 
@@ -207,7 +241,9 @@ func noProxyMatches(noProxy string, endpointURL *url.URL) bool {
 
 // checkProxyConfig determines any mis-configuration in proxy settings by attempting
 // to connect to endpoint directly and via proxy and comparing the results with expectations.
-func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string, clientWithProxy, clientWithoutProxy *http.Client) error {
+// When mismatchOnly is set, an endpoint that is unreachable both ways is not an error, since
+// nothing can be concluded about the proxy settings from it.
+func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string, clientWithProxy, clientWithoutProxy *http.Client, mismatchOnly bool) error {
 	withProxy := newLazyChecker(func() error { return isEndpointReachable(ctx, endpointURL.String(), clientWithProxy) })
 	withoutProxy := newLazyChecker(func() error { return isEndpointReachable(ctx, endpointURL.String(), clientWithoutProxy) })
 	noProxyMatchesEndpoint := noProxyMatches(noProxy, endpointURL)
@@ -216,12 +252,20 @@ func checkProxyConfig(ctx context.Context, endpointURL *url.URL, noProxy string,
 		if withProxy() == nil {
 			return fmt.Errorf("failed to reach endpoint(%q) found in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withoutProxy())
 		}
+		if mismatchOnly {
+			klog.V(2).Infof("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v), ignoring", endpointURL.String(), noProxy, withProxy(), withoutProxy())
+			return nil
+		}
 		return fmt.Errorf("endpoint(%q) found in NO_PROXY(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), noProxy, withProxy(), withoutProxy())
 	}
 
 	if !noProxyMatchesEndpoint && withProxy() != nil {
 		if withoutProxy() == nil {
 			return fmt.Errorf("failed to reach endpoint(%q) missing in NO_PROXY(%q) with error: %v", endpointURL.String(), noProxy, withProxy())
+		}
+		if mismatchOnly {
+			klog.V(2).Infof("endpoint(%q) is unreachable with proxy(%v) and without proxy(%v), ignoring", endpointURL.String(), withProxy(), withoutProxy())
+			return nil
 		}
 		return fmt.Errorf("endpoint(%q) is unreachable with proxy(%v) and without proxy(%v)", endpointURL.String(), withProxy(), withoutProxy())
 	}
@@ -261,6 +305,17 @@ func (p *proxyConfigChecker) getCAPool() (*x509.CertPool, error) {
 			}
 			if ok := pool.AppendCertsFromPEM([]byte(caCM.Data[trustedCAKey])); !ok {
 				return nil, fmt.Errorf("unable to parse CA bundle from configmap %s/%s", ns, cmName)
+			}
+		}
+	}
+	if p.additionalCABundles != nil {
+		bundles, err := p.additionalCABundles()
+		if err != nil {
+			return nil, err
+		}
+		for i, bundle := range bundles {
+			if ok := pool.AppendCertsFromPEM(bundle); !ok {
+				return nil, fmt.Errorf("unable to parse additional CA bundle #%d", i)
 			}
 		}
 	}
