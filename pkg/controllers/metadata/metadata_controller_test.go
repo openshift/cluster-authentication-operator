@@ -111,6 +111,7 @@ func TestMetadataControllerSync(t *testing.T) {
 		liveAuthentication             *configv1.Authentication
 		authConfigError                error
 		operandPresent                 bool
+		listerMissing                  bool
 		pendingDeletion                bool
 		deleteError                    error
 		configMapGetError              error
@@ -138,6 +139,16 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantStatusUpdate:               true,
 			wantAuthConfigCalls:            1,
 			assertStatusUpdateLogsDisabled: true,
+		},
+		{
+			name:                "deletes live metadata ConfigMap when the lister misses it",
+			oidcAvailable:       true,
+			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:      true,
+			listerMissing:       true,
+			wantDeleteAttempt:   true,
+			wantStatusUpdate:    true,
+			wantAuthConfigCalls: 1,
 		},
 		{
 			name:               "reports and retries operand removal failure before updating status",
@@ -172,6 +183,18 @@ func TestMetadataControllerSync(t *testing.T) {
 			configMapGetError:  configMapGetError,
 			wantMetadataName:   "oauth-openshift",
 			wantDeleteAttempt:  true,
+			wantSyncError:      true,
+			wantOperationError: configMapGetError,
+			wantDegradedReason: "OperandRemovalFailed",
+		},
+		{
+			name:               "reports live ConfigMap lookup failure after cache miss",
+			oidcAvailable:      true,
+			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:     true,
+			listerMissing:      true,
+			configMapGetError:  configMapGetError,
+			wantMetadataName:   "oauth-openshift",
 			wantSyncError:      true,
 			wantOperationError: configMapGetError,
 			wantDegradedReason: "OperandRemovalFailed",
@@ -288,8 +311,10 @@ func TestMetadataControllerSync(t *testing.T) {
 					operand.DeletionTimestamp = &deletionTimestamp
 					operand.Finalizers = []string{"test-finalizer"}
 				}
-				if err := configMapIndexer.Add(operand); err != nil {
-					t.Fatalf("failed to seed config map lister: %v", err)
+				if !test.listerMissing {
+					if err := configMapIndexer.Add(operand); err != nil {
+						t.Fatalf("failed to seed config map lister: %v", err)
+					}
 				}
 				kubeObjects = append(kubeObjects, operand)
 			}

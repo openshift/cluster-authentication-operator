@@ -244,13 +244,18 @@ func (c *metadataController) removeOperands(ctx context.Context) error {
 	const namespace = "openshift-authentication"
 	const name = "v4-0-config-system-metadata"
 
-	if _, err := c.configMapLister.ConfigMaps(namespace).Get(name); errors.IsNotFound(err) {
-		return nil
-	} else if err != nil {
-		return err
+	configMaps := c.configMaps.ConfigMaps(namespace)
+	if _, err := c.configMapLister.ConfigMaps(namespace).Get(name); err != nil {
+		if !errors.IsNotFound(err) {
+			return err
+		}
+		if _, err := configMaps.Get(ctx, name, metav1.GetOptions{}); errors.IsNotFound(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 	}
 
-	configMaps := c.configMaps.ConfigMaps(namespace)
 	if err := configMaps.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		if errors.IsNotFound(err) {
 			return nil
