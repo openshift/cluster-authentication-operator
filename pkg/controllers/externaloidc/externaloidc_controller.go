@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	authenticationv1alpha1 "github.com/openshift/api/authentication/v1alpha1"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
@@ -22,15 +24,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 )
 
 const (
-	configNamespace        = "openshift-config"
-	managedNamespace       = "openshift-config-managed"
-	targetNamespace        = "openshift-oauth-apiserver"
-	targetAuthConfigCMName = "auth-config"
-	authConfigDataKey      = "auth-config.json"
+	configNamespace              = "openshift-config"
+	managedNamespace             = "openshift-config-managed"
+	targetNamespace              = "openshift-oauth-apiserver"
+	oauthAPIServerDeploymentName = "apiserver"
+	oauthAPIServerContainerName  = "oauth-apiserver"
+	targetAuthConfigCMName       = "auth-config"
+	authConfigDataKey            = "auth-config.json"
 )
 
 type authConfigGenerator func(*configv1.Authentication) (runtime.Object, error)
@@ -56,6 +61,7 @@ func NewExternalOIDCController(
 	authCfgGenerator := newAuthConfigGenerator(
 		kubeInformersForNamespaces.ConfigMapLister(),
 		kubeInformersForNamespaces.SecretLister(),
+		kubeInformersForNamespaces.InformersFor(targetNamespace).Apps().V1().Deployments().Lister(),
 		featureGates,
 		proxyResolver,
 	)
@@ -97,9 +103,15 @@ func NewExternalOIDCController(
 		).
 		WithFilteredEventsInformers(
 			// re-sync once OAuthAPIServerWorkload has synced the proxy trusted CA
-			// configmap, so the generated auth-config can start referencing its path
+			// configmap, so the rollout gate below is re-evaluated
 			factory.NamesFilter(common.ComponentProxyCAConfigMapName),
 			kubeInformersForNamespaces.InformersFor(targetNamespace).Core().V1().ConfigMaps().Informer(),
+		).
+		WithFilteredEventsInformers(
+			// re-sync as the oauth-apiserver rollout progresses; the proxy CA path is
+			// only written to the auth-config after the mounting rollout completes
+			factory.NamesFilter(oauthAPIServerDeploymentName),
+			kubeInformersForNamespaces.InformersFor(targetNamespace).Apps().V1().Deployments().Informer(),
 		).WithSync(c.sync).
 		WithSyncDegradedOnError(operatorClient).
 		ToController(c.name, recorder.WithComponentSuffix(c.eventName))
@@ -112,6 +124,7 @@ func NewExternalOIDCController(
 func newAuthConfigGenerator(
 	configMapLister corev1listers.ConfigMapLister,
 	secretLister corev1listers.SecretLister,
+	deploymentLister appsv1listers.DeploymentLister,
 	featureGates featuregates.FeatureGate,
 	proxyResolver common.ProxyResolver,
 ) authConfigGenerator {
@@ -133,14 +146,35 @@ func newAuthConfigGenerator(
 				if proxy.TrustedCAName == "" {
 					return "", nil
 				}
-				// Only reference the path once OAuthAPIServerWorkload has synced the CA
-				// content into the target namespace and mounted it into the deployment;
-				// otherwise a pod could reload this config before the file exists.
-				if _, err := configMapLister.ConfigMaps(targetNamespace).Get(common.ComponentProxyCAConfigMapName); err != nil {
+
+				// Staged rollout: reference the path only once the OAuth API server
+				// deployment has fully rolled out with the CA volume mounted; otherwise
+				// a pod could reload this config before the file exists. Keep the path
+				// in the auth-config once it's there, so unrelated rollouts don't flip it.
+				if existing, err := configMapLister.ConfigMaps(managedNamespace).Get(targetAuthConfigCMName); err == nil {
+					if raw, ok := existing.Data[authConfigDataKey]; ok {
+						var existingCfg authenticationv1alpha1.AuthenticationConfiguration
+						if err := json.NewDecoder(strings.NewReader(raw)).Decode(&existingCfg); err != nil {
+							return "", fmt.Errorf("failed to parse %s from configmap %s/%s: %w", authConfigDataKey, managedNamespace, targetAuthConfigCMName, err)
+						}
+						if existingCfg.TrustedCAFilePath == common.ComponentProxyCAFilePath {
+							return common.ComponentProxyCAFilePath, nil
+						}
+					}
+				} else if !apierrors.IsNotFound(err) {
+					return "", fmt.Errorf("failed to get configmap %s/%s: %w", managedNamespace, targetAuthConfigCMName, err)
+				}
+
+				// Here we know the config file is either not found yet, or it doesn't contain the trustedCA path.
+				dep, err := deploymentLister.Deployments(targetNamespace).Get(oauthAPIServerDeploymentName)
+				if err != nil {
 					if apierrors.IsNotFound(err) {
 						return "", nil
 					}
-					return "", fmt.Errorf("failed to get proxy trusted CA configmap %s/%s: %w", targetNamespace, common.ComponentProxyCAConfigMapName, err)
+					return "", fmt.Errorf("failed to get deployment %s/%s: %w", targetNamespace, oauthAPIServerDeploymentName, err)
+				}
+				if !common.DeploymentRolledOutWithVolume(dep, oauthAPIServerContainerName, common.ComponentProxyCAConfigMapName) {
+					return "", nil
 				}
 				return common.ComponentProxyCAFilePath, nil
 			}),
