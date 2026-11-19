@@ -6,9 +6,12 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 	"k8s.io/client-go/tools/cache"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationv1listers "k8s.io/kube-aggregator/pkg/client/listers/apiregistration/v1"
@@ -26,39 +29,64 @@ func TestTokenReviewEndpointReady(t *testing.T) {
 	incompleteExternalOIDCDeployment.Spec.Template.Spec.Containers[0].Args = []string{tokenReviewTLSCertFlag}
 
 	tests := []struct {
-		name       string
-		deployment *appsv1.Deployment
-		endpoints  *corev1.Endpoints
-		wantReady  bool
+		name           string
+		deployment     *appsv1.Deployment
+		endpointSlices []*discoveryv1.EndpointSlice
+		wantReady      bool
 	}{
-		{name: "deployment missing", endpoints: newTokenReviewEndpoints(1)},
-		{name: "deployment does not serve token-review certificate", deployment: oldDeployment, endpoints: newTokenReviewEndpoints(1)},
-		{name: "deployment has only primary certificate flag", deployment: incompleteExternalOIDCDeployment, endpoints: newTokenReviewEndpoints(1)},
-		{name: "deployment rollout incomplete", deployment: incompleteDeployment, endpoints: newTokenReviewEndpoints(1)},
+		{name: "deployment missing", endpointSlices: sliceList(newTokenReviewEndpointSlice(1))},
+		{name: "deployment does not serve token-review certificate", deployment: oldDeployment, endpointSlices: sliceList(newTokenReviewEndpointSlice(1))},
+		{name: "deployment has only primary certificate flag", deployment: incompleteExternalOIDCDeployment, endpointSlices: sliceList(newTokenReviewEndpointSlice(1))},
+		{name: "deployment rollout incomplete", deployment: incompleteDeployment, endpointSlices: sliceList(newTokenReviewEndpointSlice(1))},
 		{name: "endpoints missing", deployment: readyDeployment},
-		{name: "not enough ready endpoints", deployment: newReadyTokenReviewDeploymentWithReplicas(2), endpoints: newTokenReviewEndpoints(1)},
-		{name: "SNI endpoint ready", deployment: readyDeployment, endpoints: newTokenReviewEndpoints(1), wantReady: true},
-		{name: "primary certificate endpoint ready", deployment: externalOIDCDeployment, endpoints: newTokenReviewEndpoints(1), wantReady: true},
+		{name: "not enough ready endpoints", deployment: newReadyTokenReviewDeploymentWithReplicas(2), endpointSlices: sliceList(newTokenReviewEndpointSlice(1))},
+		{name: "not-ready endpoints are not counted", deployment: readyDeployment, endpointSlices: sliceList(newTokenReviewEndpointSliceNotReady(1))},
+		{name: "SNI endpoint ready", deployment: readyDeployment, endpointSlices: sliceList(newTokenReviewEndpointSlice(1)), wantReady: true},
+		{name: "primary certificate endpoint ready", deployment: externalOIDCDeployment, endpointSlices: sliceList(newTokenReviewEndpointSlice(1)), wantReady: true},
+		{
+			// Dual-stack: a single Pod appears once per IP family, so its IPv4
+			// and IPv6 addresses live in separate slices but share a Pod UID.
+			// Deduplication by UID must count that Pod once, leaving a
+			// two-replica deployment short of its desired backends.
+			name:       "dual-stack duplicate pod counted once is not enough",
+			deployment: newReadyTokenReviewDeploymentWithReplicas(2),
+			endpointSlices: sliceList(
+				newTokenReviewEndpointSliceForPods("ipv4", discoveryv1.AddressTypeIPv4, "10.0.1.", "pod-a"),
+				newTokenReviewEndpointSliceForPods("ipv6", discoveryv1.AddressTypeIPv6, "fd00::", "pod-a"),
+			),
+		},
+		{
+			// Two distinct Pods, each with an IPv4 and IPv6 address across two
+			// slices. Deduplication by UID yields two ready backends, matching
+			// the two desired replicas.
+			name:       "dual-stack distinct pods satisfy desired replicas",
+			deployment: newReadyTokenReviewDeploymentWithReplicas(2),
+			endpointSlices: sliceList(
+				newTokenReviewEndpointSliceForPods("ipv4", discoveryv1.AddressTypeIPv4, "10.0.1.", "pod-a", "pod-b"),
+				newTokenReviewEndpointSliceForPods("ipv6", discoveryv1.AddressTypeIPv6, "fd00::", "pod-a", "pod-b"),
+			),
+			wantReady: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			deploymentIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-			endpointsIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			endpointSliceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			if tt.deployment != nil {
 				if err := deploymentIndexer.Add(tt.deployment); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if tt.endpoints != nil {
-				if err := endpointsIndexer.Add(tt.endpoints); err != nil {
+			for _, endpointSlice := range tt.endpointSlices {
+				if err := endpointSliceIndexer.Add(endpointSlice); err != nil {
 					t.Fatal(err)
 				}
 			}
 
 			ready, err := TokenReviewEndpointReady(
 				appsv1listers.NewDeploymentLister(deploymentIndexer),
-				corev1listers.NewEndpointsLister(endpointsIndexer),
+				discoveryv1listers.NewEndpointSliceLister(endpointSliceIndexer),
 			)
 			if err != nil {
 				t.Fatalf("TokenReviewEndpointReady() error = %v", err)
@@ -136,13 +164,64 @@ func newReadyTokenReviewDeploymentWithReplicas(replicas int32) *appsv1.Deploymen
 	}
 }
 
-func newTokenReviewEndpoints(addresses int) *corev1.Endpoints {
-	readyAddresses := make([]corev1.EndpointAddress, addresses)
-	for i := range readyAddresses {
-		readyAddresses[i].IP = fmt.Sprintf("10.0.1.%d", i+1)
+func newTokenReviewEndpointSlice(addresses int) *discoveryv1.EndpointSlice {
+	return newTokenReviewEndpointSliceWithReadiness(addresses, true)
+}
+
+func newTokenReviewEndpointSliceNotReady(addresses int) *discoveryv1.EndpointSlice {
+	return newTokenReviewEndpointSliceWithReadiness(addresses, false)
+}
+
+func newTokenReviewEndpointSliceWithReadiness(addresses int, ready bool) *discoveryv1.EndpointSlice {
+	endpoints := make([]discoveryv1.Endpoint, addresses)
+	for i := range endpoints {
+		endpoints[i] = discoveryv1.Endpoint{
+			Addresses:  []string{fmt.Sprintf("10.0.1.%d", i+1)},
+			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+		}
 	}
-	return &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{Name: tokenReviewServiceName, Namespace: oauthAPIServerNamespace},
-		Subsets:    []corev1.EndpointSubset{{Addresses: readyAddresses}},
+	return &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tokenReviewServiceName + "-abcde",
+			Namespace: oauthAPIServerNamespace,
+			Labels:    map[string]string{discoveryv1.LabelServiceName: tokenReviewServiceName},
+		},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints:   endpoints,
+	}
+}
+
+// sliceList is a convenience constructor for an EndpointSlice list literal.
+func sliceList(s ...*discoveryv1.EndpointSlice) []*discoveryv1.EndpointSlice {
+	return s
+}
+
+// newTokenReviewEndpointSliceForPods builds a ready EndpointSlice of the given
+// address family with one endpoint per Pod UID, each carrying a Pod TargetRef.
+// This models a dual-stack Service where a single Pod is represented once per IP
+// family across separate slices.
+func newTokenReviewEndpointSliceForPods(suffix string, addressType discoveryv1.AddressType, addressPrefix string, podUIDs ...string) *discoveryv1.EndpointSlice {
+	endpoints := make([]discoveryv1.Endpoint, len(podUIDs))
+	for i, uid := range podUIDs {
+		ready := true
+		endpoints[i] = discoveryv1.Endpoint{
+			Addresses:  []string{fmt.Sprintf("%s%d", addressPrefix, i+1)},
+			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+			TargetRef: &corev1.ObjectReference{
+				Kind:      "Pod",
+				Namespace: oauthAPIServerNamespace,
+				Name:      "oauth-apiserver-" + uid,
+				UID:       types.UID(uid),
+			},
+		}
+	}
+	return &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      tokenReviewServiceName + "-" + suffix,
+			Namespace: oauthAPIServerNamespace,
+			Labels:    map[string]string{discoveryv1.LabelServiceName: tokenReviewServiceName},
+		},
+		AddressType: addressType,
+		Endpoints:   endpoints,
 	}
 }

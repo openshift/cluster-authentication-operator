@@ -29,11 +29,13 @@ import (
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1lister "k8s.io/client-go/listers/core/v1"
+	discoveryv1lister "k8s.io/client-go/listers/discovery/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -53,7 +55,7 @@ func init() {
 type wellKnownReadyController struct {
 	controllerInstanceName string
 	serviceLister          corev1lister.ServiceLister
-	endpointLister         corev1lister.EndpointsLister
+	endpointSlicesLister   discoveryv1lister.EndpointSliceLister
 	operatorClient         v1helpers.OperatorClient
 	authLister             configv1lister.AuthenticationLister
 	configMapLister        corev1lister.ConfigMapLister
@@ -88,7 +90,7 @@ func NewWellKnownReadyController(
 	c := &wellKnownReadyController{
 		controllerInstanceName: factory.ControllerInstanceName(instanceName, "WellKnownReady"),
 		serviceLister:          nsDefaultInformers.Core().V1().Services().Lister(),
-		endpointLister:         nsDefaultInformers.Core().V1().Endpoints().Lister(),
+		endpointSlicesLister:   nsDefaultInformers.Discovery().V1().EndpointSlices().Lister(),
 		authLister:             configInformers.Config().V1().Authentications().Lister(),
 		infrastructureLister:   configInformers.Config().V1().Infrastructures().Lister(),
 		configMapLister:        nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Lister(),
@@ -100,7 +102,7 @@ func NewWellKnownReadyController(
 
 	return factory.New().WithInformers(
 		nsDefaultInformers.Core().V1().Services().Informer(),
-		nsDefaultInformers.Core().V1().Endpoints().Informer(),
+		nsDefaultInformers.Discovery().V1().EndpointSlices().Informer(),
 		configInformers.Config().V1().Authentications().Informer(),
 		configInformers.Config().V1().Infrastructures().Informer(),
 		nsOpenshiftConfigManagedInformers.Core().V1().ConfigMaps().Informer(),
@@ -385,9 +387,12 @@ func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
 	return 0, false
 }
 
-func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
-	for _, port := range subset.Ports {
-		if port.Protocol == corev1.ProtocolTCP && int(port.Port) == targetPort {
+func endpointSlicePortMatchesKASTargetPort(ports []discoveryv1.EndpointPort, targetPort int) bool {
+	for _, port := range ports {
+		if port.Protocol != nil && *port.Protocol != corev1.ProtocolTCP {
+			continue
+		}
+		if port.Port != nil && int(*port.Port) == targetPort {
 			return true
 		}
 	}
@@ -405,28 +410,33 @@ func (c *wellKnownReadyController) getAPIServerIPs() ([]string, error) {
 		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
 	}
 
-	kasEndpoint, err := c.endpointLister.Endpoints(corev1.NamespaceDefault).Get("kubernetes")
+	slices, err := common.ListServiceEndpointSlices(c.endpointSlicesLister, corev1.NamespaceDefault, "kubernetes")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get kube api server endpointLister: %v", err)
+		return nil, fmt.Errorf("failed to list kube api server endpointslices: %v", err)
 	}
 
-	for _, subset := range kasEndpoint.Subsets {
-		if !subsetHasKASTargetPort(subset, targetPort) {
+	var ips []string
+	foundPort := false
+	for _, endpoint := range common.FlattenServiceEndpoints(slices) {
+		if !endpointSlicePortMatchesKASTargetPort(endpoint.Ports, targetPort) {
 			continue
 		}
-
-		if len(subset.NotReadyAddresses) != 0 || len(subset.Addresses) == 0 {
-			return nil, fmt.Errorf("kube api server endpointLister is not ready: %#v", kasEndpoint)
+		foundPort = true
+		if !endpoint.Ready {
+			// Mirror the previous Endpoints behavior: any not-ready backend on the
+			// target port means the kube-apiserver backends are not all ready.
+			return nil, fmt.Errorf("kube api server endpointslices are not ready: %#v", slices)
 		}
-
-		ips := make([]string, 0, len(subset.Addresses))
-		for _, address := range subset.Addresses {
-			ips = append(ips, net.JoinHostPort(address.IP, strconv.Itoa(targetPort)))
-		}
-		return ips, nil
+		ips = append(ips, net.JoinHostPort(endpoint.Address, strconv.Itoa(targetPort)))
 	}
 
-	return nil, fmt.Errorf("unable to find kube api server endpointLister port: %#v", kasEndpoint)
+	if !foundPort {
+		return nil, fmt.Errorf("unable to find kube api server endpointslice port: %#v", slices)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("kube api server endpointslices are not ready: %#v", slices)
+	}
+	return ips, nil
 }
 
 type defaultCADataGetterImpl struct{}

@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 
 	routev1 "github.com/openshift/api/route/v1"
 	configv1informers "github.com/openshift/client-go/config/informers/externalversions/config/v1"
@@ -134,7 +135,7 @@ func NewOAuthServiceEndpointsCheckController(
 	recorder events.Recorder,
 ) factory.Controller {
 	endpointsListFn := func() ([]string, error) {
-		return listOAuthServiceEndpoints(kubeInformersForTargetNS.Core().V1().Endpoints().Lister())
+		return listOAuthServiceEndpoints(kubeInformersForTargetNS.Discovery().V1().EndpointSlices().Lister())
 	}
 
 	getTLSConfigFunc := func() (*tls.Config, error) {
@@ -144,7 +145,7 @@ func NewOAuthServiceEndpointsCheckController(
 	endpointCheckDisabledFunc := authConfigChecker.OIDCAvailable
 
 	informers := []factory.Informer{
-		kubeInformersForTargetNS.Core().V1().Endpoints().Informer(),
+		kubeInformersForTargetNS.Discovery().V1().EndpointSlices().Informer(),
 		kubeInformersForTargetNS.Core().V1().ConfigMaps().Informer(),
 	}
 	informers = append(informers, common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker)...)
@@ -157,17 +158,22 @@ func NewOAuthServiceEndpointsCheckController(
 		recorder)
 }
 
-func listOAuthServiceEndpoints(endpointsLister corev1listers.EndpointsLister) ([]string, error) {
-	var results []string
-	endpoints, err := endpointsLister.Endpoints("openshift-authentication").Get("oauth-openshift")
+func listOAuthServiceEndpoints(endpointSlicesLister discoveryv1listers.EndpointSliceLister) ([]string, error) {
+	slices, err := common.ListServiceEndpointSlices(endpointSlicesLister, "openshift-authentication", "oauth-openshift")
 	if err != nil {
 		return nil, err
 	}
-	for _, subset := range endpoints.Subsets {
-		for _, address := range subset.Addresses {
-			for _, port := range subset.Ports {
-				results = append(results, net.JoinHostPort(address.IP, strconv.Itoa(int(port.Port))))
+
+	var results []string
+	for _, endpoint := range common.FlattenServiceEndpoints(slices) {
+		if !endpoint.Ready {
+			continue
+		}
+		for _, port := range endpoint.Ports {
+			if port.Port == nil {
+				continue
 			}
+			results = append(results, net.JoinHostPort(endpoint.Address, strconv.Itoa(int(*port.Port))))
 		}
 	}
 	if len(results) == 0 {

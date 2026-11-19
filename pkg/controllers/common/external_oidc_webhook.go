@@ -8,6 +8,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	appsv1listers "k8s.io/client-go/listers/apps/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoveryv1listers "k8s.io/client-go/listers/discovery/v1"
 	apiregistrationv1listers "k8s.io/kube-aggregator/pkg/client/listers/apiregistration/v1"
 )
 
@@ -24,7 +25,7 @@ const (
 var oauthAPIServiceNames = []string{"v1.oauth.openshift.io", "v1.user.openshift.io"}
 
 // TokenReviewEndpointReady reports whether an oauth-apiserver revision serving the token-review certificate is fully available through the token-review Service.
-func TokenReviewEndpointReady(deployments appsv1listers.DeploymentLister, endpoints corev1listers.EndpointsLister) (bool, error) {
+func TokenReviewEndpointReady(deployments appsv1listers.DeploymentLister, endpointSlices discoveryv1listers.EndpointSliceLister) (bool, error) {
 	deployment, err := deployments.Deployments(oauthAPIServerNamespace).Get(oauthAPIServerDeploymentName)
 	if apierrors.IsNotFound(err) {
 		return false, nil
@@ -51,18 +52,12 @@ func TokenReviewEndpointReady(deployments appsv1listers.DeploymentLister, endpoi
 		return false, nil
 	}
 
-	endpoint, err := endpoints.Endpoints(oauthAPIServerNamespace).Get(tokenReviewServiceName)
-	if apierrors.IsNotFound(err) {
-		return false, nil
-	}
+	slices, err := ListServiceEndpointSlices(endpointSlices, oauthAPIServerNamespace, tokenReviewServiceName)
 	if err != nil {
-		return false, fmt.Errorf("getting endpoints %s/%s: %w", oauthAPIServerNamespace, tokenReviewServiceName, err)
+		return false, fmt.Errorf("listing endpointslices for service %s/%s: %w", oauthAPIServerNamespace, tokenReviewServiceName, err)
 	}
 
-	readyAddresses := 0
-	for _, subset := range endpoint.Subsets {
-		readyAddresses += len(subset.Addresses)
-	}
+	readyAddresses := CountReadyBackends(FlattenServiceEndpoints(slices))
 	return int32(readyAddresses) >= desiredReplicas, nil
 }
 
