@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -108,6 +111,9 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 	if oidcAvailable {
 		// Remove operands and clear metadata when OIDC is available.
 		if err := c.removeOperands(ctx); err != nil {
+			if err == factory.SyntheticRequeueError {
+				return err
+			}
 			return c.reportAuthConfigFailure(ctx, "OperandRemovalFailed", "Unable to remove OIDC operands", err)
 		}
 
@@ -121,7 +127,10 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 		// Only clear a populated reference while the cluster is still configured for OIDC.
 		if authConfigNoDefaults.Status.IntegratedOAuthMetadata.Name != "" && authConfigNoDefaults.Spec.Type == configv1.AuthenticationTypeOIDC {
 			authConfigNoDefaults.Status.IntegratedOAuthMetadata = configv1.ConfigMapNameReference{}
-			if _, err := c.authentication.UpdateStatus(ctx, authConfigNoDefaults, metav1.UpdateOptions{}); err != nil {
+			// client-go logs request and response bodies at V(8); Authentication contains
+			// identity-provider configuration, so discard this request's body logs.
+			statusUpdateCtx := klog.NewContext(ctx, logr.Discard())
+			if _, err := c.authentication.UpdateStatus(statusUpdateCtx, authConfigNoDefaults, metav1.UpdateOptions{}); err != nil {
 				return c.reportAuthConfigFailure(ctx, "UpdateStatusFailed", "Unable to update status of cluster authentication config", err)
 			}
 		}
@@ -232,18 +241,32 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 }
 
 func (c *metadataController) removeOperands(ctx context.Context) error {
-	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get("v4-0-config-system-metadata"); errors.IsNotFound(err) {
+	const namespace = "openshift-authentication"
+	const name = "v4-0-config-system-metadata"
+
+	if _, err := c.configMapLister.ConfigMaps(namespace).Get(name); errors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
 
-	err := c.configMaps.ConfigMaps("openshift-authentication").Delete(ctx, "v4-0-config-system-metadata", metav1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
+	configMaps := c.configMaps.ConfigMaps(namespace)
+	if err := configMaps.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
-	return nil
+	// A successful DELETE can leave the object terminating while finalizers run.
+	// Continue cleanup only after a live read confirms the operand is gone.
+	if _, err := configMaps.Get(ctx, name, metav1.GetOptions{}); errors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	return factory.SyntheticRequeueError
 }
 
 func getOAuthMetadata(host string) string {

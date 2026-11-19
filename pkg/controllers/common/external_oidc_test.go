@@ -643,12 +643,14 @@ func TestExternalOIDCConfigAvailable(t *testing.T) {
 			}, cache.Indexers{})
 
 			if !tt.authConfigMissing {
-				authIndexer.Add(&configv1.Authentication{
+				if err := authIndexer.Add(&configv1.Authentication{
 					ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 					Spec: configv1.AuthenticationSpec{
 						Type: tt.authType,
 					},
-				})
+				}); err != nil {
+					t.Fatalf("failed to seed Authentication lister: %v", err)
+				}
 			}
 
 			authConfigChecker := NewAuthConfigChecker(

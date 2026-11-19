@@ -10,6 +10,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	configfake "github.com/openshift/client-go/config/clientset/versioned/fake"
+	configv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	applyoperatorv1 "github.com/openshift/client-go/operator/applyconfigurations/operator/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	common "github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
@@ -25,6 +26,7 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -50,13 +52,28 @@ type staticRouteClient struct {
 	route *routev1.Route
 }
 
-type failingOperatorClient struct {
+type recordingOperatorClient struct {
 	v1helpers.OperatorClient
 	applyError error
+	applyCalls int
 }
 
-func (c failingOperatorClient) ApplyOperatorStatus(context.Context, string, *applyoperatorv1.OperatorStatusApplyConfiguration) error {
-	return c.applyError
+type recordingAuthenticationClient struct {
+	configv1client.AuthenticationInterface
+	statusUpdateContext context.Context
+}
+
+func (c *recordingAuthenticationClient) UpdateStatus(ctx context.Context, authentication *configv1.Authentication, opts metav1.UpdateOptions) (*configv1.Authentication, error) {
+	c.statusUpdateContext = ctx
+	return c.AuthenticationInterface.UpdateStatus(ctx, authentication, opts)
+}
+
+func (c *recordingOperatorClient) ApplyOperatorStatus(ctx context.Context, fieldManager string, status *applyoperatorv1.OperatorStatusApplyConfiguration) error {
+	c.applyCalls++
+	if c.applyError != nil {
+		return c.applyError
+	}
+	return c.OperatorClient.ApplyOperatorStatus(ctx, fieldManager, status)
 }
 
 func (c staticRouteClient) Get(context.Context, string, metav1.GetOptions) (*routev1.Route, error) {
@@ -65,6 +82,7 @@ func (c staticRouteClient) Get(context.Context, string, metav1.GetOptions) (*rou
 
 func TestMetadataControllerSync(t *testing.T) {
 	deleteError := stderrors.New("config map deletion failed")
+	configMapGetError := stderrors.New("config map lookup failed")
 	statusUpdateError := stderrors.New("authentication status update failed")
 	getAuthConfigError := stderrors.New("authentication config lister failed")
 	availabilityError := stderrors.New("OIDC availability check failed")
@@ -86,34 +104,40 @@ func TestMetadataControllerSync(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                string
-		oidcAvailable       bool
-		oidcError           error
-		authentication      *configv1.Authentication
-		liveAuthentication  *configv1.Authentication
-		authConfigError     error
-		operandPresent      bool
-		deleteError         error
-		statusUpdateError   error
-		operatorStatusError error
-		route               *routev1.Route
-		wantMetadataName    string
-		wantDeleteAttempt   bool
-		wantStatusUpdate    bool
-		wantAuthConfigCalls int
-		wantSyncError       bool
-		wantOperationError  error
-		wantConditionError  error
-		wantDegradedReason  string
+		name                           string
+		oidcAvailable                  bool
+		oidcError                      error
+		authentication                 *configv1.Authentication
+		liveAuthentication             *configv1.Authentication
+		authConfigError                error
+		operandPresent                 bool
+		pendingDeletion                bool
+		deleteError                    error
+		configMapGetError              error
+		statusUpdateError              error
+		operatorStatusError            error
+		route                          *routev1.Route
+		wantMetadataName               string
+		wantDeleteAttempt              bool
+		wantStatusUpdate               bool
+		wantAuthConfigCalls            int
+		assertOperatorStatusApplyCalls bool
+		wantOperatorStatusApplyCalls   int
+		assertStatusUpdateLogsDisabled bool
+		wantSyncError                  bool
+		wantOperationError             error
+		wantConditionError             error
+		wantDegradedReason             string
 	}{
 		{
-			name:                "clears integrated OAuth metadata after OIDC operands are removed",
-			oidcAvailable:       true,
-			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			operandPresent:      true,
-			wantDeleteAttempt:   true,
-			wantStatusUpdate:    true,
-			wantAuthConfigCalls: 1,
+			name:                           "clears integrated OAuth metadata after OIDC operands are removed",
+			oidcAvailable:                  true,
+			authentication:                 authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:                 true,
+			wantDeleteAttempt:              true,
+			wantStatusUpdate:               true,
+			wantAuthConfigCalls:            1,
+			assertStatusUpdateLogsDisabled: true,
 		},
 		{
 			name:               "reports and retries operand removal failure before updating status",
@@ -125,6 +149,31 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantDeleteAttempt:  true,
 			wantSyncError:      true,
 			wantOperationError: deleteError,
+			wantDegradedReason: "OperandRemovalFailed",
+		},
+		{
+			name:                           "waits for metadata ConfigMap deletion before clearing the reference",
+			oidcAvailable:                  true,
+			authentication:                 authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:                 true,
+			pendingDeletion:                true,
+			wantMetadataName:               "oauth-openshift",
+			wantDeleteAttempt:              true,
+			assertOperatorStatusApplyCalls: true,
+			wantOperatorStatusApplyCalls:   0,
+			wantSyncError:                  true,
+			wantOperationError:             factory.SyntheticRequeueError,
+		},
+		{
+			name:               "reports metadata ConfigMap lookup failure after deletion request",
+			oidcAvailable:      true,
+			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			operandPresent:     true,
+			configMapGetError:  configMapGetError,
+			wantMetadataName:   "oauth-openshift",
+			wantDeleteAttempt:  true,
+			wantSyncError:      true,
+			wantOperationError: configMapGetError,
 			wantDegradedReason: "OperandRemovalFailed",
 		},
 		{
@@ -148,25 +197,28 @@ func TestMetadataControllerSync(t *testing.T) {
 			wantDegradedReason: "FailedGet",
 		},
 		{
-			name:               "preserves unrelated OIDC availability errors",
-			oidcError:          availabilityError,
-			authentication:     authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			authConfigError:    getAuthConfigError,
-			wantMetadataName:   "oauth-openshift",
-			wantSyncError:      true,
-			wantOperationError: availabilityError,
+			name:                           "preserves unrelated OIDC availability errors",
+			oidcError:                      availabilityError,
+			authentication:                 authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			authConfigError:                getAuthConfigError,
+			wantMetadataName:               "oauth-openshift",
+			assertOperatorStatusApplyCalls: true,
+			wantOperatorStatusApplyCalls:   0,
+			wantSyncError:                  true,
+			wantOperationError:             availabilityError,
 		},
 		{
-			name:                "reports and retries authentication status update failure",
-			oidcAvailable:       true,
-			authentication:      authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
-			statusUpdateError:   statusUpdateError,
-			wantMetadataName:    "oauth-openshift",
-			wantStatusUpdate:    true,
-			wantAuthConfigCalls: 1,
-			wantSyncError:       true,
-			wantOperationError:  statusUpdateError,
-			wantDegradedReason:  "UpdateStatusFailed",
+			name:                           "reports and retries authentication status update failure",
+			oidcAvailable:                  true,
+			authentication:                 authentication(configv1.AuthenticationTypeOIDC, "oauth-openshift"),
+			statusUpdateError:              statusUpdateError,
+			wantMetadataName:               "oauth-openshift",
+			wantStatusUpdate:               true,
+			wantAuthConfigCalls:            1,
+			assertStatusUpdateLogsDisabled: true,
+			wantSyncError:                  true,
+			wantOperationError:             statusUpdateError,
+			wantDegradedReason:             "UpdateStatusFailed",
 		},
 		{
 			name:                "preserves both operand and condition apply failures",
@@ -213,6 +265,9 @@ func TestMetadataControllerSync(t *testing.T) {
 				liveAuthentication = test.authentication.DeepCopy()
 			}
 			configClient := configfake.NewClientset(liveAuthentication)
+			authenticationClient := &recordingAuthenticationClient{
+				AuthenticationInterface: configClient.ConfigV1().Authentications(),
+			}
 			if test.statusUpdateError != nil {
 				configClient.PrependReactor("update", "authentications", func(action clienttesting.Action) (bool, runtime.Object, error) {
 					if action.GetSubresource() == "status" {
@@ -228,15 +283,29 @@ func TestMetadataControllerSync(t *testing.T) {
 				operand := &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: "v4-0-config-system-metadata", Namespace: "openshift-authentication"},
 				}
+				if test.pendingDeletion {
+					deletionTimestamp := metav1.NewTime(time.Now())
+					operand.DeletionTimestamp = &deletionTimestamp
+					operand.Finalizers = []string{"test-finalizer"}
+				}
 				if err := configMapIndexer.Add(operand); err != nil {
 					t.Fatalf("failed to seed config map lister: %v", err)
 				}
 				kubeObjects = append(kubeObjects, operand)
 			}
 			kubeClient := k8sfake.NewClientset(kubeObjects...)
-			if test.deleteError != nil {
+			if test.pendingDeletion {
+				kubeClient.PrependReactor("delete", "configmaps", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, nil
+				})
+			} else if test.deleteError != nil {
 				kubeClient.PrependReactor("delete", "configmaps", func(clienttesting.Action) (bool, runtime.Object, error) {
 					return true, nil, test.deleteError
+				})
+			}
+			if test.configMapGetError != nil {
+				kubeClient.PrependReactor("get", "configmaps", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, test.configMapGetError
 				})
 			}
 
@@ -245,10 +314,7 @@ func TestMetadataControllerSync(t *testing.T) {
 				&operatorv1.OperatorStatus{},
 				nil,
 			)
-			var operatorClient v1helpers.OperatorClient = operatorStateClient
-			if test.operatorStatusError != nil {
-				operatorClient = failingOperatorClient{OperatorClient: operatorStateClient, applyError: test.operatorStatusError}
-			}
+			operatorClient := &recordingOperatorClient{OperatorClient: operatorStateClient, applyError: test.operatorStatusError}
 			fakeAuthConfigChecker := &fakeAuthenticationConfigChecker{
 				oidcAvailable:   test.oidcAvailable,
 				oidcError:       test.oidcError,
@@ -260,7 +326,7 @@ func TestMetadataControllerSync(t *testing.T) {
 				configMapLister:        corev1listers.NewConfigMapLister(configMapIndexer),
 				configMaps:             kubeClient.CoreV1(),
 				route:                  staticRouteClient{route: test.route},
-				authentication:         configClient.ConfigV1().Authentications(),
+				authentication:         authenticationClient,
 				operatorClient:         operatorClient,
 				authConfigChecker:      fakeAuthConfigChecker,
 			}
@@ -273,6 +339,16 @@ func TestMetadataControllerSync(t *testing.T) {
 			}
 			if got := fakeAuthConfigChecker.authConfigCalls; got != test.wantAuthConfigCalls {
 				t.Errorf("AuthConfig calls = %d, want %d", got, test.wantAuthConfigCalls)
+			}
+			if test.assertOperatorStatusApplyCalls && operatorClient.applyCalls != test.wantOperatorStatusApplyCalls {
+				t.Errorf("operator status apply calls = %d, want %d", operatorClient.applyCalls, test.wantOperatorStatusApplyCalls)
+			}
+			if test.assertStatusUpdateLogsDisabled {
+				if authenticationClient.statusUpdateContext == nil {
+					t.Error("status update context was not captured")
+				} else if klog.FromContext(authenticationClient.statusUpdateContext).V(8).Enabled() {
+					t.Error("status update context enables client-go request and response body logging")
+				}
 			}
 			if test.wantSyncError && !stderrors.Is(syncErr, test.wantOperationError) {
 				t.Errorf("sync error = %v, want wrapped operation error %v", syncErr, test.wantOperationError)
@@ -312,9 +388,13 @@ func TestMetadataControllerSync(t *testing.T) {
 				t.Errorf("AuthConfigDegraded condition = %#v, want True with reason %q", condition, test.wantDegradedReason)
 			}
 
-			if test.operandPresent && test.deleteError == nil {
+			if test.operandPresent && test.deleteError == nil && test.configMapGetError == nil {
 				_, err := kubeClient.CoreV1().ConfigMaps("openshift-authentication").Get(ctx, "v4-0-config-system-metadata", metav1.GetOptions{})
-				if !apierrors.IsNotFound(err) {
+				if test.pendingDeletion {
+					if err != nil {
+						t.Errorf("pending OAuth metadata ConfigMap should remain until finalizers complete, get error = %v", err)
+					}
+				} else if !apierrors.IsNotFound(err) {
 					t.Errorf("OAuth metadata config map should be deleted, get error = %v", err)
 				}
 			}
