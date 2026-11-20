@@ -367,8 +367,10 @@ func prepareOauthOperator(
 		},
 		authOperatorInput.authenticationOperatorClient,
 		authOperatorInput.eventRecorder,
-		// The oauth route is checked as long as the integrated OAuth stack is serving.
-		proxyconfig.WithNoProxyCheckedEndpoints(func() ([]*url.URL, error) {
+		// Integrated OAuth only: the oauth route's /healthz must be reachable the way NO_PROXY says
+		// (directly when covered, through the proxy otherwise), so any inconsistency, including the
+		// route being down, Degrades the operator. Skipped once OIDC is serving, as the route is gone.
+		proxyconfig.WithEndpoints(proxyconfig.DegradeOnFailure, func() ([]*url.URL, error) {
 			if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil || oidcAvailable {
 				return nil, err
 			}
@@ -383,9 +385,11 @@ func prepareOauthOperator(
 			routeURL.Path = "healthz"
 			return []*url.URL{routeURL}, nil
 		}),
-		// The external OIDC issuers can be down independently of the proxy, so only a definite
-		// NO_PROXY mismatch is reported for them.
-		proxyconfig.WithNoProxyCheckedMismatchOnlyEndpoints(func() ([]*url.URL, error) {
+
+		// External OIDC only: the issuers' discovery documents are checked against NO_PROXY as well.
+		// An issuer can be down regardless of the proxy, so only a definite mismatch Degrades
+		// (reachable directly but NO_PROXY does not cover it, or covered but only reachable via proxy).
+		proxyconfig.WithEndpoints(proxyconfig.DegradeOnNoProxyMismatch, func() ([]*url.URL, error) {
 			auth, probed, err := oidcIssuersProbed()
 			if err != nil || !probed {
 				return nil, err
@@ -401,7 +405,10 @@ func prepareOauthOperator(
 			}
 			return urls, nil
 		}),
-		proxyconfig.WithProxiedEndpoints("IdPEndpointUnreachable", func() ([]string, error) {
+
+		// Integrated OAuth only: the configured identity providers must be reachable through the proxy.
+		// External IdPs can be down for unrelated reasons, so a failure is only a warning event.
+		proxyconfig.WithEndpointWarnings("IdPEndpointUnreachable", func() ([]string, error) {
 			if oidcAvailable, err := authConfigChecker.OIDCAvailable(); err != nil || oidcAvailable {
 				return nil, err
 			}
@@ -411,15 +418,20 @@ func prepareOauthOperator(
 			}
 			return extractIdPURLs(oauthConfig), nil
 		}),
-		proxyconfig.WithProxiedEndpoints("OIDCIssuerUnreachable", func() ([]string, error) {
+
+		// External OIDC only: the issuers' discovery documents must be reachable through the proxy,
+		// as that is how the oauth-apiserver fetches them. A failure is only a warning event.
+		proxyconfig.WithEndpointWarnings("OIDCIssuerUnreachable", func() ([]string, error) {
 			auth, probed, err := oidcIssuersProbed()
 			if err != nil || !probed {
 				return nil, err
 			}
 			return oidcIssuerDiscoveryURLs(auth), nil
 		}),
-		// Trust the issuers' CAs, as the oauth-apiserver does.
-		proxyconfig.WithAdditionalCABundles(func() ([][]byte, error) {
+
+		// External OIDC only: trust the issuers' own CA bundles on top of the base trust, as the
+		// oauth-apiserver does, so issuers with a private CA do not produce false warnings.
+		proxyconfig.WithTrustedCABundles(func() ([][]byte, error) {
 			auth, probed, err := oidcIssuersProbed()
 			if err != nil || !probed {
 				return nil, err
@@ -438,6 +450,7 @@ func prepareOauthOperator(
 			}
 			return bundles, nil
 		}),
+
 		proxyconfig.WithInformers(append(
 			common.AuthConfigCheckerInformers[factory.Informer](&authConfigChecker),
 			oauthRouteInformer.Informer(),

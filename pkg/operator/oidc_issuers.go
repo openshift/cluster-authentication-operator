@@ -7,13 +7,16 @@ import (
 )
 
 // oidcIssuerDiscoveryURLs returns the OIDC discovery document URLs of the external OIDC providers.
+// A configured discoveryURL overrides the one derived from the issuer URL.
 func oidcIssuerDiscoveryURLs(auth *configv1.Authentication) []string {
 	var urls []string
 	for _, provider := range auth.Spec.OIDCProviders {
-		if len(provider.Issuer.URL) == 0 {
-			continue
+		switch {
+		case len(provider.Issuer.DiscoveryURL) > 0:
+			urls = append(urls, provider.Issuer.DiscoveryURL)
+		case len(provider.Issuer.URL) > 0:
+			urls = append(urls, strings.TrimSuffix(provider.Issuer.URL, "/")+"/.well-known/openid-configuration")
 		}
-		urls = append(urls, strings.TrimSuffix(provider.Issuer.URL, "/")+"/.well-known/openid-configuration")
 	}
 	return urls
 }

@@ -38,3 +38,21 @@ func TestOIDCIssuers(t *testing.T) {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
+
+func TestOIDCIssuerDiscoveryURLs_discoveryURLOverride(t *testing.T) {
+	auth := &configv1.Authentication{Spec: configv1.AuthenticationSpec{OIDCProviders: []configv1.OIDCProvider{
+		{Issuer: configv1.TokenIssuer{
+			URL:          "https://issuer.example.com",
+			DiscoveryURL: "https://discovery.internal.example.net/custom/openid-configuration",
+		}},
+		{Issuer: configv1.TokenIssuer{URL: "https://plain.example.com/"}},
+	}}}
+
+	// the proxy checks must target the discovery host, not the issuer host
+	if diff := cmp.Diff([]string{
+		"https://discovery.internal.example.net/custom/openid-configuration",
+		"https://plain.example.com/.well-known/openid-configuration",
+	}, oidcIssuerDiscoveryURLs(auth)); diff != "" {
+		t.Errorf("unexpected discovery URLs (-want +got):\n%s", diff)
+	}
+}
