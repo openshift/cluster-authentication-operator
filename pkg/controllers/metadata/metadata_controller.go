@@ -2,9 +2,12 @@ package metadata
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/go-logr/logr"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -14,6 +17,7 @@ import (
 	"k8s.io/client-go/informers"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog/v2"
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
@@ -40,6 +44,11 @@ var knownConditionNames = sets.NewString(
 	"OAuthSystemMetadataDegraded",
 )
 
+type authenticationConfigChecker interface {
+	OIDCAvailable() (bool, error)
+	AuthConfig() (*configv1.Authentication, error)
+}
+
 type metadataController struct {
 	controllerInstanceName string
 	ingressLister          configv1listers.IngressLister
@@ -49,7 +58,7 @@ type metadataController struct {
 	configMaps             corev1client.ConfigMapsGetter
 	authentication         configv1client.AuthenticationInterface
 	operatorClient         v1helpers.OperatorClient
-	authConfigChecker      common.AuthConfigChecker
+	authConfigChecker      authenticationConfigChecker
 }
 
 // NewMetadataController assure that ingress configuration is available to determine the domain suffix that this controller use to create
@@ -76,7 +85,7 @@ func NewMetadataController(instanceName string,
 		route:                  route,
 		authentication:         authentication,
 		operatorClient:         operatorClient,
-		authConfigChecker:      authConfigChecker,
+		authConfigChecker:      &authConfigChecker,
 	}
 	return factory.New().
 		WithInformers(
@@ -91,11 +100,39 @@ func NewMetadataController(instanceName string,
 }
 
 func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncContext) error {
-	if oidcAvailable, err := c.authConfigChecker.OIDCAvailable(); err != nil {
+	oidcAvailable, err := c.authConfigChecker.OIDCAvailable()
+	if err != nil {
+		var authConfigLookupErr *common.AuthenticationConfigLookupError
+		if stderrors.As(err, &authConfigLookupErr) {
+			return c.reportAuthConfigFailure(ctx, "FailedGet", "Unable to get cluster authentication config", err)
+		}
 		return err
-	} else if oidcAvailable {
+	}
+	if oidcAvailable {
+		// Remove operands and clear metadata when OIDC is available.
 		if err := c.removeOperands(ctx); err != nil {
-			return err
+			if err == factory.SyntheticRequeueError {
+				return err
+			}
+			return c.reportAuthConfigFailure(ctx, "OperandRemovalFailed", "Unable to remove OIDC operands", err)
+		}
+
+		// Clear the integratedOAuthMetadata status field after successful operand removal.
+		authConfigNoDefaults, err := c.authConfigChecker.AuthConfig()
+		if err != nil {
+			return c.reportAuthConfigFailure(ctx, "FailedGet", "Unable to get cluster authentication config", err)
+		}
+		authConfigNoDefaults = authConfigNoDefaults.DeepCopy()
+
+		// Only clear a populated reference while the cluster is still configured for OIDC.
+		if authConfigNoDefaults.Status.IntegratedOAuthMetadata.Name != "" && authConfigNoDefaults.Spec.Type == configv1.AuthenticationTypeOIDC {
+			authConfigNoDefaults.Status.IntegratedOAuthMetadata = configv1.ConfigMapNameReference{}
+			// client-go logs request and response bodies at V(8); Authentication contains
+			// identity-provider configuration, so discard this request's body logs.
+			statusUpdateCtx := klog.NewContext(ctx, logr.Discard())
+			if _, err := c.authentication.UpdateStatus(statusUpdateCtx, authConfigNoDefaults, metav1.UpdateOptions{}); err != nil {
+				return c.reportAuthConfigFailure(ctx, "UpdateStatusFailed", "Unable to update status of cluster authentication config", err)
+			}
 		}
 
 		// Server-Side-Apply with an empty operator status for the specific field manager
@@ -104,6 +141,7 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 		return c.operatorClient.ApplyOperatorStatus(ctx, c.controllerInstanceName, applyoperatorv1.OperatorStatus())
 	}
 
+	// Preserve the existing metadata publication path until the checker reports OIDC available.
 	foundConditions := []operatorv1.OperatorCondition{}
 
 	foundConditions = append(foundConditions, c.handleOAuthMetadataConfigMap(ctx, syncCtx.Recorder())...)
@@ -113,6 +151,21 @@ func (c *metadataController) sync(ctx context.Context, syncCtx factory.SyncConte
 	}
 
 	return common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, foundConditions)
+}
+
+// reportAuthConfigFailure records a degraded condition and returns the operation error
+// so the controller factory retries the failed reconciliation.
+func (c *metadataController) reportAuthConfigFailure(ctx context.Context, reason, operation string, err error) error {
+	operationErr := fmt.Errorf("%s: %w", operation, err)
+	if conditionErr := common.ApplyControllerConditions(ctx, c.operatorClient, c.controllerInstanceName, knownConditionNames, []operatorv1.OperatorCondition{{
+		Type:    "AuthConfigDegraded",
+		Status:  operatorv1.ConditionTrue,
+		Reason:  reason,
+		Message: fmt.Sprintf("%s: %v", operation, err),
+	}}); conditionErr != nil {
+		return stderrors.Join(operationErr, fmt.Errorf("unable to apply AuthConfigDegraded condition: %w", conditionErr))
+	}
+	return operationErr
 }
 
 func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, recorder events.Recorder) []operatorv1.OperatorCondition {
@@ -156,7 +209,8 @@ func (c *metadataController) handleOAuthMetadataConfigMap(ctx context.Context, r
 // endpoint, but since that endpoint belongs to the apiserver, its syncing is
 // handled in cluster-kube-apiserver-operator
 func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.OperatorCondition {
-	// always make sure this function does not rely on defaulting from defaultAuthConfig
+	// Read the live object because the Authentication informer may still show the old
+	// reference after the OIDC path has cleared it.
 	authConfigNoDefaults, err := c.authentication.Get(ctx, "cluster", metav1.GetOptions{})
 	if err != nil {
 		return []operatorv1.OperatorCondition{{
@@ -166,7 +220,6 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 			Message: fmt.Sprintf("Unable to get cluster authentication config: %v", err),
 		}}
 	}
-
 	expectedReference := configv1.ConfigMapNameReference{
 		Name: "oauth-openshift",
 	}
@@ -188,18 +241,37 @@ func (c *metadataController) handleAuthConfig(ctx context.Context) []operatorv1.
 }
 
 func (c *metadataController) removeOperands(ctx context.Context) error {
-	if _, err := c.configMapLister.ConfigMaps("openshift-authentication").Get("v4-0-config-system-metadata"); errors.IsNotFound(err) {
+	const namespace = "openshift-authentication"
+	const name = "v4-0-config-system-metadata"
+
+	configMaps := c.configMaps.ConfigMaps(namespace)
+	if _, err := c.configMapLister.ConfigMaps(namespace).Get(name); err != nil {
+		if !errors.IsNotFound(err) {
+			return err
+		}
+		if _, err := configMaps.Get(ctx, name, metav1.GetOptions{}); errors.IsNotFound(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+
+	if err := configMaps.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	// A successful DELETE can leave the object terminating while finalizers run.
+	// Continue cleanup only after a live read confirms the operand is gone.
+	if _, err := configMaps.Get(ctx, name, metav1.GetOptions{}); errors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
 
-	err := c.configMaps.ConfigMaps("openshift-authentication").Delete(ctx, "v4-0-config-system-metadata", metav1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return err
-	}
-
-	return nil
+	return factory.SyntheticRequeueError
 }
 
 func getOAuthMetadata(host string) string {
