@@ -158,6 +158,7 @@ func CreateOperatorInputFromMOM(ctx context.Context, momInput libraryapplyconfig
 				features.FeatureGateExternalOIDCAsWebhook,
 				features.FeatureGateAuthenticationComponentProxy,
 				features.FeatureGateAuthenticationComponentProxyExternalOIDC,
+				features.FeatureGateTLSGroupPreferences,
 			},
 		),
 		informerFactories: []libraryapplyconfiguration.SimplifiedInformerFactory{

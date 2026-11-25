@@ -1,9 +1,13 @@
 package configobservation
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/api/features"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/configobserver"
@@ -15,7 +19,6 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation"
 	observeauthentication "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/authentication"
 	observeoauth "github.com/openshift/cluster-authentication-operator/pkg/operator/configobservation/oauth"
@@ -69,7 +72,25 @@ func NewConfigObserverController(
 	observers := []configobserver.ObserveConfigFunc{}
 	for _, o := range []configobserver.ObserveConfigFunc{
 		apiserver.ObserveAdditionalCORSAllowedOriginsToArguments,
-		apiserver.ObserveTLSSecurityProfileToArguments,
+		func(listers configobserver.Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+			featureGate, err := featureGateAccessor.CurrentFeatureGates()
+			if err != nil {
+				return existingConfig, []error{fmt.Errorf("failed to get current feature gates: %w", err)}
+			}
+			if !featureGate.Enabled(features.FeatureGateTLSGroupPreferences) {
+				return apiserver.ObserveTLSSecurityProfileToArguments(
+					listers,
+					recorder,
+					existingConfig,
+				)
+			}
+
+			return apiserver.ObserveTLSSecurityProfileWithGroupsConversionToArguments(
+				listers,
+				recorder,
+				existingConfig,
+			)
+		},
 		observeauthentication.ObserveAPIAudiences,
 		observeoauth.ObserveAccessTokenInactivityTimeout,
 		libgoetcd.ObserveStorageURLsToArguments,
