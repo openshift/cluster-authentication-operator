@@ -34,6 +34,19 @@ type AuthConfigChecker struct {
 	featureGateAccessor featuregates.FeatureGateAccess
 }
 
+// AuthenticationConfigLookupError identifies a failure to read Authentication/cluster.
+type AuthenticationConfigLookupError struct {
+	Err error
+}
+
+func (e *AuthenticationConfigLookupError) Error() string {
+	return fmt.Sprintf("getting authentications.config.openshift.io/cluster: %v", e.Err)
+}
+
+func (e *AuthenticationConfigLookupError) Unwrap() error {
+	return e.Err
+}
+
 func NewAuthConfigChecker(authentications configv1informers.AuthenticationInformer, kubeapiservers operatorv1informers.KubeAPIServerInformer, kasConfigMaps, oaasConfigMaps corev1informers.ConfigMapInformer, featureGateAccessor featuregates.FeatureGateAccess) AuthConfigChecker {
 	return AuthConfigChecker{
 		authenticationsInformer:         authentications.Informer(),
@@ -100,7 +113,7 @@ func (c *AuthConfigChecker) OIDCAvailable() (bool, error) {
 	}
 
 	if auth, err := c.authLister.Get("cluster"); err != nil {
-		return false, fmt.Errorf("getting authentications.config.openshift.io/cluster: %v", err)
+		return false, &AuthenticationConfigLookupError{Err: err}
 	} else if auth.Spec.Type != configv1.AuthenticationTypeOIDC {
 		return false, nil
 	}
