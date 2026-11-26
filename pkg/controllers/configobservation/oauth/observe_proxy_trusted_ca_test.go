@@ -8,12 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/openshift/library-go/pkg/operator/events"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
+	fake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeproxy"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/configobservation/oauth"
 )
 
@@ -29,8 +30,8 @@ func TestObserveComponentProxyTrustedCA(t *testing.T) {
 	}
 	proxyWithCA := &fake.ProxyResolver{
 		Proxy: common.ResolvedProxy{
-			HTTPSProxy:    "https://proxy:3128",
-			TrustedCAName: "my-proxy-ca",
+			HTTPSProxy: "https://proxy:3128",
+			TrustedCA:  types.NamespacedName{Namespace: "openshift-config", Name: "my-proxy-ca"},
 		},
 	}
 	proxyWithoutCA := &fake.ProxyResolver{

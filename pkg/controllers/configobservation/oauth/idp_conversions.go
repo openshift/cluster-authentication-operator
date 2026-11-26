@@ -55,6 +55,7 @@ type idpData struct {
 
 func convertIdentityProviders(
 	secretsLister corelistersv1.SecretLister,
+	cmLister corelistersv1.ConfigMapLister,
 	proxyResolver common.ProxyResolver,
 	identityProviders []configv1.IdentityProvider,
 ) ([]interface{}, *datasync.ConfigSyncData, []error) {
@@ -63,7 +64,7 @@ func convertIdentityProviders(
 	errs := []error{}
 
 	for i, idp := range defaultIDPMappingMethods(identityProviders) {
-		data, err := convertProviderConfigToIDPData(secretsLister, proxyResolver, &idp.IdentityProviderConfig, syncData, i)
+		data, err := convertProviderConfigToIDPData(secretsLister, cmLister, proxyResolver, &idp.IdentityProviderConfig, syncData, i)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to apply IDP %s config: %v", idp.Name, err))
 			continue
@@ -112,6 +113,7 @@ func defaultIDPMappingMethods(identityProviders []configv1.IdentityProvider) []c
 
 func convertProviderConfigToIDPData(
 	secretsLister corelistersv1.SecretLister,
+	cmLister corelistersv1.ConfigMapLister,
 	proxyResolver common.ProxyResolver,
 	providerConfig *configv1.IdentityProviderConfig,
 	syncData *datasync.ConfigSyncData,
@@ -241,7 +243,7 @@ func convertProviderConfigToIDPData(
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
-		urls, err := discoverOpenIDURLs(proxyResolver, openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
+		urls, err := discoverOpenIDURLs(cmLister, proxyResolver, openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA)
 		if err != nil {
 			return nil, err
 		}
@@ -273,6 +275,7 @@ func convertProviderConfigToIDPData(
 		// to allow challenge-issuing flow if it's available on the OIDC side
 		challengeFlowsAllowed, err := checkOIDCPasswordGrantFlow(
 			secretsLister,
+			cmLister,
 			proxyResolver,
 			urls.Token,
 			openIDConfig.ClientID,
@@ -312,7 +315,7 @@ func convertProviderConfigToIDPData(
 
 // discoverOpenIDURLs retrieves basic information about an OIDC server with hostname
 // given by the `issuer` argument
-func discoverOpenIDURLs(proxyResolver common.ProxyResolver, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
+func discoverOpenIDURLs(cmLister corelistersv1.ConfigMapLister, proxyResolver common.ProxyResolver, issuer, key string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
 	wellKnown := issuer + "/.well-known/openid-configuration"
@@ -321,7 +324,7 @@ func discoverOpenIDURLs(proxyResolver common.ProxyResolver, issuer, key string, 
 		return nil, err
 	}
 
-	rt, err := proxyResolver.NewTransport(common.WithCAFromConfigMap(ca.Name, key))
+	rt, err := proxyResolver.NewTransport(common.WithCAFromConfigMap(cmLister, ca.Name, key))
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +375,7 @@ func discoverOpenIDURLs(proxyResolver common.ProxyResolver, issuer, key string, 
 
 func checkOIDCPasswordGrantFlow(
 	secretsLister corelistersv1.SecretLister,
+	cmLister corelistersv1.ConfigMapLister,
 	proxyResolver common.ProxyResolver,
 	tokenURL, clientID string,
 	caRererence configv1.ConfigMapNameReference,
@@ -394,7 +398,7 @@ func checkOIDCPasswordGrantFlow(
 		return false, fmt.Errorf("the referenced secret does not contain a value for the 'clientSecret' key")
 	}
 
-	rt, err := proxyResolver.NewTransport(common.WithCAFromConfigMap(caRererence.Name, corev1.ServiceAccountRootCAKey))
+	rt, err := proxyResolver.NewTransport(common.WithCAFromConfigMap(cmLister, caRererence.Name, corev1.ServiceAccountRootCAKey))
 	if err != nil {
 		return false, fmt.Errorf("couldn't build transport: %v", err)
 	}

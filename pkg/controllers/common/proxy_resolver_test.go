@@ -2,7 +2,6 @@ package common
 
 import (
 	"errors"
-	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,16 +60,4 @@ func TestAuthProxyResolver_NewTransport_Errors(t *testing.T) {
 		_, err := resolver.NewTransport()
 		require.ErrorContains(t, err, "missing-ca")
 	})
-}
-
-func TestNewTransport_WithoutProxyOverridesConfiguredProxy(t *testing.T) {
-	emptyCMLister := corelistersv1.NewConfigMapLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{}))
-	proxy := ResolvedProxy{HTTPProxy: "http://proxy:3128", HTTPSProxy: "http://proxy:3128"}
-
-	rt, err := NewTransport(emptyCMLister, proxy, WithoutProxy())
-	require.NoError(t, err)
-
-	httpTransport, ok := rt.(*http.Transport)
-	require.True(t, ok, "expected *http.Transport, got %T", rt)
-	require.Nil(t, httpTransport.Proxy, "WithoutProxy() should disable the configured proxy")
 }

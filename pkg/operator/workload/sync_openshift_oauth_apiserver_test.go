@@ -18,7 +18,7 @@ import (
 	"github.com/openshift/api/features"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
-	commonfake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fake"
+	commonfake "github.com/openshift/cluster-authentication-operator/pkg/controllers/common/fakeproxy"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/events"
 
@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -93,10 +94,10 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		}
 		deployment := oauthAPIServerTestDeployment()
 		proxy := common.ResolvedProxy{
-			HTTPProxy:     "http://proxy.example.test:8080",
-			HTTPSProxy:    "https://proxy.example.test:8443",
-			NoProxy:       "example.test",
-			TrustedCAName: "proxy-ca",
+			HTTPProxy:  "http://proxy.example.test:8080",
+			HTTPSProxy: "https://proxy.example.test:8443",
+			NoProxy:    []string{"example.test"},
+			TrustedCA:  types.NamespacedName{Namespace: "openshift-config", Name: "proxy-ca"},
 		}
 
 		_, err := workload.syncComponentProxy(proxy, deployment)
@@ -122,7 +123,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		}
 
 		deployment := oauthAPIServerTestDeployment()
-		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCAName: "proxy-ca"}, deployment)
+		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "proxy-ca"}}, deployment)
 		require.True(t, apierrors.IsNotFound(err))
 		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
 		require.Empty(t, deployment.Spec.Template.Spec.Containers[0].VolumeMounts)
@@ -137,7 +138,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 		}
 
 		deployment := oauthAPIServerTestDeployment()
-		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCAName: "proxy-ca"}, deployment)
+		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "proxy-ca"}}, deployment)
 		require.ErrorContains(t, err, "not ready")
 		require.Empty(t, resourceSyncer.configMaps)
 		require.Empty(t, deployment.Spec.Template.Spec.Volumes)
@@ -227,7 +228,7 @@ func TestSyncExternalOIDCComponentProxy(t *testing.T) {
 			sourceConfigMapLister: sourceCAConfigMapLister(t, "proxy-ca"),
 		}
 
-		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCAName: "proxy-ca"}, oauthAPIServerTestDeployment())
+		_, err := workload.syncComponentProxy(common.ResolvedProxy{TrustedCA: types.NamespacedName{Namespace: "openshift-config", Name: "proxy-ca"}}, oauthAPIServerTestDeployment())
 		require.ErrorContains(t, err, "sync failed")
 	})
 }

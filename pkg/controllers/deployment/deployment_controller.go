@@ -224,7 +224,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	resourceVersions := []string{}
 
 	resourceVersions = append(resourceVersions,
-		fmt.Sprintf("proxy:%s:%s:%s", proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy))
+		fmt.Sprintf("proxy:%s:%s:%s", proxy.HTTPProxy, proxy.HTTPSProxy, strings.Join(proxy.NoProxy, ",")))
 
 	configResourceVersions, err := c.getConfigResourceVersions()
 	if err != nil {
@@ -265,7 +265,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 		})
 	}
 
-	if err := c.syncComponentProxyCA(proxy.TrustedCAName, expectedDeployment); err != nil {
+	if err := c.syncComponentProxyCA(proxy.TrustedCA.Name, expectedDeployment); err != nil {
 		return nil, false, append(errs, fmt.Errorf("syncing component proxy CA: %w", err))
 	}
 

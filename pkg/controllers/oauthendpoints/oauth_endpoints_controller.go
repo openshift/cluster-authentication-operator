@@ -63,7 +63,7 @@ func NewOAuthRouteCheckController(
 		if err != nil {
 			return nil, err
 		}
-		return getOAuthRouteTLSConfig(cmLister, configNSCMLister, secretLister, ingressLister, systemCABundle, proxy.TrustedCAName)
+		return getOAuthRouteTLSConfig(cmLister, configNSCMLister, secretLister, ingressLister, systemCABundle, proxy.TrustedCA.Name)
 	}
 
 	getProxyFn := transport.ProxyFunc(func(reqURL *url.URL) (*url.URL, error) {

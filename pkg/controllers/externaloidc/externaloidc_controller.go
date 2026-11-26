@@ -135,7 +135,7 @@ func newAuthConfigGenerator(
 				externaloidc.WithExternalClaimsSourcing(clientSecretResolver(secretLister)),
 			)
 		}
-		// When the auth proxy is disabled the resolver returns an empty TrustedCAName,
+		// When the auth proxy is disabled the resolver returns an empty TrustedCA,
 		// so there is no need to check the feature flag here.
 		genOptions = append(genOptions,
 			externaloidc.WithTrustedCAFilePath(func() (string, error) {
@@ -143,7 +143,7 @@ func newAuthConfigGenerator(
 				if err != nil {
 					return "", fmt.Errorf("failed to resolve external OIDC proxy config: %w", err)
 				}
-				if proxy.TrustedCAName == "" {
+				if proxy.TrustedCA.Name == "" {
 					return "", nil
 				}
 

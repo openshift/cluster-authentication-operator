@@ -63,7 +63,7 @@ func (o *identityProviderObserver) ObserveIdentityProviders(genericlisters confi
 
 	// convert identity providers from config to oauth-configuration API and
 	// extract the CMs and Secrets that need to be synchronized to the target NS
-	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(listers.SecretsLister, o.proxyResolver, oauthConfig.Spec.IdentityProviders)
+	convertedObservedIdentityProviders, observedSyncData, idpErrs := convertIdentityProviders(listers.SecretsLister, listers.ConfigMapLister, o.proxyResolver, oauthConfig.Spec.IdentityProviders)
 	if len(idpErrs) > 0 {
 		return existingConfig, append(errs, idpErrs...)
 	}
