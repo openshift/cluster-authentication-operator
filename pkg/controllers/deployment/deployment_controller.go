@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +26,7 @@ import (
 	routev1listers "github.com/openshift/client-go/route/listers/route/v1"
 	"github.com/openshift/cluster-authentication-operator/bindata"
 	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common"
+	"github.com/openshift/cluster-authentication-operator/pkg/controllers/common/window_settle"
 	"github.com/openshift/cluster-authentication-operator/pkg/transport"
 	bootstrap "github.com/openshift/library-go/pkg/authentication/bootstrapauthenticator"
 	"github.com/openshift/library-go/pkg/controller/factory"
@@ -76,6 +78,18 @@ type oauthServerDeploymentSyncer struct {
 	authConfigChecker          common.AuthConfigChecker
 	bootstrapUserDataGetter    bootstrap.BootstrapUserDataGetter
 	bootstrapUserChangeRollOut bool
+
+	// Diagnostic baseline only; it describes observations, not successful applies.
+	previousHashInputs *hashInputSnapshot
+
+	// Diagnostic baseline only; it measures informer cache lag per sync.
+	// It never gates a rollout and never fails a sync.
+	listerLag *listerLagObserver
+
+	// Diagnostic only; it evaluates whether a settle window
+	// (input-quiescence debounce) would have deferred the deployment apply.
+	// It never gates the apply and never fails a sync.
+	deploymentWindowSettle *window_settle.WindowSettle
 }
 
 func NewOAuthServerWorkloadController(
@@ -119,6 +133,34 @@ func NewOAuthServerWorkloadController(
 		authConfigChecker:       authConfigChecker,
 		bootstrapUserDataGetter: bootstrapUserDataGetter,
 	}
+
+	// Diagnostic wiring only. The recorder rides the same shared informers the
+	// controller factory uses, so it observes exactly what the sync will read.
+	// The live getter reads the API server directly, bypassing every cache.
+	liveResourceVersion := func(ctx context.Context, kind, name string) (string, error) {
+		if kind == "secrets" {
+			live, err := kubeClient.CoreV1().Secrets(targetNS).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return "", err
+			}
+			return live.ResourceVersion, nil
+		}
+		live, err := kubeClient.CoreV1().ConfigMaps(targetNS).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		return live.ResourceVersion, nil
+	}
+	deliveryRecorder := newInformerDeliveryRecorder()
+	deliveryRecorder.registerConfigMaps(kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Informer())
+	deliveryRecorder.registerSecrets(kubeInformersForTargetNamespace.Core().V1().Secrets().Informer())
+	oauthDeploymentSyncer.listerLag = newListerLagObserver(
+		deliveryRecorder,
+		kubeInformersForTargetNamespace.Core().V1().ConfigMaps().Lister(),
+		kubeInformersForTargetNamespace.Core().V1().Secrets().Lister(),
+		liveResourceVersion,
+	)
+	oauthDeploymentSyncer.deploymentWindowSettle = window_settle.NewWindowSettle()
 
 	if userExists, err := oauthDeploymentSyncer.bootstrapUserDataGetter.IsEnabled(); err != nil {
 		klog.Warningf("unable to determine the state of bootstrap user: %v", err)
@@ -232,6 +274,26 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	resourceVersions = append(resourceVersions, configResourceVersions...)
+	rvsHash := hashResourceVersions(resourceVersions)
+	observation, snapshot := observeHashInputs(c.previousHashInputs, proxy, configResourceVersions, rvsHash)
+	klog.InfoS("OAuth server rollout hash inputs",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"baseline", observation.baseline,
+		"inputs", observation.inputs,
+		"addedInputs", observation.added,
+		"removedInputs", observation.removed,
+		"changedInputs", observation.changed,
+		"previousHash", observation.previousHash,
+		"currentHash", rvsHash,
+		"hashChanged", observation.hashChanged)
+	c.previousHashInputs = snapshot
+
+	// Diagnostic observation only. A stale entry in this log means this sync
+	// computed its hash from an old cache state. Join the delivery log lines
+	// with API write times from the audit log to measure the delivery lag.
+	klog.InfoS("OAuth server lister lag",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"entries", c.listerLag.observe(ctx, time.Now()))
 
 	// Determine whether the bootstrap user has been deleted so that
 	// detail can be used in computing the deployment.
@@ -244,7 +306,7 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	}
 
 	// deployment, have RV of all resources
-	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy, c.bootstrapUserChangeRollOut, resourceVersions...)
+	expectedDeployment, err := getOAuthServerDeployment(operatorSpec, proxy.HTTPProxy, proxy.HTTPSProxy, proxy.NoProxy, c.bootstrapUserChangeRollOut, rvsHash)
 	if err != nil {
 		return nil, false, append(errs, err)
 	}
@@ -286,7 +348,37 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	expectedDeployment.Spec.Replicas = controlPlaneCount
 	setRollingUpdateParameters(*controlPlaneCount, expectedDeployment)
 
-	deployment, _, err := resourceapply.ApplyDeployment(ctx, c.deployments,
+	// Evaluation of a settle window: it never gates the apply below.
+	// The decision and the ground truth of the apply are logged together so
+	// a run can be replayed offline to project the rollout count under a
+	// real window.
+	var deployedSignature window_settle.DeploymentSignature
+	if deployed, err := c.deploymentsLister.Deployments("openshift-authentication").Get("oauth-openshift"); err == nil {
+		var deployedReplicas int32
+		if deployed.Spec.Replicas != nil {
+			deployedReplicas = *deployed.Spec.Replicas
+		}
+
+		deployedSignature = window_settle.NewDeploymentSignature(
+			deployed.Spec.Template.Annotations["operator.openshift.io/rvs-hash"],
+			deployedReplicas,
+			len(deployed.Spec.Template.Spec.Volumes),
+			len(deployed.Spec.Template.Spec.Containers[0].VolumeMounts),
+			len(deployed.Spec.Template.Spec.Containers[0].Env),
+		)
+	} else if !errors.IsNotFound(err) {
+		klog.Warningf("window settle: unable to read deployed oauth-openshift deployment: %v", err)
+	}
+	desiredSignature := window_settle.NewDeploymentSignature(
+		rvsHash,
+		*expectedDeployment.Spec.Replicas,
+		len(expectedDeployment.Spec.Template.Spec.Volumes),
+		len(expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts),
+		len(expectedDeployment.Spec.Template.Spec.Containers[0].Env),
+	)
+	debounceOutcome := c.deploymentWindowSettle.Debounce(time.Now(), desiredSignature, deployedSignature)
+
+	deployment, deploymentChanged, err := resourceapply.ApplyDeployment(ctx, c.deployments,
 		syncContext.Recorder(),
 		expectedDeployment,
 		resourcemerge.ExpectedDeploymentGeneration(expectedDeployment, operatorStatus.Generations),
@@ -294,6 +386,19 @@ func (c *oauthServerDeploymentSyncer) Sync(ctx context.Context, syncContext fact
 	if err != nil {
 		return nil, false, append(errs, fmt.Errorf("applying deployment of the integrated OAuth server failed: %w", err))
 	}
+
+	klog.InfoS("OAuth server deployment window settle",
+		"deployment", "openshift-authentication/oauth-openshift",
+		"wouldDefer", debounceOutcome.WouldDefer,
+		"reason", debounceOutcome.Reason,
+		"desiredSignature", desiredSignature,
+		"deployedSignature", deployedSignature,
+		"waited", debounceOutcome.Waited.String(),
+		"remaining", debounceOutcome.Remaining.String(),
+		"pending", debounceOutcome.Pending.String(),
+		"settleWindow", c.deploymentWindowSettle.Window.String(),
+		"maxDeferral", c.deploymentWindowSettle.MaxDeferral.String(),
+		"actuallyChanged", deploymentChanged)
 
 	return deployment, true, errs
 }

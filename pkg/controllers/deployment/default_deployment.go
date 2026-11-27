@@ -1,17 +1,13 @@
 package deployment
 
 import (
-	"crypto/sha512"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/klog/v2"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
@@ -28,28 +24,21 @@ func getOAuthServerDeployment(
 	operatorSpec *operatorv1.OperatorSpec,
 	httpProxy, httpsProxy, noProxy string,
 	bootstrapUserExists bool,
-	resourceVersions ...string,
+	rvsHash string,
 ) (*appsv1.Deployment, error) {
 	// load deployment
 	deployment := resourceread.ReadDeploymentV1OrDie(bindata.MustAsset("oauth-openshift/deployment.yaml"))
 
-	// force redeploy when any associated resource changes
-	// we use a hash to prevent this value from growing indefinitely
-	// need to sort first in order to get a stable array
-	sort.Strings(resourceVersions)
-	rvs := strings.Join(resourceVersions, ",")
-	klog.V(4).Infof("tracked resource versions: %s", rvs)
-	rvsHash := sha512.Sum512([]byte(rvs))
-	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
+	// Force redeploy when any associated resource changes.
 	if deployment.Annotations == nil {
 		deployment.Annotations = map[string]string{}
 	}
-	deployment.Annotations["operator.openshift.io/rvs-hash"] = rvsHashStr
+	deployment.Annotations["operator.openshift.io/rvs-hash"] = rvsHash
 
 	if deployment.Spec.Template.Annotations == nil {
 		deployment.Spec.Template.Annotations = map[string]string{}
 	}
-	deployment.Spec.Template.Annotations["operator.openshift.io/rvs-hash"] = rvsHashStr
+	deployment.Spec.Template.Annotations["operator.openshift.io/rvs-hash"] = rvsHash
 
 	// Ensure a rollout when the bootstrap user goes away
 	if bootstrapUserExists {
